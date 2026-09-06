@@ -44,7 +44,8 @@ README требует, чтобы каждое число в снапшоте р
 ```
 kind=xbrl     {doc_sha256, fact_id, concept, context_ref, unit_ref, decimals, taxonomy}
 kind=table    {doc_sha256, table_index, row, col, header_path[], text_snippet}
-kind=pdf      {doc_sha256, page, bbox[x0,y0,x1,y1], text_snippet, extractor, extractor_version}
+kind=pdf      {doc_sha256, page, text_snippet, extractor, extractor_version,
+               hint_bbox[x0,y0,x1,y1]}
 kind=html     {doc_sha256, css_selector | xpath, char_range[start,end], text_snippet}
 kind=api      {endpoint, request_hash, response_sha256, json_pointer}
 kind=derived  {inputs[fact_id…], formula_id, method_version}
@@ -95,8 +96,22 @@ lineage[]}`, где `lineage` — плоский список локаторов
 4. PDF-источники дороже XBRL примерно вдвое по трудозатратам извлечения,
    потому что bbox нужно получать вместе со значением, а не после.
 
-## Открытый вопрос
+## Идентичность локатора и подсказки
 
-Стабильность `bbox` при смене PDF-экстрактора: координаты зависят от
-библиотеки. Кандидат на решение — хранить рядом `text_snippet` как основной
-якорь, а `bbox` считать подсказкой для подсветки, не идентификатором.
+Координаты `bbox` зависят от библиотеки-экстрактора и меняются при её
+обновлении. Поэтому они **не входят в идентичность локатора**: поле
+называется `hint_bbox` и служит только подсветке в интерфейсе.
+
+Идентичность локатора PDF задают `doc_sha256`, `page` и `text_snippet`.
+`resolve(locator)` обязан работать без `hint_bbox`; смена экстрактора
+меняет `extractor_version`, но не `method_version` и не требует пересчёта
+фактов. Если же изменится способ определения самого числа — это уже другая
+версия парсера.
+
+## Версия схемы локатора
+
+Каждый локатор несёт `schema` (например `pdf.v1`). Формат локатора нельзя
+поменять задним числом на накопленном архиве, поэтому изменение схемы —
+это новая версия рядом со старой: старые факты сохраняют `pdf.v1`, новые
+пишутся с `pdf.v2`, `resolve` умеет обе. Массовая перезапись локаторов
+не выполняется никогда.
