@@ -96,8 +96,22 @@ period_end)`, `(source_ref)`, `(status)`.
 **`snapshot_block`** — `snapshot_id` (FK), `block`, `status`
 (`ready` / `partial` / `missing` / `error`), `reason`.
 
+### Уровень расчёта
+
+Величины делятся по тому, чему они принадлежат, и это снимает двойной счёт
+у эмитентов с несколькими классами акций:
+
+- **Фундаментальные** (выручка, EBITDA, ROIC, маржи, долговые) считаются
+  на `issuer` и переиспользуются всеми классами его акций.
+- **Оценочные и котировочные** (капитализация, P/E, EV/EBITDA, дивдоходность,
+  total return, drawdown) считаются на `instrument` и у классов различаются.
+
+`measure` несёт `scope` (`issuer` / `instrument`) и соответствующий ключ.
+Снапшот класса акций ссылается на общие фундаментальные величины эмитента,
+а не пересчитывает их.
+
 **`measure`** — посчитанное число.
-`measure_id` (PK), `snapshot_id` (FK), `concept`, `value`, `unit`,
+`measure_id` (PK), `snapshot_id` (FK), `scope`, `scope_ref`, `concept`, `value`, `unit`,
 `period_start`, `period_end`, `formula_id`, `method_version`,
 `null_reason`, `peer_set_version` (только для перцентилей).
 
