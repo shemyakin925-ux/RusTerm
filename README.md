@@ -563,9 +563,19 @@ RusTerm — **локальное однопользовательское при
 
 ```
 docs/                 спецификации и решения
-  adr/                0001 модель факта, 0002 peer set, 0003 хранилище, 0004 UI
+  adr/                0001 модель факта, 0002 peer set, 0003 хранилище,
+                      0004 UI, 0005 идентификация инструмента
+  data-dictionary.md          концепты и формулы с method_version
+  governance-thresholds.md    пороги пяти индикаторов светофора
+  data-model.md               таблицы, ключи, инварианты, миграции
+  module-contracts.md         границы слоёв и контракты провайдеров
+  processes.md                пять процессов, контракты узлов, ошибки
+  llm-prompts.md              системные промпты LLM-узлов
+  threat-model-sources.md     угрозы источникам и реакция
+  ui-architecture.md          экраны и правила интерфейса
+  quality-and-observability.md уровни проверок, метрики, критерии фаз
   industry-metrics/   каталог отраслевых метрик и peer set по умолчанию
-  requirements-from-review.md   принятые требования по итогам рецензии
+  requirements-from-review.md принятые требования по итогам рецензии
   watchlist-and-llm.md
 spikes/               *разведка доступа к источникам до реализации*
 providers/            *реализации MarketDataProvider / DisclosuresProvider*
