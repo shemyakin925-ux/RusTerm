@@ -1,6 +1,0 @@
-# Прочие уполномоченные агентства. Доступны и без VPN.
-# СКРИН: карточка адресуется по ИНН, /disclosure/<ИНН>. Кодировка windows-1251.
-skrin-home	https://disclosure.skrin.ru/
-prime-home	https://disclosure.1prime.ru/
-akm-home	https://disclosure.ru/
-# disclosure.azipi.ru — домен не резолвится, из источников исключён (ADR-0001).

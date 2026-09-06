@@ -1,7 +1,0 @@
-# Интерфакс — точки входа. Разметку страниц ещё не видели ни разу
-# (сайт недоступен из Вьетнама), поэтому здесь только входные адреса.
-# После первого удачного прохода читаем сохранённый HTML и достраиваем
-# список карточками конкретных эмитентов.
-ed-home	https://www.e-disclosure.ru/
-ed-robots	https://www.e-disclosure.ru/robots.txt
-ed-companies	https://www.e-disclosure.ru/portal/companies.aspx
