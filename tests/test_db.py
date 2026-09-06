@@ -25,7 +25,8 @@ def test_apply_migrations_creates_all_tables():
     conn.execute("PRAGMA foreign_keys=ON")
     try:
         apply_migrations(conn)
-        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        # Берём максимальную версию (последняя применённая)
+        row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert row is not None
         assert row[0] == 32
         # Ключевые таблицы
