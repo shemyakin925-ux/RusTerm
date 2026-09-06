@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Ежедневный запуск архиватора. Поставить в ~/Library/LaunchAgents/,
+     заменив ПУТЬ на реальный, затем:
+       launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.rusterm.archiver.plist
+     Снять:
+       launchctl bootout gui/$UID/com.rusterm.archiver
+     Запуск вручную для проверки:
+       launchctl kickstart -p gui/$UID/com.rusterm.archiver          -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.rusterm.archiver</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/anton/RusTerm/tools/archive/run.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>/Users/anton/RusTerm/data/raw/logs/launchd.out</string>
+  <key>StandardErrorPath</key><string>/Users/anton/RusTerm/data/raw/logs/launchd.err</string>
+</dict></plist>
