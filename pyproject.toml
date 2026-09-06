@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rusterm"
+version = "0.1.0"
+description = "EquityLab: research snapshot terminal — ядро и CLI"
+requires-python = ">=3.12"
+authors = [{name = "EquityLab"}]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8", "zstandard>=0.22"]
+
+[project.scripts]
+rusterm = "rusterm.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rusterm*"]
+exclude = ["tests*", "fixtures*", "agent*", "docs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: тесты с реальными источниками (требуют сеть)",
+]
