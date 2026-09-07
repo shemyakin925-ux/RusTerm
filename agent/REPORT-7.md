@@ -103,4 +103,8 @@
 - B4 done: second golden issuer 'Preferred Corp' (classes A+B+preferred P) in tests/test_golden_formulas.py with hand-computed reference: caps 400/600/200, total 1200, EV 1480 with preferred_is_separate_class=True (double-count would give 1730; contrast assert pins both branches). None-class total -> missing_data.
   - `pytest tests/test_golden_formulas.py -q` → exit 0; `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: queue empty — BACKLOG exhausted
+- T18 done (AFTER T19 — honest note: T18 was passed over in the night's plan while jumping T17->T19; noticed at handoff review, implemented now, out of order but complete). rusterm/core/industry/maritime_tanker.py: 25 doc metrics as Measure-returning functions reusing rusterm.formulas.Measure + null-reasons (no exceptions, no own arithmetic machinery), method_version='maritime.v1', dispatcher calculate_industry_measure + known_measures. Market series (Clarksons/Baltic) enter as caller inputs, never fetched. tests/test_industry_maritime.py: golden on 3 issuers (Frontline/Euronav/DHT, synthetic numbers, hand-computed), unit per-ship/per-class/breakeven incl. null rules + dispatcher registry check (doc metric names incl. 'G&A_per_ship_per_year'), integration on segment data from a (synthetic) annual report via TableParser + raw store; live-fetch variant marked integration, skips cleanly without RUSTERM_SEC_UA.
+  - Failures en route: GOLDEN dicts incomplete for Euronav/DHT (patch misplacement) — rewritten cleanly; dispatcher key lacked '&' of doc name.
+  - `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: queue empty — BACKLOG exhausted; proceeding to §3 night end
