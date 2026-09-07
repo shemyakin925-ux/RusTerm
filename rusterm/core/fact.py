@@ -63,12 +63,20 @@ class LocatorHTML:
 
 @dataclass(frozen=True)
 class LocatorAPI:
+    """Локатор API-ответа по ADR-0001 (schema api.v2).
+
+    Хеша ответа нет намеренно: ответ API недетерминирован, байтовую
+    воспроизводимость обеспечивает source_ref факта, а роль якоря делят
+    request_hash (что спрашивали), json_pointer (где лежало число) и
+    value_snapshot (что там лежало при извлечении).
+    """
     kind: Literal["api"] = "api"
     endpoint: str = ""
     request_hash: str = ""
-    response_sha256: str = ""
     json_pointer: str = ""
-    schema: str = "api.v1"
+    value_snapshot: str = ""
+    retrieved_at: float = 0.0
+    schema: str = "api.v2"
 
 @dataclass(frozen=True)
 class LocatorDerived:
@@ -83,6 +91,18 @@ Locator = (
     LocatorXBRL | LocatorTable | LocatorPDF |
     LocatorHTML | LocatorAPI | LocatorDerived
 )
+
+
+@dataclass(frozen=True)
+class ApiRevision:
+    """Событие ревизии для kind=api: значение по json_pointer разошлось
+    с value_snapshot при неизменном request_hash. По ADR-0001 это не
+    ошибка парсера, а обнаруженная ревизия данных провайдера."""
+    request_hash: str
+    json_pointer: str
+    expected: str  # value_snapshot из локатора
+    actual: str    # текущее значение по указателю
+    retrieved_at: float
 
 
 def locator_to_json(loc: Locator) -> dict:
@@ -219,9 +239,12 @@ def resolve_locator(
     raw_store_getter,  # callable(sha256) -> bytes
 ) -> Any:
     """Разрешает локатор обратно в значение.
-    
+
     Возвращает извлечённое значение. Должно совпадать с fact.value.
     Используется в тестах разрешимости (I12).
+    Для kind=api (api.v2) — сверка с value_snapshot при неизменном
+    request_hash: совпадение возвращает значение, расхождение —
+    ApiRevision (событие ревизии), а не исключение.
     """
     kind = locator.kind
     
@@ -280,15 +303,26 @@ def resolve_locator(
         return numbers[-1].replace(",", "")
     
     elif kind == "api":
-        # API: проверяем response_sha256, затем json_pointer
-        raw = raw_store_getter(locator.response_sha256)
+        # API (schema api.v2): getter получает request_hash и возвращает
+        # байты ответа — сохранённые в store или повторно полученные.
+        raw = raw_store_getter(locator.request_hash)
         import json as _json
         data = _json.loads(raw.decode("utf-8"))
         # Простой json_pointer парсинг (только /a/b/c)
         parts = locator.json_pointer.lstrip("/").split("/")
         for p in parts:
             data = data[p]
-        return str(data)
+        actual = str(data)
+        if actual == locator.value_snapshot:
+            return actual
+        # Расхождение — событие ревизии, а не ошибка парсера (ADR-0001).
+        return ApiRevision(
+            request_hash=locator.request_hash,
+            json_pointer=locator.json_pointer,
+            expected=locator.value_snapshot,
+            actual=actual,
+            retrieved_at=locator.retrieved_at,
+        )
     
     elif kind == "derived":
         # Derived: не разрешается к сырью, а пересчитывается по формуле

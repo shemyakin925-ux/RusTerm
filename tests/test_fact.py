@@ -9,7 +9,7 @@ import pytest
 
 from rusterm.core.fact import (
     Fact, LocatorXBRL, LocatorTable, LocatorPDF, LocatorHTML,
-    LocatorAPI, LocatorDerived,
+    LocatorAPI, LocatorDerived, ApiRevision,
     locator_to_json, locator_from_json,
     determine_basis, resolve_locator, validate_fact_for_write,
     sha256_bytes,
@@ -63,7 +63,8 @@ def test_fact_valid_with_listing():
         currency="USD", basis="as_reported", origin="extracted",
         source_ref="def456",
         locator={"kind": "api", "endpoint": "/price",
-                 "response_sha256": "x", "json_pointer": "/close"},
+                 "request_hash": "x", "json_pointer": "/close",
+                 "value_snapshot": "150.25", "retrieved_at": 0.0},
         parser_version="1.0",
     )
     assert fact.listing_id == "listing-1"
@@ -175,12 +176,49 @@ def test_resolve_locator_api():
         api_data = {"close": 150.25, "volume": 1000000}
         obj = put_with_manifest(paths, json.dumps(api_data).encode(),
                                 provider="yahoo", block="prices")
-        loc = LocatorAPI(endpoint="/v1/price/AAPL", request_hash="req123",
-                         response_sha256=obj.sha256, json_pointer="/close")
+        loc = LocatorAPI(endpoint="/v1/price/AAPL", request_hash=obj.sha256,
+                         json_pointer="/close", value_snapshot="150.25",
+                         retrieved_at=obj.fetched_at)
         def getter(sha): return decompress_object(paths.raw_store, sha)
         assert resolve_locator(loc, getter) == "150.25"
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_resolve_locator_api_revision_on_mismatch():
+    """Значение по json_pointer разошлось со снапшотом — возвращается
+    событие ревизии, а не ошибка парсера (ADR-0001, kind=api)."""
+    paths, tmpdir = _make_raw_store()
+    try:
+        api_data = {"close": 160.0, "volume": 1000000}
+        obj = put_with_manifest(paths, json.dumps(api_data).encode(),
+                                provider="yahoo", block="prices")
+        loc = LocatorAPI(endpoint="/v1/price/AAPL", request_hash=obj.sha256,
+                         json_pointer="/close", value_snapshot="150.25",
+                         retrieved_at=123.0)
+        def getter(sha): return decompress_object(paths.raw_store, sha)
+        result = resolve_locator(loc, getter)
+        assert isinstance(result, ApiRevision)
+        assert result.expected == "150.25"
+        assert result.actual == "160.0"
+        assert result.request_hash == obj.sha256
+        assert result.json_pointer == "/close"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_locator_api_roundtrip_v2():
+    loc = LocatorAPI(endpoint="/v1/price/AAPL", request_hash="req123",
+                     json_pointer="/close", value_snapshot="150.25",
+                     retrieved_at=1700000000.0)
+    assert loc.schema == "api.v2"
+    data = locator_to_json(loc)
+    assert "response_sha256" not in data
+    loc2 = locator_from_json(data)
+    assert isinstance(loc2, LocatorAPI)
+    assert loc2.value_snapshot == "150.25"
+    assert loc2.retrieved_at == 1700000000.0
+    assert loc2.schema == "api.v2"
 
 
 def test_validate_fact_ok():
@@ -205,10 +243,17 @@ def test_validate_fact_missing_source_ref():
     assert any("source_ref" in e for e in errors)
 
 
-def test_locator_all_have_schema_v1():
-    for cls in [LocatorXBRL, LocatorTable, LocatorPDF,
-                LocatorHTML, LocatorAPI, LocatorDerived]:
-        assert cls().schema.endswith(".v1")
+def test_locator_all_have_schema_version():
+    expected = {
+        LocatorXBRL: ".v1", LocatorTable: ".v1", LocatorPDF: ".v1",
+        LocatorHTML: ".v1",
+        LocatorAPI: ".v2",  # api.v2: без response_sha256, со снапшотом
+        LocatorDerived: ".v1",
+    }
+    for cls, version in expected.items():
+        assert cls().schema.endswith(version), (
+            f"{cls.__name__}: ожидалась схема *{version}, получена {cls().schema}"
+        )
 
 
 def test_fact_basis_validation():
