@@ -14,4 +14,6 @@
 ## Disputed
 - §0 "load the repository in one pass": executor preloads nothing wholesale; instead each touched file is read in full before editing (§1.1 step 1). Reason: executor context budget is finite and shared with ~9h of work; method rule honored, preload rule deviated from.
 
-NOW: T0, step 1
+- T0 done: `pytest tests/test_invariants.py -q -k i16` → 1 passed; grep count = 1; acceptance 13/13.
+
+NOW: T1, step 1

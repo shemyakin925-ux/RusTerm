@@ -451,3 +451,70 @@ def test_i15_nonpositive_denominator_yields_null():
     m = calculate_measure("pe", market_cap_total=2000.0, net_income_ttm=0.0)
     assert m.value is None
     assert m.null_reason == "denominator_zero"
+
+
+# ── I16. Изменение схемы доезжает до существующей базы ─────────────────
+def test_i16_schema_change_reaches_existing_db():
+    """База версии 32 (raw_object со старым CHECK без 'gzip') с данными:
+    применение текущих миграций поднимает schema_version до _SCHEMA_VERSION,
+    строка переживает перестройку таблицы, новый CHECK действует — вставка
+    с compression='gzip' проходит.
+
+    Восстановлено по TASK-7 T0: инвариант был заявлен сделанным в TASK-4,
+    в дереве отсутствовал. Приём (база v32 + данные) — из tests/test_db.py.
+    """
+    tmpdir = tempfile.mkdtemp()
+    conn = sqlite3.connect(os.path.join(tmpdir, "i16.db"),
+                           timeout=30, isolation_level=None)
+    try:
+        conn.execute(
+            "CREATE TABLE schema_version ("
+            " version INTEGER PRIMARY KEY,"
+            " applied_at REAL NOT NULL,"
+            " checksum TEXT NOT NULL)")
+        conn.executemany(
+            "INSERT INTO schema_version(version, applied_at, checksum)"
+            " VALUES (?, ?, ?)",
+            [(v, 0.0, "seed") for v in range(1, 33)])
+        # DDL raw_object до миграции 33: CHECK без 'gzip'
+        conn.execute(
+            "CREATE TABLE raw_object ("
+            " sha256 TEXT PRIMARY KEY,"
+            " provider TEXT NOT NULL,"
+            " url TEXT,"
+            " fetched_at REAL NOT NULL,"
+            " bytes INTEGER NOT NULL,"
+            " content_type TEXT NOT NULL,"
+            " compression TEXT NOT NULL CHECK (compression IN ('none','zstd')),"
+            " instrument_id TEXT,"
+            " block TEXT,"
+            " http_status INTEGER,"
+            " etag TEXT)")
+        conn.execute(
+            "INSERT INTO raw_object(sha256, provider, fetched_at, bytes,"
+            " content_type, compression) VALUES (?, 'synthetic', 0.0, 3,"
+            " 'application/json', 'zstd')",
+            ("a" * 64,))
+        before = conn.execute(
+            "SELECT MAX(version) FROM schema_version").fetchone()[0]
+
+        apply_migrations(conn)
+
+        after = conn.execute(
+            "SELECT MAX(version) FROM schema_version").fetchone()[0]
+        assert after == _SCHEMA_VERSION and after > before, (
+            f"версия схемы не выросла: {before} -> {after}")
+        row = conn.execute(
+            "SELECT compression FROM raw_object WHERE sha256 = ?",
+            ("a" * 64,)).fetchone()
+        assert row is not None and row[0] == "zstd", (
+            "миграция потеряла строку существующей базы")
+        # новый CHECK в силе: gzip принимается
+        conn.execute(
+            "INSERT INTO raw_object(sha256, provider, fetched_at, bytes,"
+            " content_type, compression) VALUES (?, 'synthetic', 0.0, 1,"
+            " 'application/json', 'gzip')",
+            ("b" * 64,))
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
