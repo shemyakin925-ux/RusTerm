@@ -718,6 +718,21 @@ class WatchlistRepo:
                   FROM watchlist_member WHERE watchlist_version_id=?""",
                 (target_version_id, source_version_id))
 
+    def copy_members_except(self, source_version_id: str,
+                            target_version_id: str,
+                            instrument_id: str) -> int:
+        """Полный новый состав без одного инструмента (удаление из
+        состава — тоже новая версия). Возвращает число перенесённых."""
+        with writer_transaction(self.conn) as c:
+            cur = c.execute(
+                """INSERT INTO watchlist_member(watchlist_version_id,
+                  instrument_id, note, added_at)
+                  SELECT ?, instrument_id, note, added_at
+                  FROM watchlist_member
+                  WHERE watchlist_version_id=? AND instrument_id <> ?""",
+                (target_version_id, source_version_id, instrument_id))
+            return cur.rowcount
+
     def rollback_to(self, watchlist_id: str, version: int) -> dict:
         """Откат — НОВАЯ версия, копирующая состав указанной: состав
         (members), группы и фильтры. Ничего не удаляется и не переписывается;
@@ -1162,11 +1177,11 @@ class MetricsRepo:
 
 # Параметры запроса, которые никогда не попадают в журнал (T13):
 # URL с ключом или токеном не логируется ни в каком виде.
-_SECRET_QUERY_PARAMS = {"key", "token", "apikey", "api_key",
+SECRET_QUERY_PARAMS = {"key", "token", "apikey", "api_key",
                         "access_token", "password"}
 
 
-def _scrub_secret_url(value):
+def scrub_secret_url(value):
     """Убрать из URL строку запроса секретные параметры; остальное оставить."""
     if not isinstance(value, str) or "?" not in value:
         return value
@@ -1175,14 +1190,14 @@ def _scrub_secret_url(value):
     if not parts.query:
         return value
     kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-            if k.lower() not in _SECRET_QUERY_PARAMS]
+            if k.lower() not in SECRET_QUERY_PARAMS]
     return urlunsplit(parts._replace(query=urlencode(kept)))
 
 
-def _scrub_payload(payload):
+def scrub_payload(payload):
     if not isinstance(payload, dict):
         return payload
-    return {k: _scrub_secret_url(v) if isinstance(v, str) else v
+    return {k: scrub_secret_url(v) if isinstance(v, str) else v
             for k, v in payload.items()}
 
 
@@ -1200,8 +1215,8 @@ class AuditRepo:
     def log(self, action: str, target: Optional[str],
             payload: Optional[dict], confirmed: bool, result: Optional[str]) -> None:
         entry = {"ts": time.time(), "action": action,
-                 "target": _scrub_secret_url(target),
-                 "payload": _scrub_payload(payload),
+                 "target": scrub_secret_url(target),
+                 "payload": scrub_payload(payload),
                  "confirmed": int(confirmed), "result": result}
         if self._audit_log_path is not None:
             path = Path(self._audit_log_path)

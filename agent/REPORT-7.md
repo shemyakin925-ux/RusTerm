@@ -57,4 +57,8 @@
   - Minor: sqlite3.Connection has no .closed attr — test infra fix only.
   - `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: T14, step 1
+- T14 done: CLI extended (no SQL in cli): watchlist create|add|remove|list|show|rollback|export --format csv|json|import <file> (add/remove = new version with full composition, audit logged); coverage <instrument | --watchlist ID> (mutually exclusive); metrics [--record] (None shown as 'нет данных', record writes only non-None); budget (ceiling 5000 + honest 'использовано 0, отказано 0' when provider never ran; gate state is per-process by design — noted); ingest --source edgar|synthetic default synthetic, edgar -> honest exit 1 while T4 unbuilt. verify switched to task interface --fact/--expected/--document via VerificationService; --document URL secret-scrubbed. SnapshotBuilder in cli now gets coverage_repo (coverage rows existed from pipeline only before). tests/test_cli.py: 5 tests (verify test moved to new interface, assertion strength kept).
+  - scrub helpers made public in repos (scrub_secret_url/scrub_payload) for cli use; one rename miss fixed.
+  - `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: T15, step 1
