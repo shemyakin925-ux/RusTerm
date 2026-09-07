@@ -102,3 +102,55 @@ def test_golden_all_values_present_and_reasons_none():
         assert m.value is not None
         assert m.null_reason is None
         assert m.method_version == "v1"
+
+
+# ── BACKLOG B4: второй golden-эмитент — префы отдельным классом ─────────
+# Синтетический эмитент «Preferred Corp», классы A, B и префы P:
+#   класс A: price 50, shares 8   -> cap 400
+#   класс B: price 20, shares 30  -> cap 600
+#   класс P (префы): price 100, shares 2 -> cap 200 — ВХОДИТ в total
+#   total_debt 500, cash 200, st_investments 50, minority_interest 30,
+#   preferred_equity (по балансу) 250
+# EV = 1200 + 500 - 200 - 50 + 30 + 0 = 1480:
+# префы уже в market_cap_total отдельным классом — повторно НЕ добавляются.
+# Промах правила (двойной счёт) дал бы 1730.
+PRICE_A2, SHARES_A2 = 50.0, 8.0
+PRICE_B2, SHARES_B2 = 20.0, 30.0
+PRICE_P2, SHARES_P2 = 100.0, 2.0
+DEBT2, CASH2, STINV2, MINORITY2, PREF2 = 500.0, 200.0, 50.0, 30.0, 250.0
+
+GOLDEN2 = {
+    "cap_a": 400.0,    # 50 * 8
+    "cap_b": 600.0,    # 20 * 30
+    "cap_p": 200.0,    # 100 * 2
+    "market_cap_total": 1200.0,  # 400 + 600 + 200
+    "ev": 1480.0,      # 1200 + 500 - 200 - 50 + 30 + 0 (префы уже в cap)
+}
+
+
+def test_golden2_multiclass_cap_with_preferred_class():
+    cap_a, r1 = market_cap_per_class(PRICE_A2, SHARES_A2)
+    cap_b, r2 = market_cap_per_class(PRICE_B2, SHARES_B2)
+    cap_p, r3 = market_cap_per_class(PRICE_P2, SHARES_P2)
+    assert (cap_a, r1) == (GOLDEN2["cap_a"], None)
+    assert (cap_b, r2) == (GOLDEN2["cap_b"], None)
+    assert (cap_p, r3) == (GOLDEN2["cap_p"], None)
+
+    total, r4 = market_cap_total([cap_a, cap_b, cap_p])
+    assert (total, r4) == (GOLDEN2["market_cap_total"], None)
+
+    # неполный многоклассовый список — не сумма, а missing_data
+    assert market_cap_total([cap_a, None, cap_p]) == (None, "missing_data")
+
+
+def test_golden2_ev_preferred_not_double_counted():
+    total = GOLDEN2["market_cap_total"]
+    ev, reason = enterprise_value(total, DEBT2, CASH2, STINV2, MINORITY2,
+                                  PREF2, preferred_is_separate_class=True)
+    assert (ev, reason) == (GOLDEN2["ev"], None)
+    assert ev != 1730.0, "префы посчитаны дважды"
+
+    # контраст: те же входы, но префы НЕ отдельный класс — 250 входят в ev
+    ev_alt, _ = enterprise_value(total, DEBT2, CASH2, STINV2, MINORITY2,
+                                 PREF2, preferred_is_separate_class=False)
+    assert ev_alt == pytest.approx(1730.0)  # 1480 + 250

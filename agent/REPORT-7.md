@@ -100,4 +100,7 @@
 - B8 done: test_zstd_path_with_fake_module_round_trip in tests/test_raw_store.py — monkeypatches raw_store._ZSTD with a reversible fake exposing real zstd magic (b'\x28\xb5\x2f\xfd'); asserts compression label 'zstd', .zst extension, decompress_object round-trip, and raw-bytes magic prefix. Payload padded above COMPRESS_THRESHOLD (64KB) — first attempt forgot compression only applies above it. Acceptance check 11 (suite with real zstandard blocked) stays green.
   - `pytest -q -k zstd` → exit 0; `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: B4, step 1
+- B4 done: second golden issuer 'Preferred Corp' (classes A+B+preferred P) in tests/test_golden_formulas.py with hand-computed reference: caps 400/600/200, total 1200, EV 1480 with preferred_is_separate_class=True (double-count would give 1730; contrast assert pins both branches). None-class total -> missing_data.
+  - `pytest tests/test_golden_formulas.py -q` → exit 0; `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: queue empty — BACKLOG exhausted
