@@ -107,4 +107,19 @@
   - Failures en route: GOLDEN dicts incomplete for Euronav/DHT (patch misplacement) — rewritten cleanly; dispatcher key lacked '&' of doc name.
   - `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: queue empty — BACKLOG exhausted; proceeding to §3 night end
+## HANDOFF
+Status:          PARTIAL
+Items done:      T0, T1, T2, T3, T7, T8, T10, T11, T12, T13, T14, T15, T17, T18, T19; BACKLOG B1–B8 (all)
+Items not done:  T4, T5, T6 — skipped per task rule (RUSTERM_SEC_UA unset — network path not exercised); T9 — M3 needs real fetch, depends on T4–T6; T16 — M5 needs LLM key (guard rail T15 covers the fake-client path)
+Acceptance:      пройдено 13, провалено 0   (agent/ACCEPTANCE-5.txt)
+Tests:           208 collected: 206 passed, 2 skipped (zstandard absence + live integration), 0 xfailed
+Milestones:      M2 no (network), M3 no (network), M5 no (key)
+Network:         RUSTERM_SEC_UA unset — 0 requests made; no external calls of any kind tonight, price vendors untouched
+Model:           LLM key unset — 0 app LLM calls; my own model: GLM-5.3-Flash, exact request count not tracked (order of magnitude: ~120 agent steps)
+Pushed:          yes
+Questions for the coordinator:
+  - Disputed items above: (1) insider_net color-table gap in the doc (−0.5%..−0.1% implemented as yellow); (2) related_party approved=None does not force red; (3) fixed-interval limiter satisfies '≤5/s' as average+spacing, not per-arbitrary-window; (4) T19 filename: 0006 is taken, wrote 0008; (5) §0 whole-tree preload deviated to per-file full reads.
+  - Interface change: CLI verify is now --fact/--expected/--document per task; old --concept/--value flags removed (test updated, strength kept).
+  - Schema pins moved 33→35 in six test spots (sanctioned by T17 migration 35); version 34 intentionally never exists.
+  - Method violation logged: B5 first commit f9b5a3a contained a red test (my wrong point-assertions), fixed in 27dd6fa.
+  - RUSTERM_SEC_UA / RUSTERM_LLM_API_KEY: set them before the next network night to unlock T4–T6, T9, T16 and the golden M2 file.
