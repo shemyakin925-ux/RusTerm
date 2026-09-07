@@ -61,10 +61,13 @@ def test_put_object_at_threshold_compresses(app_paths: AppPaths):
     assert decompressed == data
     # Проверяем, что сжатие действительно уменьшило объем
     assert obj.bytes_written < len(data)
-    # Проверяем, что сжатый файл существует (альтернатива: .zst или .gz)
+    # Сжатый объект лежит на диске с расширением своего алгоритма
     plain = object_path(app_paths.raw_store, obj.sha256)
     exists_zst = plain.with_suffix(plain.suffix + ".zst").exists()
     exists_gz = plain.with_suffix(plain.suffix + ".gz").exists()
+    assert exists_zst or exists_gz, (
+        "сжатый объект не записан на диск ни как .zst, ни как .gz"
+    )
 
 
 def test_put_object_above_threshold_compresses(app_paths: AppPaths):
@@ -73,6 +76,18 @@ def test_put_object_above_threshold_compresses(app_paths: AppPaths):
     # Проверяем round-trip: сжатые данные читаются обратно
     decompressed = decompress_object(app_paths.raw_store, obj.sha256)
     assert decompressed == data
+
+
+def test_put_object_labels_zstd_when_available(app_paths: AppPaths):
+    """При доступном zstandard метка именно 'zstd'. Без пакета — пропуск:
+    метка тогда законно 'gzip' (TASK-3 §A2)."""
+    try:
+        import zstandard  # noqa: F401
+    except ImportError:
+        pytest.skip("zstandard не установлен — используется gzip-фолбэк")
+    data = b"x" * COMPRESS_THRESHOLD
+    obj = put_object(app_paths.raw_store, data, provider="t")
+    assert obj.compression == "zstd"
 
 
 def test_put_object_duplicate_is_noop(app_paths: AppPaths):
