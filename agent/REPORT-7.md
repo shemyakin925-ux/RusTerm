@@ -94,4 +94,7 @@
 - B6 done: doctor ALREADY reports drift (schema_version != _SCHEMA_VERSION -> problem line with both numbers); per backlog instruction added the missing test instead: test_cli_doctor_reports_schema_drift — version-35 row deleted, applied max drops to 33 (34 does not exist), doctor exits 1 and prints 'schema_version=33, ожидается 35'.
   - `pytest tests/test_cli.py -q -k drift` → exit 0; acceptance → 13/13
 
-NOW: B7, step 1
+- B7 done: test_coverage_blocks_match_documentation in tests/test_coverage.py — parses the '| `block` |' row of docs/watchlist-and-llm.md §1.3 and asserts the backticked block set equals COVERAGE_BLOCKS exactly (both directions).
+  - `pytest tests/test_coverage.py -q` → exit 0; acceptance → 13/13
+
+NOW: B8, step 1

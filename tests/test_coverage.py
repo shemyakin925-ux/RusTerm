@@ -170,3 +170,20 @@ def test_for_watchlist_returns_coverage_of_current_members():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+def test_coverage_blocks_match_documentation():
+    """BACKLOG B7: список блоков в коде и в docs/watchlist-and-llm.md §1.3 —
+    один и тот же; переименование блока в коде или в документе краснит."""
+    import re
+    from pathlib import Path
+
+    doc = (Path(__file__).resolve().parents[1] / "docs"
+           / "watchlist-and-llm.md").read_text(encoding="utf-8")
+    block_rows = [line for line in doc.splitlines()
+                  if line.startswith("| `block` |")]
+    assert len(block_rows) == 1, "строка блока §1.3 должна быть ровно одна"
+    doc_blocks = set(re.findall(r"`([a-z_]+)`", block_rows[0])) - {"block"}
+    assert doc_blocks == set(COVERAGE_BLOCKS), (
+        f"документ vs код: {doc_blocks ^ set(COVERAGE_BLOCKS)}"
+    )
