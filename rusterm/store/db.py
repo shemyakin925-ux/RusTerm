@@ -17,7 +17,9 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Iterator, List
+from typing import Iterable, Iterator, List, Optional
+
+from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
@@ -419,6 +421,26 @@ def apply_migrations(conn: sqlite3.Connection) -> List[int]:
         newly_applied.append(version)
 
     return newly_applied
+
+
+def current_schema_version(conn: sqlite3.Connection) -> Optional[int]:
+    """Применённая версия схемы; None, если таблицы версий ещё нет."""
+    try:
+        row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+        return row[0] if row else None
+    except sqlite3.OperationalError:
+        return None
+
+
+def open_connection(paths: AppPaths) -> sqlite3.Connection:
+    """Единая точка открытия соединения приложения: WAL, FK, row_factory."""
+    import sqlite3
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
 
 
 @contextmanager

@@ -38,7 +38,8 @@ def _setup():
     return tmpdir, conn
 
 
-def _fact(conn, concept, value, basis="as_reported", fact_id=None):
+def _fact(conn, concept, value, basis="as_reported", fact_id=None,
+          ingested_at=0):
     fid = fact_id or str(uuid.uuid4())
     conn.execute(
         """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
@@ -47,8 +48,8 @@ def _fact(conn, concept, value, basis="as_reported", fact_id=None):
           status, superseded_by, ingested_at)
           VALUES (?, 'i1', NULL, ?, '2024-01-01', '2024-12-31', 'duration',
                   ?, 'USD', NULL, ?, 'extracted', 'src-x', '{}',
-                  'synthetic.v1', 'ok', NULL, 0)""",
-        (fid, concept, value, basis))
+                  'synthetic.v1', 'ok', NULL, ?)""",
+        (fid, concept, value, basis, ingested_at))
     return fid
 
 
@@ -147,11 +148,9 @@ def test_snapshot_three_diffs_are_separate():
 
         # ревизия: restated-факт по периоду, где есть as_reported
         _fact(conn, "revenue", "1900", basis="restated")
-        # изменение метрики: новая выручка -> новая маржа
-        conn.execute("UPDATE fact SET value='440' WHERE fact_id=?",
-                     (conn.execute(
-                         "SELECT fact_id FROM fact WHERE concept='net_income'"
-                     ).fetchone()[0],))
+        # изменение метрики: новый факт net_income поступил позже —
+        # он вытесняет старый в расчёте, сам старый не изменяется
+        _fact(conn, "net_income", "440", ingested_at=2)
 
         v2 = builder.build("ins1", "i1", "2024-12-31",
                            peer_members_previous=["a", "b"],

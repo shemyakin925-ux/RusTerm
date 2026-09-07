@@ -331,6 +331,48 @@ class SnapshotRepo:
                 "peer_set_version": row[5], "peer_set_status": row[6],
                 "status": row[7]}
 
+    def latest_snapshot_id(self, instrument_id: str) -> Optional[str]:
+        row = self.conn.execute(
+            """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
+               ORDER BY version DESC LIMIT 1""",
+            (instrument_id,)).fetchone()
+        return row[0] if row else None
+
+    def max_version(self, instrument_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT MAX(version) FROM snapshot WHERE instrument_id=?",
+            (instrument_id,)).fetchone()
+        return row[0] or 0
+
+    def previous_snapshot(self, instrument_id: str) -> Optional[str]:
+        """Предпоследняя версия: база для diff текущей сборки."""
+        row = self.conn.execute(
+            """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
+               ORDER BY version DESC LIMIT 1 OFFSET 1""",
+            (instrument_id,)).fetchone()
+        return row[0] if row else None
+
+    def restated_revisions(self) -> list:
+        """Ревизии: restated-факты по периодам, где есть as_reported."""
+        return self.conn.execute(
+            """SELECT f.concept, f.period_end FROM fact f
+               WHERE f.basis='restated' AND EXISTS (
+                     SELECT 1 FROM fact a
+                     WHERE a.issuer_id=f.issuer_id AND a.concept=f.concept
+                       AND a.period_end=f.period_end
+                       AND a.basis='as_reported')"""
+        ).fetchall()
+
+    def as_reported_facts(self, issuer_id: str, concepts: tuple) -> list:
+        """Свежие as_reported-факты эмитента по списку концептов."""
+        placeholders = ",".join("?" * len(concepts))
+        return self.conn.execute(
+            f"""SELECT concept, value, fact_id FROM fact
+                WHERE issuer_id=? AND basis='as_reported' AND status='ok'
+                  AND concept IN ({placeholders})
+                ORDER BY period_end DESC, ingested_at DESC""",
+            (issuer_id, *concepts)).fetchall()
+
     def insert_measure(self,
                        measure_id: str,
                        snapshot_id: str,

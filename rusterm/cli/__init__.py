@@ -15,7 +15,7 @@ from rusterm.core.export import snapshot_to_csv, snapshot_to_json
 from rusterm.core.snapshot import SnapshotBuilder
 from rusterm.pipeline import IngestionPipeline
 from rusterm.providers import SyntheticDisclosuresProvider
-from rusterm.store.db import apply_migrations
+from rusterm.store.db import apply_migrations, current_schema_version, open_connection
 from rusterm.store.doctor import doctor_report
 from rusterm.store.paths import AppPaths, ensure_app_dir
 from rusterm.store.repos import (
@@ -35,21 +35,15 @@ DEMO_INSTRUMENT = "US-CLI-DEMO"
 def _open(root: str):
     paths = AppPaths.from_root(root)
     ensure_app_dir(paths)
-    import sqlite3
-    conn = sqlite3.connect(str(paths.db_path), timeout=30,
-                           isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return paths, conn
+    return paths, open_connection(paths)
 
 
 def cmd_init(args) -> int:
     paths, conn = _open(args.root)
     applied = apply_migrations(conn)
     print(f"каталог: {args.root}")
-    print(f"применено миграций: {len(applied)}; schema_version="
-          f"{conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0]}")
+    print(f"применено миграций: {len(applied)}; "
+          f"schema_version={current_schema_version(conn)}")
     conn.close()
     return 0
 
@@ -96,17 +90,14 @@ def cmd_snapshot(args) -> int:
 
 def cmd_export(args) -> int:
     paths, conn = _open(args.root)
-    row = conn.execute(
-        """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
-           ORDER BY version DESC LIMIT 1""",
-        (DEMO_INSTRUMENT,)).fetchone()
-    if row is None:
+    repo = SnapshotRepo(conn)
+    snapshot_id = repo.latest_snapshot_id(DEMO_INSTRUMENT)
+    if snapshot_id is None:
         print("снапшотов нет — сначала snapshot", file=sys.stderr)
         conn.close()
         return 1
-    repo = SnapshotRepo(conn)
-    snapshot = repo.get_snapshot(row[0])
-    measures = repo.get_measures(row[0])
+    snapshot = repo.get_snapshot(snapshot_id)
+    measures = repo.get_measures(snapshot_id)
     text = (snapshot_to_csv(measures) if args.format == "csv"
             else snapshot_to_json(snapshot, measures))
     if args.out:

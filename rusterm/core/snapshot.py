@@ -133,13 +133,11 @@ class SnapshotBuilder:
         return result
 
     def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict]:
-        """Входы мер из фактов as_reported/latest по концепту; lineage
-        ведёт к fact_id каждого входа."""
-        rows = self._snapshots.conn.execute(
-            """SELECT concept, value, fact_id FROM fact
-               WHERE issuer_id=? AND basis='as_reported' AND status='ok'
-               ORDER BY period_end DESC""",
-            (issuer_id,)).fetchall()
+        """Входы мер из фактов as_reported по концепту; lineage ведёт
+        к fact_id каждого входа."""
+        rows = self._snapshots.as_reported_facts(
+            issuer_id, ("net_income", "revenue", "operating_income",
+                        "tax_expense", "pretax_income"))
         values: dict[str, tuple[float, str]] = {}
         for concept, value, fact_id in rows:
             if concept in ("net_income", "revenue", "operating_income",
@@ -160,19 +158,13 @@ class SnapshotBuilder:
         return inputs, lineage
 
     def _next_version(self, instrument_id: str) -> int:
-        row = self._snapshots.conn.execute(
-            "SELECT MAX(version) FROM snapshot WHERE instrument_id=?",
-            (instrument_id,)).fetchone()
-        return (row[0] or 0) + 1
+        return self._snapshots.max_version(instrument_id) + 1
 
     def _diff(self, instrument_id, snapshot_id, peer_prev, peer_cur) -> SnapshotDiff:
         diff = SnapshotDiff()
-        prev_row = self._snapshots.conn.execute(
-            """SELECT snapshot_id FROM snapshot
-               WHERE instrument_id=? ORDER BY version DESC LIMIT 1 OFFSET 1""",
-            (instrument_id,)).fetchone()
-        if prev_row:
-            prev = {m[3]: m[4] for m in self._snapshots.get_measures(prev_row[0])
+        prev_snapshot_id = self._snapshots.previous_snapshot(instrument_id)
+        if prev_snapshot_id:
+            prev = {m[3]: m[4] for m in self._snapshots.get_measures(prev_snapshot_id)
                     if m[3] != "percentile" and m[4] is not None}
             cur = {m[3]: m[4] for m in self._snapshots.get_measures(snapshot_id)
                    if m[3] != "percentile" and m[4] is not None}
@@ -182,13 +174,6 @@ class SnapshotBuilder:
         if peer_prev is not None and peer_cur is not None:
             diff.peer_set_changes = [(sorted(set(peer_cur) - set(peer_prev)),
                                       sorted(set(peer_prev) - set(peer_cur)))]
-        rows = self._snapshots.conn.execute(
-            """SELECT f.concept, f.period_end FROM fact f
-               WHERE f.basis='restated' AND EXISTS (
-                     SELECT 1 FROM fact a
-                     WHERE a.issuer_id=f.issuer_id AND a.concept=f.concept
-                       AND a.period_end=f.period_end
-                       AND a.basis='as_reported')"""
-        ).fetchall()
-        diff.revisions = [(c, p) for c, p in rows]
+        diff.revisions = [(c, p) for c, p
+                          in self._snapshots.restated_revisions()]
         return diff
