@@ -74,4 +74,8 @@
 - governance-thresholds.md §4 color table has a gap: net sales between 0.1% and 0.5% of cap matches neither yellow (±0.1%) nor red (>0.5% sales). Implemented as yellow (neutral band extended to red boundary). Coordinator may want the doc amended.
 - related_party: approved_by_independents=None (undisclosed) does not force red — only explicit False does ('сделки без одобрения' requires disclosure).
 
-NOW: T19, step 1
+- T19 done: docs/adr/0008-postavshchik-kotirovok.md — 5 candidates (Tiingo/Twelve Data/EODHD/Polygon/Alpha Vantage) with close+adjusted availability, documented limits, cost, desktop ToS notes; fallback order Tiingo -> Twelve Data -> Alpha Vantage; recommendation; explicit 'Статус: предложено, требует решения пользователя'. NO vendor code; prices stay synthetic. All limits/costs flagged as model-knowledge snapshot requiring user verification (no network tonight).
+  - NUMBERING DISPUTE: task prescribed docs/adr/0006-postavshchik-kotirovok.md claiming 0006 free, but 0006 is taken (0006-verifikatsiya-i-ground-truth.md, merged before TASK-7). Wrote 0008 (next free) to avoid two ADR-0006; rename if literal filename preferred.
+  - `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: T20, step 1
