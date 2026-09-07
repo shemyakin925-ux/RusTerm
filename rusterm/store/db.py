@@ -334,7 +334,7 @@ def apply_migrations(conn: sqlite3.Connection) -> List[int]:
 
         # Применяем CREATE TABLE IF NOT EXISTS
         try:
-            # Многооператорная поддержка: если SQL содержит ; — используется executescript, иначе execute
+            conn.execute(create_sql)
         except sqlite3.OperationalError as e:
             # Проверим, существует ли таблица
             try:
