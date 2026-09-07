@@ -40,4 +40,9 @@
   - First acceptance run dropped to 12/13: I had put two SQL strings in core/verification.py (check 7). Moved to repos (verification_pair, count_for_issuer_concept). Fixed, 13/13.
   - `pytest tests/test_verification.py -q` → exit 0 (5 passed); full suite exit 0; acceptance → 13/13
 
-NOW: T10, step 1
+- T10 done: WatchlistRepo read side + immutable versioning: current_version, members(version=None->current), groups, filters (criteria_json parsed), add_group/add_group_member/set_filter, rollback_to (NEW version copying members+groups+filters, action='rollback:<n>', group_id global PK -> new ids with member mapping), list_watchlists. tests/test_watchlist.py: 4 tests.
+  - `pytest tests/test_watchlist.py -q` → exit 0
+  - acceptance: first run 12/13 — check 13 caught untracked test_watchlist.py (correct behavior); after add → 13/13
+  - rollback group copy: IntegrityError on global PK group_id was hypothesis 1, fixed by new group_ids per copied group.
+
+NOW: T11, step 1

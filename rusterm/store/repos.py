@@ -565,6 +565,172 @@ class WatchlistRepo:
                 (watchlist_version_id, instrument_id, note, time.time()),
             )
 
+    # ── Чтение и неизменяемое версионирование (TASK-7 T10) ────────────
+
+    def current_version(self, watchlist_id: str) -> Optional[dict]:
+        """Максимальная версия списка или None."""
+        row = self.conn.execute(
+            """SELECT watchlist_version_id, version, created_at, action, note
+               FROM watchlist_version WHERE watchlist_id=?
+               ORDER BY version DESC LIMIT 1""",
+            (watchlist_id,)).fetchone()
+        if row is None:
+            return None
+        return {"watchlist_version_id": row[0], "version": row[1],
+                "created_at": row[2], "action": row[3], "note": row[4]}
+
+    def _version_id(self, watchlist_id: str, version: int) -> Optional[str]:
+        row = self.conn.execute(
+            "SELECT watchlist_version_id FROM watchlist_version"
+            " WHERE watchlist_id=? AND version=?",
+            (watchlist_id, version)).fetchone()
+        return row[0] if row else None
+
+    def _resolve_version(self, watchlist_id: str,
+                         version: Optional[int]) -> Optional[str]:
+        if version is not None:
+            return self._version_id(watchlist_id, version)
+        current = self.current_version(watchlist_id)
+        return current["watchlist_version_id"] if current else None
+
+    def members(self, watchlist_id: str,
+                version: Optional[int] = None) -> List[dict]:
+        """Состав версии; без версии — текущей."""
+        vid = self._resolve_version(watchlist_id, version)
+        if vid is None:
+            return []
+        rows = self.conn.execute(
+            """SELECT instrument_id, note, added_at FROM watchlist_member
+               WHERE watchlist_version_id=? ORDER BY instrument_id""",
+            (vid,)).fetchall()
+        return [{"instrument_id": r[0], "note": r[1], "added_at": r[2]}
+                for r in rows]
+
+    def groups(self, watchlist_id: str,
+               version: Optional[int] = None) -> List[dict]:
+        vid = self._resolve_version(watchlist_id, version)
+        if vid is None:
+            return []
+        rows = self.conn.execute(
+            """SELECT g.group_id, g.name FROM watchlist_group g
+               WHERE g.watchlist_version_id=? ORDER BY g.name""",
+            (vid,)).fetchall()
+        result = []
+        for group_id, name in rows:
+            members = self.conn.execute(
+                "SELECT instrument_id FROM watchlist_group_member"
+                " WHERE group_id=? ORDER BY instrument_id",
+                (group_id,)).fetchall()
+            result.append({"group_id": group_id, "name": name,
+                           "instrument_ids": [m[0] for m in members]})
+        return result
+
+    def filters(self, watchlist_id: str,
+                version: Optional[int] = None) -> List[dict]:
+        vid = self._resolve_version(watchlist_id, version)
+        if vid is None:
+            return []
+        rows = self.conn.execute(
+            "SELECT criteria FROM watchlist_filter"
+            " WHERE watchlist_version_id=?", (vid,)).fetchall()
+        # criteria_json разбирается при выдаче, в базе лежит текстом
+        return [json.loads(r[0]) for r in rows]
+
+    def add_group(self, group_id: str, watchlist_id: str, version: int,
+                  name: str) -> None:
+        vid = self._version_id(watchlist_id, version)
+        if vid is None:
+            raise ValueError(f"версия {version} списка {watchlist_id!r} не найдена")
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO watchlist_group(group_id, watchlist_version_id, name)
+                  VALUES (?, ?, ?)""",
+                (group_id, vid, name),
+            )
+
+    def add_group_member(self, group_id: str, instrument_id: str) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO watchlist_group_member(group_id, instrument_id)
+                  VALUES (?, ?)
+                  ON CONFLICT(group_id, instrument_id) DO NOTHING""",
+                (group_id, instrument_id),
+            )
+
+    def set_filter(self, watchlist_id: str, version: int,
+                   criteria: dict) -> None:
+        vid = self._version_id(watchlist_id, version)
+        if vid is None:
+            raise ValueError(f"версия {version} списка {watchlist_id!r} не найдена")
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO watchlist_filter(watchlist_version_id, criteria)
+                  VALUES (?, ?)
+                  ON CONFLICT(watchlist_version_id) DO UPDATE SET
+                    criteria=excluded.criteria""",
+                (vid, json.dumps(criteria, ensure_ascii=False)),
+            )
+
+    def rollback_to(self, watchlist_id: str, version: int) -> dict:
+        """Откат — НОВАЯ версия, копирующая состав указанной: состав
+        (members), группы и фильтры. Ничего не удаляется и не переписывается;
+        action='rollback:<n>' (TASK-7 T10)."""
+        source_vid = self._version_id(watchlist_id, version)
+        if source_vid is None:
+            raise ValueError(f"версия {version} списка {watchlist_id!r} не найдена")
+        new_number = self.current_version(watchlist_id)["version"] + 1
+        new_vid = str(uuid.uuid4())
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO watchlist_version(watchlist_version_id,
+                  watchlist_id, version, created_at, action, note)
+                  VALUES (?, ?, ?, ?, ?, ?)""",
+                (new_vid, watchlist_id, new_number, time.time(),
+                 f"rollback:{version}", None))
+            c.execute(
+                """INSERT INTO watchlist_member(watchlist_version_id,
+                  instrument_id, note, added_at)
+                  SELECT ?, instrument_id, note, added_at
+                  FROM watchlist_member WHERE watchlist_version_id=?""",
+                (new_vid, source_vid))
+            # group_id — глобальный PK: группа в новой версии получает
+            # новый id, участники переносятся по карте старый->новый
+            for old_gid, name in c.execute(
+                    """SELECT group_id, name FROM watchlist_group
+                       WHERE watchlist_version_id=?""",
+                    (source_vid,)).fetchall():
+                new_gid = str(uuid.uuid4())
+                c.execute(
+                    """INSERT INTO watchlist_group(group_id,
+                      watchlist_version_id, name) VALUES (?, ?, ?)""",
+                    (new_gid, new_vid, name))
+                c.execute(
+                    """INSERT INTO watchlist_group_member(group_id, instrument_id)
+                       SELECT ?, instrument_id FROM watchlist_group_member
+                       WHERE group_id=?""",
+                    (new_gid, old_gid))
+            c.execute(
+                """INSERT INTO watchlist_filter(watchlist_version_id, criteria)
+                  SELECT ?, criteria FROM watchlist_filter
+                  WHERE watchlist_version_id=?""",
+                (new_vid, source_vid))
+        return {"watchlist_version_id": new_vid, "version": new_number,
+                "action": f"rollback:{version}"}
+
+    def list_watchlists(self) -> List[dict]:
+        """Все списки: id, имя, текущая версия, число участников."""
+        rows = self.conn.execute(
+            """SELECT w.watchlist_id, w.name, MAX(wv.version),
+                      (SELECT COUNT(*) FROM watchlist_member wm
+                       WHERE wm.watchlist_version_id = wv.watchlist_version_id)
+               FROM watchlist w
+               JOIN watchlist_version wv ON wv.watchlist_id = w.watchlist_id
+               GROUP BY w.watchlist_id, w.name
+               ORDER BY w.name""",
+        ).fetchall()
+        return [{"watchlist_id": r[0], "name": r[1], "version": r[2],
+                 "member_count": r[3]} for r in rows]
+
 
 class JobRepo:
     """Очередь, попытки, отложенные. Постановка идемпотентна по ключу."""
