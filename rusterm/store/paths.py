@@ -38,6 +38,17 @@ class AppPaths:
             config_path=r / "config.toml",
         )
 
+    @property
+    def app_log_path(self) -> Path:
+        """logs/app.log — приложение, ротация 5 × 1 МБ (TASK-7 T13)."""
+        return self.logs / "app.log"
+
+    @property
+    def audit_log_path(self) -> Path:
+        """logs/audit.jsonl — операции пользователя, только добавление,
+        переживает потерю базы; никогда не ротируется."""
+        return self.logs / "audit.jsonl"
+
 
 def ensure_app_dir(paths: AppPaths) -> AppPaths:
     """Идемпотентно создаёт структуру каталога. Возвращает те же paths.

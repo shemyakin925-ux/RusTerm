@@ -53,4 +53,8 @@
   - Failures en route (test-expectation level, impl unchanged): gate without UA returned ConfigError before counters; charge() under ceiling does not refuse (exhausted budget to force refusal); rate_limited real value is 3 not 0; peer_set_coverage counts CURRENT peer set versions (2/3), not ever-membered.
   - `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: T13, step 1
+- T13 done: three destinations never mixed. paths.py: app_log_path + audit_log_path properties (logs/ dir existed). rusterm/applog.py: setup_app_logging -> RotatingFileHandler 5x1MB on logger 'rusterm', idempotent. AuditRepo now takes audit_log_path: JSONL line (ts/action/target/payload/confirmed/result) written BEFORE db insert — survives closed/failed DB (test: ProgrammingError propagates, line stays); secret scrub: token/key/api_key/access_token/password query params stripped from target and payload strings. RepoRegistry wires paths.audit_log_path. tests/test_logs.py: 4 tests.
+  - Minor: sqlite3.Connection has no .closed attr — test infra fix only.
+  - `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: T14, step 1

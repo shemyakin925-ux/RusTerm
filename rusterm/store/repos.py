@@ -1160,20 +1160,60 @@ class MetricsRepo:
             " ORDER BY name").fetchall()
 
 
-class AuditRepo:
-    """Журнал операций: только добавление, дублирование в файл."""
+# Параметры запроса, которые никогда не попадают в журнал (T13):
+# URL с ключом или токеном не логируется ни в каком виде.
+_SECRET_QUERY_PARAMS = {"key", "token", "apikey", "api_key",
+                        "access_token", "password"}
 
-    def __init__(self, conn: sqlite3.Connection):
+
+def _scrub_secret_url(value):
+    """Убрать из URL строку запроса секретные параметры; остальное оставить."""
+    if not isinstance(value, str) or "?" not in value:
+        return value
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    parts = urlsplit(value)
+    if not parts.query:
+        return value
+    kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if k.lower() not in _SECRET_QUERY_PARAMS]
+    return urlunsplit(parts._replace(query=urlencode(kept)))
+
+
+def _scrub_payload(payload):
+    if not isinstance(payload, dict):
+        return payload
+    return {k: _scrub_secret_url(v) if isinstance(v, str) else v
+            for k, v in payload.items()}
+
+
+class AuditRepo:
+    """Журнал операций: только добавление, дублирование в файл.
+
+    JSONL-строка в logs/audit.jsonl пишется ПЕРЕД записью в базу и
+    переживает любой сбой базы — в этом смысл файла (TASK-7 T13).
+    """
+
+    def __init__(self, conn: sqlite3.Connection, audit_log_path=None):
         self.conn = conn
+        self._audit_log_path = audit_log_path
 
     def log(self, action: str, target: Optional[str],
             payload: Optional[dict], confirmed: bool, result: Optional[str]) -> None:
+        entry = {"ts": time.time(), "action": action,
+                 "target": _scrub_secret_url(target),
+                 "payload": _scrub_payload(payload),
+                 "confirmed": int(confirmed), "result": result}
+        if self._audit_log_path is not None:
+            path = Path(self._audit_log_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         with writer_transaction(self.conn) as c:
             c.execute(
                 """INSERT INTO audit_log(ts, action, target, payload, confirmed, result)
                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (time.time(), action, target,
-                 json.dumps(payload) if payload else None,
+                (entry["ts"], action, entry["target"],
+                 json.dumps(entry["payload"]) if entry["payload"] else None,
                  int(confirmed), result),
             )
 
@@ -1193,4 +1233,4 @@ class RepoRegistry:
         self.coverage = CoverageRepo(conn)
         self.verification = VerificationRepo(conn)
         self.metrics = MetricsRepo(conn)
-        self.audit = AuditRepo(conn)
+        self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)
