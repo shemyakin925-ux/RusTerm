@@ -309,6 +309,28 @@ class SnapshotRepo:
                 (snapshot_id, block, status, reason),
             )
 
+    def get_measures(self, snapshot_id: str) -> list:
+        """Меры снапшота для экспорта: готовые величины, без пересчёта."""
+        return self.conn.execute(
+            """SELECT measure_id, scope, scope_ref, concept, value, unit,
+                      period_start, period_end, formula_id, method_version,
+                      null_reason, peer_set_version
+               FROM measure WHERE snapshot_id=? ORDER BY concept""",
+            (snapshot_id,)).fetchall()
+
+    def get_snapshot(self, snapshot_id: str) -> Optional[dict]:
+        row = self.conn.execute(
+            """SELECT snapshot_id, instrument_id, version, as_of, built_at,
+                      peer_set_version, peer_set_status, status
+               FROM snapshot WHERE snapshot_id=?""",
+            (snapshot_id,)).fetchone()
+        if row is None:
+            return None
+        return {"snapshot_id": row[0], "instrument_id": row[1],
+                "version": row[2], "as_of": row[3], "built_at": row[4],
+                "peer_set_version": row[5], "peer_set_status": row[6],
+                "status": row[7]}
+
     def insert_measure(self,
                        measure_id: str,
                        snapshot_id: str,
