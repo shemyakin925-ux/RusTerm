@@ -279,11 +279,28 @@ def test_i14_writer_thread_is_serialized():
 
 
 # ── I15. Знаменатель ≤ 0 даёт null с причиной ─────────────────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason="I15 требует кода этапа C (formulas с null-правилами для знаменателя). "
-           "После реализации этапа снять маркер.",
-)
 def test_i15_nonpositive_denominator_yields_null():
-    """Не исключение и не отрицательный мультипликатор."""
-    pytest.fail("I15 не реализован на этом этапе — причина в декораторе")
+    """Не исключение и не отрицательный мультипликатор: нулевой и
+    отрицательный знаменатель дают null с причиной (data-dictionary §1.4)."""
+    from rusterm.formulas import (
+        calculate_measure, effective_tax_rate, price_to_earnings,
+        price_to_book, dividend_yield,
+    )
+    # нулевой знаменатель
+    assert price_to_earnings(2000.0, 0.0) == (None, "denominator_zero")
+    assert price_to_book(2000.0, 0.0) == (None, "denominator_zero")
+    assert dividend_yield(5.0, 0.0) == (None, "denominator_zero")
+    # отрицательный знаменатель — null, а не отрицательный мультипликатор
+    assert price_to_earnings(2000.0, -100.0) == (None, "negative_denominator")
+    assert price_to_book(2000.0, -50.0) == (None, "negative_denominator")
+    # ROIC со средним invested_capital <= 0 — тоже null с причиной
+    from rusterm.formulas import roic
+    assert roic(100.0, 0.0, 0.0) == (None, "denominator_zero")
+    assert roic(100.0, -30.0, 10.0) == (None, "negative_denominator")  # avg -10
+    # effective_tax при нулевой прибыли — null (ставка юрисдикции вне движка)
+    rate, reason = effective_tax_rate(20.0, 0.0)
+    assert rate is None and reason == "denominator_zero"
+    # через диспетчер: null_reason заполнен, исключения нет
+    m = calculate_measure("pe", market_cap_total=2000.0, net_income_ttm=0.0)
+    assert m.value is None
+    assert m.null_reason == "denominator_zero"

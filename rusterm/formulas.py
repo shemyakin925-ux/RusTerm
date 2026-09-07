@@ -162,6 +162,18 @@ def _divide_checked(numerator: Optional[float],
     return numerator / denominator, None
 
 
+def ttm(quarterly: List[Optional[float]]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """TTM (data-dictionary.md §1.2): сумма четырёх последних завершённых
+    кварталов. Меньше четырёх — TTM нет, missing_data: смешивать годовой
+    и неполный TTM в одном показателе запрещено."""
+    if quarterly is None or len(quarterly) < 4:
+        return None, "missing_data"
+    window = quarterly[-4:]
+    if any(v is None for v in window):
+        return None, "missing_data"
+    return sum(window), None
+
+
 # ── Оценка (data-dictionary.md §3 «Оценка», v1) ────────────────────────
 
 def market_cap_per_class(price_close: Optional[float],
