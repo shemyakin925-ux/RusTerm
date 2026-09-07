@@ -24,6 +24,27 @@ printf '\033[1mПриёмка EquityLab — %s\033[0m\n' "$(date '+%Y-%m-%d %H:%
 printf 'ветка: %s   HEAD: %s\n' \
   "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-parse --short HEAD)"
 
+# ── Окружение: до всех проверок ──────────────────────────────────────────
+head_ 'Окружение'
+PYVER="$("$PY" -c 'import sys;print("%d.%d.%d"%sys.version_info[:3])' 2>/dev/null || echo "?")"
+if ! "$PY" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3,12) else 1)' 2>/dev/null; then
+  printf '  \033[31mОСТАНОВ\033[0m интерпретатор %s: проект требует Python 3.12+\n' "$PYVER"
+  printf '          Это не дефект кода. Возьми подходящий интерпретатор:\n'
+  printf '          PY=/путь/к/python3.12 bash agent/acceptance.sh\n'
+  printf '          Проверки ниже на 3.11 и раньше дают ложные провалы:\n'
+  printf '          tomllib появился в 3.11, а часть синтаксиса — позже.\n'
+  exit 99
+fi
+ok "Python $PYVER"
+
+PLUGINS="$("$PY" -m pytest --version 2>&1 | grep -i 'plugins:' | sed 's/.*plugins: //' || true)"
+if [ -n "$PLUGINS" ]; then
+  printf '  \033[33mЗАМЕЧАНИЕ\033[0m сторонние плагины pytest: %s\n' "$PLUGINS"
+  printf '          Проекту не нужен ни один. Прогоны ниже идут с\n'
+  printf '          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1, чтобы чужой плагин\n'
+  printf '          (например pytest-qt, тянущий PyQt5) не ронял приёмку.\n'
+fi
+
 # ── 12. Скрипт приёмки не изменён ────────────────────────────────────────
 head_ '12. Скрипт приёмки не изменён'
 if git cat-file -e origin/main:agent/acceptance.sh 2>/dev/null; then
@@ -59,7 +80,7 @@ PYEOF
 if [ $? -eq 0 ]; then
   ok "все модули импортируются ($("$PY" -V 2>&1))"
 else
-  bad 'модули не импортируются — код не запускался'
+  bad 'модули не импортируются — код не запускался (интерпретатор проверен выше)'
   detail < "$TMP/imports.txt"
 fi
 
@@ -106,7 +127,7 @@ fi
 
 # ── 3. Полный прогон тестов ──────────────────────────────────────────────
 head_ '3. pytest целиком'
-"$PY" -m pytest -q >"$TMP/pytest.txt" 2>&1
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "$PY" -m pytest -q >"$TMP/pytest.txt" 2>&1
 RC=$?
 tail -3 "$TMP/pytest.txt" | detail
 if [ $RC -eq 0 ]; then
@@ -216,7 +237,8 @@ mkdir -p "$TMP/block"
 cat > "$TMP/block/zstandard.py" <<'PYEOF'
 raise ImportError("zstandard заблокирован проверкой приёмки: нужен gzip-фолбэк")
 PYEOF
-PYTHONPATH="$TMP/block:${PYTHONPATH:-}" "$PY" -m pytest -q >"$TMP/nozstd.txt" 2>&1
+PYTHONPATH="$TMP/block:${PYTHONPATH:-}" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  "$PY" -m pytest -q >"$TMP/nozstd.txt" 2>&1
 RC2=$?
 tail -3 "$TMP/nozstd.txt" | detail
 if [ $RC2 -eq 0 ]; then

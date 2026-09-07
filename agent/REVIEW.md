@@ -65,6 +65,19 @@ research-снапшот (цены, фундаментал, ownership, корпо
 
 ## 4. Как всё запустить
 
+**Нужен Python 3.12 или новее** — `pyproject.toml` объявляет
+`requires-python = ">=3.12"`. На 3.10 и 3.11 не импортируется
+`rusterm/store/config.py`: он использует `tomllib`, появившийся
+в стандартной библиотеке в 3.11. Это не дефект, а заявленная база;
+добавлять фолбэк на пакет `tomli` нельзя — сторонние зависимости
+сверх `pytest` запрещены.
+
+Сторонние плагины `pytest` проекту не нужны ни одного. Если в твоём
+окружении стоит, например, `pytest-qt`, он потянет `PyQt5` и уронит
+прогон — это тоже не дефект репозитория. `agent/acceptance.sh`
+запускает тесты с `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` именно поэтому;
+если запускаешь `pytest` руками, делай так же.
+
 ```bash
 git clone https://github.com/shemyakin925-ux/RusTerm.git
 cd RusTerm && git checkout agent/night-2
