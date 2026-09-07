@@ -51,13 +51,6 @@ this file.
   reading a zstd object back are covered without the package — accept:
   `python3 -m pytest -q -k zstd` green with the fake, and acceptance
   check 11 still green — size: M
-- [ ] B9 — Request budget and provider rate limiter are specified in
-  `docs/processes.md` §6a and do not exist. They only bind once a real
-  provider exists, so build the deterministic core now: a budget counter
-  per (provider, window) and a limiter that refuses over quota, wired
-  into the provider registry, with the synthetic providers reporting
-  zero cost — accept: new test asserting the (N+1)-th call in a window
-  is refused rather than delayed — size: M
 - [ ] B10 — `effective_tax_rate` считает ставку при убытке: docstring
   требует «pretax_income <= 0 → ставка юрисдикции», код проверяет только
   `== 0`. `(-100, -1000)` даёт `0.1`, а `(100, -1000)` даёт ровно `0.0`,
@@ -129,3 +122,8 @@ this file.
   `db.open_connection(paths)` выставляет WAL и `foreign_keys=ON`.
   Найдено сторонней рецензией как латентный дефект, исправлено до того,
   как появился вызывающий код.
+
+- [x] B9 — бюджет запросов и rate limiter. Снят из очереди другой
+  стороной: после снятия запрета на сеть вошёл в `agent/TASK-7.md`
+  как часть задания, а не как работа на простое. Номер не переиспользуем,
+  чтобы ссылки в отчётах не разъехались.
