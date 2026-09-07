@@ -40,7 +40,7 @@ class SystemMetrics:
 
         # Провайдер: реальные счётчики гейта
         if self._gate is not None:
-            made = self._gate.requests_made
+            made = self._gate.calls_made
             refused = self._gate.refused
             if made + refused > 0:
                 values["provider_success_rate"] = made / (made + refused)

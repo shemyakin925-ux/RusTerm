@@ -83,7 +83,7 @@ def test_request_gate_refuses_without_ua_and_makes_no_call():
     outcome = rg.request(_fail_send)
     assert isinstance(outcome, ConfigError)
     assert outcome.reason == "sec_ua_unset"
-    assert rg.requests_made == 0
+    assert rg.calls_made == 0
     assert rg.budget.used == 0
     assert rg.refused == 1
 
@@ -113,7 +113,7 @@ def test_request_gate_passes_ua_charges_budget_and_counts():
     assert isinstance(outcome, BudgetExceeded)
     assert len(seen) == 2
 
-    assert rg.requests_made == 2
+    assert rg.calls_made == 2
     assert rg.refused == 1
     # подставной sleeper время не двигает: третья задержка не нужна —
     # третий вызов отклонён бюджетом до лимитера

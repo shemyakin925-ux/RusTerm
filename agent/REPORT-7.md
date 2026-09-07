@@ -61,4 +61,8 @@
   - scrub helpers made public in repos (scrub_secret_url/scrub_payload) for cli use; one rename miss fixed.
   - `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: T15, step 1
+- T15 done: core/llm.py LlmSummarizer + LlmClient Protocol (fake in tests, HTTP stays out of core). Numbers only by {{concept}} substitution from snapshot measures; unknown placeholder or leftover '{{' rejects whole block; every number in summary/highlights/risks must trace to a cited measure (value/period substring), else whole text discarded -> llm_summary untouched, coverage llm_summary=missing reason 'модель не смогла удержаться в данных'. Valid response stored with model, prompt_hash (sha256 of prompt), snapshot_version, citations. confidence logged, never branched. LlmSummaryRepo in store. tests/test_llm_guard.py: 4 tests incl. exact grep check.
+  - Naming conflict: RequestGate counter requests_made tripped the task's own grep 'httpx|requests' over core/ — renamed to calls_made (T3 contract asks for the counters, not the name; budget.py stays in providers, unaffected).
+  - `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: T17, step 1

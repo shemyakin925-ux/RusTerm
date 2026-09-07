@@ -1201,6 +1201,40 @@ def scrub_payload(payload):
             for k, v in payload.items()}
 
 
+class LlmSummaryRepo:
+    """Хранение LLM-summary (watchlist-and-llm.md §2.6). Только добавление."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def insert(self, instrument_id: str, model: str, prompt_hash: str,
+               snapshot_version: int, summary: str,
+               highlights: list, risks: list, citations: list) -> float:
+        created_at = time.time()
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO llm_summary(instrument_id, created_at, model,
+                  prompt_hash, snapshot_version, summary, highlights, risks, citations)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (instrument_id, created_at, model, prompt_hash,
+                 snapshot_version, summary,
+                 json.dumps(highlights, ensure_ascii=False),
+                 json.dumps(risks, ensure_ascii=False),
+                 json.dumps(citations, ensure_ascii=False)))
+        return created_at
+
+    def for_instrument(self, instrument_id: str) -> list:
+        rows = self.conn.execute(
+            """SELECT created_at, model, prompt_hash, snapshot_version,
+                      summary, highlights, risks, citations
+               FROM llm_summary WHERE instrument_id=?
+               ORDER BY created_at DESC""",
+            (instrument_id,)).fetchall()
+        keys = ("created_at", "model", "prompt_hash", "snapshot_version",
+                "summary", "highlights", "risks", "citations")
+        return [dict(zip(keys, r)) for r in rows]
+
+
 class AuditRepo:
     """Журнал операций: только добавление, дублирование в файл.
 
@@ -1248,4 +1282,5 @@ class RepoRegistry:
         self.coverage = CoverageRepo(conn)
         self.verification = VerificationRepo(conn)
         self.metrics = MetricsRepo(conn)
+        self.llm_summary = LlmSummaryRepo(conn)
         self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)

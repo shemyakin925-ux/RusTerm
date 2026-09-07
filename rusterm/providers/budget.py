@@ -113,7 +113,7 @@ class RequestGate:
         self.config_refusals = 0
 
     @property
-    def requests_made(self) -> int:
+    def calls_made(self) -> int:
         return self._made
 
     @property
