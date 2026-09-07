@@ -1,419 +1,359 @@
-# ТЗ. Ветка `agent/night-2`
+# TASK-5 — Stage C: watchlist, coverage, metrics, logs
 
-**Репозиторий сейчас не собирается.** Первая задача — починить это.
-Всё остальное после.
+- **Status: READY**
+- **Branch:** `agent/night-2`
+- **Report file:** `agent/REPORT-5.md`
+- **Predecessor:** TASK-4 — **ACCEPTED** (see §0)
 
-Задач десять: T0-T9. Идут по порядку. Следующая не начинается, пока предыдущая
-не закоммичена и не проверена.
+This task is self-contained. You do not need `SKILL.md` or earlier
+TASK files. Section 1 ("How to work") outranks the task list — read it
+first, in full.
 
 ---
 
-## ПРАВИЛА. Читай до задач, они короткие
+## 0. Where we are
 
-### Ворота перед каждым коммитом
+Coordinator ran `bash agent/acceptance.sh` on a clean checkout of
+`agent/night-2` at `a11ec89` (no working-tree noise):
 
-Три команды. Все три обязаны быть чистыми. Без них не коммить.
+```
+Итог: пройдено 12, провалено 1
+```
+
+The single failure was check 12 (`acceptance.sh` differs from
+`origin/main`). **Both "Disputed" items in your report were correct:**
+
+| Your claim | Verdict |
+|---|---|
+| Check 12 red because `origin/main` lacked check 13, not because of the work | **Upheld.** Coordinator published check 13 to `main`. Now 13/13. |
+| Check 13 red because of untracked coordinator files (`CLAUDE.md`, `AGENTS.md`, `agent/BACKLOG.md`) | **Upheld.** Coordinator committed them. Not your fault, correct not to commit them. |
+
+Verified independently of your report, by git:
+
+| Check | Result |
+|---|---|
+| `assert` deletions in `tests/` across your 17 commits | 3, all strengthenings (`_SCHEMA_VERSION 32→33`, `endswith(".v1")` → parameterised `endswith(version)`). Accepted. |
+| Migrations 1–32 edited | No. Migration 33 is a new entry. |
+| `agent/acceptance.sh` touched by you | No (only coordinator commit `7dd69c4`). |
+| `docs/` adjusted to code | No. One new ADR only. |
+| Tests | 147 passed, 1 skipped. 0 xfail remaining. |
+| Fixtures naming rule (`synthetic` in name and body) | 5/5 pass. |
+
+**Stage A + increments I1–I13 are accepted.** Do not rewrite any of it.
+
+### Two defects found in review
+
+1. **I16 is missing.** TASK-4 §T3 required
+   `test_i16_schema_change_reaches_existing_db` in
+   `tests/test_invariants.py`. It does not exist. The substance is in
+   `tests/test_db.py:155`, but the named invariant is absent, and
+   acceptance check 2 only scans `i01…i15`, so it slipped through.
+   → **T0 below.**
+2. **Shadowed import.** `rusterm/store/db.py`, `open_connection()`
+   re-imports `sqlite3` inside the function body while the module
+   already imports it at the top. Dead line. → **T1 below.**
+
+### One thing outside your control
+
+`origin/agent/night-2` is at `7c010ab`. Your 17 commits are **local
+only** — never pushed. If your next session clones from GitHub you will
+get the old tree and lose everything. **First thing you do: check
+`git log origin/agent/night-2..agent/night-2`. If it is non-empty and
+you have push rights, push. If you do not have push rights, say so in
+the report's first line and produce `git bundle create handoff.bundle --all`.**
+
+---
+
+## 1. HOW TO WORK. Read this whole section; it is the important part
+
+Four agents in a row failed on method, not on difficulty. Every rule
+below exists because of a specific loss.
+
+### 1.1. The cycle. One task item = one pass
+
+```
+1. READ     the file you are about to change, in full. Not from memory.
+2. SHOW     current state with a command, and look at the output.
+3. CHANGE   exactly one item. Not two.
+4. VERIFY   with the command from that item's "Done when".
+5. SELFCHECK  four commands from §1.3. All must be clean.
+6. COMMIT   immediately, before moving to the next item.
+7. RECORD   one line in agent/REPORT-5.md: command + its output.
+```
+
+Step 6 does not get deferred. Two agents left a whole night's work in
+the working tree; it survived only because someone dug it out by hand.
+
+### 1.2. Five prohibitions
+
+**P1. Never delete an `assert`.** A test that blocks your change is a
+signal the change is wrong, not that the test is junk. If an assertion
+is genuinely obsolete it is **replaced by a stronger one**, and the
+report says in what way the new one is stricter.
+
+**P2. Never edit an existing migration.** `_MIGRATIONS` in
+`rusterm/store/db.py` is history already applied to other databases.
+An edit made after the fact never arrives: `apply_migrations` skips the
+version because it is already in `schema_version`. Schema change =
+**new** migration with a new number.
+
+**P3. Leave nothing outside git.** Everything you report must be in
+`git ls-files`.
+
+**P4. No `.bak`, `.orig`, temp databases or junk.** You are editing a
+file — edit the file; git is the copy.
+
+**P5. Never claim a check you did not run.** "Not run" is an acceptable
+answer. "Works" without command output is not.
+
+### 1.3. Selfcheck. Four commands before every commit
 
 ```bash
-python3 -c "import rusterm.store.db"      # 1. модуль импортируется
-python3 -m pytest -q | tail -2            # 2. код возврата 0
-git status --porcelain | grep '^??'       # 3. пусто
+git diff --cached | grep '^-.*assert'                # P1: must be empty
+git diff --cached rusterm/store/db.py | grep '^-'    # P2: empty except _SCHEMA_VERSION
+git status --porcelain | grep '^??'                  # P3, P4: must be empty
+bash agent/acceptance.sh                             # must not get worse
 ```
 
-Команда 2 вернула код 2 — это не «тесты упали», это **сборка сломана**,
-тесты даже не собрались. Немедленно откатись:
+### 1.4. When stuck
+
+Same thing fails after **three different hypotheses** about the cause
+(not three retries):
+
+1. Stop working on it.
+2. If it is a test — mark `@pytest.mark.xfail(strict=True, reason="…")`.
+   Do not delete, do not weaken.
+3. Write in the report: what failed, which three hypotheses you tried.
+4. Move to the next item.
+
+This is a normal, accepted outcome.
+
+### 1.5. Stop rule
+
+A test that used to pass starts failing — stop immediately. Do not fix
+forward, roll back: `git checkout -- <file>`, then re-enter.
+
+### 1.6. Commit format
+
+Russian, imperative, one thought. First line — what was done; body —
+how it was verified, with command output.
+
+### 1.7. Bookkeeping
+
+- `agent/REPORT-5.md`, written as you go, not at the end. Sections:
+  Done (one line per item, command + output), Blocked, What not to
+  trust, Disputed. Last line of the file is always
+  `NOW: <item>, step <n>`.
+- `agent/STATE.json` after every cycle step:
+  `{"task": "agent/TASK-5.md", "report": "agent/REPORT-5.md",
+  "item": "<T-id>", "step": "<1-7>", "status": "working"|"awaiting_review",
+  "last_commit": "<sha>", "updated_at": "<ISO8601 UTC>"}`.
+- At 10:00 Danang (UTC+7): finish the current item to a commit, append
+  `## HANDOFF` to the report (DONE/PARTIAL/BLOCKED, what is done, what
+  is not, questions for the coordinator), set `"status":
+  "awaiting_review"`.
+
+---
+
+## 2. Tasks
+
+Strictly in order. Do not start the next before the previous is
+committed. Items are ordered by priority: if the night runs out, the
+top ones are the ones that mattered.
+
+### T0. Restore invariant I16
+
+TASK-4 §T3 was reported done but is not in the tree.
+
+Add to `tests/test_invariants.py` a function named exactly
+`test_i16_schema_change_reaches_existing_db`. It must:
+
+1. build a database at the previous schema version and insert a row;
+2. apply current migrations;
+3. assert `schema_version` grew, the row survived, and the new
+   constraint is in force (a `compression='gzip'` insert succeeds).
+
+Do not delete `tests/test_db.py:155`; that test stays. Do not touch
+`test_i01…test_i15`.
+
+**Done when:**
 
 ```bash
-git checkout -- <файл>
+python3 -m pytest tests/test_invariants.py -q -k i16
+grep -c '^def test_i16_schema_change_reaches_existing_db' tests/test_invariants.py
 ```
+prints 1 passed and `1`.
 
-### Пять запретов
+### T1. Remove the shadowed import
 
-1. **Комментарий вместо кода — не реализация.** Удалить строку и написать
-   на её месте `# здесь будет то-то` — значит сломать программу. Именно
-   так репозиторий сломали в прошлый заход.
-2. **Не удаляй `assert`.** Проверка: `git diff --cached | grep '^-.*assert'`
-   должно быть пусто.
-3. **Не правь существующие миграции.** Меняешь схему — добавляй новую
-   с новым номером.
-4. **Никаких `.bak`, `.SAVE`, `.orig`, `.xxx` и прочих копий.** Для этого
-   есть git. В прошлый заход их накопилось семь штук.
-5. **Не пиши «сделано» без вывода команды.**
+`rusterm/store/db.py`, `open_connection()`: delete the `import sqlite3`
+line inside the function body. Module-level import already exists.
 
-### Цикл
-
-Одна задача → правка → три команды ворот → коммит → строка в отчёте.
-Коммить сразу, не в конце. Две ночные работы уже едва не пропали
-из-за того, что лежали незакоммиченными.
-
-Застрял на одном месте после трёх **разных** попыток — пометь тест
-`@pytest.mark.xfail(strict=True, reason="…")`, запиши в отчёт и иди
-дальше. Это нормальный итог.
-
----
-
-## T0. Почини сборку
-
-В `rusterm/store/db.py`, в функции `apply_migrations`, строка
-`conn.execute(create_sql)` была удалена и заменена комментарием.
-Получился `try:` с пустым телом — синтаксическая ошибка, не
-импортируется ничего.
-
-Сейчас там:
-
-```python
-        try:
-            # Многооператорная поддержка: если SQL содержит ; — используется executescript, иначе execute
-        except sqlite3.OperationalError as e:
-```
-
-Должно стать:
-
-```python
-        try:
-            if create_sql.strip().rstrip(";").count(";") > 0:
-                conn.executescript(create_sql)
-            else:
-                conn.execute(create_sql)
-        except sqlite3.OperationalError as e:
-```
-
-Это же закрывает шаг «научить движок многооператорным миграциям»:
-`conn.execute` умеет ровно один SQL-оператор, а пересборка таблицы
-в T1 — четыре.
-
-**Готово:** `python3 -m pytest -q` даёт `84 passed, 5 xfailed`.
-
----
-
-## T1. Миграция 33
-
-Схему нельзя менять правкой уже применённой миграции: на существующей
-базе `apply_migrations` пропустит её версию, и изменение не доедет.
-Проверено — было именно так.
-
-`raw_store.py` умеет писать `compression="gzip"`, а ограничение в базе
-разрешает только `('none','zstd')`. Нужна новая миграция.
-
-**Шаг 1.** В конец списка `_MIGRATIONS` добавь запись:
-
-```python
-    ("""PRAGMA foreign_keys=OFF;
-CREATE TABLE raw_object_new (
-    sha256 TEXT PRIMARY KEY,
-    provider TEXT NOT NULL,
-    url TEXT,
-    fetched_at REAL NOT NULL,
-    bytes INTEGER NOT NULL,
-    content_type TEXT NOT NULL,
-    compression TEXT NOT NULL CHECK (compression IN ('none','zstd','gzip')),
-    instrument_id TEXT,
-    block TEXT,
-    http_status INTEGER,
-    etag TEXT);
-INSERT INTO raw_object_new SELECT * FROM raw_object;
-DROP TABLE raw_object;
-ALTER TABLE raw_object_new RENAME TO raw_object;
-PRAGMA foreign_keys=ON;""", "raw_object"),
-```
-
-`PRAGMA foreign_keys=OFF` обязателен: на `raw_object(sha256)` ссылается
-`fact.source_ref`, иначе `DROP TABLE` уронит связь.
-
-**Шаг 2.** Подними `_SCHEMA_VERSION` с 32 до 33 и поправь комментарий
-рядом: там написано «количество таблиц», должно быть «количество
-миграций».
-
-**Шаг 3. Резервная копия перед миграцией.** До этого шага миграции
-только создавали таблицы, и терять было нечего. Миграция 33 переносит
-данные: сбой посередине уносит единственную копию.
-
-`docs/data-model.md` §8 п.4 требует: «Перед миграцией снимается копия
-`rusterm.db` рядом; удаляется после успешного применения». Docstring
-самого `db.py` строкой 7 обещает то же. В коде этого нет — проверено,
-ни `shutil`, ни `os.replace`, ни временного файла.
-
-Сделай в `apply_migrations`, до цикла по миграциям:
-
-1. Определи, есть ли вообще что применять. Нечего — выходи сразу,
-   копию не снимай.
-2. Узнай путь к файлу базы: `conn.execute("PRAGMA database_list")`,
-   третье поле строки с именем `main`. Путь пустой — база в памяти,
-   копию не снимай.
-3. Сними копию в `<путь>.backup-<текущая версия>` **средствами
-   SQLite**, а не `shutil.copy`:
-
-```python
-    with sqlite3.connect(backup_path) as dst:
-        conn.backup(dst)
-```
-
-`shutil.copy` здесь неверен: база работает в режиме WAL, и часть
-данных лежит в отдельном `-wal`-файле, которого копия файла не
-захватит. `conn.backup` это учитывает.
-
-4. Оберни цикл миграций в `try`. Успех — удали копию. Исключение —
-   **оставь копию** и пробрось исключение дальше.
-
-Копия, которую никто не проверяет, — украшение. Поэтому добавь
-в `tests/test_db.py` тест: подсунь список миграций с заведомо битым
-SQL последним элементом, вызови `apply_migrations`, поймай исключение
-и убедись, что файл копии рядом с базой остался.
-
-**Готово:** команда ниже печатает `applied= [33]`, `version= 33`,
-`строк уцелело: 1`, `запись gzip: ok` и `копий после успеха: 0`;
-плюс новый тест на сбой зелёный.
+**Done when:**
 
 ```bash
-python3 - <<'EOF'
-import sqlite3, sys, tempfile, pathlib
-sys.path.insert(0, ".")
-from rusterm.store import db as m
-p = pathlib.Path(tempfile.mkdtemp()) / "old.db"
-c = sqlite3.connect(str(p), isolation_level=None)
-saved, sv = m._MIGRATIONS, m._SCHEMA_VERSION
-m._MIGRATIONS, m._SCHEMA_VERSION = saved[:32], 32     # база по схеме 32
-m.apply_migrations(c)
-m._MIGRATIONS, m._SCHEMA_VERSION = saved, sv
-c.execute("INSERT INTO raw_object(sha256,provider,fetched_at,bytes,content_type,compression)"
-          " VALUES ('a'*64,'t',0,1,'text/plain','none')")
-print("applied=", m.apply_migrations(c))
-print("version=", c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0])
-print("строк уцелело:", c.execute("SELECT COUNT(*) FROM raw_object").fetchone()[0])
-try:
-    c.execute("INSERT INTO raw_object(sha256,provider,fetched_at,bytes,content_type,compression)"
-              " VALUES ('b'*64,'t',0,1,'text/plain','gzip')")
-    print("запись gzip: ok")
-except Exception as e:
-    print("запись gzip:", type(e).__name__, e)
-print("копий после успеха:", len(list(p.parent.glob("*.backup*"))))
-EOF
+awk '/^def open_connection/,/^$/' rusterm/store/db.py | grep -c 'import sqlite3'
+python3 -m pytest -q
 ```
+prints `0` and a green run.
 
-`строк уцелело: 0` означает, что миграция потеряла данные. Это хуже,
-чем несделанная миграция.
+### T2. WatchlistRepo: the read side and immutable versioning
 
----
+`docs/watchlist-and-llm.md` §1.1. Schema tables already exist
+(`watchlist`, `watchlist_version`, `watchlist_member`, `watchlist_group`,
+`watchlist_group_member`, `watchlist_filter`). `WatchlistRepo` currently
+has three write methods and no reads.
 
-## T2. Пять инвариантов — пустышки, почини их
+Add to `rusterm/store/repos.py` (SQL stays in the store layer — check 7):
 
-У пяти из пятнадцати инвариантов тело состоит из одной строки:
+| Method | Contract |
+|---|---|
+| `current_version(watchlist_id)` | max `version` row, or `None` |
+| `members(watchlist_id, version=None)` | members of that version; default = current |
+| `groups(watchlist_id, version=None)` | groups + their members |
+| `filters(watchlist_id, version=None)` | `criteria_json` parsed |
+| `add_group` / `add_group_member` / `set_filter` | writes into a given version |
+| `rollback_to(watchlist_id, version)` | **inserts a new version** copying that version's members, groups and filters; never deletes or rewrites history; `action='rollback:<n>'` |
+| `list_watchlists()` | id, name, current version, member count |
 
-```python
-def test_i04_measure_without_lineage_rejected():
-    """Обе ветки: value задан и value IS NULL."""
-    pytest.fail("I4 не реализован на этом этапе — причина в декораторе")
-```
+Composition change = new `watchlist_version` row + a fresh member set.
+There is no in-place edit.
 
-Это I4, I5, I6, I13, I15. Проверок в них нет ни одной. Следствия два,
-и второе хуже первого:
+**Done when** `tests/test_watchlist.py` exists and covers, at minimum:
+current version after three edits is 3; `rollback_to(1)` produces
+version 4 whose members equal version 1's; version 1's rows are
+byte-identical before and after the rollback. `python3 -m pytest
+tests/test_watchlist.py -q` green.
 
-1. Треть надзорного набора ничего не сторожит.
-2. `xfail(strict=True)` **не снимет их сам**, когда код появится:
-   `pytest.fail` падает всегда, поэтому тест навсегда останется
-   «ожидаемо падающим», и никто не заметит, что правило давно
-   реализовано. Прежние задания утверждали обратное — это ошибка
-   автора заданий, не твоя.
+### T3. Coverage: gaps are shown, never hidden
 
-Показательный случай — I15: он требует, чтобы знаменатель `<= 0` давал
-`null`, и `formulas.py` это уже умеет,
-`roic(10, -1, -1)` возвращает `(None, 'negative_denominator')`.
-Тест об этом молчит.
+`docs/watchlist-and-llm.md` §1.3. Table `coverage` exists; nothing
+writes it.
 
-**Что сделать.** В каждом из пяти напиши настоящую проверку того, что
-описано в его docstring. Если нужного кода ещё нет — тест обязан падать
-**из-за отсутствия кода**, а не из-за `pytest.fail`; `xfail(strict=True)`
-на них оставь.
+- `CoverageRepo` in `rusterm/store/repos.py`: `upsert(instrument_id,
+  block, status, last_update, reason)`, `for_instrument(instrument_id)`,
+  `for_watchlist(watchlist_id)`.
+- Blocks, exactly these eight: `prices`, `fundamentals`, `ownership`,
+  `corporate_actions`, `governance`, `industry_metrics`, `peer_set`,
+  `llm_summary`.
+- Statuses, exactly these five: `ready`, `stale`, `processing`,
+  `missing`, `error`.
+- `missing` and `error` **require** a non-empty `reason`. Enforce it in
+  the repo, not only by convention.
+- Snapshot assembly (`rusterm/core/snapshot.py`) writes coverage for
+  every one of the eight blocks on every run — a block with no data
+  gets `missing` + reason, it is not skipped.
 
-Для I15 код уже есть: перепиши на реальную проверку `roic`, `roe`,
-`asset_turnover` и маржей на нулевом и отрицательном знаменателе,
-и **сними** с него `xfail`. Маржи при этом упадут — это дефект Д8,
-он чинится в T9; до тех пор вынеси проверку маржей в отдельный тест
-с `xfail(strict=True, reason="Д8, чинится в T9")`.
-
-**Готово:** `bash agent/acceptance.sh`, проверка 2 зелёная — она теперь
-отличает настоящий тест от `pytest.fail`.
-
----
-
-## T3. Верни три утерянных утверждения
-
-В `tests/test_raw_store.py` их удалили при правке, поданной как усиление.
-
-1. В `test_put_object_at_threshold_compresses` переменные `exists_zst`
-   и `exists_gz` вычисляются и никуда не идут. Добавь после них:
-   `assert exists_zst or exists_gz`.
-2. Там же добавь `assert not plain.exists()` — несжатой копии рядом
-   со сжатой быть не должно.
-3. В `test_put_object_above_threshold_compresses` добавь
-   `assert obj.compression in ("zstd", "gzip")`.
-
-**Готово:** `python3 -m pytest tests/test_raw_store.py -q` зелёный.
-
----
-
-## T4. Инвариант I16
-
-Ни один из пятнадцати инвариантов не проверяет, что новая миграция
-доезжает до **уже существующей** базы. Эта дыра и пропустила дефект,
-который чинится в T1.
-
-Добавь в `tests/test_invariants.py` функцию с именем ровно
-`test_i16_schema_change_reaches_existing_db`:
-
-1. создать базу по схеме 32 и положить в неё строку;
-2. применить актуальные миграции;
-3. проверить: `schema_version` вырос, строка на месте, запись
-   с `compression='gzip'` проходит.
-
-Пятнадцать существующих не трогай, `xfail` с них не снимай.
-
-**Готово:** `python3 -m pytest tests/test_invariants.py -q` даёт
-`11 passed, 5 xfailed`.
-
----
-
-## T5. `Fact` объявлен неизменяемым, но изменяем
-
-`rusterm/core/fact.py`: шесть классов локаторов объявлены
-`@dataclass(frozen=True)`, а сам `Fact` на строке 120 — просто
-`@dataclass`, при том что комментарий над ним говорит «неизменяемая
-после создания». Проверено:
-
-```
-f.value = "2"   → проходит без ошибки
-```
-
-Инвариант I2 этого не ловит: он проверяет **текст** исходника
-`repos.py` через `inspect.getsource` на отсутствие `UPDATE fact SET
-value`, а не поведение объекта.
-
-**Что сделать.** Поставить `frozen=True` на `Fact`. Поле
-`superseded_by` по спецификации меняется — переведи его изменение
-на создание нового объекта через `dataclasses.replace`, как и требует
-модель факта. Затем допиши в I2 проверку поведения: попытка
-`f.value = …` обязана поднимать `FrozenInstanceError`. Текстовую
-проверку `repos.py` не удаляй, она ловит другое.
-
-**Готово:** `python3 -m pytest tests/test_invariants.py -q` зелёный,
-попытка мутации падает.
-
----
-
-## T6. Перепиши ADR-0007
-
-`docs/adr/0007-zstd-gzip-fallback.md`:
-
-1. В разделе «Контекст» удали абзац, начинающийся со слов
-   «Согласно `TASK-3.md` §3» — цитата выдумана, такого текста там нет.
-2. Раздел «Решение», пункт 1, описывает правку CHECK на месте. Замени
-   его описанием миграции 33 из T1: почему нельзя править применённую
-   миграцию, как таблица пересобирается, почему нужен
-   `PRAGMA foreign_keys=OFF`.
-
-Статус оставь «принято агентом, требует подтверждения».
-
-**Готово:** `grep -c "TASK-3" docs/adr/0007-*.md` даёт `0`.
-
----
-
-## T7. Убери мусор
+**Done when:**
 
 ```bash
-rm -f rusterm/store/db.py.bak rusterm/store/db.py.SAVE \
-      rusterm/store/db.py.SAVE2 rusterm/store/db.py.backup2 \
-      rusterm/store/db.py.bak3 rusterm/store/db.py.xxx \
-      tests/test_repos.py.bak tests/test_repos.py.orig \
-      docs/adr/0007-zstd-gzip-fallback.md.bak
-printf '*.bak\n*.orig\n*.SAVE*\n*.backup*\n' >> .gitignore
+python3 -m pytest tests/test_coverage.py -q
+```
+green, and one of its tests asserts that assembling a snapshot for an
+instrument with prices only yields exactly 8 coverage rows, 7 of them
+`missing` with non-empty reasons.
+
+### T4. Watchlist import/export
+
+`docs/watchlist-and-llm.md` §1.4.
+
+- Export: CSV and JSON, ticker-addressed, columns exactly
+  `ticker,market,isin,industry,note,added_at`.
+- Import: every row goes through `resolve_ticker(ticker, market, as_of)`.
+  A row that does not resolve, or resolves ambiguously, goes into the
+  import report and is **not added**. Silent skipping is a defect.
+- Import returns a report object: `added`, `already_present`,
+  `not_found`, `ambiguous` — each a list of rows with a reason.
+
+**Done when** `tests/test_watchlist_io.py` is green and asserts that
+importing a 4-row file (1 good, 1 unknown ticker, 1 ambiguous, 1 already
+present) adds exactly one member and reports the other three by category.
+
+### T5. System metrics
+
+`docs/quality-and-observability.md` §3. Table `metric_sample` exists;
+nothing writes it.
+
+Implement all nine, computed from the database, in
+`rusterm/core/metrics.py`: `provider_success_rate`,
+`provider_rate_limited`, `data_lag`, `suspect_share`, `unparsed_share`,
+`verification_queue`, `peer_set_coverage`, `peer_set_churn`,
+`locator_resolve_failures`.
+
+- `MetricsRepo.record(name, value, at, scope)` in the store layer.
+- No metric invents a value: with no input rows the metric is not
+  recorded, rather than recorded as 0. A missing sample and a zero are
+  different facts.
+
+**Done when** `tests/test_metrics.py` is green and asserts, for each of
+the nine names, both a computed value on seeded data and "not recorded"
+on empty data.
+
+### T6. Logs: three destinations, not mixed
+
+`docs/quality-and-observability.md` §4.
+
+- `logs/app.log` — application work, size-rotated (stdlib
+  `logging.handlers.RotatingFileHandler`, 5 files × 1 MB).
+- `logs/audit.jsonl` — user operations, append-only, one JSON object per
+  line, must survive loss of the database. Never rotated, never
+  rewritten.
+- `raw/manifests/*.jsonl` already exists and is unchanged.
+
+Path construction goes through `rusterm/store/paths.py`. `AuditRepo`
+writes both the `audit_log` table and the JSONL line; the JSONL line is
+written even if the database write fails.
+
+**Done when** `tests/test_logs.py` is green and asserts: audit line
+survives when the DB connection is closed mid-operation; `app.log`
+rotates after exceeding the size limit; the two files never contain each
+other's records.
+
+### T7. CLI for stage C
+
+Extend `rusterm/cli/` (no SQL there — check 7):
+
+```
+rusterm watchlist create|add|remove|list|show|rollback
+rusterm watchlist export --format csv|json
+rusterm watchlist import <file>
+rusterm coverage <instrument-id|--watchlist ID>
+rusterm metrics [--record]
 ```
 
-**Готово:** `git status --porcelain` пуст.
+Every command works on synthetic data and prints gaps with reasons.
+
+**Done when** `tests/test_cli.py` covers each new command end-to-end and
+`python3 -m pytest -q` is green.
 
 ---
 
-## T8. Этап B
+## 3. Out of scope
 
-Берётся только после T0-T7. Три инкремента, каждый со своими тестами
-до кода, каждый отдельным коммитом.
+Not under any circumstances, even with time left: Qt UI, LLM layer and
+chat, Industry View, UK/CA providers, industry metrics beyond
+Maritime/Tanker, real network sources. All work offline, on synthetic
+data.
 
-- **И6. Провайдеры.** Протоколы `MarketDataProvider` и
-  `DisclosuresProvider` по `docs/module-contracts.md` §2-3. Пиши через
-  `typing.Protocol`, **не** классом с `raise NotImplementedError`
-  в теле — десять таких заглушек держат проверку 5 приёмки красной.
-  Фейковый провайдер на фикстурах в `fixtures/`; каталога нет, создай.
-  Каждый файл фикстуры обязан иметь `synthetic` в имени и внутри.
-  Рынок РФ из проекта убран — `MOEX` в допустимых значениях быть
-  не должно, список в `docs/data-model.md` §1.
-- **И7. Парсер.** Синтетический XBRL-подобный JSON в факты с локаторами
-  `kind=xbrl` и `kind=table`, по `docs/module-contracts.md` §4.
-  В `rusterm/parsers/` не должно быть импортов HTTP-библиотек.
-- **И8. Конвейер.** Девять узлов процесса 1 из `docs/processes.md`
-  §46-123, очередь заданий с ключом идемпотентности, ветки ошибок
-  E1-E5. Двойной прогон не создаёт ни нового объекта в store,
-  ни новых фактов.
+Time left over — go back to tests, or take the top item from
+`agent/BACKLOG.md`. Do not invent work.
 
-**Готово:** `bash agent/acceptance.sh` даёт 13 из 13.
+## 4. Stack
 
----
+Python 3.12+, must also work on 3.14. Standard library; `pytest` for
+tests; `sqlite3` from stdlib; `zstandard` optional, `gzip` is the
+fallback; `httpx`/`requests` only inside `rusterm/providers/`.
+Forbidden: ORM, `alembic`, `pandas`, `numpy`, async frameworks.
 
-## T9. Только после T8: И9, формульный движок
+`list`, `dict`, `tuple`, `set` are builtins — write `list[str]`, with
+`from __future__ import annotations` at the top of the module.
 
-`rusterm/formulas.py` написан первым исполнителем, тестов на него нет
-ни одного, и в нём уже найдено четыре дефекта. Точечно их не чинь —
-модуль переписывается целиком в инкременте И9 по
-`docs/data-dictionary.md` §2-3: концепты, формулы `method_version` v1,
-TTM, правила `null`.
+## 5. Acceptance
 
-Эталон golden-file выписывается **до** кода. Иначе он зафиксирует
-не правильный ответ, а получившийся.
+`bash agent/acceptance.sh` — thirteen machine checks, currently 13/13
+on `agent/night-2`. Run it after every commit; it must never get worse.
 
-Четыре случая ниже — приёмочные критерии И9. Сейчас каждый ведёт себя
-неверно; после переписывания каждый обязан вести себя как в колонке
-«должно быть».
-
-| Вход | Сейчас | Должно быть |
-|---|---|---|
-| `effective_tax_rate(tax=-100, pretax=-1000)` | `(0.1, None)` | `null`, причина по правилу «pretax_income <= 0» |
-| `effective_tax_rate(tax=100, pretax=-1000)` | `(0.0, None)` | то же |
-| `calculate_measure("invested_capital", te=100, mi=0, td=50)` | `TypeError` | `null` с причиной `missing_data` |
-| `calculate_measure("ebitda", operating_income=100, d_and_a=None)` | `value=100` | `null` с причиной `missing_data` |
-| `gross_margin(gross_profit=10, revenue=-100)` | `(-0.1, None)` | `null` с причиной `negative_denominator` |
-
-Последняя строка: `roic` в том же модуле уже возвращает
-`negative_denominator` при отрицательном знаменателе. Маржи обязаны
-вести себя так же — сейчас они проверяют только `== 0`.
-
-И ещё: `calculate_measure("ebitda", …)` сейчас возвращает `Measure`
-с непустым `value` и пустым `lineage`. Это запрещено инвариантом I4,
-который помечен `xfail` и потому молчит. После И9 сними с него метку.
-
-**Готово:** golden-file зелёный, все пять строк таблицы дают колонку
-«должно быть», I4 больше не `xfail`.
-
----
-
-## Чего не делаем
-
-Qt, LLM-слой, Industry View, провайдеры UK и CA, реальные сетевые
-источники. Всё офлайн, на синтетике. Расширять область запрещено.
-
-## Стек
-
-Python 3.12+, обязана работать 3.14. Стандартная библиотека, `pytest`,
-`sqlite3` из stdlib. `zstandard` необязателен, `gzip` — фолбэк.
-`httpx`/`requests` только внутри `rusterm/providers/`. Запрещены ORM,
-`alembic`, `pandas`, `numpy`, асинхронные фреймворки.
-
-`list`, `dict`, `tuple` — встроенные типы, в `typing` их нет. Пиши
-`list[str]` и `from __future__ import annotations` в шапке модуля.
-
-## Приёмка и отчёт
-
-`bash agent/acceptance.sh` — тринадцать проверок, запускай после каждого
-коммита. **Править скрипт запрещено**, он сверяется с `origin/main`.
-Считаешь проверку неверной — пиши в раздел «Спорное» отчёта.
-
-Отчёт — `agent/REPORT-3.md`. На каждую задачу одна строка: команда
-и её фактический вывод. Последняя строка файла всегда
-`СЕЙЧАС: <задача>`.
+**Editing that file is forbidden** — check 12 compares it against
+`origin/main` and an edit voids the whole night. Think a check is
+wrong — write it in the report's "Disputed" section; it gets read, and
+last time both of your disputed items were upheld.
