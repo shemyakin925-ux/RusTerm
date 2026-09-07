@@ -1,0 +1,20 @@
+{
+  "source": "synthetic",
+  "note": "Синтетическая форма инсайдерской сделки для poll_index/fetch_document (И6). Все данные выдуманы.",
+  "doc_kind": "table",
+  "form_type": "Form 4",
+  "period_end": "2024-05-02",
+  "tables": [
+    {
+      "table_name": "transactions",
+      "unit": "shares",
+      "rows": [
+        {
+          "cells": [
+            {"concept": "insider_buy", "value": "1000"}
+          ]
+        }
+      ]
+    }
+  ]
+}

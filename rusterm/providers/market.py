@@ -1,151 +1,150 @@
-"""MarketDataProvider — протокол котировок и профилей.
+"""MarketDataProvider — протокол котировок и профилей (module-contracts.md §2).
 
-Строгие запреты: только стандартная библиотека, HTTP только внутри rusterm/providers/.
-Никаких ORM, асинхронных фреймворков, внешних зависимостей.
+Границы слоя: HTTP может жить только здесь; слой хранилища провайдеру
+запрещён (I10); ни одна операция не бросает исключение наружу — ошибка
+возвращается значением (ProviderError).
 """
 from __future__ import annotations
 
-from typing import Literal, Optional
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+
+from .base import ProviderError
+
+# Рынок — строка спецификации (data-model.md §1: listing.exchange — строка).
+# Рынок РФ исключён из проекта коммитом b1125ba; MOEX не используется.
+Market = str
+
+_FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 
 
-InstrumentId = str
-Market = Literal["MOEX", "NYSE", "NASDAQ", "ICE"]
-Profile = dict[str, any]
+@dataclass(frozen=True)
+class ResolveMatch:
+    instrument_id: str
 
 
-class MarketDataProvider:
-    """Протокол MarketDataProvider (module-contracts.md §2).
-
-    Все методы возвращают либо валидные данные, либо явные маркеры ошибок
-    (not_found, not_modified), никогда исключения.
-    """
-
-    def resolve(self, instrument_id: InstrumentId,
-                market: Optional[Market] = None,
-                date: Optional[str] = None) -> _listdict:
-        """Разрешение тикера к instrument_id.
-
-        Возвращает dict с полями:
-        - instrument_id: str
-        - ambiguous: list[str]  (варианты совпадения)
-        - not_found: bool
-        """
-        raise NotImplementedError
-
-    def profile(self, instrument_id: InstrumentId) -> _listdict:
-        """Профиль эмитента.
-
-        Возвращает dict с raw-объектом и метаданными.
-        Не возвращает факты — только сырьё для парсера.
-        """
-        raise NotImplementedError
-
-    def prices(self, listing_id: InstrumentId,
-               start: str, end: str) -> _listdict:
-        """Цены за диапазон дат.
-
-        Обязан отдавать и close, и adjusted.
-        Diff строится по close.
-        """
-        raise NotImplementedError
-
-    def industry_members(self, industry: str,
-                        filters: _listdict | None = None) -> _listdict:
-        """Члены отрасли.
-
-        Результат — кандидаты, не члены peer set.
-        """
-        raise NotImplementedError
-
-    def index_members(self, index: str) -> _listdict:
-        """Члены индекса/ETF.
-
-        Результат — кандидаты.
-        """
-        raise NotImplementedError
+@dataclass(frozen=True)
+class ResolveAmbiguous:
+    """Несколько кандидатов — выбор наугад запрещён (ADR-0005)."""
+    candidates: tuple
 
 
-class FakeMarketDataProvider(MarketDataProvider):
-    """Фейковый MarketDataProvider на синтетических данных.
+@dataclass(frozen=True)
+class ResolveNotFound:
+    ticker: str
+    market: str
+    as_of: str
 
-    Явно помечен как synthetic для отличия от реальных источников.
-    Отдаёт poll_index и документы для тестирования инкрементов I6-I7.
-    """
 
-    # Индекс изменений для инкрементального poll_index
-    _cursor: str = "0"
-    # Кэш данных
-    _cache: _listdict = {}
+ResolveOutcome = ResolveMatch | ResolveAmbiguous | ResolveNotFound | ProviderError
 
-    def _set_cache(self, data: _listdict) -> None:
-        """Установка кэша данных (для тестирования)."""
-        self._cache = data
 
-    # -- MarketDataProvider implementation --
+@dataclass(frozen=True)
+class ProfileResult:
+    instrument_id: str
+    data: dict
 
-    def resolve(self, instrument_id: InstrumentId,
-                market: Optional[Market] = None,
-                date: Optional[str] = None) -> _listdict:
-        """Простое разрешение: возвращаем данные из кэша или not_found."""
-        result = self._cache.get(instrument_id)
-        if result is None:
-            return {
-                "instrument_id": instrument_id,
-                "not_found": True,
-                "ambiguous": [],
-            }
-        # Убеждаемся, что в результате есть instrument_id
-        if "instrument_id" not in result:
-            result["instrument_id"] = instrument_id
-        return result
 
-    def profile(self, instrument_id: InstrumentId) -> _listdict:
-        """Возвращает профиль из кэша или базовый пустой."""
-        result = self._cache.get(instrument_id, {})
-        if not result:
-            result = {
-                "instrument_id": instrument_id,
-                "ticker": instrument_id,
-                "exchange": "MOEX",
-                "sector": "unknown",
-                "industry": "unknown",
-            }
-        if "instrument_id" not in result:
-            result["instrument_id"] = instrument_id
-        return result
+@dataclass(frozen=True)
+class PriceRow:
+    date: str
+    close: float
+    adjusted: float
 
-    def prices(self, listing_id: InstrumentId,
-               start: str, end: str) -> _listdict:
-        """Возвращает цены из кэша."""
-        result = self._cache.get(listing_id, {})
-        if not result:
-            # Возвращаем базовые цены по умолчанию
-            result = {
-                "listing_id": listing_id,
-                "close": 0.0,
-                "adjusted": 0.0,
-                "start": start,
-                "end": end,
-            }
-        if "listing_id" not in result:
-            result["listing_id"] = listing_id
-        return result
+
+@dataclass(frozen=True)
+class PriceSeries:
+    listing_id: str
+    rows: tuple  # tuple[PriceRow, ...]
+
+
+@dataclass(frozen=True)
+class Candidates:
+    """Кандидаты отрасли/индекса: это кандидаты, не члены peer set."""
+    items: tuple
+
+
+class MarketDataProvider(Protocol):
+    """Протокол по module-contracts.md §2. Реализации не наследуются:
+    достаточно совпадения методов (typing.Protocol)."""
+
+    def resolve(self, ticker: str, market: Market, as_of: str) -> ResolveOutcome:
+        """Разрешение тикера к instrument_id. Без даты запрещено (ADR-0005)."""
+        ...
+
+    def profile(self, instrument_id: str) -> ProfileResult | ProviderError:
+        """Сырой профиль: сырьё для парсера, не факты."""
+        ...
+
+    def prices(self, listing_id: str, start: str, end: str) -> PriceSeries | ProviderError:
+        """Цены за диапазон. Обязан отдавать и close, и adjusted."""
+        ...
 
     def industry_members(self, industry: str,
-                         filters: _listdict | None = None) -> _listdict:
-        """Возвращает кандидатов отрасли."""
-        result = self._cache.get(f"industry_{industry}", [])
-        if not result:
-            result = []
-        if "instrument_id" not in str(result):
-            # Гарантируем структуру
-            if isinstance(result, list):
-                result = [{"instrument_id": r} if isinstance(r, str) else r for r in result]
-        return {"candidates": result}
+                         filters: dict | None = None) -> Candidates | ProviderError:
+        """Кандидаты отрасли."""
+        ...
 
-    def index_members(self, index: str) -> _listdict:
-        """Возвращает кандидатов индекса."""
-        result = self._cache.get(f"index_{index}", [])
-        if not result:
-            result = []
-        return {"candidates": result}
+    def index_members(self, index: str) -> Candidates | ProviderError:
+        """Кандидаты индекса либо ETF."""
+        ...
+
+
+class SyntheticMarketProvider:
+    """Фейковый провайдер на синтетических фикстурах
+    fixtures/synthetic_market_profile.json. Все данные выдуманы;
+    только для тестов И6-И8."""
+
+    source_name = "synthetic"
+
+    def __init__(self, fixture_path: Path | None = None):
+        path = fixture_path or (_FIXTURES / "synthetic_market_profile.json")
+        with open(path, "r", encoding="utf-8") as f:
+            self._data = json.load(f)
+
+    def resolve(self, ticker: str, market: Market, as_of: str) -> ResolveOutcome:
+        # Разрешение без даты запрещено (ADR-0005); пустая дата — ошибка значением.
+        if not as_of:
+            return ProviderError("resolve_without_date")
+        ambiguous = self._data.get("ambiguous", {})
+        if ticker in ambiguous:
+            return ResolveAmbiguous(tuple(ambiguous[ticker]))
+        inst = self._data.get("instruments", {}).get(ticker)
+        if inst is None:
+            return ResolveNotFound(ticker=ticker, market=market, as_of=as_of)
+        return ResolveMatch(inst["instrument_id"])
+
+    def profile(self, instrument_id: str) -> ProfileResult | ProviderError:
+        data = self._data.get("profiles", {}).get(instrument_id)
+        if data is None:
+            return ProviderError(f"profile_not_found:{instrument_id}")
+        return ProfileResult(instrument_id=instrument_id, data=dict(data))
+
+    def prices(self, listing_id: str, start: str, end: str) -> PriceSeries | ProviderError:
+        rows = self._data.get("prices", {}).get(listing_id)
+        if rows is None:
+            return ProviderError(f"listing_not_found:{listing_id}")
+        selected = tuple(
+            PriceRow(date=r["date"], close=float(r["close"]),
+                     adjusted=float(r["adjusted"]))
+            for r in rows
+            if start <= r["date"] <= end
+        )
+        return PriceSeries(listing_id=listing_id, rows=selected)
+
+    def industry_members(self, industry: str,
+                         filters: dict | None = None) -> Candidates | ProviderError:
+        items = [
+            {"instrument_id": iid, "data": dict(p)}
+            for iid, p in self._data.get("profiles", {}).items()
+            if p.get("industry") == industry
+        ]
+        return Candidates(tuple(items))
+
+    def index_members(self, index: str) -> Candidates | ProviderError:
+        members = self._data.get("index_members", {}).get(index)
+        if members is None:
+            return ProviderError(f"index_not_found:{index}")
+        return Candidates(tuple(members))

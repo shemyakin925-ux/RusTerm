@@ -1,133 +1,153 @@
-"""Парсеры: can_parse и parse для синтетических XBRL-подобных JSON и таблиц.
+"""Парсеры: can_parse и parse для синтетических XBRL-подобного JSON и таблиц.
 
-Строгие запреты: сети нет (все из сырого объекта), никаких ORM, 
-каждый факт с локатором и basis; недоразобранное считается и возвращается.
+Границы (module-contracts.md §4): сети нет — парсинг воспроизводится
+на сохранённом сырье; can_parse решает по метаданным, не читая тела;
+каждый факт имеет локатор и basis; недоразобранное считается и
+возвращается, а не игнорируется.
+
+Парсер возвращает словари факта по data-model.md §3. Сборка объектов
+core.Fact — обязанность конвейера, не парсера.
 """
 from __future__ import annotations
 
-from typing import Literal, Optional, Tuple
+import json
+from dataclasses import dataclass, field
+from typing import Protocol
 
-RawObject = dict[str, any]
+# Правило basis одно на проект (I3): берётся из core, чтобы не плодить
+# вторую копию правила, которая неизбежно разойдётся.
+from rusterm.core.fact import determine_basis
 
-
-class Parser:
-    """Протокол парсера (module-contracts.md §4)."""
-
-    def can_parse(self, raw: RawObject, metadata: dict) -> bool:
-        """Может ли парсер обработать данный raw объект.
-
-        По типу и источнику, без чтения тела целиком.
-        """
-        raise NotImplementedError
-
-    def parse(self, raw: RawObject, context: dict) -> Tuple[list, int]:
-        """Разбирает raw объект на факты.
-
-        Возвращает (список фактов, счетчик неразобранного).
-        Каждый факт с локатором и basis.
-        Сети нет.
-        Недоразобранное считается и возвращается, а не игнорируется.
-        """
-        raise NotImplementedError
+PARSER_VERSION = "synthetic.v1"
 
 
-class SyntheticXBRLParser(Parser):
-    """Парсер синтетического XBRL-подобного JSON.
+@dataclass
+class ParseResult:
+    """Разобранный документ: факты-словари + счётчик неразобранного."""
+    facts: list[dict] = field(default_factory=list)
+    unparsed: int = 0
+    parser_version: str = PARSER_VERSION
 
-    Разбирает JSON с kind=xbrl локаторами в Fact-ы.
-    Явно помечен как synthetic.
-    """
 
-    def can_parse(self, raw: RawObject, metadata: dict) -> bool:
-        """Парсер может обработать если есть facts в raw объекте."""
-        return "facts" in raw
+class Parser(Protocol):
+    """Протокол парсера (module-contracts.md §4). Наследования не нужно."""
 
-    def parse(self, raw: RawObject, context: dict) -> Tuple[list, int]:
-        """Разбирает синтетический XBRL JSON в список фактов.
+    def can_parse(self, metadata: dict) -> bool:
+        """По типу и источнику, без чтения тела."""
+        ...
 
-        Возвращает (facts_list, unparsed_count).
-        Каждый факт содержит локатор kind=xbrl и basis.
-        """
-        facts = []
-        unparsed = 0
+    def parse(self, raw: bytes, context: dict) -> ParseResult:
+        """Сырой объект + контекст эмитента -> факты и счётчик неразобранного."""
+        ...
 
-        # Ищем facts в raw объекте
-        raw_facts = raw.get("facts", {})
-        if not raw_facts:
-            return [], 0
 
-        # Простая эмуляция: создаем факты из доступных данных
-        for fact_id, fact_data in raw_facts.items():
-            # Базовый факт
-            fact = {
-                "fact_id": fact_id,
-                "concept": fact_data.get("concept", "unknown"),
-                "value": str(fact_data.get("value", "0")),
-                "unit": fact_data.get("unit", "USD"),
-                "basis": "as_reported",  # по умолчанию
+class SyntheticXBRLParser:
+    """XBRL-подобный JSON: {"facts": {fact_id: {...}}}; локатор kind=xbrl."""
+
+    source_name = "synthetic"
+
+    def can_parse(self, metadata: dict) -> bool:
+        return metadata.get("doc_kind") == "xbrl"
+
+    def parse(self, raw: bytes, context: dict) -> ParseResult:
+        doc = json.loads(raw.decode("utf-8"))
+        result = ParseResult()
+        doc_period_end = doc.get("period_end", "")
+        filed_at = doc.get("filed_at", "")
+
+        for fact_id, fd in doc.get("facts", {}).items():
+            concept = fd.get("concept", "")
+            value = fd.get("value")
+            period_end = fd.get("period_end", "")
+            if not concept or value is None or str(value) == "" or not period_end:
+                # Недоразобранное считается, а не выбрасывается.
+                result.unparsed += 1
+                continue
+            result.facts.append({
+                "issuer_id": context.get("issuer_id"),
+                "listing_id": context.get("listing_id"),
+                "concept": concept,
+                "value": str(value),
+                "unit": fd.get("unit", ""),
+                "currency": None,
+                "period_start": fd.get("period_start") or period_end,
+                "period_end": period_end,
+                "period_type": fd.get("period_type", "duration"),
+                "basis": determine_basis(doc_period_end, period_end, filed_at),
                 "origin": "extracted",
-                "source_ref": metadata.get("sha256", ""),
+                "source_ref": context.get("source_ref", ""),
                 "locator": {
                     "kind": "xbrl",
-                    "doc_sha256": metadata.get("sha256", ""),
+                    "doc_sha256": context.get("source_ref", ""),
                     "fact_id": fact_id,
+                    "concept": concept,
                 },
-                "parser_version": "synthetic.v1",
-            }
-            facts.append(fact)
-
-        unparsed = len(raw) - len(raw_facts) if raw else 0
-        return facts, unparsed
+                "parser_version": PARSER_VERSION,
+                "status": "ok",
+            })
+        return result
 
 
-class TableParser(Parser):
-    """Парсер табличных данных.
+class TableParser:
+    """Табличный JSON: {"tables": [{rows: [{cells: [...]}]}]}; локатор kind=table."""
 
-    Разбирает JSON с kind=table локаторами в Fact-ы.
-    """
+    source_name = "synthetic"
 
-    def can_parse(self, raw: RawObject, metadata: dict) -> bool:
-        """Парсер может обработать если есть tables в raw объекте."""
-        return "tables" in raw
+    def can_parse(self, metadata: dict) -> bool:
+        return metadata.get("doc_kind") == "table"
 
-    def parse(self, raw: RawObject, context: dict) -> Tuple[list, int]:
-        """Разбирает табличный JSON в список фактов.
+    def parse(self, raw: bytes, context: dict) -> ParseResult:
+        doc = json.loads(raw.decode("utf-8"))
+        result = ParseResult()
+        period_end = doc.get("period_end", "")
 
-        Возвращает (facts_list, unparsed_count).
-        """
-        facts = []
-        unparsed = 0
-
-        raw_tables = raw.get("tables", [])
-        if not raw_tables:
-            return [], 0
-
-        for ti, table in enumerate(raw_tables):
-            rows = table.get("rows", [])
-            for ri, row in enumerate(rows):
-                cells = row.get("cells", [])
-                for ci, cell in enumerate(cells):
-                    value = cell.get("value", "0")
-                    concept = cell.get("concept", f"table_{ti}_{ri}_{ci}")
-
-                    fact = {
-                        "fact_id": f"table_{ti}_{ri}_{ci}",
+        for ti, table in enumerate(doc.get("tables", [])):
+            unit = table.get("unit", "")
+            for ri, row in enumerate(table.get("rows", [])):
+                for ci, cell in enumerate(row.get("cells", [])):
+                    concept = cell.get("concept", "")
+                    value = cell.get("value")
+                    if not concept or value is None or str(value) == "":
+                        result.unparsed += 1
+                        continue
+                    result.facts.append({
+                        "issuer_id": context.get("issuer_id"),
+                        "listing_id": context.get("listing_id"),
                         "concept": concept,
                         "value": str(value),
-                        "unit": "USD",
+                        "unit": cell.get("unit", unit),
+                        "currency": None,
+                        "period_start": period_end,
+                        "period_end": period_end,
+                        "period_type": "instant",
                         "basis": "as_reported",
                         "origin": "extracted",
-                        "source_ref": metadata.get("sha256", ""),
+                        "source_ref": context.get("source_ref", ""),
                         "locator": {
                             "kind": "table",
-                            "doc_sha256": metadata.get("sha256", ""),
+                            "doc_sha256": context.get("source_ref", ""),
                             "table_index": ti,
                             "row": ri,
                             "col": ci,
                         },
-                        "parser_version": "synthetic.v1",
-                    }
-                    facts.append(fact)
+                        "parser_version": PARSER_VERSION,
+                        "status": "ok",
+                    })
+        return result
 
-        unparsed = len(raw) - sum(len(t.get("rows", [])) for t in raw_tables) if raw else 0
-        return facts, unparsed
+
+# Реестр парсеров: parse_auto выбирает первого, чей can_parse сказал «да».
+_PARSERS: list[Parser] = [SyntheticXBRLParser(), TableParser()]
+
+
+def registered_parsers() -> list[Parser]:
+    return list(_PARSERS)
+
+
+def parse_auto(raw: bytes, metadata: dict, context: dict) -> ParseResult | None:
+    """Разобрать документ подходящим парсером; None — если такого нет.
+    Отсутствие парсера — ветка E4 конвейера, не молчаливый пропуск."""
+    for parser in _PARSERS:
+        if parser.can_parse(metadata):
+            return parser.parse(raw, context)
+    return None
