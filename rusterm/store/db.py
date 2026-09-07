@@ -21,7 +21,7 @@ from typing import Iterable, Iterator, List
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 32  # количество таблиц/миграций ниже
+_SCHEMA_VERSION = 33  # 32 табличные миграции + миграция 33 (gzip в CHECK raw_object)
 
 
 def _checksum(text: str) -> str:
@@ -300,6 +300,43 @@ _MIGRATIONS: list[tuple[str, str]] = [
         PRIMARY KEY (instrument_id, created_at))""", "llm_summary"),
 ]
 
+# Миграция 33: 'gzip' в CHECK raw_object.compression.
+# Существующие миграции неприкосновенны (у пользователя уже может лежать
+# база), а SQLite не умеет менять CHECK у существующей таблицы через ALTER,
+# поэтому — штатная перестройка: новая таблица с нужным ограничением,
+# перелив данных, удаление старой, переименование.
+_RAW_OBJECT_GZIP_DDL = """CREATE TABLE raw_object_new (
+        sha256 TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        url TEXT,
+        fetched_at REAL NOT NULL,
+        bytes INTEGER NOT NULL,
+        content_type TEXT NOT NULL,
+        compression TEXT NOT NULL CHECK (compression IN ('none','zstd','gzip')),
+        instrument_id TEXT,
+        block TEXT,
+        http_status INTEGER,
+        etag TEXT)"""
+
+_RAW_OBJECT_COLUMNS = (
+    "sha256, provider, url, fetched_at, bytes, content_type, "
+    "compression, instrument_id, block, http_status, etag"
+)
+
+
+def _migrate_33_raw_object_gzip(conn: sqlite3.Connection) -> None:
+    conn.execute(_RAW_OBJECT_GZIP_DDL)
+    conn.execute(
+        f"INSERT INTO raw_object_new ({_RAW_OBJECT_COLUMNS}) "
+        f"SELECT {_RAW_OBJECT_COLUMNS} FROM raw_object"
+    )
+    conn.execute("DROP TABLE raw_object")
+    conn.execute("ALTER TABLE raw_object_new RENAME TO raw_object")
+
+
+# Процедурные миграции после табличных: версия -> (функция, текст для checksum).
+_CUSTOM_MIGRATIONS: dict = {33: (_migrate_33_raw_object_gzip, _RAW_OBJECT_GZIP_DDL)}
+
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:
     """Применить все миграции до SCHEMA_VERSION.
@@ -352,6 +389,32 @@ def apply_migrations(conn: sqlite3.Connection) -> List[int]:
             "INSERT INTO schema_version(version, applied_at, checksum) VALUES (?, ?, ?)",
             (version, time.time(), _checksum(create_sql))
         )
+        applied_versions.add(version)
+        newly_applied.append(version)
+
+    for version, (migrate, checksum_text) in sorted(_CUSTOM_MIGRATIONS.items()):
+        if version in applied_versions or version > _SCHEMA_VERSION:
+            continue
+        # PRAGMA foreign_keys не действует внутри транзакции, поэтому
+        # выключается до BEGIN и возвращается после COMMIT.
+        fk_was_on = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        conn.execute("PRAGMA foreign_keys=OFF")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            migrate(conn)
+            conn.execute(
+                "INSERT INTO schema_version(version, applied_at, checksum) VALUES (?, ?, ?)",
+                (version, time.time(), _checksum(checksum_text))
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys=%s" % ("ON" if fk_was_on else "OFF"))
         applied_versions.add(version)
         newly_applied.append(version)
 
