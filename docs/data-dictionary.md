@@ -27,6 +27,11 @@
 6. **Никаких adjusted-величин эмитента.** Adjusted EBITDA, non-GAAP EPS и
    подобное берутся только как отдельные концепты с явным префиксом
    `reported_adj_*` и никогда не подставляются в формулы.
+7. **Уровень расчёта.** Фундаментальные величины считаются на `issuer`,
+   оценочные и котировочные — на `instrument`, то есть на класс акций
+   (`data-model.md` §4). Формула, смешивающая уровни, обязана прямо назвать,
+   чей множитель берёт; молчаливое умножение цены одного класса на общее
+   число акций эмитента — баг.
 
 ---
 
@@ -48,7 +53,7 @@
 | `interest_expense` | duration | валюта | процентные расходы |
 | `eps_diluted` | duration | валюта/акцию | разводнённая |
 | `shares_diluted` | duration | шт. | средневзвешенное разводнённое |
-| `shares_outstanding` | instant | шт. | на отчётную дату |
+| `shares_outstanding` | instant | шт. | на отчётную дату, **по классу акций** (`scope=instrument`) |
 | `ocf` | duration | валюта | операционный денежный поток |
 | `capex` | duration | валюта | приобретение основных средств; **без** покупок бизнесов |
 | `cash` | instant | валюта | деньги и эквиваленты |
@@ -58,10 +63,10 @@
 | `total_equity` | instant | валюта | капитал акционеров без неконтролирующей доли |
 | `minority_interest` | instant | валюта | |
 | `preferred_equity` | instant | валюта | |
-| `dps` | duration | валюта/акцию | объявленные дивиденды на акцию |
+| `dps` | duration | валюта/акцию | объявленные дивиденды на акцию, по классу (`scope=instrument`) |
 | `buyback_amount` | duration | валюта | фактически выкуплено |
-| `price_close` | instant | валюта | цена закрытия |
-| `price_adj` | instant | валюта | скорректированная на сплиты и дивиденды |
+| `price_close` | instant | валюта | цена закрытия, по классу акций (`scope=instrument`) |
+| `price_adj` | instant | валюта | скорректированная на сплиты и денежные дивиденды, алгоритм — §3 «Котировки» |
 
 ---
 
@@ -107,6 +112,14 @@ net_debt_ebitda   = net_debt / ebitda_ttm            (null при ebitda <= 0)
 interest_coverage = operating_income / interest_expense
 ```
 
+Выбор: `total_debt` **включает обязательства по финансовой аренде**, и они же
+попадают в `net_debt` и в `ev`. Выбор сознательный — для судоходства, ритейла
+и авиации аренда экономически тот же долг. Но он расходится с частью рыночных
+данных, где EV строится на классическом долге, поэтому `ev_ebitda` и
+`net_debt_ebitda` **не сопоставимы напрямую** с числами терминалов, и это
+показывается в подсказке к показателю. Смена решения требует нового
+`method_version`, а не тихой правки формулы.
+
 ### Денежный поток
 
 ```
@@ -120,21 +133,36 @@ fcf_yield         = fcf_ttm / market_cap
 ### Оценка
 
 ```
-market_cap        = price_close * shares_outstanding
-ev                = market_cap + total_debt - cash - st_investments
+market_cap(i)     = price_close(i) * shares_outstanding(i)
+                    считается отдельно для каждого класса акций i
+market_cap_total  = sum(market_cap(i)) по всем классам эмитента
+ev                = market_cap_total + total_debt - cash - st_investments
                     + minority_interest + preferred_equity
-pe                = market_cap / net_income_ttm      (null при <= 0)
-ev_ebitda         = ev / ebitda_ttm                  (null при <= 0)
-pb                = market_cap / total_equity        (null при <= 0)
-ps                = market_cap / revenue_ttm
-div_yield         = dps_ttm / price_close
+pe                = market_cap_total / net_income_ttm    (null при <= 0)
+ev_ebitda         = ev / ebitda_ttm                      (null при <= 0)
+pb                = market_cap_total / total_equity      (null при <= 0)
+ps                = market_cap_total / revenue_ttm
+div_yield(i)      = dps_ttm(i) / price_close(i)          (null при price_close <= 0)
 ```
+
+Выбор: мультипликаторы, у которых в знаменателе величина эмитента (прибыль,
+капитал, выручка), строятся на `market_cap_total`, а не на капитализации
+одного класса. Иначе P/E класса A и класса B у одного эмитента разошлись бы
+при полностью одинаковой экономике. Дивдоходность и total return, наоборот,
+остаются на классе — они целиком определяются его собственной ценой.
+
+`preferred_equity` входит в `ev` только тогда, когда привилегированные акции
+**не** учтены в `market_cap_total` отдельным классом. Если учтены — в `ev`
+подставляется 0, иначе привилегированный капитал считается дважды.
 
 ### Рост
 
 ```
 cagr(V, n)        = (V_end / V_start)^(1/n) - 1
                     null при V_start <= 0 — рост от убытка не определён
+                    null при V_end < 0 — корень из отрицательного числа
+                    не определён (падение в убыток)
+                    null при неполном периоде (§1.3)
 ```
 
 ### Котировки
@@ -143,6 +171,19 @@ cagr(V, n)        = (V_end / V_start)^(1/n) - 1
 total_return(t0,t1) = price_adj(t1) / price_adj(t0) - 1
 drawdown(t)         = price_adj(t) / max(price_adj[t0..t]) - 1
 ```
+
+```
+price_adj(t)      = price_close(t) * prod(f_e) по всем событиям e после t
+                    сплит с коэффициентом k:  f = 1 / k
+                    денежный дивиденд D с ex-date:
+                    f = 1 - D / price_close(последний день перед ex-date)
+```
+
+Выбор: `price_adj` корректируется **и на сплиты, и на денежные дивиденды**.
+Поэтому `total_return` по нему — полная доходность, и отдельно реинвестировать
+дивиденды не нужно. Корректировка только на сплиты систематически занижала бы
+доходность ровно на дивидендную составляющую, что для дивидендных секторов
+(REIT, коммунальщики, танкеры) — ошибка в разы, а не в процентах.
 
 `price_adj` по определению пересчитывается задним числом при каждом
 дивиденде и сплите, поэтому хранится с `basis=restated`, а `price_close` —

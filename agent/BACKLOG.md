@@ -44,42 +44,56 @@ this file.
   block list, and vice versa — accept: new test green; renaming a block
   in code turns it red — size: M
 
-- [ ] B8 — `effective_tax_rate` считает ставку при убытке: docstring
+- [ ] B8 — The zstd branch has never actually run: `zstandard` is not
+  installed in this environment, so only the gzip fallback is exercised.
+  Add a test that fakes a minimal `zstandard` module (compress/decompress
+  round-trip) so the zstd path, the `compression='zstd'` label and
+  reading a zstd object back are covered without the package — accept:
+  `python3 -m pytest -q -k zstd` green with the fake, and acceptance
+  check 11 still green — size: M
+- [ ] B9 — Request budget and provider rate limiter are specified in
+  `docs/processes.md` §6a and do not exist. They only bind once a real
+  provider exists, so build the deterministic core now: a budget counter
+  per (provider, window) and a limiter that refuses over quota, wired
+  into the provider registry, with the synthetic providers reporting
+  zero cost — accept: new test asserting the (N+1)-th call in a window
+  is refused rather than delayed — size: M
+- [ ] B10 — `effective_tax_rate` считает ставку при убытке: docstring
   требует «pretax_income <= 0 → ставка юрисдикции», код проверяет только
   `== 0`. `(-100, -1000)` даёт `0.1`, а `(100, -1000)` даёт ровно `0.0`,
   потому что `clip` обрезает снизу нулём — нулевая ставка выглядит
   правдоподобно и не вызовет подозрений. Ставка идёт в NOPAT, NOPAT —
   в ROIC — accept: обе пары дают `null` с причиной, тест в
   `tests/test_formulas.py` green — size: S
-- [ ] B9 — Маржи принимают отрицательный знаменатель: `gross_margin`,
+- [ ] B11 — Маржи принимают отрицательный знаменатель: `gross_margin`,
   `operating_margin`, `net_margin` проверяют `revenue == 0`, тогда как
   data dictionary требует `null` при знаменателе `<= 0`.
   `gross_margin(10, -100)` = `-0.1`, при том что соседний
   `roic(10, -1, -1)` в том же модуле возвращает
   `(None, 'negative_denominator')` — accept: три маржи дают
   `negative_denominator`, тест green — size: S
-- [ ] B10 — `calculate_measure("invested_capital")` бросает `TypeError`
+- [ ] B12 — `calculate_measure("invested_capital")` бросает `TypeError`
   на неполных данных: ветка допускает вызов при заполненных
   `total_equity`, `minority_interest`, `total_debt`, а сама функция
   требует пять обязательных аргументов. Контракт движка
   (`docs/module-contracts.md`) запрещает исключения — только `null`
   с причиной; отсутствие cash в отчётности обычно — accept: вызов без
   `cash`/`st_investments` даёт `null` с `missing_data`, тест green — size: S
-- [ ] B11 — EBITDA молча равна operating income при нераскрытой D&A:
+- [ ] B13 — EBITDA молча равна operating income при нераскрытой D&A:
   при `operating_income is not None` и `d_and_a is None` значение
   остаётся равным operating income с пустым `null_reason`. EBITDA —
   база для EV/EBITDA и net debt / EBITDA. Вдобавок возвращается
   `Measure` с непустым `value` и пустым `lineage`, что запрещено
   инвариантом I4 — accept: даёт `null` с `missing_data`, I4 это ловит,
   тест green — size: S
-- [ ] B12 — `Fact` объявлен неизменяемым, но изменяем: шесть классов
+- [ ] B14 — `Fact` объявлен неизменяемым, но изменяем: шесть классов
   локаторов — `@dataclass(frozen=True)`, сам `Fact` (`fact.py:141`) —
   обычный `@dataclass`, `f.value = "2"` проходит. Инвариант I2 этого
   не ловит, потому что проверяет текст `repos.py` через
   `inspect.getsource`, а не поведение — accept: `frozen=True`,
   `superseded_by` меняется через `dataclasses.replace`, I2 дополнен
   проверкой `FrozenInstanceError` — size: M
-- [ ] B13 — Миграция не снимает резервную копию базы вопреки
+- [ ] B15 — Миграция не снимает резервную копию базы вопреки
   `docs/data-model.md` §8 п.4 и собственному docstring `db.py`:
   в коде нет ни `shutil.copy`, ни временного файла. Пока миграции
   только создавали таблицы, цена была нулевой; теперь есть процедурные
@@ -87,14 +101,14 @@ this file.
   а не `shutil.copy`: база в режиме WAL, часть данных в `-wal`-файле —
   accept: копия создаётся до миграций и удаляется после успеха, тест
   на то, что при сбое она остаётся, green — size: M
-- [ ] B14 — Запись в content-addressed store не атомарна:
+- [ ] B16 — Запись в content-addressed store не атомарна:
   `raw_store.py:148,152` пишут через `target.write_bytes(...)` без
   временного файла и `os.replace`. Падение оставит обрезанный объект,
   который `has_object` сочтёт существующим. Store — единственный архив
   первоисточников, повреждённый объект ломает lineage и
   `resolve(locator)` — accept: запись идёт во временный файл рядом
   и переносится `os.replace`, тест green — size: M
-- [ ] B15 — Сбой в `RawRepo.put` оставляет сирот: объект пишется
+- [ ] B17 — Сбой в `RawRepo.put` оставляет сирот: объект пишется
   на диск, строка дописывается в манифест, и только потом идёт `INSERT`.
   Исключение на вставке оставляет файл и манифест без строки в базе
   (воспроизведено: диск `True`, манифест 1, БД 0). Повторный `put`
@@ -102,7 +116,7 @@ this file.
   той же записи (манифест 2), что исказит восстановление индекса —
   accept: либо вставка в БД идёт до манифеста, либо сбой откатывает
   обе записи; тест на обе ветки green — size: M
-- [ ] B16 — Записанный `checksum` миграции никогда не сверяется:
+- [ ] B18 — Записанный `checksum` миграции никогда не сверяется:
   `apply_migrations` пишет checksum в `schema_version`, но при старте
   не сравнивает его с текущим SQL. Правку уже применённой миграции —
   ту, что породила дефект Д1, — движок не заметил бы даже теоретически
@@ -111,7 +125,7 @@ this file.
 
 ## Done
 
-- B-ранее — Фабрика соединения с обязательными PRAGMA. Закрыто
-  в `9155908`: `db.open_connection(paths)` выставляет WAL и
-  `foreign_keys=ON`. Найдено сторонней рецензией как латентный дефект,
-  исправлено до того, как появился вызывающий код.
+- [x] Фабрика соединения с обязательными PRAGMA — закрыто в `9155908`:
+  `db.open_connection(paths)` выставляет WAL и `foreign_keys=ON`.
+  Найдено сторонней рецензией как латентный дефект, исправлено до того,
+  как появился вызывающий код.

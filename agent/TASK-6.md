@@ -1,6 +1,7 @@
 # TASK-6 — Stage D: verification, governance, industry metrics
 
-- **Status: READY**
+- **Status: SUPERSEDED by `agent/TASK-7.md`** — its items are merged
+  there as T9–T12. Kept for the record; do not work from this file.
 - **Branch:** `agent/night-2`
 - **Report file:** `agent/REPORT-6.md`
 - **Take this only after TASK-5 items T0–T5 are committed.** If TASK-5
