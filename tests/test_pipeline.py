@@ -212,6 +212,31 @@ def test_i7_double_run_creates_nothing_new():
         shutil.rmtree(tmpdir)
 
 
+def test_double_run_creates_no_new_job_rows():
+    """BACKLOG B3: идемпотентность очереди заданий. Второй прогон —
+    и даже третий с потерянным курсором — не добавляет строк в job."""
+    tmpdir, conn, paths, repos = _setup()
+    try:
+        pipe = IngestionPipeline(repos, {"synthetic": _provider_from_fixtures()},
+                                 sleep=NoSleep())
+        pipe.run("US-DEMO-A", "issuer-demo", "synthetic")
+        jobs_after_first = conn.execute(
+            "SELECT COUNT(*) FROM job").fetchone()[0]
+        assert jobs_after_first == 2
+
+        pipe.run("US-DEMO-A", "issuer-demo", "synthetic")
+        assert conn.execute("SELECT COUNT(*) FROM job").fetchone()[0] \
+            == jobs_after_first, "повтор добавил задания в очередь"
+
+        repos.job.set_cursor("synthetic", "disclosures", "")
+        pipe.run("US-DEMO-A", "issuer-demo", "synthetic")
+        assert conn.execute("SELECT COUNT(*) FROM job").fetchone()[0] \
+            == jobs_after_first, "poll с нулевым курсором дублирует задания"
+        conn.close()
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_duplicate_sha256_closes_job_without_parsing():
     """Один документ под двумя url: второй закрывается по дублю sha256,
     факты не дублируются — узел 5, processes.md §119."""

@@ -84,4 +84,7 @@
 - B2 done: tests/test_fixtures.py test_fixtures_are_synthetic — every file under fixtures/ (recursive) carries synthetic in name AND body (ascii or Cyrillic form). Red-path proven: temp non-synthetic file turned the test red, removed, green again.
   - `pytest -k fixtures_are_synthetic` green/red/green verified; acceptance → 13/13
 
-NOW: B3, step 1
+- B3 done: test_double_run_creates_no_new_job_rows in tests/test_pipeline.py — job row count stable across second run and third run with wiped cursor (dedup node 3 keeps the queue idempotent).
+  - `pytest tests/test_pipeline.py -q` → exit 0; acceptance → 13/13
+
+NOW: B5, step 1
