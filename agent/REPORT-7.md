@@ -97,4 +97,7 @@
 - B7 done: test_coverage_blocks_match_documentation in tests/test_coverage.py — parses the '| `block` |' row of docs/watchlist-and-llm.md §1.3 and asserts the backticked block set equals COVERAGE_BLOCKS exactly (both directions).
   - `pytest tests/test_coverage.py -q` → exit 0; acceptance → 13/13
 
-NOW: B8, step 1
+- B8 done: test_zstd_path_with_fake_module_round_trip in tests/test_raw_store.py — monkeypatches raw_store._ZSTD with a reversible fake exposing real zstd magic (b'\x28\xb5\x2f\xfd'); asserts compression label 'zstd', .zst extension, decompress_object round-trip, and raw-bytes magic prefix. Payload padded above COMPRESS_THRESHOLD (64KB) — first attempt forgot compression only applies above it. Acceptance check 11 (suite with real zstandard blocked) stays green.
+  - `pytest -q -k zstd` → exit 0; `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: B4, step 1

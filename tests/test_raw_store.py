@@ -195,3 +195,51 @@ def test_put_with_manifest_writes_both(app_paths: AppPaths):
     idx = rebuild_index(app_paths.raw_manifests)
     assert obj.sha256 in idx
     assert idx[obj.sha256].block == "b"
+
+
+# ── BACKLOG B8: ветка zstd с фейковым модулем zstandard ────────────────
+class _FakeZstdCompressor:
+    """Обратимая «упаковка» с настоящей zstd-магией b"\x28\xb5\x2f\xfd"."""
+
+    def compress(self, data: bytes) -> bytes:
+        import base64
+        return b"\x28\xb5\x2f\xfd" + base64.b64encode(data)
+
+
+class _FakeZstdDecompressor:
+    def decompress(self, data: bytes) -> bytes:
+        import base64
+        assert data[:4] == b"\x28\xb5\x2f\xfd", "не zstd-магия"
+        return base64.b64decode(data[4:])
+
+
+def test_zstd_path_with_fake_module_round_trip(app_paths, monkeypatch):
+    """zstandard в окружении нет — ветка zstd проверяется фейковым
+    модулем: метка 'zstd', расширение .zst, чтение объекта обратно."""
+    import base64
+    import types
+
+    from rusterm.store import raw_store
+
+    fake = types.SimpleNamespace(
+        ZstdCompressor=_FakeZstdCompressor,
+        ZstdDecompressor=_FakeZstdDecompressor,
+    )
+    monkeypatch.setattr(raw_store, "_ZSTD", fake)
+
+    # больше COMPRESS_THRESHOLD, иначе сжатие не применяется вовсе
+    data = (b'{"synthetic": "zstd probe", "pad": "' + b"x" * 70_000
+            + b'"}')
+    obj = put_object(app_paths.raw_store, data, provider="synthetic",
+                     block="fundamentals")
+    # метка и расширение именно zstd
+    assert obj.compression == "zstd"
+    path = raw_store.object_path(app_paths.raw_store, obj.sha256)
+    assert path.suffix == ".zst" or path.with_suffix(".zst").exists()
+    # чтение обратно: decompress по метке и по магии
+    assert decompress_object(app_paths.raw_store, obj.sha256) == data
+    assert read_object(app_paths.raw_store, obj.sha256).startswith(
+        b"\x28\xb5\x2f\xfd")
+    # фейк обратим
+    assert base64.b64decode(
+        read_object(app_paths.raw_store, obj.sha256)[4:]) == data
