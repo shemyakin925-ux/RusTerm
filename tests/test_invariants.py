@@ -87,36 +87,126 @@ def test_i03_basis_period_rule():
 
 
 # ── I4. measure без lineage не пишется, кроме value IS NULL ────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason="I4 требует кода этапа C (SnapshotRepo.insert_measure с проверкой lineage). "
-           "После реализации этапа снять маркер.",
-)
 def test_i04_measure_without_lineage_rejected():
-    """Обе ветки: value задан и value IS NULL."""
-    pytest.fail("I4 не реализован на этом этапе — причина в декораторе")
+    """Обе ветки: value задан — lineage обязателен; value IS NULL при
+    отсутствующих входах — lineage пуст, но null_reason обязателен."""
+    import uuid
+    from rusterm.store.repos import (
+        Instrument, InstrumentRepo, Issuer, SnapshotRepo,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = AppPaths.from_root(os.path.join(tmp, "app"))
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        InstrumentRepo(conn).upsert_issuer(Issuer(
+            "i1", "N", "US", None, None, "us_gaap", "USD"))
+        InstrumentRepo(conn).upsert_instrument(Instrument(
+            "ins1", "i1", None, "common", "active", None))
+        snapshots = SnapshotRepo(conn)
+        snapshots.create_snapshot("s1", "ins1", 1, "2024-01-01",
+                                  None, "none", "ready")
+
+        def measure(**kw):
+            base = dict(measure_id=str(uuid.uuid4()), snapshot_id="s1",
+                        scope="issuer", scope_ref="i1", concept="net_margin",
+                        value="0.2", unit="ratio", period_start="2024-01-01",
+                        period_end="2024-12-31", formula_id="net_margin",
+                        method_version="v1", null_reason=None,
+                        peer_set_version=None)
+            base.update(kw)
+            return base
+
+        lineage = [{"fact_id": "f1", "peer_measure_id": None, "role": "input"}]
+
+        # value задан, lineage пуст — отказ, ничего не записано
+        with pytest.raises(ValueError, match="I4"):
+            snapshots.insert_measure_with_lineage(measure(), [])
+        n = conn.execute("SELECT COUNT(*) FROM measure").fetchone()[0]
+        assert n == 0, "measure без lineage не должен записаться"
+
+        # value задан, lineage есть — пишется вместе с lineage
+        snapshots.insert_measure_with_lineage(measure(), lineage)
+        ln = conn.execute(
+            "SELECT COUNT(*) FROM measure_lineage").fetchone()[0]
+        assert ln == 1
+
+        # value IS NULL: без null_reason — отказ; с null_reason и пустым
+        # lineage — законная запись (входов не было, объяснять обязаны)
+        with pytest.raises(ValueError, match="I4"):
+            snapshots.insert_measure_with_lineage(
+                measure(value=None, null_reason=None), [])
+        snapshots.insert_measure_with_lineage(
+            measure(value=None, null_reason="missing_data"), [])
+        conn.close()
 
 
 # ── I5. Перцентиль без peer_set_version не пишется ─────────────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason="I5 требует кода этапа C (PeerSetRepo / snapshot). "
-           "После реализации этапа снять маркер.",
-)
 def test_i05_percentile_requires_peer_set_version():
-    """Попытка записи перцентиля без peer_set_version падает."""
-    pytest.fail("I5 не реализован на этом этапе — причина в декораторе")
+    """Попытка записи перцентиля без peer_set_version падает на CHECK."""
+    from rusterm.store.repos import PeerSetRepo, SnapshotRepo
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = AppPaths.from_root(os.path.join(tmp, "app"))
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        peers = PeerSetRepo(conn)
+        peers.create_peer_set("ps1", "industry", "tankers")
+        peers.add_version("psv1", "ps1", 1, "2024-01-01", None,
+                          "manual", "v1", True, None, None)
+        snapshots = SnapshotRepo(conn)
+        snapshots.create_snapshot("s1", "ins-any", 1, "2024-01-01",
+                                  None, "none", "ready")
+
+        base = dict(measure_id="m-pct", snapshot_id="s1", scope="issuer",
+                    scope_ref="tankers", concept="percentile",
+                    value="0.6", unit="ratio", period_start="2024-01-01",
+                    period_end="2024-12-31", formula_id="pct",
+                    method_version="v1", null_reason=None)
+
+        # без peer_set_version — нарушение CHECK, запись невозможна
+        with pytest.raises(sqlite3.IntegrityError):
+            snapshots.insert_measure(**base, peer_set_version=None)
+        # с версией peer set — валидно
+        snapshots.insert_measure(**base, peer_set_version="psv1")
+        conn.close()
 
 
 # ── I6. Меньше 5 пиров — нет перцентиля; меньше 8 — нет агрегатов ─────
-@pytest.mark.xfail(
-    strict=True,
-    reason="I6 требует кода этапа C (PeerSet / snapshot с порогами 5 и 8). "
-           "После реализации этапа снять маркер.",
-)
 def test_i06_peer_count_thresholds_4_5_and_7_8():
     """Границы 4/5 (нет перцентиля при <5) и 7/8 (нет агрегатов при <8)."""
-    pytest.fail("I6 не реализован на этом этапе — причина в декораторе")
+    from rusterm.core.peers import (
+        aggregate_ready, evaluate, percentile_share,
+    )
+    values_4 = [1.0, 2.0, 3.0, 4.0]
+    values_5 = [1.0, 2.0, 3.0, 4.0, 5.0]
+
+    # 4 пира — перцентиль не считается; 5 — считается
+    assert percentile_share(values_4, 2.5) is None
+    assert percentile_share(values_5, 2.5) == 0.4
+
+    # 7 пиров — агрегатов нет; 8 — есть
+    assert aggregate_ready(7) is False
+    assert aggregate_ready(8) is True
+
+    # границы через evaluate
+    st4 = evaluate("manual", False, [], [f"i{n}" for n in range(4)])
+    st5 = evaluate("manual", False, [], [f"i{n}" for n in range(5)])
+    st7 = evaluate("manual", False, [], [f"i{n}" for n in range(7)])
+    st8 = evaluate("manual", False, [], [f"i{n}" for n in range(8)])
+    assert st4.can_percentile is False and st5.can_percentile is True
+    assert st7.can_aggregates is False and st8.can_aggregates is True
+
+    # дрейф: замена одного из пяти — churn 0.4 > 0.2 -> suspect
+    st = evaluate("manual", False, ["a", "b", "c", "d", "e"],
+                  ["a", "b", "c", "d", "x"])
+    assert st.churn == pytest.approx(0.4)
+    assert st.suspect is True
+    # classifier без подтверждения — unverified
+    st_cls = evaluate("classifier", False, [], [f"i{n}" for n in range(8)])
+    assert st_cls.verified is False
 
 
 # ── I7. Повторный сбор не создаёт ни нового объекта в store, ни фактов ─
@@ -244,14 +334,71 @@ def test_i12_resolve_locator_matches_value():
 
 
 # ── I13. facts_only не удаляет неразобранное ───────────────────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason="I13 требует кода этапа B (pipeline с facts_only-политикой). "
-           "После реализации этапа снять маркер.",
-)
 def test_i13_facts_only_keeps_unparsed():
     """Документ со статусом needs_verification остаётся после facts_only."""
-    pytest.fail("I13 не реализован на этом этапе — причина в декораторе")
+    import json as _json
+    from rusterm.pipeline import IngestionPipeline
+    from rusterm.providers.disclosures import (
+        DocumentList, FetchedDocument, IndexPoll, IndexRecord,
+    )
+    from rusterm.store.repos import Instrument, InstrumentRepo, Issuer
+
+    class SingleDocProvider:
+        """Синтетический провайдер с одним документом неизвестного типа."""
+        source_name = "synthetic"
+
+        def poll_index(self, cursor):
+            return IndexPoll(
+                records=(IndexRecord("0001", "i1", "MYSTERY", "2024",
+                                     "synthetic://mystery", "2024-01-01"),),
+                cursor="0001")
+
+        def fetch_document(self, url):
+            content = _json.dumps({
+                "source": "synthetic",
+                "note": "Неразобранный документ для I13.",
+                "payload": "x",
+            }).encode()
+            import hashlib
+            return FetchedDocument(url=url, content=content,
+                                   sha256=hashlib.sha256(content).hexdigest(),
+                                   content_type="application/json")
+
+        def list_documents(self, issuer_id, doc_type=None, period=None):
+            return DocumentList(())
+
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = AppPaths.from_root(os.path.join(tmp, "app"))
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        from rusterm.store.repos import RepoRegistry
+        InstrumentRepo(conn).upsert_issuer(Issuer(
+            "i1", "N", "US", None, None, "us_gaap", "USD"))
+        InstrumentRepo(conn).upsert_instrument(Instrument(
+            "ins1", "i1", None, "common", "active", None))
+        repos = RepoRegistry(conn, paths)
+
+        class NoSleep:
+            def __call__(self, seconds):
+                pass
+
+        pipe = IngestionPipeline(repos, {"synthetic": SingleDocProvider()},
+                                 sleep=NoSleep())
+        result = pipe.run("ins1", "i1", "synthetic")
+        assert result.needs_verification == 1, "документ должен попасть в E4"
+
+        cov = repos.job.get_coverage("ins1", "fundamentals")
+        assert cov["status"] == "missing"
+        assert "needs_verification" in cov["reason"]
+        sha = cov["reason"].split(":", 1)[1]
+
+        # facts_only: неразобранное остаётся на месте
+        prune = pipe.prune_unparsed("facts_only")
+        assert prune.kept_needs_verification >= 1
+        assert repos.raw.has(sha), "facts_only удалил needs_verification"
+        conn.close()
 
 
 # ── I14. В базу пишет один поток ───────────────────────────────────────

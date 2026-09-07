@@ -343,6 +343,41 @@ class SnapshotRepo:
                 (measure_id, fact_id, peer_measure_id, role),
             )
 
+    def insert_measure_with_lineage(self, measure: dict,
+                                    lineage: list[dict]) -> str:
+        """I4: measure без measure_lineage не записывается — исключение
+        только value IS NULL при отсутствующих входах: тогда lineage пуст,
+        а null_reason обязателен и объясняет, чего не хватило (data-model §4).
+
+        measure и lineage пишутся одной транзакцией — полусостояний нет.
+        lineage: [{"fact_id": ...}|{"peer_measure_id": ...}, "role": ...}]
+        """
+        value = measure.get("value")
+        null_reason = measure.get("null_reason")
+        if value is not None and not lineage:
+            raise ValueError("I4: measure без lineage не записывается")
+        if value is None and not null_reason:
+            raise ValueError("I4: value IS NULL требует null_reason")
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO measure(measure_id, snapshot_id, scope, scope_ref,
+                  concept, value, unit, period_start, period_end,
+                  formula_id, method_version, null_reason, peer_set_version)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (measure["measure_id"], measure["snapshot_id"],
+                 measure["scope"], measure["scope_ref"], measure["concept"],
+                 value, measure["unit"], measure["period_start"],
+                 measure["period_end"], measure.get("formula_id"),
+                 measure.get("method_version"), null_reason,
+                 measure.get("peer_set_version")))
+            for l in lineage:
+                c.execute(
+                    """INSERT INTO measure_lineage(measure_id, fact_id,
+                      peer_measure_id, role) VALUES (?, ?, ?, ?)""",
+                    (measure["measure_id"], l.get("fact_id"),
+                     l.get("peer_measure_id"), l["role"]))
+        return measure["measure_id"]
+
 
 class PeerSetRepo:
     """Версии наборов и состав. Версия неизменяема."""
