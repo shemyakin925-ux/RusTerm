@@ -1,0 +1,41 @@
+{
+  "source": "synthetic",
+  "note": "Синтетическая таблица со сравнительной колонкой за более ранний период (TASK-7 T2, инвариант I3/I17). Все данные выдуманы.",
+  "doc_kind": "table",
+  "period_end": "2024-12-31",
+  "filed_at": "2025-02-15",
+  "tables": [
+    {
+      "table_name": "income_comparative",
+      "unit": "USD",
+      "rows": [
+        {
+          "cells": [
+            {"concept": "revenue", "value": "1000",
+             "period_start": "2024-01-01", "period_end": "2024-12-31",
+             "period_type": "duration"},
+            {"concept": "revenue", "value": "900",
+             "period_start": "2023-01-01", "period_end": "2023-12-31",
+             "period_type": "duration"}
+          ]
+        }
+      ]
+    },
+    {
+      "table_name": "prices_comparative",
+      "unit": "USD",
+      "columns": [
+        {"period_end": "2024-12-31", "period_type": "instant"},
+        {"period_end": "2023-12-31", "period_type": "instant"}
+      ],
+      "rows": [
+        {
+          "cells": [
+            {"concept": "price_close", "value": "100.0"},
+            {"concept": "price_close", "value": "95.0"}
+          ]
+        }
+      ]
+    }
+  ]
+}

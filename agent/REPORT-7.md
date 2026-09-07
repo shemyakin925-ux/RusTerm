@@ -18,4 +18,9 @@
 
 - T1 done: `awk '/^def open_connection/,/^$/' rusterm/store/db.py | grep -c 'import sqlite3'` → 0; `python3 -m pytest -q` → exit 0 (149 items, 1 skip).
 
-NOW: T2, step 1
+- T2 done: TableParser now reads period/period_type (cell→column→table→doc) and calls determine_basis; new fixture synthetic_prices_table_comparative.json; new test_parse_table_comparative_column_gets_period_and_basis + test_i17_parsers_apply_basis_rule.
+  - `grep -nE '"basis"...' rusterm/parsers/__init__.py` → empty
+  - `pytest tests/test_parsers.py tests/test_invariants.py -q` → exit 0 (56 passed)
+  - acceptance → 13/13
+
+NOW: T3, step 1

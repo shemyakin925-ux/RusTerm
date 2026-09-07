@@ -94,6 +94,34 @@ def test_parse_table_facts_with_locators():
         assert f["issuer_id"] is None
 
 
+def test_parse_table_comparative_column_gets_period_and_basis():
+    """Сравнительная колонка более раннего периода (TASK-7 T2): период и
+    period_type читаются из ячейки/колонки, basis считается правилом I3 —
+    литерала "as_reported" в парсере больше нет."""
+    raw = _read("synthetic_prices_table_comparative.json")
+    context = {"issuer_id": "issuer-demo", "source_ref": "sha-comp"}
+    result = TableParser().parse(raw, context)
+    assert result.unparsed == 0
+    assert len(result.facts) == 4
+    by_key = {(f["concept"], f["period_end"]): f for f in result.facts}
+
+    # период из ячейки: выручка — duration, своя пара start/end
+    rev_now = by_key[("revenue", "2024-12-31")]
+    assert rev_now["basis"] == "as_reported"
+    assert rev_now["period_type"] == "duration"
+    assert rev_now["period_start"] == "2024-01-01"
+    rev_prev = by_key[("revenue", "2023-12-31")]
+    assert rev_prev["basis"] == "restated"
+    assert rev_prev["period_start"] == "2023-01-01"
+
+    # период из метаданных колонки: котировки — instant
+    price_now = by_key[("price_close", "2024-12-31")]
+    assert price_now["basis"] == "as_reported"
+    assert price_now["period_type"] == "instant"
+    price_prev = by_key[("price_close", "2023-12-31")]
+    assert price_prev["basis"] == "restated"
+
+
 def test_parse_auto_dispatches_and_returns_none():
     raw = _read("synthetic_report_10k.json")
     result = parse_auto(raw, {"doc_kind": "xbrl"}, {"issuer_id": "i"})

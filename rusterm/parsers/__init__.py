@@ -112,10 +112,14 @@ class TableParser:
     def parse(self, raw: bytes, context: dict) -> ParseResult:
         doc = json.loads(raw.decode("utf-8"))
         result = ParseResult()
-        period_end = doc.get("period_end", "")
+        doc_period_end = doc.get("period_end", "")
+        filed_at = doc.get("filed_at", "")
 
         for ti, table in enumerate(doc.get("tables", [])):
             unit = table.get("unit", "")
+            table_period = table.get("period_end")
+            table_period_type = table.get("period_type")
+            columns = table.get("columns", [])
             for ri, row in enumerate(table.get("rows", [])):
                 for ci, cell in enumerate(row.get("cells", [])):
                     concept = cell.get("concept", "")
@@ -123,6 +127,22 @@ class TableParser:
                     if not concept or value is None or str(value) == "":
                         result.unparsed += 1
                         continue
+                    # Период ячейки: cell -> column -> table -> документ.
+                    # Сравнительная колонка более раннего периода не должна
+                    # терять свой период (иначе I3 не к чему применять).
+                    column = columns[ci] if ci < len(columns) else {}
+                    period_end = (cell.get("period_end")
+                                  or column.get("period_end")
+                                  or table_period
+                                  or doc_period_end)
+                    period_start = (cell.get("period_start")
+                                    or column.get("period_start")
+                                    or period_end)
+                    period_type = (cell.get("period_type")
+                                   or column.get("period_type")
+                                   or table_period_type
+                                   or doc.get("period_type")
+                                   or "instant")
                     result.facts.append({
                         "issuer_id": context.get("issuer_id"),
                         "listing_id": context.get("listing_id"),
@@ -130,10 +150,12 @@ class TableParser:
                         "value": str(value),
                         "unit": cell.get("unit", unit),
                         "currency": None,
-                        "period_start": period_end,
+                        "period_start": period_start,
                         "period_end": period_end,
-                        "period_type": "instant",
-                        "basis": "as_reported",
+                        "period_type": period_type,
+                        # Правило basis одно на проект (I3), как в XBRL-парсере.
+                        "basis": determine_basis(
+                            doc_period_end, period_end, filed_at),
                         "origin": "extracted",
                         "source_ref": context.get("source_ref", ""),
                         "locator": {

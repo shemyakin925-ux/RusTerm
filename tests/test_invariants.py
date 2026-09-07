@@ -518,3 +518,77 @@ def test_i16_schema_change_reaches_existing_db():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+# ── I17. Каждый парсер применяет правило basis (I3) на месте вызова ────
+def test_i17_parsers_apply_basis_rule():
+    """Каждый зарегистрированный парсер, получив документ со сравнительной
+    цифрой за более ранний период, обязан выдать basis='restated', а для
+    периода документа — 'as_reported' (TASK-7 T2: у TableParser basis был
+    литералом, потому что период ячейки затирался до правила).
+
+    Новый парсер, разбирающий те же виды документов и хардкодящий basis,
+    сделает этот тест красным.
+    """
+    import json
+
+    from rusterm.parsers import registered_parsers
+
+    doc_period = "2024-12-31"
+    xbrl_doc = {
+        "source": "synthetic", "note": "синтетический документ I17",
+        "period_end": doc_period, "filed_at": "2025-02-15",
+        "facts": {
+            "f1": {"concept": "revenue", "value": "1000", "unit": "USD",
+                   "period_start": "2024-01-01", "period_end": doc_period,
+                   "period_type": "duration"},
+            "f2": {"concept": "revenue", "value": "900", "unit": "USD",
+                   "period_start": "2023-01-01", "period_end": "2023-12-31",
+                   "period_type": "duration"},
+        },
+    }
+    table_doc = {
+        "source": "synthetic", "note": "синтетический документ I17",
+        "period_end": doc_period, "filed_at": "2025-02-15",
+        "tables": [{
+            "unit": "USD",
+            "rows": [{"cells": [
+                {"concept": "revenue", "value": "1000",
+                 "period_start": "2024-01-01", "period_end": doc_period,
+                 "period_type": "duration"},
+                {"concept": "revenue", "value": "900",
+                 "period_start": "2023-01-01", "period_end": "2023-12-31",
+                 "period_type": "duration"},
+            ]}],
+        }],
+    }
+    docs = [
+        (json.dumps(xbrl_doc).encode(), {"doc_kind": "xbrl"}),
+        (json.dumps(table_doc).encode(), {"doc_kind": "table"}),
+    ]
+
+    checked = 0
+    for parser in registered_parsers():
+        matched = False
+        for raw, metadata in docs:
+            if not parser.can_parse(metadata):
+                continue
+            matched = True
+            result = parser.parse(raw, {"issuer_id": "i1",
+                                        "source_ref": "sha-i17"})
+            assert result is not None, f"{parser!r} вернул None"
+            restated = 0
+            for f in result.facts:
+                expected = ("as_reported" if f["period_end"] == doc_period
+                            else "restated")
+                assert f["basis"] == expected, (
+                    f"{parser!r}: {f['concept']} за {f['period_end']} получил "
+                    f"basis={f['basis']!r}, ожидалось {expected!r}")
+                restated += f["basis"] == "restated"
+            assert restated >= 1, (
+                f"{parser!r} не выдал ни одного restated на сравнительной колонке")
+            checked += 1
+        assert matched, (
+            f"парсер {parser!r} не взял ни один документ I17 — "
+            f"добавьте для него документ со сравнительной колонкой")
+    assert checked >= 2, f"проверено парсеров: {checked}, ожидалось >= 2"
