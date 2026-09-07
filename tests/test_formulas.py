@@ -146,3 +146,88 @@ def test_measure_has_scope_field():
     assert m.scope == "issuer"
     m2 = Measure(concept="price_close", value=1.0, scope="instrument")
     assert m2.scope == "instrument"
+
+
+# ── Рост и котировки (data-dictionary.md §3, v1). Числа синтетические ──
+
+from rusterm.formulas import (  # noqa: E402
+    cagr,
+    dividend_factor,
+    drawdown,
+    price_adj,
+    split_factor,
+    total_return,
+)
+
+
+def test_cagr_positive_case():
+    assert cagr(100.0, 121.0, 2.0) == (pytest.approx(0.10), None)
+
+
+def test_cagr_all_null_cases():
+    """Четыре случая null из словаря §3 «Рост»."""
+    assert cagr(0.0, 10.0, 2.0) == (None, "negative_denominator")   # V_start <= 0
+    assert cagr(-5.0, 10.0, 2.0) == (None, "negative_denominator")  # V_start <= 0
+    assert cagr(10.0, -1.0, 2.0) == (None, "negative_denominator")  # V_end < 0
+    assert cagr(10.0, 20.0, 0.0) == (None, "denominator_zero")      # n <= 0
+    assert cagr(None, 20.0, 2.0) == (None, "missing_data")
+
+
+def test_price_adj_dividend_series():
+    """Ключевой тест ТЗ (P5): дивидендная бумага. total_return по
+    price_adj больше, чем по price_close, ровно на дивидендную
+    составляющую. Синтетика: close 100 → 99, дивиденд D=1 с ex-date
+    во второй день, цена перед ex-date 100 → f = 1 - 1/100 = 0.99."""
+    prices = [("2024-05-20", 100.0), ("2024-05-21", 99.0)]
+    events = [("2024-05-21", dividend_factor(1.0, 100.0))]
+    assert events[0][1] == pytest.approx(0.99)
+
+    adj = price_adj(prices, events)
+    # День ex-date уже торгуется по скорректированной цене — его close
+    # не умножается на его же коэффициент.
+    assert adj[1] == ("2024-05-21", pytest.approx(99.0))
+    assert adj[0][1] == pytest.approx(99.0)  # 100 * 0.99
+
+    tr_close, _ = total_return(prices)
+    tr_adj, _ = total_return(adj)
+    # По close: -1%; по adj: 0%; разница ровно дивидендная составляющая
+    assert tr_close == pytest.approx(-0.01)
+    assert tr_adj == pytest.approx(0.0)
+    assert tr_adj - tr_close == pytest.approx(0.01)
+
+
+def test_price_adj_split_series():
+    """Сплит 1:k, k=2: f = 1/2. По close бумага «упала» вдвое,
+    по price_adj доходность нулевая."""
+    prices = [("2024-06-03", 100.0), ("2024-06-04", 50.0)]
+    events = [("2024-06-04", split_factor(2.0))]
+    adj = price_adj(prices, events)
+    assert adj[0][1] == pytest.approx(50.0)
+    tr_close, _ = total_return(prices)
+    tr_adj, _ = total_return(adj)
+    assert tr_close == pytest.approx(-0.5)
+    assert tr_adj == pytest.approx(0.0)
+
+
+def test_price_adj_multiple_events_multiply():
+    prices = [("2024-01-10", 100.0), ("2024-01-11", 45.0)]
+    events = [
+        ("2024-01-11", dividend_factor(1.0, 100.0)),  # 0.99
+        ("2024-01-11", split_factor(2.0)),            # 0.5
+    ]
+    adj = price_adj(prices, events)
+    assert adj[0][1] == pytest.approx(100.0 * 0.99 * 0.5)
+
+
+def test_total_return_and_drawdown_edges():
+    assert total_return([("d", 100.0)]) == (None, "missing_data")
+    assert total_return([]) == (None, "missing_data")
+    assert drawdown([]) == (None, "missing_data")
+
+    series = [("t0", 100.0), ("t1", 120.0), ("t2", 90.0), ("t3", 110.0)]
+    worst, reason = drawdown(series)
+    assert reason is None
+    assert worst == pytest.approx(90.0 / 120.0 - 1.0)  # -0.25
+    m = calculate_measure("drawdown", prices_adj=series)
+    assert m.scope == "instrument"
+    assert m.value == pytest.approx(-0.25)

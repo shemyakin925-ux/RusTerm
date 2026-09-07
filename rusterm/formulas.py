@@ -243,7 +243,91 @@ def dividend_yield(dps_ttm: Optional[float],
 
 # Уровень расчёта по data-model.md §4: фундаментальные — issuer,
 # оценочные и котировочные — instrument; ev и market_cap_total — эмитента.
-_INSTRUMENT_SCOPED = {"market_cap", "pe", "pb", "ps", "ev_ebitda", "div_yield"}
+_INSTRUMENT_SCOPED = {"market_cap", "pe", "pb", "ps", "ev_ebitda", "div_yield",
+                      "total_return", "drawdown"}
+
+
+# ── Рост (data-dictionary.md §3 «Рост», v1) ────────────────────────────
+
+def cagr(v_start: Optional[float], v_end: Optional[float], n: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """cagr(V, n) = (V_end / V_start)^(1/n) - 1.
+
+    null по правилам словаря:
+    - V_start <= 0 — рост от убытка не определён;
+    - V_end < 0 — корень из отрицательного числа не определён (падение в убыток);
+    - n <= 0 — период не положителен;
+    - неполный период (§1.3) не приводится к году и в CAGR не участвует —
+      это правило вызывающего кода, он не передаёт такие периоды вовсе.
+    """
+    if v_start is None or v_end is None or n is None:
+        return None, "missing_data"
+    if v_start <= 0:
+        return None, "negative_denominator"
+    if v_end < 0:
+        return None, "negative_denominator"
+    if n <= 0:
+        return None, "denominator_zero"
+    return (v_end / v_start) ** (1.0 / n) - 1.0, None
+
+
+# ── Котировки (data-dictionary.md §3 «Котировки», v1) ──────────────────
+
+def split_factor(k: float) -> float:
+    """Коэффициент корректировки сплита: f = 1 / k (сплит 1:k)."""
+    return 1.0 / k
+
+
+def dividend_factor(dividend: float, price_close_before_ex: float) -> float:
+    """Коэффициент корректировки денежного дивиденда D с ex-date:
+    f = 1 - D / price_close последнего дня перед ex-date."""
+    return 1.0 - dividend / price_close_before_ex
+
+
+def price_adj(prices: List[Tuple[str, float]],
+              events: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
+    """Скорректированный ряд цены, задним числом, по формуле словаря:
+
+    price_adj(t) = price_close(t) * prod(f_e) по всем событиям e ПОСЛЕ t.
+
+    prices — [(date, close)] по возрастанию даты; events — [(date, f)]
+    в тех же датах, f = split_factor/dividend_factor события с датой ex-date.
+    Событие «после t» — строго позже t: день ex-date сам уже торгуется
+    по скорректированной цене, его close не умножается на его же f.
+    """
+    adjusted: List[Tuple[str, float]] = []
+    for date, close in prices:
+        factor = 1.0
+        for ev_date, f in events:
+            if ev_date > date:
+                factor *= f
+        adjusted.append((date, close * factor))
+    return adjusted
+
+
+def total_return(prices_adj: List[Tuple[str, float]]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """total_return(t0, t1) = price_adj(t1) / price_adj(t0) - 1 — полная
+    доходность по всему ряду (первый и последний элементы)."""
+    if len(prices_adj) < 2:
+        return None, "missing_data"
+    ratio, reason = _divide_checked(prices_adj[-1][1], prices_adj[0][1])
+    if ratio is None:
+        return None, reason
+    return ratio - 1.0, None
+
+
+def drawdown(prices_adj: List[Tuple[str, float]]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """drawdown(t) = price_adj(t) / max(price_adj[t0..t]) - 1; возвращает
+    максимальную просадку по ряду (наименьшее значение)."""
+    if not prices_adj:
+        return None, "missing_data"
+    peak = prices_adj[0][1]
+    worst = 0.0
+    for _, v in prices_adj:
+        if v > peak:
+            peak = v
+        if peak > 0 and v / peak - 1.0 < worst:
+            worst = v / peak - 1.0
+    return worst, None
 
 
 def calculate_measure(
@@ -399,6 +483,16 @@ def calculate_measure(
     elif concept == "div_yield":
         value, null_reason = dividend_yield(
             kwargs.get("dps_ttm"), kwargs.get("price_close"))
+
+    elif concept == "total_return":
+        value, null_reason = total_return(kwargs.get("prices_adj") or [])
+
+    elif concept == "drawdown":
+        value, null_reason = drawdown(kwargs.get("prices_adj") or [])
+
+    elif concept == "cagr":
+        value, null_reason = cagr(
+            kwargs.get("v_start"), kwargs.get("v_end"), kwargs.get("n"))
 
     else:
         # Неизвестный концепт
