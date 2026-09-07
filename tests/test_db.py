@@ -10,13 +10,15 @@ import pytest
 from rusterm.store.db import apply_migrations, writer_transaction, _SCHEMA_VERSION
 
 
-def test_schema_version_is_33():
-    """SCHEMA_VERSION: 32 табличные миграции + 33 (gzip в CHECK raw_object)."""
-    assert _SCHEMA_VERSION == 33
+def test_schema_version_is_35():
+    """SCHEMA_VERSION: 32 таблицы + 33 (gzip в CHECK raw_object)
+    + 35 (governance_assessment; 34 не существует — superseded_by уже
+    был в DDL fact, TASK-7 T17)."""
+    assert _SCHEMA_VERSION == 35
 
 
 def test_apply_migrations_creates_all_tables():
-    """M3: миграция создаёт все таблицы и устанавливает schema_version = 33."""
+    """M3: миграция создаёт все таблицы и устанавливает schema_version = 35."""
     import os
     tmpdir = tempfile.mkdtemp()
     db_path = os.path.join(tmpdir, "test.db")
@@ -28,10 +30,11 @@ def test_apply_migrations_creates_all_tables():
         # Берём максимальную версию (последняя применённая)
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 33
+        assert row[0] == 35
         # Ключевые таблицы
         tables = ["issuer", "instrument", "listing", "fact", "peer_set", "snapshot",
-                  "measure", "coverage", "job", "audit_log"]
+                  "measure", "coverage", "job", "audit_log",
+                  "governance_assessment"]
         for t in tables:
             ok = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -61,7 +64,8 @@ def test_apply_migrations_idempotent():
             apply_migrations(conn2)
             count1 = conn1.execute("SELECT count(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
             count2 = conn2.execute("SELECT count(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
-            assert count1 == count2 == 32
+            # 32 таблицы миграций (включая schema_version) + governance_assessment
+            assert count1 == count2 == 33
         finally:
             conn2.close()
     finally:
@@ -152,7 +156,8 @@ def test_migration_33_keeps_data_and_allows_gzip():
     try:
         _make_v32_db_with_data(conn)
         newly = apply_migrations(conn)
-        assert newly == [33], f"ожидалась одна новая версия [33], получили {newly}"
+        # с миграцией 35 (governance_assessment) применяются обе
+        assert newly == [33, 35], f"ожидались новые версии [33, 35], получили {newly}"
         rows = dict(conn.execute(
             "SELECT sha256, compression FROM raw_object").fetchall())
         assert rows == {"a" * 64: "none", "b" * 64: "zstd"}, (

@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 33  # 32 табличные миграции + миграция 33 (gzip в CHECK raw_object)
+_SCHEMA_VERSION = 35  # 32 таблицы + 33 (gzip в CHECK) + 35 (governance_assessment)
 
 
 def _checksum(text: str) -> str:
@@ -338,6 +338,33 @@ def _migrate_33_raw_object_gzip(conn: sqlite3.Connection) -> None:
 
 # Процедурные миграции после табличных: версия -> (функция, текст для checksum).
 _CUSTOM_MIGRATIONS: dict = {33: (_migrate_33_raw_object_gzip, _RAW_OBJECT_GZIP_DDL)}
+
+
+# Миграция 35: governance_assessment — светофор управления (TASK-7 T17,
+# docs/governance-thresholds.md). Только добавление: оценка истории
+# никогда не переписывается, новая строка на каждую оценку.
+# Версия 34 не существует: T8 нашёл superseded_by уже в DDL fact,
+# нумерация 35 взята из ТЗ дословно.
+_GOVERNANCE_ASSESSMENT_DDL = """CREATE TABLE IF NOT EXISTS governance_assessment (
+        assessment_id TEXT PRIMARY KEY,
+        instrument_id TEXT NOT NULL REFERENCES instrument(instrument_id),
+        indicator TEXT NOT NULL CHECK (indicator IN (
+            'independent_directors','ceo_chair','related_party',
+            'insider_net','auditor')),
+        color TEXT NOT NULL CHECK (color IN ('green','yellow','red','gray')),
+        method_version TEXT NOT NULL,
+        as_of TEXT NOT NULL,
+        lineage_ref TEXT NOT NULL,
+        reason TEXT,
+        assessed_at REAL NOT NULL)"""
+
+
+def _migrate_35_governance_assessment(conn: sqlite3.Connection) -> None:
+    conn.execute(_GOVERNANCE_ASSESSMENT_DDL)
+
+
+_CUSTOM_MIGRATIONS[35] = (_migrate_35_governance_assessment,
+                          _GOVERNANCE_ASSESSMENT_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

@@ -20,7 +20,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         # init: каталог + миграции
         assert main(["--root", root, "init"]) == 0
         out = capsys.readouterr().out
-        assert "schema_version=33" in out
+        assert "schema_version=35" in out
 
         # ingest: сбор по синтетическому провайдеру
         assert main(["--root", root, "ingest"]) == 0
@@ -63,7 +63,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         assert main(["--root", root, "doctor"]) == 0
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is True
-        assert report["schema_version"] == 33
+        assert report["schema_version"] == 35
     finally:
         shutil.rmtree(root)
 

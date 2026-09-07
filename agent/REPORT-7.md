@@ -65,4 +65,13 @@
   - Naming conflict: RequestGate counter requests_made tripped the task's own grep 'httpx|requests' over core/ — renamed to calls_made (T3 contract asks for the counters, not the name; budget.py stays in providers, unaffected).
   - `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: T17, step 1
+- T17 done: core/governance.py — five indicator functions (independent_directors, ceo_chair, related_party, insider_net, auditor), thresholds verbatim from docs/governance-thresholds.md, method_version='governance.v1', Assessment dataclass (no aggregate/score field), empty lineage_ref raises, gray=no_data reason for missing disclosure, threshold constants named. Migration 35: governance_assessment table (append-only; version 34 intentionally absent — superseded_by already existed, numbering taken from task). GovernanceRepo: record/for_instrument/latest. tests/test_governance.py: 8 tests (per-indicator 4 colors + boundaries, no-aggregate source check, lineage raise x5, migration+repo history).
+  - Schema pin tests moved 33->35 (test_db.py x4, test_cli.py x2): sanctioned by T17's migration; every removed assert replaced by current-version equivalent, data-preservation asserts untouched. P1/P2 selfcheck findings reviewed: P2 diff = _SCHEMA_VERSION line only.
+  - Semantics note: ceo_chair separated roles -> green regardless of lead disclosure (lead question arises only when combined); insider_net gap -0.5%..-0.1% treated as yellow (doc tables leave it open) — see Disputed.
+  - `pytest -q` → exit 0; acceptance → 13/13
+
+## Disputed (cont.)
+- governance-thresholds.md §4 color table has a gap: net sales between 0.1% and 0.5% of cap matches neither yellow (±0.1%) nor red (>0.5% sales). Implemented as yellow (neutral band extended to red boundary). Coordinator may want the doc amended.
+- related_party: approved_by_independents=None (undisclosed) does not force red — only explicit False does ('сделки без одобрения' requires disclosure).
+
+NOW: T19, step 1

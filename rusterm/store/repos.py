@@ -1235,6 +1235,52 @@ class LlmSummaryRepo:
         return [dict(zip(keys, r)) for r in rows]
 
 
+class GovernanceRepo:
+    """Светофор управления: только добавление, история не переписывается
+    (TASK-7 T17, docs/governance-thresholds.md)."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def record(self, assessment) -> str:
+        """Оценка — словарь или dataclass Assessment с полями строки
+        governance_assessment."""
+        if not isinstance(assessment, dict):
+            from dataclasses import asdict
+            assessment = asdict(assessment)
+        assessment_id = str(uuid.uuid4())
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO governance_assessment(assessment_id,
+                  instrument_id, indicator, color, method_version, as_of,
+                  lineage_ref, reason, assessed_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (assessment_id, assessment["instrument_id"],
+                 assessment["indicator"], assessment["color"],
+                 assessment["method_version"], assessment["as_of"],
+                 assessment["lineage_ref"], assessment["reason"],
+                 time.time()))
+        return assessment_id
+
+    def for_instrument(self, instrument_id: str) -> list:
+        rows = self.conn.execute(
+            """SELECT assessment_id, instrument_id, indicator, color,
+                      method_version, as_of, lineage_ref, reason, assessed_at
+               FROM governance_assessment WHERE instrument_id=?
+               ORDER BY assessed_at""",
+            (instrument_id,)).fetchall()
+        keys = ("assessment_id", "instrument_id", "indicator", "color",
+                "method_version", "as_of", "lineage_ref", "reason",
+                "assessed_at")
+        return [dict(zip(keys, r)) for r in rows]
+
+    def latest(self, instrument_id: str, indicator: str) -> Optional[dict]:
+        """Последняя по времени оценка индикатора или None."""
+        rows = [r for r in self.for_instrument(instrument_id)
+                if r["indicator"] == indicator]
+        return rows[-1] if rows else None
+
+
 class AuditRepo:
     """Журнал операций: только добавление, дублирование в файл.
 
@@ -1283,4 +1329,5 @@ class RepoRegistry:
         self.verification = VerificationRepo(conn)
         self.metrics = MetricsRepo(conn)
         self.llm_summary = LlmSummaryRepo(conn)
+        self.governance = GovernanceRepo(conn)
         self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)
