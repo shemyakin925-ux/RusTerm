@@ -231,3 +231,31 @@ def test_total_return_and_drawdown_edges():
     m = calculate_measure("drawdown", prices_adj=series)
     assert m.scope == "instrument"
     assert m.value == pytest.approx(-0.25)
+
+
+# ── BACKLOG B5: порядок корректировок не влияет на скорректированный ряд ─
+def test_price_adj_split_and_dividend_order_independent():
+    """Сплит и дивиденд на разных датах, события в любом порядке,
+    дают один и тот же ряд price_adj (умножение коммутативно; float
+    сравниваем приближённо)."""
+    from rusterm.formulas import (
+        dividend_factor,
+        price_adj,
+        split_factor,
+    )
+    prices = [("2024-01-05", 100.0), ("2024-02-05", 101.0),
+              ("2024-03-05", 50.0), ("2024-04-05", 49.0)]
+    split = ("2024-03-01", split_factor(2.0))            # сплит 1:2 → f=0.5
+    dividend = ("2024-04-01", dividend_factor(1.0, 49.5))  # f = 1 - 1/49.5
+
+    one_order = price_adj(prices, [split, dividend])
+    other_order = price_adj(prices, [dividend, split])
+    reverse = price_adj(prices, [split, dividend][::-1])
+
+    for (d1, v1), (d2, v2) in zip(one_order, other_order):
+        assert d1 == d2
+        assert v1 == pytest.approx(v2)
+    # до событий множители равны 1; после последнего события — оба
+    assert one_order[0][1] == pytest.approx(100.0)
+    assert one_order[-1][1] == pytest.approx(
+        49.0 * split_factor(2.0) * dividend_factor(1.0, 49.5))
