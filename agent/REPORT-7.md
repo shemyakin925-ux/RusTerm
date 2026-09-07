@@ -87,7 +87,8 @@
 - B3 done: test_double_run_creates_no_new_job_rows in tests/test_pipeline.py — job row count stable across second run and third run with wiped cursor (dedup node 3 keeps the queue idempotent).
   - `pytest tests/test_pipeline.py -q` → exit 0; acceptance → 13/13
 
-- B5 done: test_price_adj_split_and_dividend_order_independent in tests/test_formulas.py — split+dividend on disjoint dates in both orders (and reversed list) yield identical adjusted series (approx), first point untouched, last point equals close * both factors.
+- B5 done (with correction): test_price_adj_split_and_dividend_order_independent in tests/test_formulas.py — split+dividend on disjoint dates in both orders (and reversed list) yield identical adjusted series (approx).
+  - HONEST NOTE: first commit f9b5a3a included this test RED — I asserted 'first point untouched', but both ex-dates are AFTER the first date, so both factors apply. Point-value asserts corrected (01-05: close*0.5*f_div; 04-05: bare close), suite green now. Violation of 'never commit red' acknowledged; correction is this commit.
   - `pytest tests/test_formulas.py -q` → exit 0; acceptance → 13/13
 
 NOW: B6, step 1

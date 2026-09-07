@@ -255,7 +255,10 @@ def test_price_adj_split_and_dividend_order_independent():
     for (d1, v1), (d2, v2) in zip(one_order, other_order):
         assert d1 == d2
         assert v1 == pytest.approx(v2)
-    # до событий множители равны 1; после последнего события — оба
-    assert one_order[0][1] == pytest.approx(100.0)
-    assert one_order[-1][1] == pytest.approx(
-        49.0 * split_factor(2.0) * dividend_factor(1.0, 49.5))
+    # точечные значения: обе ex-даты ПОСЛЕ первых двух дат —
+    # на них действуют оба фактора; после обеих — ни одного
+    f_div = dividend_factor(1.0, 49.5)
+    assert one_order[0][1] == pytest.approx(100.0 * 0.5 * f_div)
+    assert one_order[1][1] == pytest.approx(101.0 * 0.5 * f_div)
+    assert one_order[2][1] == pytest.approx(50.0 * f_div)
+    assert one_order[3][1] == pytest.approx(49.0)
