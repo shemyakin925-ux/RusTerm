@@ -45,4 +45,8 @@
   - acceptance: first run 12/13 — check 13 caught untracked test_watchlist.py (correct behavior); after add → 13/13
   - rollback group copy: IntegrityError on global PK group_id was hypothesis 1, fixed by new group_ids per copied group.
 
-NOW: T11, step 1
+- T11 done: rusterm/core/watchlist_io.py — export_rows/csv/json (exact columns ticker,market,isin,industry,note,added_at; ticker via ticker_for_instrument; industry column empty — no industry source in schema, stated not faked), parse_import, import_rows (every row through resolve_ticker_candidates; 0->not_found, >1->ambiguous with candidates, present->already_present, good->added with note; ONE new version with FULL new composition, none created when nothing added). InstrumentRepo: resolve_ticker_candidates, ticker_for_instrument. WatchlistRepo: new_version returns id, copy_members. tests/test_watchlist_io.py: 3 tests.
+  - Failures en route: (1) new_version returned None -> member insert NULL vid; (2) new version contained only additions, losing existing members (T10 requires full new composition) -> copy_members; (3) note not carried -> carry row note. All fixed, suite green.
+  - `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: T12, step 1

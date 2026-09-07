@@ -148,6 +148,40 @@ class InstrumentRepo:
         ).fetchone()
         return row[0] if row else None
 
+    def resolve_ticker_candidates(self, ticker: str, market: str,
+                                  as_of: str) -> List[str]:
+        """Все инструмент-id, подходящие под (тикер, рынок, дата).
+        Один — однозначно; несколько — неоднозначно; ноль — не найден."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT i.instrument_id
+               FROM ticker_history th
+               JOIN listing l ON th.listing_id = l.listing_id
+               JOIN instrument i ON l.instrument_id = i.instrument_id
+               WHERE th.ticker = ? AND l.exchange = ?
+                 AND th.valid_from <= ?
+                 AND (th.valid_to IS NULL OR th.valid_to >= ?)""",
+            (ticker, market, as_of, as_of),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def ticker_for_instrument(self, instrument_id: str,
+                              as_of: str) -> Optional[dict]:
+        """Действующий (тикер, рынок) инструмента на дату — для
+        тикерной адресации экспорта."""
+        row = self.conn.execute(
+            """SELECT th.ticker, l.exchange
+               FROM ticker_history th
+               JOIN listing l ON th.listing_id = l.listing_id
+               WHERE l.instrument_id = ?
+                 AND th.valid_from <= ?
+                 AND (th.valid_to IS NULL OR th.valid_to >= ?)
+               ORDER BY th.valid_from DESC LIMIT 1""",
+            (instrument_id, as_of, as_of),
+        ).fetchone()
+        if row is None:
+            return None
+        return {"ticker": row[0], "market": row[1]}
+
 
 class RawRepo:
     """Content-addressed store + манифест. Пишет в raw_object для FK."""
@@ -546,7 +580,7 @@ class WatchlistRepo:
             )
 
     def new_version(self, watchlist_version_id: str, watchlist_id: str,
-                    version: int, action: str, note: Optional[str]) -> None:
+                    version: int, action: str, note: Optional[str]) -> str:
         with writer_transaction(self.conn) as c:
             c.execute(
                 """INSERT INTO watchlist_version(watchlist_version_id, watchlist_id,
@@ -554,6 +588,7 @@ class WatchlistRepo:
                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (watchlist_version_id, watchlist_id, version, time.time(), action, note),
             )
+        return watchlist_version_id
 
     def add_member(self, watchlist_version_id: str, instrument_id: str,
                    note: Optional[str]) -> None:
@@ -670,6 +705,18 @@ class WatchlistRepo:
                     criteria=excluded.criteria""",
                 (vid, json.dumps(criteria, ensure_ascii=False)),
             )
+
+    def copy_members(self, source_version_id: str,
+                     target_version_id: str) -> None:
+        """Перенести состав одной версии в другую (полный новый состав
+        при импорте/откате)."""
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO watchlist_member(watchlist_version_id,
+                  instrument_id, note, added_at)
+                  SELECT ?, instrument_id, note, added_at
+                  FROM watchlist_member WHERE watchlist_version_id=?""",
+                (target_version_id, source_version_id))
 
     def rollback_to(self, watchlist_id: str, version: int) -> dict:
         """Откат — НОВАЯ версия, копирующая состав указанной: состав
