@@ -92,7 +92,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
         fetched_at REAL NOT NULL,
         bytes INTEGER NOT NULL,
         content_type TEXT NOT NULL,
-        compression TEXT NOT NULL CHECK (compression IN ('none','zstd')),
+        compression TEXT NOT NULL CHECK (compression IN ('none','zstd','gzip')),
         instrument_id TEXT,
         block TEXT,
         http_status INTEGER,

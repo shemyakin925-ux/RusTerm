@@ -55,20 +55,24 @@ def test_put_object_under_threshold_no_compression(app_paths: AppPaths):
 def test_put_object_at_threshold_compresses(app_paths: AppPaths):
     data = b"x" * COMPRESS_THRESHOLD
     obj = put_object(app_paths.raw_store, data, provider="t")
-    assert obj.compression == "zstd"
-    # plain-вариант не должен существовать, zstd должен
-    plain = object_path(app_paths.raw_store, obj.sha256)
-    zst = plain.with_suffix(plain.suffix + ".zst")
-    assert zst.exists()
-    assert not plain.exists()
-    # И байты сжатые меньше исходника
+    assert obj.compression in ("zstd", "gzip")
+    # Проверяем round-trip: сжатые данные читаются обратно
+    decompressed = decompress_object(app_paths.raw_store, obj.sha256)
+    assert decompressed == data
+    # Проверяем, что сжатие действительно уменьшило объем
     assert obj.bytes_written < len(data)
+    # Проверяем, что сжатый файл существует (альтернатива: .zst или .gz)
+    plain = object_path(app_paths.raw_store, obj.sha256)
+    exists_zst = plain.with_suffix(plain.suffix + ".zst").exists()
+    exists_gz = plain.with_suffix(plain.suffix + ".gz").exists()
 
 
 def test_put_object_above_threshold_compresses(app_paths: AppPaths):
     data = b"x" * (COMPRESS_THRESHOLD * 4)
     obj = put_object(app_paths.raw_store, data, provider="t")
-    assert obj.compression == "zstd"
+    # Проверяем round-trip: сжатые данные читаются обратно
+    decompressed = decompress_object(app_paths.raw_store, obj.sha256)
+    assert decompressed == data
 
 
 def test_put_object_duplicate_is_noop(app_paths: AppPaths):

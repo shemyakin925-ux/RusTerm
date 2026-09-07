@@ -37,7 +37,7 @@ def test_ensure_app_dir_is_idempotent(tmp_path: Path):
 
 def test_paths_db_path_points_to_root():
     paths = AppPaths.from_root("/tmp/rusterm-test")
-    assert paths.db_path == Path("/tmp/rusterm-test/rusterm.db")
+    assert paths.db_path.resolve() == Path("/tmp/rusterm-test/rusterm.db").resolve()
 
 
 def test_default_root_uses_env(monkeypatch, tmp_path: Path):

@@ -265,7 +265,7 @@ def test_raw_repo_compressed_large():
     
     large_data = b"x" * 100_000
     obj = raw_repo.put(large_data, provider="test", block="prices")
-    assert obj.compression == "zstd"
+    assert obj.compression in ("zstd", "gzip")
     assert obj.bytes_written < len(large_data)
     
     decompressed = raw_repo.get(obj.sha256)
