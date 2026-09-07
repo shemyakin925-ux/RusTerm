@@ -64,19 +64,44 @@ else
 fi
 
 # ── 2. Пятнадцать инвариантов на месте ───────────────────────────────────
-head_ '2. tests/test_invariants.py: пятнадцать инвариантов'
-if [ -f tests/test_invariants.py ]; then
-  MISSING=""
-  for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do
-    grep -qE "^def test_i${n}_" tests/test_invariants.py || MISSING="$MISSING I$n"
-  done
-  if [ -z "$MISSING" ]; then
-    ok 'все пятнадцать test_i01_…test_i15_ присутствуют'
-  else
-    bad "отсутствуют инварианты:$MISSING"
-  fi
+head_ '2. tests/test_invariants.py: пятнадцать инвариантов, не заглушки'
+"$PY" - tests/test_invariants.py >"$TMP/inv.txt" 2>&1 <<'INVEOF'
+import ast, pathlib, sys
+f = pathlib.Path(sys.argv[1])
+if not f.exists():
+    print("файла tests/test_invariants.py нет"); sys.exit(1)
+tree = ast.parse(f.read_text())
+found, stubs = set(), []
+for node in tree.body:
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        continue
+    if not node.name.startswith("test_i"):
+        continue
+    num = node.name[6:8]
+    found.add(num)
+    body = [n for n in node.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
+    has_check = any(isinstance(n, ast.Assert) for n in ast.walk(node)) or any(
+        isinstance(n, ast.Call) and ast.unparse(n.func).endswith(("raises", "assertRaises", "warns"))
+        for n in ast.walk(node))
+    only_fail = (len(body) == 1 and isinstance(body[0], ast.Expr)
+                 and isinstance(body[0].value, ast.Call)
+                 and ast.unparse(body[0].value.func).endswith("fail"))
+    if only_fail or not has_check:
+        bad_reason = "тело — только pytest.fail" if only_fail else "ни одного assert"
+        stubs.append(f"{node.name} (строка {node.lineno}): {bad_reason}")
+missing = [f"I{n}" for n in ("01","02","03","04","05","06","07","08","09","10","11","12","13","14","15") if n not in found]
+if missing:
+    print("отсутствуют:", " ".join(missing))
+for line in stubs:
+    print("заглушка:", line)
+print(f"TOTAL={len(found)}")
+sys.exit(1 if (missing or stubs) else 0)
+INVEOF
+if [ $? -eq 0 ]; then
+  ok "все пятнадцать инвариантов на месте и содержат проверки ($(grep '^TOTAL=' "$TMP/inv.txt" | cut -d= -f2) функций)"
 else
-  bad 'tests/test_invariants.py не существует'
+  bad 'инварианты отсутствуют или являются заглушками без проверок'
+  grep -v '^TOTAL=' "$TMP/inv.txt" | detail
 fi
 
 # ── 3. Полный прогон тестов ──────────────────────────────────────────────
