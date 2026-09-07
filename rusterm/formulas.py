@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 
 NullReason = Literal["denominator_zero", "negative_denominator", "missing_data", "jurisdiction_rate"]
+Scope = Literal["issuer", "instrument"]
 
 
 @dataclass
@@ -25,6 +26,7 @@ class Measure:
     method_version: str = "v1"
     null_reason: Optional[NullReason] = None
     lineage: list = None  # list of Locator dicts
+    scope: Scope = "issuer"  # уровень расчёта по data-model.md §4
 
 
 def clip(x: float, lo: float, hi: float) -> float:
@@ -147,6 +149,103 @@ def net_margin(net_income: float, revenue: float) -> Tuple[Optional[float], Opti
     return net_income / revenue, None
 
 
+def _divide_checked(numerator: Optional[float],
+                    denominator: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """Частное с правилами null §1: None на входе — missing_data,
+    нулевой знаменатель — denominator_zero, отрицательный — negative_denominator."""
+    if numerator is None or denominator is None:
+        return None, "missing_data"
+    if denominator == 0:
+        return None, "denominator_zero"
+    if denominator < 0:
+        return None, "negative_denominator"
+    return numerator / denominator, None
+
+
+# ── Оценка (data-dictionary.md §3 «Оценка», v1) ────────────────────────
+
+def market_cap_per_class(price_close: Optional[float],
+                         shares_outstanding: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """market_cap(i) = price_close(i) * shares_outstanding(i).
+
+    Капитализация одного класса акций — scope=instrument; оба входа
+    берутся по тому же классу (data-dictionary.md §2).
+    """
+    if price_close is None or shares_outstanding is None:
+        return None, "missing_data"
+    return price_close * shares_outstanding, None
+
+
+def market_cap_total(class_caps: List[Optional[float]]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """market_cap_total = sum(market_cap(i)) по всем классам эмитента — scope=issuer.
+
+    Ни один класс не может быть None: неполная сумма выглядела бы как
+    настоящая капитализация.
+    """
+    if not class_caps or any(c is None for c in class_caps):
+        return None, "missing_data"
+    return sum(class_caps), None
+
+
+def enterprise_value(market_cap_total: Optional[float],
+                     total_debt: Optional[float],
+                     cash: Optional[float],
+                     st_investments: Optional[float],
+                     minority_interest: Optional[float],
+                     preferred_equity: Optional[float],
+                     preferred_is_separate_class: bool) -> Tuple[Optional[float], Optional[NullReason]]:
+    """ev = market_cap_total + total_debt - cash - st_investments
+    + minority_interest + preferred_equity — на эмитента, scope=issuer.
+
+    Правило preferred_equity: привилегированный капитал входит в ev
+    только когда префы НЕ учтены в market_cap_total отдельным классом;
+    если учтены — в ev подставляется 0, иначе двойной счёт.
+    """
+    parts = [market_cap_total, total_debt, cash, st_investments, minority_interest]
+    if any(p is None for p in parts):
+        return None, "missing_data"
+    pref = 0.0 if preferred_is_separate_class else (preferred_equity or 0.0)
+    value = market_cap_total + total_debt - cash - st_investments + minority_interest + pref
+    return value, None
+
+
+def price_to_earnings(market_cap_total: Optional[float],
+                      net_income_ttm: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """pe = market_cap_total / net_income_ttm, null при знаменателе <= 0."""
+    return _divide_checked(market_cap_total, net_income_ttm)
+
+
+def price_to_book(market_cap_total: Optional[float],
+                  total_equity: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """pb = market_cap_total / total_equity, null при знаменателе <= 0."""
+    return _divide_checked(market_cap_total, total_equity)
+
+
+def price_to_sales(market_cap_total: Optional[float],
+                   revenue_ttm: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """ps = market_cap_total / revenue_ttm; правило нулевого/отрицательного
+    знаменателя — общее (data-dictionary.md §1.4)."""
+    return _divide_checked(market_cap_total, revenue_ttm)
+
+
+def ev_to_ebitda(ev_value: Optional[float],
+                 ebitda_ttm: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """ev_ebitda = ev / ebitda_ttm, null при ebitda <= 0."""
+    return _divide_checked(ev_value, ebitda_ttm)
+
+
+def dividend_yield(dps_ttm: Optional[float],
+                   price_close: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """div_yield(i) = dps_ttm(i) / price_close(i) — на классе акций,
+    scope=instrument; null при price_close <= 0."""
+    return _divide_checked(dps_ttm, price_close)
+
+
+# Уровень расчёта по data-model.md §4: фундаментальные — issuer,
+# оценочные и котировочные — instrument; ev и market_cap_total — эмитента.
+_INSTRUMENT_SCOPED = {"market_cap", "pe", "pb", "ps", "ev_ebitda", "div_yield"}
+
+
 def calculate_measure(
     concept: str,
     **kwargs
@@ -158,6 +257,7 @@ def calculate_measure(
     - invested_capital, roic, roe
     - asset_turnover
     - nopat
+    - Оценка: market_cap, market_cap_total, ev, pe, pb, ps, ev_ebitda, div_yield
     """
     method_version = kwargs.get("method_version", "v1")
     
@@ -264,11 +364,47 @@ def calculate_measure(
         te = kwargs.get("tax_expense")
         pi = kwargs.get("pretax_income")
         value, null_reason = effective_tax_rate(te, pi)
-    
+
+    elif concept == "market_cap":
+        value, null_reason = market_cap_per_class(
+            kwargs.get("price_close"), kwargs.get("shares_outstanding"))
+
+    elif concept == "market_cap_total":
+        value, null_reason = market_cap_total(kwargs.get("class_caps") or [])
+
+    elif concept == "ev":
+        value, null_reason = enterprise_value(
+            kwargs.get("market_cap_total"), kwargs.get("total_debt"),
+            kwargs.get("cash"), kwargs.get("st_investments"),
+            kwargs.get("minority_interest"), kwargs.get("preferred_equity"),
+            bool(kwargs.get("preferred_is_separate_class")),
+        )
+
+    elif concept == "pe":
+        value, null_reason = price_to_earnings(
+            kwargs.get("market_cap_total"), kwargs.get("net_income_ttm"))
+
+    elif concept == "pb":
+        value, null_reason = price_to_book(
+            kwargs.get("market_cap_total"), kwargs.get("total_equity"))
+
+    elif concept == "ps":
+        value, null_reason = price_to_sales(
+            kwargs.get("market_cap_total"), kwargs.get("revenue_ttm"))
+
+    elif concept == "ev_ebitda":
+        value, null_reason = ev_to_ebitda(
+            kwargs.get("ev"), kwargs.get("ebitda_ttm"))
+
+    elif concept == "div_yield":
+        value, null_reason = dividend_yield(
+            kwargs.get("dps_ttm"), kwargs.get("price_close"))
+
     else:
         # Неизвестный концепт
         null_reason = "missing_data"
-    
+
+    scope: Scope = "instrument" if concept in _INSTRUMENT_SCOPED else "issuer"
     return Measure(
         concept=concept,
         value=value,
@@ -279,6 +415,7 @@ def calculate_measure(
         method_version=method_version,
         null_reason=null_reason,
         lineage=kwargs.get("lineage", []),
+        scope=scope,
     )
 
 
