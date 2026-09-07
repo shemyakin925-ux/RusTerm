@@ -1066,6 +1066,100 @@ class VerificationRepo:
                 "expected": row[4], "shown": row[5]}
 
 
+class MetricsRepo:
+    """Агрегаты для системных метрик (TASK-7 T12). Только выборки;
+    смысл метрики и решение «нет данных — не записываем» — в core/metrics."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def job_status_counts(self) -> dict:
+        return {status: n for status, n in self.conn.execute(
+            "SELECT status, COUNT(*) FROM job GROUP BY status")}
+
+    def last_fetch_ts(self) -> Optional[float]:
+        row = self.conn.execute(
+            "SELECT MAX(fetched_at) FROM raw_object").fetchone()
+        return row[0]
+
+    def fact_status_counts(self) -> dict:
+        return {status: n for status, n in self.conn.execute(
+            "SELECT status, COUNT(*) FROM fact GROUP BY status")}
+
+    def raw_counts(self) -> dict:
+        """Всего сырья и сколько объектов без единого факта."""
+        total = self.conn.execute(
+            "SELECT COUNT(*) FROM raw_object").fetchone()[0]
+        unparsed = self.conn.execute(
+            """SELECT COUNT(*) FROM raw_object ro
+               WHERE NOT EXISTS (SELECT 1 FROM fact f
+                                 WHERE f.source_ref = ro.sha256)""").fetchone()[0]
+        return {"total": total, "unparsed": unparsed}
+
+    def verification_open_count(self) -> int:
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM verification"
+            " WHERE promoted_to_golden=0").fetchone()[0]
+
+    def instrument_counts(self) -> dict:
+        """Всего инструментов и сколько входят в ТЕКУЩИЕ версии peer set."""
+        total = self.conn.execute(
+            "SELECT COUNT(*) FROM instrument").fetchone()[0]
+        with_peers = self.conn.execute(
+            """SELECT COUNT(DISTINCT instrument_id) FROM peer_set_member
+               WHERE peer_set_version_id IN (
+                   SELECT psv.peer_set_version_id
+                   FROM peer_set_version psv
+                   JOIN (SELECT peer_set_id, MAX(version) AS mv
+                         FROM peer_set_version GROUP BY peer_set_id) m
+                     ON m.peer_set_id = psv.peer_set_id AND m.mv = psv.version)"""
+        ).fetchone()[0]
+        return {"total": total, "with_peers": with_peers}
+
+    def last_two_peer_member_sets(self) -> Optional[tuple]:
+        """Составы двух последних версий одного peer set: (прошлый, текущий)
+        списки instrument_id; None, если версий меньше двух."""
+        versions = self.conn.execute(
+            """SELECT psv.peer_set_version_id
+               FROM peer_set_version psv
+               ORDER BY psv.valid_from DESC, psv.version DESC LIMIT 2""",
+        ).fetchall()
+        if len(versions) < 2:
+            return None
+        def members(vid):
+            return [r[0] for r in self.conn.execute(
+                "SELECT instrument_id FROM peer_set_member"
+                " WHERE peer_set_version_id=?", (vid,))]
+        return members(versions[1][0]), members(versions[0][0])
+
+    def locator_failures_and_total(self) -> dict:
+        """Факты с локатором, из которого нельзя разрешить значение:
+        нет kind или нет ссылки на документ."""
+        total = self.conn.execute(
+            "SELECT COUNT(*) FROM fact").fetchone()[0]
+        bad = self.conn.execute(
+            """SELECT COUNT(*) FROM fact
+               WHERE locator = '' 
+                  OR locator NOT LIKE '%kind%'
+                  OR locator NOT LIKE '%doc_sha256%'""").fetchone()[0]
+        return {"total": total, "failures": bad}
+
+    def record_sample(self, ts: float, name: str, provider: str,
+                      value: float) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO metric_sample(ts, name, provider, value)
+                  VALUES (?, ?, ?, ?)
+                  ON CONFLICT(ts, name, provider) DO UPDATE SET
+                    value=excluded.value""",
+                (ts, name, provider, value))
+
+    def samples(self) -> list:
+        return self.conn.execute(
+            "SELECT ts, name, provider, value FROM metric_sample"
+            " ORDER BY name").fetchall()
+
+
 class AuditRepo:
     """Журнал операций: только добавление, дублирование в файл."""
 
@@ -1098,4 +1192,5 @@ class RepoRegistry:
         self.job = JobRepo(conn)
         self.coverage = CoverageRepo(conn)
         self.verification = VerificationRepo(conn)
+        self.metrics = MetricsRepo(conn)
         self.audit = AuditRepo(conn)

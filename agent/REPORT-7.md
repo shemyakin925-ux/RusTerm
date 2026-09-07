@@ -49,4 +49,8 @@
   - Failures en route: (1) new_version returned None -> member insert NULL vid; (2) new version contained only additions, losing existing members (T10 requires full new composition) -> copy_members; (3) note not carried -> carry row note. All fixed, suite green.
   - `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: T12, step 1
+- T12 done: core/metrics.py SystemMetrics (nine metrics; None = not recorded, never zero-faked; record() writes only non-None to metric_sample). MetricsRepo supplies aggregates only (SQL stays in store). provider_success_rate + provider_rate_limited wired to real RequestGate counters (test forces 4 made / 1 refused / 3 rate-limited). tests/test_metrics.py: 4 tests.
+  - Failures en route (test-expectation level, impl unchanged): gate without UA returned ConfigError before counters; charge() under ceiling does not refuse (exhausted budget to force refusal); rate_limited real value is 3 not 0; peer_set_coverage counts CURRENT peer set versions (2/3), not ever-membered.
+  - `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: T13, step 1
