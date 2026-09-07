@@ -35,4 +35,9 @@
   - `pytest tests/test_coverage.py -q` → exit 0; full suite exit 0
   - acceptance → 13/13
 
-NOW: T8, step 1
+- T8 done: VerificationRepo (capture/mismatch_counts/verification_pair/promote_to_golden), FactRepo.get_fact (dict, factory-independent) + count_for_issuer_concept, SnapshotRepo.instruments_for_fact, core/verification.py VerificationService: store_ground_truth (manual fact origin=manual, extracted kept + superseded_by), recompute (rebuild affected instruments' snapshots), propose_golden (JSONL in app-data dir + promoted_to_golden), flag_parser (threshold 5 / rolling 30d, deterministic) + surface_coverage (coverage.reason error). tests/test_verification.py: 5 tests.
+  - Migration 34 NOT needed: fact.superseded_by already exists (fact DDL line 126); verification table exists. No schema change.
+  - First acceptance run dropped to 12/13: I had put two SQL strings in core/verification.py (check 7). Moved to repos (verification_pair, count_for_issuer_concept). Fixed, 13/13.
+  - `pytest tests/test_verification.py -q` → exit 0 (5 passed); full suite exit 0; acceptance → 13/13
+
+NOW: T10, step 1

@@ -247,6 +247,21 @@ class FactRepo:
                  parser_version, status, superseded_by, time.time()),
             )
 
+    _FACT_COLUMNS = (
+        "fact_id", "issuer_id", "listing_id", "concept", "period_start",
+        "period_end", "period_type", "value", "unit", "currency", "basis",
+        "origin", "source_ref", "locator", "parser_version", "status",
+        "superseded_by",
+    )
+
+    def get_fact(self, fact_id: str) -> Optional[dict]:
+        """Один факт по id (верификация: что было показано). Словарь,
+        чтобы не зависеть от row_factory соединения."""
+        cols = ", ".join(self._FACT_COLUMNS)
+        row = self.conn.execute(
+            f"SELECT {cols} FROM fact WHERE fact_id=?", (fact_id,)).fetchone()
+        return dict(zip(self._FACT_COLUMNS, row)) if row else None
+
     def get_facts(self, issuer_id: Optional[str] = None,
                   listing_id: Optional[str] = None,
                   concept: Optional[str] = None,
@@ -271,6 +286,12 @@ class FactRepo:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY period_end DESC, ingested_at DESC"
         return self.conn.execute(sql, params).fetchall()
+
+    def count_for_issuer_concept(self, issuer_id: str, concept: str) -> int:
+        """Сколько фактов концепта у эмитента (для flag_parser)."""
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM fact WHERE issuer_id=? AND concept=?",
+            (issuer_id, concept)).fetchone()[0]
 
     def mark_superseded(self, old_fact_id: str, new_fact_id: str) -> None:
         with writer_transaction(self.conn) as c:
@@ -362,6 +383,18 @@ class SnapshotRepo:
                        AND a.period_end=f.period_end
                        AND a.basis='as_reported')"""
         ).fetchall()
+
+    def instruments_for_fact(self, fact_id: str) -> List[str]:
+        """Инструменты, чьи снапшоты содержат меры с lineage,
+        ссылающимся на факт (процесс 5, узел recompute)."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT s.instrument_id
+               FROM measure_lineage ml
+               JOIN measure m ON m.measure_id = ml.measure_id
+               JOIN snapshot s ON s.snapshot_id = m.snapshot_id
+               WHERE ml.fact_id = ?""",
+            (fact_id,)).fetchall()
+        return [r[0] for r in rows]
 
     def as_reported_facts(self, issuer_id: str, concepts: tuple) -> list:
         """Свежие as_reported-факты эмитента по списку концептов."""
@@ -762,6 +795,64 @@ class CoverageRepo:
             self.upsert(instrument_id, block, status, reason=reason)
 
 
+class VerificationRepo:
+    """Процесс 5 (docs/processes.md §263-284): журнал ручной верификации.
+    Только добавление; promote_to_golden — единственная обратная пометка."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def capture(self, fact_id_wrong: str, fact_id_correct: str,
+                note: Optional[str]) -> str:
+        """Узел 1: что было показано, что должно быть, ссылка на документ
+        (общий source_ref пары фактов). Возвращает verification_id."""
+        verification_id = str(uuid.uuid4())
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO verification(verification_id, fact_id_wrong,
+                  fact_id_correct, reported_at, note, promoted_to_golden)
+                  VALUES (?, ?, ?, ?, ?, 0)""",
+                (verification_id, fact_id_wrong, fact_id_correct,
+                 time.time(), note))
+        return verification_id
+
+    def promote_to_golden(self, verification_id: str) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                "UPDATE verification SET promoted_to_golden=1"
+                " WHERE verification_id=?",
+                (verification_id,))
+
+    def mismatch_counts(self, since: float) -> list:
+        """Расхождения по (провайдер, концепт) за окно: [(provider, concept, n)].
+        Провайдер — из сырья, на которое ссылается неверный факт."""
+        return self.conn.execute(
+            """SELECT ro.provider, fw.concept, COUNT(*) AS n
+               FROM verification v
+               JOIN fact fw ON fw.fact_id = v.fact_id_wrong
+               JOIN raw_object ro ON ro.sha256 = fw.source_ref
+               WHERE v.reported_at >= ?
+               GROUP BY ro.provider, fw.concept
+               ORDER BY n DESC""",
+            (since,)).fetchall()
+
+    def verification_pair(self, verification_id: str) -> Optional[dict]:
+        """Пара (сырьё, показано, ожидается) для propose_golden."""
+        row = self.conn.execute(
+            """SELECT v.verification_id, fw.source_ref, fw.concept,
+                      fw.period_end, fc.value, fw.value
+               FROM verification v
+               JOIN fact fw ON fw.fact_id = v.fact_id_wrong
+               JOIN fact fc ON fc.fact_id = v.fact_id_correct
+               WHERE v.verification_id=?""",
+            (verification_id,)).fetchone()
+        if row is None:
+            return None
+        return {"verification_id": row[0], "raw_sha256": row[1],
+                "concept": row[2], "period_end": row[3],
+                "expected": row[4], "shown": row[5]}
+
+
 class AuditRepo:
     """Журнал операций: только добавление, дублирование в файл."""
 
@@ -793,4 +884,5 @@ class RepoRegistry:
         self.watchlist = WatchlistRepo(conn)
         self.job = JobRepo(conn)
         self.coverage = CoverageRepo(conn)
+        self.verification = VerificationRepo(conn)
         self.audit = AuditRepo(conn)
