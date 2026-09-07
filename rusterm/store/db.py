@@ -434,7 +434,6 @@ def current_schema_version(conn: sqlite3.Connection) -> Optional[int]:
 
 def open_connection(paths: AppPaths) -> sqlite3.Connection:
     """Единая точка открытия соединения приложения: WAL, FK, row_factory."""
-    import sqlite3
     conn = sqlite3.connect(str(paths.db_path), timeout=30,
                            isolation_level=None)
     conn.row_factory = sqlite3.Row

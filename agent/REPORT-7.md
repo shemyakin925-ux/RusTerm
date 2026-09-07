@@ -16,4 +16,6 @@
 
 - T0 done: `pytest tests/test_invariants.py -q -k i16` → 1 passed; grep count = 1; acceptance 13/13.
 
-NOW: T1, step 1
+- T1 done: `awk '/^def open_connection/,/^$/' rusterm/store/db.py | grep -c 'import sqlite3'` → 0; `python3 -m pytest -q` → exit 0 (149 items, 1 skip).
+
+NOW: T2, step 1
