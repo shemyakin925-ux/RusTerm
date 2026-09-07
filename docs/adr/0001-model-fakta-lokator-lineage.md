@@ -49,7 +49,7 @@ kind=table    {doc_sha256, table_index, row, col, header_path[], text_snippet}
 kind=pdf      {doc_sha256, page, text_snippet, extractor, extractor_version,
                hint_bbox[x0,y0,x1,y1]}
 kind=html     {doc_sha256, css_selector | xpath, char_range[start,end], text_snippet}
-kind=api      {endpoint, request_hash, response_sha256, json_pointer}
+kind=api      {endpoint, request_hash, json_pointer, value_snapshot, retrieved_at}
 kind=derived  {inputs[fact_id…], formula_id, method_version}
 ```
 
@@ -57,6 +57,22 @@ kind=derived  {inputs[fact_id…], formula_id, method_version}
 для показа пользователю в подсказке и как регрессионный якорь: если источник
 переверстал страницу, сниппет перестанет совпадать раньше, чем пользователь
 увидит подставленное не то число.
+
+У `kind=api` якорь устроен иначе, и это важное отличие. Хеша ответа в локаторе
+нет намеренно: ответ API недетерминирован — таймстемпы, порядок ключей,
+служебные поля меняются от запроса к запросу, поэтому `response_sha256` при
+повторной проверке не совпал бы **никогда**, и тест разрешимости локаторов
+падал бы на всех рыночных данных сразу. Роль якоря делят `request_hash` (что
+именно спрашивали), `json_pointer` (где в ответе лежало число) и
+`value_snapshot` (что там лежало в момент извлечения). Байтовая
+воспроизводимость при этом не теряется: сырой ответ по-прежнему кладётся
+в raw-store и адресуется через `source_ref` факта — она обеспечивается им,
+а не полем внутри локатора.
+
+Следствие для проверки `resolve(locator) == value`: для документов она строгая,
+для API — это сверка с `value_snapshot` при неизменном `request_hash`.
+Расхождение означает ревизию данных на стороне провайдера и заводится как
+событие, а не как ошибка парсера.
 
 ### Производные величины
 
