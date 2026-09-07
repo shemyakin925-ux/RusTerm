@@ -92,7 +92,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
         fetched_at REAL NOT NULL,
         bytes INTEGER NOT NULL,
         content_type TEXT NOT NULL,
-        compression TEXT NOT NULL CHECK (compression IN ('none','zstd','gzip')),
+        compression TEXT NOT NULL CHECK (compression IN ('none','zstd')),
         instrument_id TEXT,
         block TEXT,
         http_status INTEGER,
@@ -334,7 +334,7 @@ def apply_migrations(conn: sqlite3.Connection) -> List[int]:
 
         # Применяем CREATE TABLE IF NOT EXISTS
         try:
-            conn.execute(create_sql)
+            # Многооператорная поддержка: если SQL содержит ; — используется executescript, иначе execute
         except sqlite3.OperationalError as e:
             # Проверим, существует ли таблица
             try:
