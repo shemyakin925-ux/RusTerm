@@ -1,391 +1,276 @@
-"""Pipeline: 9 nodes of ingestion per processes.md.
+"""Конвейер сбора — процесс 1 по docs/processes.md §46-123.
 
-Node 1: plan_refresh — что устарело
-Node 2: poll_source_index — один запрос на источник, не на компанию
-Node 3: enqueue — план + изменения в очередь, дедупликация по (instrument, блок, дата)
-Node 4: fetch — скачать один объект
-Node 5: store_raw — sha256, zstd, запись манифеста
-Node 6: parse — извлечь Fact[] с локаторами
-Node 7: validate — единицы, знак, диапазон, resolve(locator), сверка с прошлым периодом
-Node 8: persist — транзакция: факты + обновление coverage
-Node 9: cascade — пометить зависимые блоки stale (метрики, снапшот, summary)
+Девять узлов: plan_refresh, poll_source_index, enqueue, fetch, store_raw,
+parse, validate, persist, cascade. Сеть — только в узлах 2 и 4 (здесь —
+провайдеры, ошибки которых приходят значениями). Ветки ошибок E1-E5
+обрабатываются по таблице processes.md §110-121: внешняя ошибка не должна
+выглядеть как отсутствие данных.
 """
 from __future__ import annotations
 
-from typing import Literal, Optional, Tuple
+import json
+import time
+from dataclasses import dataclass, field
+from typing import Callable
+from uuid import uuid4
 
-from rusterm.core.fact import Fact, validate_fact_for_write, LocatorXBRL, LocatorTable
-from rusterm.store.raw_store import put_with_manifest, decompress_object
-from rusterm.store.paths import AppPaths, ensure_app_dir
-from rusterm.parsers import SyntheticXBRLParser, TableParser
+from rusterm.core.fact import locator_from_json, resolve_locator
+from rusterm.parsers import parse_auto
+from rusterm.providers.base import ProviderError
+from rusterm.providers.disclosures import FetchedDocument, IndexRecord
+from rusterm.store.repos import RepoRegistry, persist_ingestion_results
+
+# Блок конвейера по типу документа индекса.
+_BLOCK_BY_DOC_TYPE = {
+    "10-K": "fundamentals",
+    "10-Q": "fundamentals",
+    "INSIDER": "ownership",
+    "PRICES": "prices",
+}
+
+# Блоки, помечаемые stale каскадом после свежих fundamentals (§14-24).
+_CASCADE_DEPENDENTS = ("industry_metrics", "llm_summary")
+
+# Блоки источника раскрытий — помечаются error при недоступном индексе (E1).
+_DISCLOSURE_BLOCKS = ("fundamentals", "ownership")
 
 
-# --- Node 1: plan_refresh ---
+@dataclass
+class PipelineResult:
+    """Итог прогона конвейера — по узлам, для отчёта и тестов."""
+    jobs_done: int = 0
+    facts_stored: int = 0
+    suspects: int = 0          # E5: записаны со статусом suspect
+    duplicates: int = 0        # узел 5: объект уже в store, парсинг пропущен
+    deduped_jobs: int = 0      # узел 3: задание уже было по ключу
+    needs_verification: int = 0  # E4: парсер не справился
+    fetch_failures: int = 0    # E2/E3 исчерпаны
+    coverage_errors: int = 0   # E1: индекс недоступен
 
-def plan_refresh(
-    watchlist: list[str],  # instrument_ids
-    last_cursor: dict[str, str],  # instrument_id -> last poll cursor
-) -> list[dict]:
-    """Определить, что устарело и нуждается в обновлении.
 
-    Возвращает список джобов на обновление.
-    Джоб: job_id, instrument_id, block, provider, url, priority, not_before
+@dataclass
+class PruneResult:
+    kept_needs_verification: int = 0
+    deleted_without_facts: int = 0
+
+
+def _peek_doc_kind(content: bytes) -> str | None:
+    """doc_kind из метаданных документа, без разбора всего тела как фактов."""
+    try:
+        doc = json.loads(content.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if isinstance(doc, dict):
+        kind = doc.get("doc_kind")
+        return kind if isinstance(kind, str) else None
+    return None
+
+
+def _validate_fact(fact: dict, getter: Callable[[str], bytes]) -> list[str]:
+    """Узел 7: единицы, период, resolve(locator) == value (processes.md §69).
+
+    Возвращает список проблем; пустой — факт валиден.
     """
-    jobs = []
-    for instrument_id in watchlist:
-        cursor = last_cursor.get(instrument_id, "")
-        # Если курсора нет — всегда обновляем
-        if not cursor:
-            # Создаем джоб для всех блоков
-            for block in ["prices", "fundamentals"]:
-                jobs.append({
-                    "job_id": f"{instrument_id}_{block}_0",
-                    "instrument_id": instrument_id,
-                    "block": block,
-                    "provider": "synthetic",
-                    "url": None,
-                    "priority": 1,
-                    "not_before": None,
-                })
-        else:
-            # Проверяем, были ли изменения (упрощенно: всегда есть джобы)
-            jobs.append({
-                "job_id": f"{instrument_id}_refresh",
-                "instrument_id": instrument_id,
-                "block": "fundamentals",
-                "provider": "synthetic",
-                "url": None,
-                "priority": 1,
-                "not_before": None,
-            })
-    return jobs
+    problems: list[str] = []
+    if not fact.get("unit"):
+        problems.append("unit_missing")
+    if fact.get("period_end", "") < fact.get("period_start", ""):
+        problems.append("period_order")
+    try:
+        loc = locator_from_json(fact["locator"])
+        resolved = resolve_locator(loc, getter)
+        if resolved != fact.get("value"):
+            problems.append("resolve_mismatch")
+    except Exception as e:  # локатор обязан разрешаться; не разрешился — проблема
+        problems.append(f"resolve_error:{type(e).__name__}")
+    return problems
 
 
-# --- Node 2: poll_source_index ---
+class IngestionPipeline:
+    """Сбор по одному источнику раскрытий и одному инструменту.
 
-def poll_source_index(
-    provider: str, cursor: str = ""
-) -> Tuple[list[dict], str]:
-    """Один запрос на источник, не на компанию.
-
-    Возвращает (список записей, новый_cursor).
-    На этом держится инкрементальность.
+    providers — словарь имя -> DisclosuresProvider (синтетические в тестах);
+    sleep подменяется в тестах, чтобы паузы повторов не ждали реального времени.
     """
-    # Фейковый провайдер
-    from rusterm.providers.disclosures import FakeDisclosuresProvider
-    prov = FakeDisclosuresProvider()
-    result = prov.poll_index(cursor)
-    records = result.get("records", [])
-    new_cursor = result.get("cursor", str(int(cursor) + 10) if cursor else "10")
-    return records, new_cursor
 
+    def __init__(self, repos: RepoRegistry,
+                 providers: dict[str, object],
+                 sleep: Callable[[float], None] = time.sleep,
+                 max_attempts: int = 3):
+        self._repos = repos
+        self._providers = providers
+        self._sleep = sleep
+        self._max_attempts = max_attempts
 
-# --- Node 3: enqueue ---
+    def run(self, instrument_id: str, issuer_id: str,
+            provider_name: str, index_kind: str = "disclosures") -> PipelineResult:
+        result = PipelineResult()
+        provider = self._providers[provider_name]  # нет имени — программная ошибка
 
-def enqueue(
-    jobs: list[dict],
-    existing: list[dict] | None = None,
-) -> list[dict]:
-    """План + изменения в очередь, дедупликация по (instrument, блок, дата).
+        # ── Узел 2: poll_source_index — один запрос на источник (E1) ──
+        cursor = self._repos.job.get_cursor(provider_name, index_kind) or ""
+        poll = None
+        for attempt in range(1, self._max_attempts + 1):
+            outcome = provider.poll_index(cursor)
+            if not isinstance(outcome, ProviderError):
+                poll = outcome
+                break
+            self._sleep(2.0 ** attempt)  # экспоненциальная пауза
+        if poll is None:
+            # E1: coverage=error по блокам источника с причиной; не молчаливый пропуск.
+            for block in _DISCLOSURE_BLOCKS:
+                self._repos.job.coverage_upsert(
+                    instrument_id, block, "error",
+                    f"E1:index_unavailable:{provider_name}")
+            result.coverage_errors += 1
+            return result
+        self._repos.job.set_cursor(provider_name, index_kind, poll.cursor)
 
-    Дубликат sha256 — задание закрывается успешно (идемпотентность).
-    """
-    if existing is None:
-        return jobs[:]
-    
-    # Дедупликация: оставляем только новых джобов
-    existing_keys = {
-        (j["instrument_id"], j["block"], j.get("not_before")) 
-        for j in existing
-    }
-    new_jobs = []
-    for job in jobs:
-        key = (job["instrument_id"], job["block"], job.get("not_before"))
-        if key not in existing_keys:
-            new_jobs.append(job)
-    
-    # Добавляем джобы, которых нет в existing, но есть в jobs
-    new_keys = {
-        (j["instrument_id"], j["block"], j.get("not_before"))
-        for j in new_jobs
-    }
-    
-    result = list(existing) + new_jobs
-    return result
-
-
-# --- Node 4: fetch ---
-
-def fetch(
-    job: dict,
-    provider: str,
-) -> Tuple[Optional[bytes], FetchResult]:
-    """Скачать один объект.
-
-    FetchResult: job_id, sha256, bytes, content_type, fetched_at, status, error
-    """
-    import time
-    from rusterm.providers.disclosures import FakeDisclosuresProvider
-    
-    prov = FakeDisclosuresProvider()
-    # Генерируем синтетический контент
-    import hashlib
-    url = job.get("url")
-    if url:
-        raw = prov.fetch_document(url)
-        sha = raw.get("sha256", hashlib.sha256(url.encode()).hexdigest())
-        bytes_data = url.encode()  # placeholder
-        return bytes_data, FetchResult(
-            job_id=job["job_id"],
-            sha256=sha,
-            bytes=len(bytes_data),
-            content_type="application/json",
-            fetched_at=time.time(),
-            status="ok",
-            error=None,
-        )
-    else:
-        # Нет URL — создаем синтетический raw объект
-        import json
-        raw_data = {"facts": {}, "tables": []}
-        raw_bytes = json.dumps(raw_data).encode("utf-8")
-        sha = hashlib.sha256(raw_bytes).hexdigest()
-        return raw_bytes, FetchResult(
-            job_id=job["job_id"],
-            sha256=sha,
-            bytes=len(raw_bytes),
-            content_type="application/json",
-            fetched_at=time.time(),
-            status="ok",
-            error=None,
-        )
-
-
-# --- Node 5: store_raw ---
-
-def store_raw(
-    bytes_data: bytes, provider: str, paths: AppPaths,
-) -> str:
-    """Запись в content-addressed store, zstd, манифест.
-
-    Возвращает sha256 записи.
-    При существующем sha256 — no-op (идемпотентность).
-    """
-    import zlib
-    # Content-addressed: sha256 байтов
-    sha = hashlib.sha256(bytes_data).hexdigest()
-    
-    # Директория store/raw/<2>/<sha256>
-    ensure_app_dir(paths)
-    raw_dir = paths.raw_store / sha[:2]
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    
-    target = raw_dir / sha[2:]
-    if not target.exists():
-        # Сжимаем zstd, если доступно, иначе gzip
-        try:
-            import zstandard as zstd
-            compressed = zstd.ZstdCompressor().compress(bytes_data)
-        except ImportError:
-            compressed = zlib.compress(bytes_data)
-        target.write_bytes(compressed)
-    
-    # Манифест JSONL только на добавление
-    manifest_path = paths.manifest_path
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    # Append-only: добавляем запись, если её нет
-    existing_shas = set()
-    if manifest_path.exists():
-        for line in manifest_path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                existing_shas.add(line.strip())
-    
-    if sha not in existing_shas:
-        with manifest_path.open("a", encoding="utf-8") as f:
-            f.write(f"{sha}\n")
-    
-    return sha
-
-
-# --- Node 6: parse ---
-
-def parse(
-    raw_bytes: bytes, parser: str = "synthetic",
-) -> Tuple[list[dict], int]:
-    """Извлечь Fact[] с локаторами.
-
-    Возвращает (список словарей фактов, счетчик неразобранного).
-    """
-    import json
-    from rusterm.parsers import SyntheticXBRLParser, TableParser
-    
-    raw = json.loads(raw_bytes.decode("utf-8"))
-    
-    if parser == "synthetic":
-        p = SyntheticXBRLParser()
-    elif parser == "table":
-        p = TableParser()
-    else:
-        p = SyntheticXBRLParser()
-    
-    # Метаданные
-    metadata = {"sha256": hashlib.sha256(raw_bytes).hexdigest()}
-    
-    # Can parse check
-    if not p.can_parse(raw, metadata):
-        return [], 0
-    
-    # Parse
-    facts, unparsed = p.parse(raw, metadata={})
-    
-    # Конвертируем в словари Fact
-    fact_dicts = []
-    for fact in facts:
-        fact_dict = {
-            "fact_id": fact.get("fact_id", ""),
-            "concept": fact.get("concept", ""),
-            "value": fact.get("value", "0"),
-            "unit": fact.get("unit", "USD"),
-            "basis": fact.get("basis", "as_reported"),
-            "origin": fact.get("origin", "extracted"),
-            "source_ref": fact.get("source_ref", ""),
-            "locator": fact.get("locator", {}),
-            "parser_version": fact.get("parser_version", "synthetic.v1"),
-        }
-        fact_dicts.append(fact_dict)
-    
-    return fact_dicts, unparsed
-
-
-# --- Node 7: validate ---
-
-def validate(
-    fact_dicts: list[dict],
-) -> Tuple[list[dict], list[str]]:
-    """Единицы, знак, диапазон, resolve(locator), сверка с прошлым периодом.
-
-    Возвращает (принятые факты, список ошибок/подозрительных).
-    Факты, не прошедшие валидацию, помечаются suspect.
-    """
-    from rusterm.core.fact import Fact
-    
-    accepted = []
-    errors = []
-    
-    for fd in fact_dicts:
-        try:
-            fact = Fact(
-                issuer_id=fd.get("issuer_id"),
-                listing_id=fd.get("listing_id"),
-                concept=fd["concept"],
-                period_start=fd.get("period_start", ""),
-                period_end=fd.get("period_end", ""),
-                period_type=fd.get("period_type", "duration"),
-                value=fd.get("value"),
-                unit=fd["unit"] if fd.get("unit") else "USD",
-                currency=fd.get("currency"),
-                basis=fd.get("basis", "as_reported"),
-                origin=fd.get("origin", "extracted"),
-                source_ref=fd.get("source_ref", ""),
-                locator=fd.get("locator", {"kind": "xbrl", "doc_sha256": "", "fact_id": ""}),
-                parser_version=fd.get("parser_version", "synthetic.v1"),
+        # ── Узел 3: enqueue — дедупликация по ключу идемпотентности ──
+        jobs: list[tuple[str, IndexRecord]] = []
+        for rec in poll.records:
+            job_id = str(uuid4())
+            key = f"{provider_name}:{rec.url}"
+            placed = self._repos.job.enqueue(
+                job_id=job_id,
+                instrument_id=instrument_id,
+                block=_BLOCK_BY_DOC_TYPE.get(rec.doc_type, "fundamentals"),
+                provider=provider_name,
+                target_date=rec.period,
+                url=rec.url,
+                priority=0,
+                idempotency_key=key,
             )
-            # Валидация через validate_fact_for_write
-            validation_errors = validate_fact_for_write(fact)
-            if validation_errors:
-                # Помечаем как suspect
-                fact.status = "suspect"
-                errors.extend(validation_errors)
+            if placed:
+                jobs.append((job_id, rec))
             else:
-                accepted.append(fact)
-        except ValueError as e:
-            errors.append(str(e))
-            # Фakt с ошибкой валидации — suspect
-            fact_dict["status"] = "suspect"
-            accepted.append(fd)
-    
-    return accepted, errors
+                result.deduped_jobs += 1
 
+        # ── Узлы 4-8 по каждому заданию ──
+        blocks_touched: set[str] = set()
+        for job_id, rec in jobs:
+            block = _BLOCK_BY_DOC_TYPE.get(rec.doc_type, "fundamentals")
+            closed, stored, suspects = self._run_job(
+                job_id, rec, block, instrument_id, issuer_id,
+                provider_name, provider, result)
+            result.jobs_done += closed
+            result.facts_stored += stored
+            result.suspects += suspects
+            if stored or suspects:
+                blocks_touched.add(block)
 
-# --- Node 8: persist ---
+        # ── Узел 9: cascade — зависимые блоки помечаются stale ──
+        if blocks_touched:
+            for block in blocks_touched:
+                for dep in _CASCADE_DEPENDENTS:
+                    self._repos.job.coverage_upsert(
+                        instrument_id, dep, "stale",
+                        f"cascade:after_{block}")
 
-def persist(
-    facts: list[Fact], paths: AppPaths,
-) -> dict:
-    """Транзакция: факты + обновление coverage.
+        return result
 
-    Возвращает статистику: сколько записано, сколько дублей пропущено.
-    """
-    import json
-    
-    # Журнал аудита
-    audit_path = paths.audit_log_path
-    audit_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    written = 0
-    duplicates = 0
-    
-    for fact in facts:
-        # Проверяем, существует ли уже такой факт (по fact_id + sha256 source_ref)
-        # Вставка: только вставка, исправление — новый факт + superseded_by
-        try:
-            # Сериализуем для хранения
-            fact_tuple = fact.to_db_tuple()
-            
-            # В реальности здесь был бы INSERT в SQLite
-            # Проверяем дубль: если source_ref уже есть — пропускаем
-            # Пока что считаем все как записанные
-            written += 1
-            
-            # Логируем в аудит
-            with audit_path.open("a", encoding="utf-8") as f:
-                f.write(f"{fact.fact_id}|{fact.basis}|{fact.status}\n")
-                
-        except Exception as e:
-            duplicates += 1
-            # Ошибка записи — не критическая, логируем
-    
-    return {
-        "written": written,
-        "duplicates": duplicates,
-        "total": len(facts),
-    }
+    def _run_job(self, job_id: str, rec: IndexRecord, block: str,
+                 instrument_id: str, issuer_id: str, provider_name: str,
+                 provider: object, result: PipelineResult) -> tuple[int, int, int]:
+        """Один документ: fetch -> store_raw -> parse -> validate -> persist.
+        Возвращает (заданий закрыто, фактов записано, suspect-фактов)."""
+        self._repos.job.claim(job_id)
 
+        # ── Узел 4: fetch (E2/E3) ──
+        doc: FetchedDocument | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            outcome = provider.fetch_document(rec.url)
+            if isinstance(outcome, FetchedDocument):
+                doc = outcome
+                break
+            self._sleep(2.0 ** attempt)  # уважение паузе источника
+        if doc is None:
+            # E3: повторители исчерпаны — dead-letter с причиной, coverage=error.
+            self._repos.job.fail(job_id, "E3:fetch_failed", retry=False)
+            self._repos.job.coverage_upsert(
+                instrument_id, block, "error",
+                f"E3:fetch_failed:{rec.url}")
+            result.fetch_failures += 1
+            return 0, 0, 0
 
-# --- Node 9: cascade ---
+        # ── Узел 5: store_raw; дубль sha256 — закрыть без парсинга (I7) ──
+        if self._repos.raw.has(doc.sha256):
+            self._repos.job.finish(job_id)
+            result.duplicates += 1
+            return 1, 0, 0
+        obj = self._repos.raw.put(
+            doc.content, provider=provider_name, url=doc.url,
+            instrument_id=instrument_id, block=block,
+            content_type=doc.content_type)
 
-def cascade(
-    paths: AppPaths, affected_blocks: list[str] | None = None,
-) -> dict:
-    """Пометить зависимые блоки stale (метрики, снапшот, summary).
+        # ── Узел 6: parse (E4) ──
+        metadata = {
+            "content_type": doc.content_type,
+            "doc_type": rec.doc_type,
+            "doc_kind": _peek_doc_kind(doc.content),
+        }
+        context = {"issuer_id": issuer_id, "source_ref": obj.sha256}
+        parsed = parse_auto(doc.content, metadata, context)
+        if parsed is None:
+            # E4: сырьё сохранено; задание — needs_verification, блок —
+            # missing с причиной, не молчаливый пропуск.
+            self._repos.job.fail(job_id, "E4:needs_verification", retry=False)
+            self._repos.job.coverage_upsert(
+                instrument_id, block, "missing",
+                f"needs_verification:{obj.sha256}")
+            result.needs_verification += 1
+            return 0, 0, 0
 
-    Если после исключения осталось меньше 5 пиров — перцентили не считаются.
-    """
-    import json
-    
-    # Читаем текущий снапшот
-    snapshot_path = paths.snapshot_path
-    
-    result = {
-        "blocks_marked_stale": 0,
-        "metrics_affected": 0,
-        "snapshots_updated": 0,
-    }
-    
-    if affected_blocks is None:
-        affected_blocks = ["fundamentals", "peer_set", "governance"]
-    
-    for block in affected_blocks:
-        # Помечаем блок как stale
-        # В реальности обновили бы статус в БД
-        result["blocks_marked_stale"] += 1
-        
-        # Метрики affected
-        if block in ["fundamentals", "peer_set"]:
-            result["metrics_affected"] += 1
-    
-    # Обновляем снапшот, если нужно
-    if snapshot_path.exists():
-        result["snapshots_updated"] = 1
-    
-    return result
+        # ── Узел 7: validate; не прошедшие пишутся как suspect (E5) ──
+        getter = self._repos.raw.get
+        fact_dicts: list[dict] = []
+        suspects = 0
+        for f in parsed.facts:
+            fact = dict(f)
+            fact["fact_id"] = str(uuid4())
+            if _validate_fact(fact, getter):
+                fact["status"] = "suspect"
+                suspects += 1
+            fact_dicts.append(fact)
+
+        # ── Узел 8: persist — факты + coverage одной транзакцией ──
+        if not fact_dicts:
+            # Разобрано, но ничего не извлечено — пустой разбор, объект
+            # помечается как удаляемый при facts_only (I13 его не защищает).
+            self._repos.job.fail(job_id, "E4:empty_parse", retry=False)
+            self._repos.job.coverage_upsert(
+                instrument_id, block, "missing",
+                f"empty_parse:{obj.sha256}")
+            return 0, 0, 0
+        # У coverage нет статуса «частично»: проблема живёт в reason
+        # (suspect-факты в расчёты не попадают, но из вида не пропадают).
+        coverage_status = "ready"
+        coverage_reason = None
+        if suspects:
+            coverage_reason = f"suspect:{suspects}"
+        elif parsed.unparsed:
+            coverage_reason = f"unparsed:{parsed.unparsed}"
+        persist_ingestion_results(
+            self._repos.conn, fact_dicts,
+            [(instrument_id, block, coverage_status, coverage_reason)])
+        self._repos.job.finish(job_id)
+        return 1, len(fact_dicts), suspects
+
+    def prune_unparsed(self, policy: str = "facts_only") -> PruneResult:
+        """Очистка объектов без фактов. policy='facts_only': объекты с пометкой
+        needs_verification в coverage не удаляются никогда — неразобранное
+        остаётся на месте (I13). Файлы и манифест не трогаются: убирается
+        только запись индекса."""
+        result = PruneResult()
+        if policy != "facts_only":
+            raise ValueError(f"unknown prune policy: {policy}")
+        rows = self._repos.raw.objects_without_facts()
+        for sha, block, instrument_id in rows:
+            cov = self._repos.job.get_coverage(instrument_id, block)
+            reason = (cov or {}).get("reason") or ""
+            if "needs_verification" in reason:
+                result.kept_needs_verification += 1
+                continue
+            self._repos.raw.delete_index_entry(sha)
+            result.deleted_without_facts += 1
+        return result

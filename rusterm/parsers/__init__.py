@@ -20,6 +20,15 @@ from rusterm.core.fact import determine_basis
 
 PARSER_VERSION = "synthetic.v1"
 
+# doc_type из индекса раскрытий -> метаданные, по которым парсер решает,
+# не читая тела (processes.md: can_parse решает по типу и источнику).
+_DOC_TYPE_TO_KIND = {
+    "10-K": "xbrl",
+    "10-Q": "xbrl",
+    "INSIDER": "table",
+    "PRICES": "table",
+}
+
 
 @dataclass
 class ParseResult:
@@ -47,7 +56,9 @@ class SyntheticXBRLParser:
     source_name = "synthetic"
 
     def can_parse(self, metadata: dict) -> bool:
-        return metadata.get("doc_kind") == "xbrl"
+        kind = metadata.get("doc_kind") or _DOC_TYPE_TO_KIND.get(
+            metadata.get("doc_type"))
+        return kind == "xbrl"
 
     def parse(self, raw: bytes, context: dict) -> ParseResult:
         doc = json.loads(raw.decode("utf-8"))
@@ -94,7 +105,9 @@ class TableParser:
     source_name = "synthetic"
 
     def can_parse(self, metadata: dict) -> bool:
-        return metadata.get("doc_kind") == "table"
+        kind = metadata.get("doc_kind") or _DOC_TYPE_TO_KIND.get(
+            metadata.get("doc_type"))
+        return kind == "table"
 
     def parse(self, raw: bytes, context: dict) -> ParseResult:
         doc = json.loads(raw.decode("utf-8"))

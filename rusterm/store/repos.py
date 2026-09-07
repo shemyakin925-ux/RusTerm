@@ -184,6 +184,31 @@ class RawRepo:
         from .raw_store import read_object
         return read_object(self.paths.raw_store, sha256)
 
+    def delete_index_entry(self, sha256: str) -> bool:
+        """Убрать объект из индекса БД. Файл и манифест остаются:
+        манифест — ведущий, повторная загрузка вернёт объект по sha."""
+        from .raw_store import object_path
+        with writer_transaction(self.conn) as c:
+            cur = c.execute("DELETE FROM raw_object WHERE sha256=?",
+                            (sha256,))
+        target = object_path(self.paths.raw_store, sha256)
+        for p in (target,
+                  target.with_suffix(target.suffix + ".gz"),
+                  target.with_suffix(target.suffix + ".zst")):
+            if p.exists():
+                p.unlink()
+        return cur.rowcount > 0
+
+    def objects_without_facts(self) -> list:
+        """Объекты, на которые не ссылается ни один факт — кандидаты
+        очистки (конвейер, policy facts_only)."""
+        return self.conn.execute(
+            """SELECT ro.sha256, ro.block, ro.instrument_id
+               FROM raw_object ro
+               LEFT JOIN fact f ON f.source_ref = ro.sha256
+               WHERE f.fact_id IS NULL"""
+        ).fetchall()
+
 
 class FactRepo:
     """Запись и выборка фактов. Только вставка; исправление — новый факт + superseded_by."""
@@ -440,6 +465,105 @@ class JobRepo:
             return True
         except sqlite3.IntegrityError:
             return False  # дубликат idempotency_key
+
+    def claim(self, job_id: str) -> None:
+        """Взять задание в работу: queued -> running."""
+        with writer_transaction(self.conn) as c:
+            c.execute("UPDATE job SET status='running' WHERE job_id=?",
+                      (job_id,))
+
+    def finish(self, job_id: str) -> None:
+        """Закрыть задание успешно."""
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                "UPDATE job SET status='done', finished_at=? WHERE job_id=?",
+                (time.time(), job_id))
+
+    def fail(self, job_id: str, error: str, retry: bool,
+             not_before: Optional[float] = None) -> None:
+        """Провал попытки: retry -> снова в очередь с паузой, иначе dead-letter."""
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """UPDATE job SET
+                     attempt = attempt + 1,
+                     status = CASE WHEN ? THEN 'queued' ELSE 'dead' END,
+                     not_before = ?,
+                     last_error = ?
+                   WHERE job_id=?""",
+                (retry, not_before, error, job_id))
+
+    # ── Курсоры инкрементальности (data-model.md §2: source_cursor) ──
+
+    def get_cursor(self, provider: str, index_kind: str) -> Optional[str]:
+        row = self.conn.execute(
+            "SELECT cursor FROM source_cursor WHERE provider=? AND index_kind=?",
+            (provider, index_kind)).fetchone()
+        return row[0] if row else None
+
+    def set_cursor(self, provider: str, index_kind: str, cursor: str) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO source_cursor(provider, index_kind, last_seen_at, cursor, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(provider, index_kind) DO UPDATE SET
+                     cursor=excluded.cursor, updated_at=excluded.updated_at""",
+                (provider, index_kind, time.time(), cursor, time.time()))
+
+    # ── Coverage (data-model.md §4) ─────────────────────────────────
+
+    def coverage_upsert(self, instrument_id: str, block: str,
+                        status: str, reason: Optional[str]) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO coverage(instrument_id, block, status, last_update, reason)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(instrument_id, block) DO UPDATE SET
+                     status=excluded.status, last_update=excluded.last_update,
+                     reason=excluded.reason""",
+                (instrument_id, block, status, time.time(), reason))
+
+    def get_coverage(self, instrument_id: str, block: str) -> Optional[dict]:
+        row = self.conn.execute(
+            "SELECT status, reason FROM coverage WHERE instrument_id=? AND block=?",
+            (instrument_id, block)).fetchone()
+        if row is None:
+            return None
+        return {"status": row[0], "reason": row[1]}
+
+
+def persist_ingestion_results(conn: sqlite3.Connection,
+                              fact_dicts: list[dict],
+                              coverage_rows: list[tuple]) -> None:
+    """Узел 8 процесса 1 (processes.md): факты + обновление coverage
+    одной транзакцией. Сбой на середине откатывает всё целиком —
+    полусостояний не остаётся.
+
+    fact_dicts — словари факта по data-model.md §3 (как их отдаёт парсер,
+    с добавленным fact_id). coverage_rows — (instrument_id, block, status, reason).
+    """
+    with writer_transaction(conn) as c:
+        for f in fact_dicts:
+            c.execute(
+                """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
+                  period_start, period_end, period_type, value, unit, currency,
+                  basis, origin, source_ref, locator, parser_version,
+                  status, superseded_by, ingested_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (f["fact_id"], f.get("issuer_id"), f.get("listing_id"),
+                 f["concept"], f["period_start"], f["period_end"],
+                 f["period_type"], f.get("value"), f["unit"],
+                 f.get("currency"), f["basis"], f["origin"],
+                 f["source_ref"], json.dumps(f["locator"], ensure_ascii=False),
+                 f["parser_version"], f.get("status", "ok"),
+                 f.get("superseded_by"), time.time()))
+        for instrument_id, block, status, reason in coverage_rows:
+            c.execute(
+                """INSERT INTO coverage(instrument_id, block, status, last_update, reason)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(instrument_id, block) DO UPDATE SET
+                     status=excluded.status, last_update=excluded.last_update,
+                     reason=excluded.reason""",
+                (instrument_id, block, status, time.time(), reason))
 
 
 class AuditRepo:
