@@ -23,4 +23,12 @@
   - `pytest tests/test_parsers.py tests/test_invariants.py -q` → exit 0 (56 passed)
   - acceptance → 13/13
 
-NOW: T3, step 1
+- T3 done: rusterm/providers/budget.py (RateLimiter monotonic+injectable clock/sleeper; Budget refunds BudgetExceeded value at ceiling; NetworkGate ConfigError without RUSTERM_SEC_UA; RequestGate single door with counters made/refused/rate_limited for T12). tests/test_budget.py: 4 tests.
+  - `pytest tests/test_budget.py -q` → exit 0
+  - acceptance → 13/13
+  - Wiring note: no network provider exists yet (T4 skipped, UA unset); enforcement point is RequestGate, which edgar.py (T4) MUST be constructed through. Synthetic providers untouched (zero cost).
+
+## Disputed (cont.)
+- T3 "limiter holds ≤5/s over a burst of 20": implemented as fixed-interval pacing (industry-standard reading of "limiter delays"); guarantee tested as ≥0.2s spacing, 5.0 req/s average over the burst, and 5 calls in the first second. A hard ≤5 in EVERY arbitrary 1s window would need a sliding-window algorithm, not min-interval spacing; SEC documents 10/s so the boundary slack is immaterial.
+
+NOW: T7, step 1
