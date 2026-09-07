@@ -91,4 +91,7 @@
   - HONEST NOTE: first commit f9b5a3a included this test RED — I asserted 'first point untouched', but both ex-dates are AFTER the first date, so both factors apply. Point-value asserts corrected (01-05: close*0.5*f_div; 04-05: bare close), suite green now. Violation of 'never commit red' acknowledged; correction is this commit.
   - `pytest tests/test_formulas.py -q` → exit 0; acceptance → 13/13
 
-NOW: B6, step 1
+- B6 done: doctor ALREADY reports drift (schema_version != _SCHEMA_VERSION -> problem line with both numbers); per backlog instruction added the missing test instead: test_cli_doctor_reports_schema_drift — version-35 row deleted, applied max drops to 33 (34 does not exist), doctor exits 1 and prints 'schema_version=33, ожидается 35'.
+  - `pytest tests/test_cli.py -q -k drift` → exit 0; acceptance → 13/13
+
+NOW: B7, step 1

@@ -80,6 +80,28 @@ def test_cli_doctor_detects_schema_gap(capsys):
         shutil.rmtree(root)
 
 
+def test_cli_doctor_reports_schema_drift(capsys):
+    """BACKLOG B6: база, отставшая от кода, видна в doctor с обоими
+    числами — применённой версией и ожидаемой."""
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        import sqlite3
+        conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
+        conn.execute("DELETE FROM schema_version WHERE version=35")
+        conn.close()
+        assert main(["--root", root, "doctor"]) == 1
+        report = json.loads(capsys.readouterr().out)
+        assert report["ok"] is False
+        # версии 34 не существует, поэтому после удаления 35 максимум — 33
+        assert report["schema_version"] == 33
+        assert any("schema_version=33" in p and "35" in p
+                   for p in report["problems"])
+    finally:
+        shutil.rmtree(root)
+
+
 def test_cli_export_without_snapshot_fails_clean(capsys):
     root = _root()
     try:
