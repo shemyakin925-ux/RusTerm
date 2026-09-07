@@ -200,6 +200,19 @@ else
   bad "без zstandard код возврата $RC2 — фолбэк не реализован"
 fi
 
+# ── 13. Рабочее дерево чистое ────────────────────────────────────────────
+head_ '13. Ничего не осталось вне git'
+UNTRACKED="$(git status --porcelain 2>/dev/null | grep '^??' || true)"
+JUNK="$(find . -path ./.git -prune -o -path ./.venv -prune -o \
+        \( -name '*.bak' -o -name '*.orig' -o -name '*.rej' -o -name '*.db' \) \
+        -print 2>/dev/null || true)"
+if [ -z "$UNTRACKED" ] && [ -z "$JUNK" ]; then
+  ok 'нет неотслеживаемых файлов и следов правки'
+else
+  bad 'работа или мусор вне git — файл, о котором отчитались, может не существовать в репозитории'
+  { [ -n "$UNTRACKED" ] && echo "$UNTRACKED"; [ -n "$JUNK" ] && echo "$JUNK"; } | detail
+fi
+
 # ── Итог ─────────────────────────────────────────────────────────────────
 printf '\n\033[1mИтог: пройдено %d, провалено %d\033[0m\n' "$PASS" "$FAIL"
 if [ "$FAIL" -eq 0 ]; then
