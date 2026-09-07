@@ -36,6 +36,25 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 
+# ── B1. Нумерация инвариантов непрерывна: пропавший номер — сигнал ─────
+def test_invariant_numbering_is_contiguous():
+    """Тесты-надзиратели идут подряд с 01 без пропусков (BACKLOG B1).
+
+    Провал TASK-4: I16 был заявлен сделанным, отсутствовал в дереве,
+    и никто не заметил, потому что проверка считала только количество.
+    Этот тест краснеет, если какой-нибудь test_iNN_ удалить.
+    """
+    numbers = sorted(
+        int(re.match(r"test_i(\d+)_", name).group(1))
+        for name in globals()
+        if re.match(r"test_i\d+_", name)
+    )
+    assert numbers, "инварианты исчезли целиком"
+    assert numbers == list(range(1, max(numbers) + 1)), (
+        f"дыра в нумерации инвариантов: {numbers}"
+    )
+
+
 # ── I1. Факт без locator не сохраняется ──────────────────────────────────
 def test_i01_fact_without_locator_rejected():
     """Попытка записи факта без locator падает (конструктор)."""

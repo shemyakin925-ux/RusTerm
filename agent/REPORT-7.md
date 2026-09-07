@@ -78,4 +78,7 @@
   - NUMBERING DISPUTE: task prescribed docs/adr/0006-postavshchik-kotirovok.md claiming 0006 free, but 0006 is taken (0006-verifikatsiya-i-ground-truth.md, merged before TASK-7). Wrote 0008 (next free) to avoid two ADR-0006; rename if literal filename preferred.
   - `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: T20, step 1
+- B1 done: test_invariant_numbering_is_contiguous in tests/test_invariants.py — collects test_iNN_ numbers, asserts contiguous from 01; red if any deleted. BACKLOG says accept '-k numbering' green.
+  - `pytest tests/test_invariants.py -q -k numbering` → exit 0; acceptance → 13/13
+
+NOW: B2, step 1
