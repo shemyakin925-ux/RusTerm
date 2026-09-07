@@ -81,4 +81,7 @@
 - B1 done: test_invariant_numbering_is_contiguous in tests/test_invariants.py — collects test_iNN_ numbers, asserts contiguous from 01; red if any deleted. BACKLOG says accept '-k numbering' green.
   - `pytest tests/test_invariants.py -q -k numbering` → exit 0; acceptance → 13/13
 
-NOW: B2, step 1
+- B2 done: tests/test_fixtures.py test_fixtures_are_synthetic — every file under fixtures/ (recursive) carries synthetic in name AND body (ascii or Cyrillic form). Red-path proven: temp non-synthetic file turned the test red, removed, green again.
+  - `pytest -k fixtures_are_synthetic` green/red/green verified; acceptance → 13/13
+
+NOW: B3, step 1
