@@ -44,18 +44,27 @@ class BuildResult:
 class SnapshotBuilder:
     """Собирает и записывает новую версию снапшота по фактам из базы."""
 
-    def __init__(self, snapshot_repo, peer_set_repo):
+    def __init__(self, snapshot_repo, peer_set_repo, coverage_repo=None):
         self._snapshots = snapshot_repo
         self._peers = peer_set_repo
+        # CoverageRepo необязателен, чтобы не ломать существующие вызовы;
+        # если передан — каждая сборка оставляет все восемь строк покрытия
+        # (TASK-7 T7: пробел показывается, а не замалчивается).
+        self._coverage = coverage_repo
 
     def build(self, instrument_id: str, issuer_id: str, as_of: str,
               peer_set_version: str | None = None,
               peer_measures: list | None = None,
               peer_members_previous: list[str] | None = None,
-              peer_members_current: list[str] | None = None) -> BuildResult:
+              peer_members_current: list[str] | None = None,
+              source_errors: dict | None = None) -> BuildResult:
         """peer_measures — [(peer_id, measure_id, concept, value, fresh)]
         величин пиров из первого прохода. fresh=False — пир без свежих
         данных: исключается с пометкой excluded_stale.
+
+        source_errors — {block: причина} для блоков, чей сборщик вернул
+        внешнюю ошибку (E1/E2): покрытие получает error, сборка продолжается
+        на том, что есть (docs/threat-model-sources.md §2 class A).
         """
         version = self._next_version(instrument_id)
         snapshot_id = str(uuid4())
@@ -130,6 +139,19 @@ class SnapshotBuilder:
 
         result.diff = self._diff(instrument_id, snapshot_id,
                                  peer_members_previous, peer_members_current)
+
+        # ── Покрытие: все восемь блоков существуют после каждой сборки ──
+        if self._coverage is not None:
+            known = {
+                "fundamentals": (
+                    ("ready", None) if computed
+                    else ("missing", "no_as_reported_facts")),
+                "peer_set": (
+                    ("ready", None) if peer_set_version
+                    else ("missing", "peer_set_not_confirmed")),
+            }
+            self._coverage.ensure_all(instrument_id, known,
+                                      source_errors=source_errors)
         return result
 
     def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict]:

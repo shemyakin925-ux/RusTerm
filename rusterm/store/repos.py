@@ -665,6 +665,103 @@ def persist_ingestion_results(conn: sqlite3.Connection,
                 (instrument_id, block, status, time.time(), reason))
 
 
+# Блоки покрытия и их статусы — ровно эти восемь и пять
+# (docs/watchlist-and-llm.md §1.3, TASK-7 T7).
+COVERAGE_BLOCKS: tuple = (
+    "prices", "fundamentals", "ownership", "corporate_actions",
+    "governance", "industry_metrics", "peer_set", "llm_summary",
+)
+COVERAGE_STATUSES: tuple = (
+    "ready", "stale", "processing", "missing", "error",
+)
+
+
+class CoverageRepo:
+    """Покрытие по (instrument, блок). Пробел показывается, а не
+    замалчивается: missing/error без непустой причины не записываются —
+    запрет enforced здесь, а не на совести вызывающего (TASK-7 T7)."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def upsert(self, instrument_id: str, block: str, status: str,
+               last_update: Optional[float] = None,
+               reason: Optional[str] = None) -> None:
+        if block not in COVERAGE_BLOCKS:
+            raise ValueError(f"I-coverage: неизвестный блок {block!r}")
+        if status not in COVERAGE_STATUSES:
+            raise ValueError(f"I-coverage: неизвестный статус {status!r}")
+        if status in ("missing", "error") and not (reason and reason.strip()):
+            raise ValueError(
+                f"I-coverage: {status} требует непустую причину")
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO coverage(instrument_id, block, status, last_update, reason)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(instrument_id, block) DO UPDATE SET
+                     status=excluded.status, last_update=excluded.last_update,
+                     reason=excluded.reason""",
+                (instrument_id, block, status,
+                 last_update if last_update is not None else time.time(),
+                 reason))
+
+    def for_instrument(self, instrument_id: str) -> List[dict]:
+        rows = self.conn.execute(
+            """SELECT instrument_id, block, status, last_update, reason
+               FROM coverage WHERE instrument_id=? ORDER BY block""",
+            (instrument_id,)).fetchall()
+        return [self._as_dict(r) for r in rows]
+
+    def for_watchlist(self, watchlist_id: str) -> List[dict]:
+        """Покрытие всех инструментов текущей версии списка."""
+        rows = self.conn.execute(
+            """SELECT c.instrument_id, c.block, c.status, c.last_update, c.reason
+               FROM coverage c
+               WHERE c.instrument_id IN (
+                   SELECT wm.instrument_id
+                   FROM watchlist_member wm
+                   JOIN watchlist_version wv
+                     ON wm.watchlist_version_id = wv.watchlist_version_id
+                   WHERE wv.watchlist_id = ?
+                     AND wv.version = (
+                         SELECT MAX(version) FROM watchlist_version
+                         WHERE watchlist_id = ?))
+               ORDER BY c.instrument_id, c.block""",
+            (watchlist_id, watchlist_id)).fetchall()
+        return [self._as_dict(r) for r in rows]
+
+    @staticmethod
+    def _as_dict(row) -> dict:
+        # Словарь, а не sqlite3.Row: репозиторий не зависит от row_factory.
+        return {"instrument_id": row[0], "block": row[1], "status": row[2],
+                "last_update": row[3], "reason": row[4]}
+
+    def ensure_all(self, instrument_id: str,
+                   known: dict[str, tuple[str, Optional[str]]],
+                   source_errors: Optional[dict] = None) -> None:
+        """После сборки снапшота у инструмента существуют все восемь строк
+        покрытия — пробел не замалчивается (TASK-7 T7).
+
+        known — блоки, статус которых сборка знает сама. source_errors —
+        блоки, чей сборщик вернул E1/E2: строка получает error с причиной
+        (docs/threat-model-sources.md §2 class A). У остальных блоков
+        существующая строка с данными не трогается; отсутствующая —
+        создаётся как missing с причиной.
+        """
+        source_errors = source_errors or {}
+        existing = {row["block"] for row in self.for_instrument(instrument_id)}
+        for block in COVERAGE_BLOCKS:
+            if block in known:
+                status, reason = known[block]
+            elif block in source_errors:
+                status, reason = "error", source_errors[block]
+            elif block in existing:
+                continue
+            else:
+                status, reason = "missing", f"no_data:{block}"
+            self.upsert(instrument_id, block, status, reason=reason)
+
+
 class AuditRepo:
     """Журнал операций: только добавление, дублирование в файл."""
 
@@ -695,4 +792,5 @@ class RepoRegistry:
         self.peer_set = PeerSetRepo(conn)
         self.watchlist = WatchlistRepo(conn)
         self.job = JobRepo(conn)
+        self.coverage = CoverageRepo(conn)
         self.audit = AuditRepo(conn)

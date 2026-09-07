@@ -31,4 +31,8 @@
 ## Disputed (cont.)
 - T3 "limiter holds ≤5/s over a burst of 20": implemented as fixed-interval pacing (industry-standard reading of "limiter delays"); guarantee tested as ≥0.2s spacing, 5.0 req/s average over the burst, and 5 calls in the first second. A hard ≤5 in EVERY arbitrary 1s window would need a sliding-window algorithm, not min-interval spacing; SEC documents 10/s so the boundary slack is immaterial.
 
-NOW: T7, step 1
+- T7 done: CoverageRepo (upsert with enforced validation: exact 8 blocks / 5 statuses; missing|error require non-empty reason; for_instrument/for_watchlist return dicts, no row_factory dependence; ensure_all writes all 8 rows after every snapshot build, preserves foreign blocks with data, marks E1/E2 blocks error+reason). SnapshotBuilder gained optional coverage_repo + source_errors, defaults keep old call sites intact. tests/test_coverage.py: 6 tests.
+  - `pytest tests/test_coverage.py -q` → exit 0; full suite exit 0
+  - acceptance → 13/13
+
+NOW: T8, step 1
