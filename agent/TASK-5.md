@@ -1,6 +1,7 @@
 # TASK-5 — Stage C: watchlist, coverage, metrics, logs
 
-- **Status: READY**
+- **Status: SUPERSEDED by `agent/TASK-7.md`** — its items are merged
+  there as T0–T8. Kept for the record; do not work from this file.
 - **Branch:** `agent/night-2`
 - **Report file:** `agent/REPORT-5.md`
 - **Predecessor:** TASK-4 — **ACCEPTED** (see §0)
@@ -197,7 +198,55 @@ python3 -m pytest -q
 ```
 prints `0` and a green run.
 
-### T2. WatchlistRepo: the read side and immutable versioning
+### T2. The table parser bypasses the basis rule (I3)
+
+`rusterm/parsers/__init__.py`, `TableParser.parse`, writes
+`"basis": "as_reported"` as a literal on every fact. `determine_basis`
+is imported at line 19 and used by `SyntheticXBRLParser` (line 87) but
+never called here. Your own report says "правило basis (I3) одно,
+импортируется из core" — that holds for the XBRL parser and does not
+hold for this one.
+
+Invariant `test_i03_basis_period_rule` tests `determine_basis` in
+isolation, so it cannot see this. Same class of gap as the missing I16:
+the rule is tested, the call site is not.
+
+Two things are wrong, and the second causes the first:
+
+1. Every cell gets `period_start = period_end = doc["period_end"]` and
+   `period_type = "instant"`, so a cell's own period is discarded before
+   basis could be computed. A comparative column — the exact case that
+   produces `restated` — is indistinguishable from the current period.
+2. Because of that, `basis` is hardcoded.
+
+Fix both:
+
+- Read the period from the cell, then the column, then the table, and
+  fall back to the document's `period_end` only when none is present.
+- Read `period_type` the same way; do not hardcode `"instant"` (revenue
+  is a duration, not an instant).
+- Call `determine_basis(doc_period_end, fact_period_end, filed_at)`,
+  same as the XBRL parser. No literal `basis` value anywhere.
+- Extend `fixtures/synthetic_prices_table.json`, or add a new synthetic
+  fixture, with a comparative column for an earlier period.
+
+Then close the class of gap, not just this instance: add
+`test_i17_parsers_apply_basis_rule` to `tests/test_invariants.py` — it
+iterates `registered_parsers()`, feeds each a document containing a
+comparative figure for an earlier period, and asserts the produced fact
+has `basis == "restated"`. A new parser that hardcodes basis must turn
+this red.
+
+**Done when:**
+
+```bash
+grep -nE '"basis"\s*:\s*"' rusterm/parsers/__init__.py
+python3 -m pytest tests/test_parsers.py tests/test_invariants.py -q
+```
+the grep prints nothing (no literal basis anywhere in the parsers) and
+both test files are green, including `test_i17_parsers_apply_basis_rule`.
+
+### T3. WatchlistRepo: the read side and immutable versioning
 
 `docs/watchlist-and-llm.md` §1.1. Schema tables already exist
 (`watchlist`, `watchlist_version`, `watchlist_member`, `watchlist_group`,
@@ -225,7 +274,7 @@ version 4 whose members equal version 1's; version 1's rows are
 byte-identical before and after the rollback. `python3 -m pytest
 tests/test_watchlist.py -q` green.
 
-### T3. Coverage: gaps are shown, never hidden
+### T4. Coverage: gaps are shown, never hidden
 
 `docs/watchlist-and-llm.md` §1.3. Table `coverage` exists; nothing
 writes it.
@@ -253,7 +302,7 @@ green, and one of its tests asserts that assembling a snapshot for an
 instrument with prices only yields exactly 8 coverage rows, 7 of them
 `missing` with non-empty reasons.
 
-### T4. Watchlist import/export
+### T5. Watchlist import/export
 
 `docs/watchlist-and-llm.md` §1.4.
 
@@ -269,7 +318,7 @@ instrument with prices only yields exactly 8 coverage rows, 7 of them
 importing a 4-row file (1 good, 1 unknown ticker, 1 ambiguous, 1 already
 present) adds exactly one member and reports the other three by category.
 
-### T5. System metrics
+### T6. System metrics
 
 `docs/quality-and-observability.md` §3. Table `metric_sample` exists;
 nothing writes it.
@@ -289,7 +338,7 @@ Implement all nine, computed from the database, in
 the nine names, both a computed value on seeded data and "not recorded"
 on empty data.
 
-### T6. Logs: three destinations, not mixed
+### T7. Logs: three destinations, not mixed
 
 `docs/quality-and-observability.md` §4.
 
@@ -309,7 +358,7 @@ survives when the DB connection is closed mid-operation; `app.log`
 rotates after exceeding the size limit; the two files never contain each
 other's records.
 
-### T7. CLI for stage C
+### T8. CLI for stage C
 
 Extend `rusterm/cli/` (no SQL there — check 7):
 

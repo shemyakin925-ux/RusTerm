@@ -44,6 +44,21 @@ this file.
   block list, and vice versa — accept: new test green; renaming a block
   in code turns it red — size: M
 
+- [ ] B8 — The zstd branch has never actually run: `zstandard` is not
+  installed in this environment, so only the gzip fallback is exercised.
+  Add a test that fakes a minimal `zstandard` module (compress/decompress
+  round-trip) so the zstd path, the `compression='zstd'` label and
+  reading a zstd object back are covered without the package — accept:
+  `python3 -m pytest -q -k zstd` green with the fake, and acceptance
+  check 11 still green — size: M
+- [ ] B9 — Request budget and provider rate limiter are specified in
+  `docs/processes.md` §6a and do not exist. They only bind once a real
+  provider exists, so build the deterministic core now: a budget counter
+  per (provider, window) and a limiter that refuses over quota, wired
+  into the provider registry, with the synthetic providers reporting
+  zero cost — accept: new test asserting the (N+1)-th call in a window
+  is refused rather than delayed — size: M
+
 ## Done
 
 (empty)
