@@ -1,35 +1,55 @@
 """Content-addressed raw store + JSONL-манифест по ADR-0003.
 
 Контракт:
-- Запись: хеш -> байты. Сжатие zstd выше 64 КБ, иначе plain.
+- Запись: хеш -> байты. Сжатие свыше 64 КБ (zstd если доступен, иначе gzip).
 - Адресация: raw/store/<2>/<sha256>, где <2> — первые два hex-символа.
 - Манифест: только на добавление, формат JSONL.
 - Чтение: либо по пути, либо восстановление индекса из манифеста.
 - Дубль sha256: запись — no-op, манифест не пишется.
+
+Сжатие:
+- zstd доступен — используется он;
+- недоступен — gzip из стандартной библиотеки, алгоритм записывается
+  в поле `compression` метаданных (`zstd` | `gzip` | `none`);
+- уже лежащие объекты обоих видов читаются в любом случае.
 """
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterator
 
 from .paths import AppPaths
 
 
 COMPRESS_THRESHOLD = 64 * 1024  # 64 КБ
 ZSTD_EXTENSION = ".zst"
+GZIP_EXTENSION = ".gz"
+
+
+def _try_import_zstd() -> Any | None:
+    """Импорт zstandard как опциональной зависимости."""
+    try:
+        import zstandard as zstd  # type: ignore
+        return zstd
+    except ImportError:
+        return None
+
+
+_ZSTD = _try_import_zstd()
 
 
 @dataclass(frozen=True)
 class StoredObject:
     sha256: str
-    bytes_written: int  # фактический объём в store (после возможного сжатия)
+    bytes_written: int
     content_type: str
-    compression: str  # none | zstd
-    fetched_at: float  # unix ts
+    compression: str  # none | zstd | gzip
+    fetched_at: float
     provider: str
     url: str | None
     instrument_id: str | None
@@ -77,6 +97,33 @@ def manifest_path_for(root: Path, ts: float | None = None) -> Path:
     return root / f"manifest-{day}.jsonl"
 
 
+def _compress(data: bytes) -> tuple[bytes, str, str]:
+    """Сжать данные. Вернуть (compressed, label, extension)."""
+    if _ZSTD is not None:
+        compressed = _ZSTD.ZstdCompressor().compress(data)
+        return compressed, "zstd", ZSTD_EXTENSION
+    compressed = gzip.compress(data, compresslevel=6)
+    return compressed, "gzip", GZIP_EXTENSION
+
+
+def _decompress(data: bytes, compression: str) -> bytes:
+    if compression == "zstd" or _is_zstd_magic(data):
+        if _ZSTD is None:
+            raise RuntimeError("zstandard недоступен")
+        return _ZSTD.ZstdDecompressor().decompress(data)
+    if compression == "gzip" or _is_gzip_magic(data):
+        return gzip.decompress(data)
+    return data
+
+
+def _is_zstd_magic(data: bytes) -> bool:
+    return len(data) >= 4 and data[:4] == b"\x28\xb5\x2f\xfd"
+
+
+def _is_gzip_magic(data: bytes) -> bool:
+    return len(data) >= 2 and data[:2] == b"\x1f\x8b"
+
+
 def put_object(
     raw_store_dir: Path,
     data: bytes,
@@ -89,36 +136,29 @@ def put_object(
     http_status: int | None = None,
     etag: str | None = None,
 ) -> StoredObject:
-    """Записать байты в content-addressed store.
-
-    Возвращает StoredObject. Если объект уже существует — запись no-op,
-    нового StoredObject не создаётся (читаем существующие метаданные).
-    """
     sha = sha256_bytes(data)
     target = object_path(raw_store_dir, sha)
     target.parent.mkdir(parents=True, exist_ok=True)
 
     compress = len(data) >= COMPRESS_THRESHOLD
     if compress:
-        import zstandard as zstd
-        compressed = zstd.ZstdCompressor().compress(data)
-        target_path = target.with_suffix(target.suffix + ZSTD_EXTENSION)
+        compressed, label, ext = _compress(data)
+        target_path = target.with_suffix(target.suffix + ext)
         if not target_path.exists():
             target_path.write_bytes(compressed)
         bytes_written = len(compressed)
-        compression_label = "zstd"
     else:
         if not target.exists():
             target.write_bytes(data)
         target_path = target
         bytes_written = len(data)
-        compression_label = "none"
+        label = "none"
 
     return StoredObject(
         sha256=sha,
         bytes_written=bytes_written,
         content_type=content_type,
-        compression=compression_label,
+        compression=label,
         fetched_at=time.time(),
         provider=provider,
         url=url,
@@ -130,47 +170,34 @@ def put_object(
 
 
 def append_manifest_line(manifests_dir: Path, obj: StoredObject) -> Path:
-    """Дописать строку в манифест. Возвращает путь к файлу манифеста.
-
-    Запись — append, на существующий файл. Никогда не переписываем.
-    """
     manifests_dir.mkdir(parents=True, exist_ok=True)
     path = manifest_path_for(manifests_dir, obj.fetched_at)
-    # Атомарная запись одной строки: открыть на append, записать, закрыть.
     with path.open("a", encoding="utf-8") as f:
         f.write(obj.to_manifest_line() + "\n")
     return path
 
 
 def read_object(raw_store_dir: Path, sha256: str) -> bytes:
-    """Прочитать байты. Ищет plain и zstd вариант. Не декомпрессирует —
-    возвращает то, что лежит на диске."""
     target = object_path(raw_store_dir, sha256)
-    if not target.exists():
-        zstd_path = target.with_suffix(target.suffix + ZSTD_EXTENSION)
-        if zstd_path.exists():
-            return zstd_path.read_bytes()
-        raise FileNotFoundError(f"raw object {sha256} not in store")
-    return target.read_bytes()
+    for ext in (ZSTD_EXTENSION, GZIP_EXTENSION):
+        p = target.with_suffix(target.suffix + ext)
+        if p.exists():
+            return p.read_bytes()
+    if target.exists():
+        return target.read_bytes()
+    raise FileNotFoundError(f"raw object {sha256} not in store")
 
 
-def decompress_object(raw_store_dir: Path, sha256: str) -> bytes:
-    """Прочитать и декомпрессировать при необходимости."""
+def decompress_object(
+    raw_store_dir: Path,
+    sha256: str,
+    compression: str | None = None,
+) -> bytes:
     raw = read_object(raw_store_dir, sha256)
-    if raw.endswith(ZSTD_EXTENSION.encode()) or _is_zstd_magic(raw):
-        import zstandard as zstd
-        return zstd.ZstdDecompressor().decompress(raw)
-    return raw
-
-
-def _is_zstd_magic(data: bytes) -> bool:
-    # zstd magic: 0x28 0xB5 0x2F 0xFD
-    return len(data) >= 4 and data[:4] == b"\x28\xb5\x2f\xfd"
+    return _decompress(raw, compression or "")
 
 
 def iter_manifest_entries(manifests_dir: Path) -> Iterator[RawIndexEntry]:
-    """Потоковое чтение манифестов. Дедупликация по sha256 — последняя
-    запись побеждает (на случай ре-импорта того же объекта)."""
     seen: dict[str, RawIndexEntry] = {}
     files = sorted(manifests_dir.glob("manifest-*.jsonl"))
     for f in files:
@@ -196,7 +223,6 @@ def iter_manifest_entries(manifests_dir: Path) -> Iterator[RawIndexEntry]:
 
 
 def rebuild_index(manifests_dir: Path) -> dict[str, RawIndexEntry]:
-    """Полное восстановление индекса из манифестов."""
     return {e.sha256: e for e in iter_manifest_entries(manifests_dir)}
 
 
@@ -204,7 +230,10 @@ def has_object(raw_store_dir: Path, sha256: str) -> bool:
     target = object_path(raw_store_dir, sha256)
     if target.exists():
         return True
-    return target.with_suffix(target.suffix + ZSTD_EXTENSION).exists()
+    for ext in (ZSTD_EXTENSION, GZIP_EXTENSION):
+        if target.with_suffix(target.suffix + ext).exists():
+            return True
+    return False
 
 
 def put_with_manifest(
@@ -212,7 +241,6 @@ def put_with_manifest(
     data: bytes,
     **kwargs,
 ) -> StoredObject:
-    """Удобный композиционный вызов: записать в store + дописать манифест."""
     obj = put_object(paths.raw_store, data, **kwargs)
     append_manifest_line(paths.raw_manifests, obj)
     return obj

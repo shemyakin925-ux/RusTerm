@@ -8,6 +8,7 @@
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 99
 
+if [ -z "${PY:-}" ] && [ -x .venv/bin/python ]; then PY="$PWD/.venv/bin/python"; fi
 PY="${PY:-python3}"
 PASS=0
 FAIL=0
@@ -38,7 +39,7 @@ fi
 
 # ── 1. Каждый модуль импортируется ───────────────────────────────────────
 head_ '1. Каждый модуль rusterm/ импортируется'
-$PY - >"$TMP/imports.txt" 2>&1 <<'PYEOF'
+"$PY" - >"$TMP/imports.txt" 2>&1 <<'PYEOF'
 import importlib, pkgutil, sys
 sys.path.insert(0, ".")
 bad = []
@@ -56,7 +57,7 @@ for line in bad:
 sys.exit(1 if bad else 0)
 PYEOF
 if [ $? -eq 0 ]; then
-  ok "все модули импортируются ($PY $($PY -V 2>&1 | cut -d' ' -f2))"
+  ok "все модули импортируются ($("$PY" -V 2>&1))"
 else
   bad 'модули не импортируются — код не запускался'
   detail < "$TMP/imports.txt"
@@ -80,7 +81,7 @@ fi
 
 # ── 3. Полный прогон тестов ──────────────────────────────────────────────
 head_ '3. pytest целиком'
-$PY -m pytest -q >"$TMP/pytest.txt" 2>&1
+"$PY" -m pytest -q >"$TMP/pytest.txt" 2>&1
 RC=$?
 tail -3 "$TMP/pytest.txt" | detail
 if [ $RC -eq 0 ]; then
@@ -91,13 +92,34 @@ fi
 
 # ── 4. У каждого xfail есть причина ──────────────────────────────────────
 head_ '4. У каждого xfail непустая причина'
-if ! grep -rn 'xfail' tests/ >/dev/null 2>&1; then
-  ok 'xfail не используется'
-elif grep -rn 'xfail' tests/ | grep -v 'reason=' | grep -qv 'reason ='; then
-  bad 'есть xfail без reason= — молчаливое глушение теста'
-  grep -rn 'xfail' tests/ | grep -v 'reason=' | detail
+"$PY" - tests >"$TMP/xfail.txt" 2>&1 <<'XFEOF'
+import ast, pathlib, sys
+bad, total = [], 0
+for f in sorted(pathlib.Path(sys.argv[1]).rglob("test_*.py")):
+    try:
+        tree = ast.parse(f.read_text())
+    except SyntaxError as e:
+        bad.append(f"{f}: синтаксическая ошибка: {e}"); continue
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not ast.unparse(node.func).endswith("mark.xfail"):
+            continue
+        total += 1
+        kw = next((k.value for k in node.keywords if k.arg == "reason"), None)
+        text = "" if kw is None else (kw.value if isinstance(kw, ast.Constant) else ast.unparse(kw))
+        if not str(text).strip():
+            bad.append(f"{f}:{node.lineno}: xfail без непустого reason=")
+print(f"TOTAL={total}")
+for line in bad:
+    print(line)
+sys.exit(1 if bad else 0)
+XFEOF
+if [ $? -eq 0 ]; then
+  ok "все xfail с причиной ($(grep '^TOTAL=' "$TMP/xfail.txt" | cut -d= -f2) шт.)"
 else
-  ok "все xfail с причиной ($(grep -rc 'xfail' tests/ | awk -F: '{s+=$2} END {print s}') шт.)"
+  bad 'есть xfail без непустой причины — молчаливое глушение теста'
+  grep -v '^TOTAL=' "$TMP/xfail.txt" | detail
 fi
 
 # ── 5. Нет заглушек в рабочем пути ───────────────────────────────────────
@@ -169,7 +191,7 @@ mkdir -p "$TMP/block"
 cat > "$TMP/block/zstandard.py" <<'PYEOF'
 raise ImportError("zstandard заблокирован проверкой приёмки: нужен gzip-фолбэк")
 PYEOF
-PYTHONPATH="$TMP/block:${PYTHONPATH:-}" $PY -m pytest -q >"$TMP/nozstd.txt" 2>&1
+PYTHONPATH="$TMP/block:${PYTHONPATH:-}" "$PY" -m pytest -q >"$TMP/nozstd.txt" 2>&1
 RC2=$?
 tail -3 "$TMP/nozstd.txt" | detail
 if [ $RC2 -eq 0 ]; then

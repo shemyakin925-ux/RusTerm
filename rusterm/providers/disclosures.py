@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Literal, Optional, list, dict as _listdict
+from typing import Literal, Optional
 
 
 class DisclosuresProvider:

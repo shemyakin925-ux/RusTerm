@@ -12,7 +12,7 @@ Node 9: cascade — пометить зависимые блоки stale (мет
 """
 from __future__ import annotations
 
-from typing import Literal, Optional, list, dict as _listdict, Tuple
+from typing import Literal, Optional, Tuple
 
 from rusterm.core.fact import Fact, validate_fact_for_write, LocatorXBRL, LocatorTable
 from rusterm.store.raw_store import put_with_manifest, decompress_object

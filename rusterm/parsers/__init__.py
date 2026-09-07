@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Literal, Optional, list, dict as _listdict, Tuple
+from typing import Literal, Optional, Tuple
 
 RawObject = dict[str, any]
 
