@@ -44,12 +44,12 @@ class BuildResult:
 class SnapshotBuilder:
     """Собирает и записывает новую версию снапшота по фактам из базы."""
 
-    def __init__(self, snapshot_repo, peer_set_repo, coverage_repo=None):
+    def __init__(self, snapshot_repo, peer_set_repo, coverage_repo):
         self._snapshots = snapshot_repo
         self._peers = peer_set_repo
-        # CoverageRepo необязателен, чтобы не ломать существующие вызовы;
-        # если передан — каждая сборка оставляет все восемь строк покрытия
-        # (TASK-7 T7: пробел показывается, а не замалчивается).
+        # coverage_repo обязателен (TASK-8 U1): сборка без записи покрытия
+        # делает блоки молча отсутствующими — забытый аргумент должен
+        # падать громко, а не молчать.
         self._coverage = coverage_repo
 
     def build(self, instrument_id: str, issuer_id: str, as_of: str,
@@ -141,17 +141,16 @@ class SnapshotBuilder:
                                  peer_members_previous, peer_members_current)
 
         # ── Покрытие: все восемь блоков существуют после каждой сборки ──
-        if self._coverage is not None:
-            known = {
-                "fundamentals": (
-                    ("ready", None) if computed
-                    else ("missing", "no_as_reported_facts")),
-                "peer_set": (
-                    ("ready", None) if peer_set_version
-                    else ("missing", "peer_set_not_confirmed")),
-            }
-            self._coverage.ensure_all(instrument_id, known,
-                                      source_errors=source_errors)
+        known = {
+            "fundamentals": (
+                ("ready", None) if computed
+                else ("missing", "no_as_reported_facts")),
+            "peer_set": (
+                ("ready", None) if peer_set_version
+                else ("missing", "peer_set_not_confirmed")),
+        }
+        self._coverage.ensure_all(instrument_id, known,
+                                  source_errors=source_errors)
         return result
 
     def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict]:

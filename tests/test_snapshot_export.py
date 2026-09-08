@@ -14,6 +14,7 @@ from rusterm.core.snapshot import SnapshotBuilder
 from rusterm.store.db import apply_migrations
 from rusterm.store.paths import AppPaths, ensure_app_dir
 from rusterm.store.repos import (
+    CoverageRepo,
     Instrument,
     InstrumentRepo,
     Issuer,
@@ -65,7 +66,8 @@ def test_snapshot_two_passes_and_thresholds():
         peers.add_version("psv1", "ps1", 1, "2024-01-01", None,
                           "manual", "v1", True, None, None)
 
-        builder = SnapshotBuilder(SnapshotRepo(conn), peers)
+        builder = SnapshotBuilder(SnapshotRepo(conn), peers,
+                                  CoverageRepo(conn))
 
         # 4 пира — порог 5 не пройден: перцентилей нет, блок missing
         peer4 = [(f"p{n}", str(uuid.uuid4()), "net_margin", 0.1 + n / 100, True)
@@ -118,7 +120,8 @@ def test_snapshot_excludes_stale_peers_with_mark():
                  for n in range(5)]
         peer6.append(("p-stale", str(uuid.uuid4()), "net_margin", 0.99, False))
 
-        builder = SnapshotBuilder(SnapshotRepo(conn), peers)
+        builder = SnapshotBuilder(SnapshotRepo(conn), peers,
+                                  CoverageRepo(conn))
         result = builder.build("ins1", "i1", "2024-12-31",
                                peer_set_version="psv1", peer_measures=peer6)
         assert result.excluded_stale == ["p-stale"]
@@ -141,7 +144,8 @@ def test_snapshot_three_diffs_are_separate():
         fid_rev = _fact(conn, "revenue", "2000")
         _fact(conn, "net_income", "400")
         peers = PeerSetRepo(conn)
-        builder = SnapshotBuilder(SnapshotRepo(conn), peers)
+        builder = SnapshotBuilder(SnapshotRepo(conn), peers,
+                                  CoverageRepo(conn))
 
         v1 = builder.build("ins1", "i1", "2024-12-31")
         assert v1.diff.metric_changes == []
@@ -173,7 +177,8 @@ def test_export_matches_snapshot_without_recompute():
     try:
         _fact(conn, "net_income", "400")
         _fact(conn, "revenue", "2000")
-        builder = SnapshotBuilder(SnapshotRepo(conn), PeerSetRepo(conn))
+        builder = SnapshotBuilder(SnapshotRepo(conn), PeerSetRepo(conn),
+                                  CoverageRepo(conn))
         built = builder.build("ins1", "i1", "2024-12-31")
 
         snapshot = SnapshotRepo(conn).get_snapshot(built.snapshot_id)

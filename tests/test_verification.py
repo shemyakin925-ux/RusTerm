@@ -68,7 +68,8 @@ def _seed(repos):
                         block="fundamentals")
     revenue = _fact(repos, obj.sha256, "revenue", "1000")
     net_income = _fact(repos, obj.sha256, "net_income", "100")
-    builder = SnapshotBuilder(repos.snapshot, repos.peer_set)
+    builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                              coverage_repo=repos.coverage)
     builder.build("ins1", "i1", "2024-12-31")
     return obj.sha256, revenue, net_income, builder
 

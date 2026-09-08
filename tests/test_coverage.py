@@ -187,3 +187,15 @@ def test_coverage_blocks_match_documentation():
     assert doc_blocks == set(COVERAGE_BLOCKS), (
         f"документ vs код: {doc_blocks ^ set(COVERAGE_BLOCKS)}"
     )
+
+
+def test_snapshot_builder_requires_coverage_repo():
+    """TASK-8 U1: сборка без coverage_repo — TypeError, а не молчаливое
+    отсутствие покрытия."""
+    tmpdir, conn, repos = _registry()
+    try:
+        with pytest.raises(TypeError):
+            SnapshotBuilder(repos.snapshot, repos.peer_set)
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)

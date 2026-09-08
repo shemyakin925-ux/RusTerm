@@ -16,4 +16,8 @@
   - Coordinator's three probe texts (31%/12 млрд/рост в 2 раза) each rejected in full with single measure revenue=1000; token repeated beyond substitution count rejected; same token twice via two placeholders stored; '1,000' measure string normalizes and stores.
   - `pytest tests/test_llm_guard.py -q` → exit 0 (7 passed); `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: U1, step 1
+- U1 done: SnapshotBuilder.__init__ coverage_repo is now a required positional arg (no default); coverage ensure_all runs unconditionally on every build. Call sites updated: cli (already had it), tests/test_snapshot_export.py x4 (CoverageRepo(conn) added), tests/test_verification.py (recompute path now writes coverage — the porous site the item named). New test: omitting coverage_repo raises TypeError.
+  - `grep -rn 'SnapshotBuilder(' rusterm/ tests/` → all call sites carry a coverage repo.
+  - `pytest -q` → exit 0 (209 tests); acceptance → 13/13
+
+NOW: U2, step 1
