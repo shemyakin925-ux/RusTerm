@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import tempfile
 import uuid
@@ -106,6 +107,30 @@ def test_snapshot_two_passes_and_thresholds():
         shutil.rmtree(tmpdir)
 
 
+def test_export_carries_concept_map_version():
+    """TASK-11 X4: экспорт несёт версию карты, породившей числа."""
+    from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
+    tmpdir, conn = _setup()
+    try:
+        _fact(conn, "net_income", "400")
+        _fact(conn, "revenue", "2000")
+        builder = SnapshotBuilder(SnapshotRepo(conn), PeerSetRepo(conn),
+                                  CoverageRepo(conn))
+        built = builder.build("ins1", "i1", "2024-12-31")
+        repo = SnapshotRepo(conn)
+        snapshot = repo.get_snapshot(built.snapshot_id)
+        measures = repo.get_measures(built.snapshot_id)
+
+        js = json.loads(snapshot_to_json(snapshot, measures))
+        assert js["concept_map_version"] == CONCEPT_MAP_VERSION
+
+        csv_lines = snapshot_to_csv(measures).splitlines()
+        # первая строка CSV — версия карты, породившей числа (X4)
+        assert csv_lines[0] == f"concept_map_version,{CONCEPT_MAP_VERSION}"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_snapshot_excludes_stale_peers_with_mark():
     tmpdir, conn = _setup()
     try:
@@ -195,9 +220,10 @@ def test_export_matches_snapshot_without_recompute():
 
         # CSV: те же строки, null-причина отдельной колонкой
         csv_text = snapshot_to_csv(measures)
-        header = csv_text.splitlines()[0].split(",")
+        header = csv_text.splitlines()[1].split(",")
         assert "null_reason" in header
-        rows = [line.split(",") for line in csv_text.splitlines()[1:]]
+        # строка версии карты — не мера: данные идут со второй строки
+        rows = [line.split(",") for line in csv_text.splitlines()[2:]]
         assert len(rows) == len(measures)
         # каждая мера с NULL значением обязана иметь причину
         for m in measures:
