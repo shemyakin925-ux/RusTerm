@@ -211,3 +211,78 @@ def test_cli_metrics_budget_watchlist_import_export(capsys):
         assert "edgar-провайдер недоступен" in capsys.readouterr().err
     finally:
         shutil.rmtree(root)
+
+
+def test_cli_verify_triggers_recompute_of_derived_measure(capsys):
+    """TASK-8 U2: исправление факта доезжает до производных мер —
+    новая версия снапшота, значение изменилось, версия напечатана."""
+    import os
+    import sqlite3
+    import uuid as _uuid
+
+    from rusterm.core.snapshot import SnapshotBuilder
+    from rusterm.store.db import apply_migrations
+    from rusterm.store.paths import AppPaths, ensure_app_dir
+    from rusterm.store.repos import (
+        Instrument, InstrumentRepo, Issuer, RawRepo, RepoRegistry,
+    )
+
+    root = _root()
+    try:
+        paths = AppPaths.from_root(root)
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        repos = RepoRegistry(conn, paths)
+        repos.instrument.upsert_issuer(Issuer(
+            "i1", "N", "US", None, None, "us_gaap", "USD"))
+        repos.instrument.upsert_instrument(Instrument(
+            "ins1", "i1", None, "common", "active", None))
+        obj = repos.raw.put(b'{"synthetic": "seed"}',
+                            provider="synthetic", block="fundamentals")
+        fact_ids = {}
+        for concept, value in (("revenue", "1000"), ("net_income", "100")):
+            fid = str(_uuid.uuid4())
+            fact_ids[concept] = fid
+            repos.fact.insert_fact(
+                fact_id=fid, issuer_id="i1", listing_id=None,
+                concept=concept, period_start="2024-01-01",
+                period_end="2024-12-31", period_type="duration",
+                value=value, unit="USD", currency=None,
+                basis="as_reported", origin="extracted",
+                source_ref=obj.sha256,
+                locator={"kind": "xbrl", "doc_sha256": obj.sha256,
+                         "fact_id": fid, "concept": concept},
+                parser_version="synthetic.v1")
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build("ins1", "i1", "2024-12-31")
+        v1 = repos.snapshot.latest_snapshot_id("ins1")
+        old_margin = [m[4] for m in repos.snapshot.get_measures(v1)
+                      if m[3] == "net_margin"][0]
+        conn.close()
+
+        # CLI: verify по факту выручки — питает производную net_margin
+        assert main(["--root", root, "verify",
+                     "--fact", fact_ids["revenue"],
+                     "--expected", "2000",
+                     "--document", "https://example.com/filing"]) == 0
+        out = capsys.readouterr().out
+        assert "superseded" in out
+        assert "пересчитано:" in out
+        assert "нет мер с lineage" not in out
+
+        # в новой версии снапшота мера изменилась
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        repos2 = RepoRegistry(conn, paths)
+        v2 = repos2.snapshot.latest_snapshot_id("ins1")
+        assert v2 != v1
+        new_margin = [m[4] for m in repos2.snapshot.get_measures(v2)
+                      if m[3] == "net_margin"][0]
+        assert new_margin != old_margin
+        assert new_margin == repr(100.0 / 2000.0)
+        conn.close()
+    finally:
+        shutil.rmtree(root)

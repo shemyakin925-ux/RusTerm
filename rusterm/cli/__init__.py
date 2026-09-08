@@ -128,8 +128,9 @@ def cmd_export(args) -> int:
 
 
 def cmd_verify(args) -> int:
-    """Процесс 5: ground truth по неверному факту. Извлечённый факт
-    не удаляется — получает superseded_by (TASK-7 T14)."""
+    """Процесс 5: ground truth по неверному факту + пересчёт зависимых
+    мер (TASK-8 U2). Извлечённый факт не удаляется — получает
+    superseded_by."""
     paths, conn = _open(args.root)
     repos = RepoRegistry(conn, paths)
     service = VerificationService(
@@ -143,11 +144,19 @@ def cmd_verify(args) -> int:
         print(str(e), file=sys.stderr)
         conn.close()
         return 1
+    # исправленное число обязано доехать до производных мер (U2):
+    # пересборка снапшотов инструментов, чей lineage ссылался на факт
+    builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                              coverage_repo=repos.coverage)
+    rebuilds = service.recompute(args.fact, builder)
+    rebuilt = "; ".join(f"{r.snapshot_id} v{r.version}" for r in rebuilds) \
+        or "нет мер с lineage на этот факт"
     repos.audit.log("verify", args.fact,
                     {"document": _scrub_url(args.document),
                      "expected": args.expected},
-                    True, f"manual_fact={correct}")
+                    True, f"manual_fact={correct}; rebuilt=[{rebuilt}]")
     print(f"manual-факт {correct} записан, {args.fact} помечен superseded")
+    print(f"пересчитано: {rebuilt}")
     conn.close()
     return 0
 
