@@ -1,6 +1,9 @@
 # TASK-9 — the numbers on the screen become real numbers
 
-- **Status: READY** — this is the task. Start here.
+- **Status: ACCEPTED** — verified by the coordinator on a clean detached
+  checkout at `cf1919b`: 13/13, 273 passed, 2 skipped, `net_margin`
+  20/20. Defects found in review are items of `agent/TASK-10.md`
+  (W0, W3, W4, W8), not a reason to reopen this file.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-9.md`
 - **Supersedes:** TASK-8 (**ACCEPTED**, all of U0–U12 done, 13/13 on a
