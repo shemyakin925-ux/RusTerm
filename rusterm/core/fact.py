@@ -308,10 +308,14 @@ def resolve_locator(
         raw = raw_store_getter(locator.request_hash)
         import json as _json
         data = _json.loads(raw.decode("utf-8"))
-        # Простой json_pointer парсинг (только /a/b/c)
+        # json_pointer: /a/b/c, а для массивов — числовой индекс
+        # (companyfacts: .../units/USD/<idx>, TASK-8 U6)
         parts = locator.json_pointer.lstrip("/").split("/")
         for p in parts:
-            data = data[p]
+            if isinstance(data, list):
+                data = data[int(p)]
+            else:
+                data = data[p]
         actual = str(data)
         if actual == locator.value_snapshot:
             return actual

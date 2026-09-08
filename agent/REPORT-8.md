@@ -55,4 +55,11 @@
   - Net requests so far: 3 probe + 1 live test = 4.
   - `pytest tests/test_edgar.py -q` → exit 0 (7); `pytest -q` → exit 0 (226); acceptance → 13/13
 
-NOW: U6, step 1
+- U5 correction commit: the U3-era assertion 'ingest --source edgar exits 1, provider unavailable' became false the moment U5 built the provider. New honest contract: provider exists; demo issuer has no CIK -> pipeline records E1 error coverage, 0 jobs, exit 0 (deterministic offline — poll fails before transport with or without UA). METHOD NOTE (third self-report): two commits earlier the suite ran red into a commit because my shell chain used ';' after pytest — chains now use '&&' and the suite runs standalone before any commit.
+  - `pytest tests/test_cli.py -q` → exit 0; `pytest -q` → exit 0 (226 tests); acceptance → 13/13
+
+- U6 done: CompanyFactsParser (companyfacts.v1) registered alongside the synthetic parsers. Parses facts.<taxonomy>.<concept>.units.<unit>[]; concept = 'us-gaap:Revenues'; basis = the same I3 rule fed (latest_end_of_accn, end, filed) — no second rule. Dedup by (concept, unit, start, end) across filings: newest filed is live, loser kept in new ParseResult.superseded with superseded_by_locator -> winner pointer (nothing dropped/averaged). Locator = existing LocatorAPI (request_hash = sha of the stored payload, json_pointer ends at the scalar 'val', value_snapshot) — resolve re-reads the same bytes and compares snapshots; resolve_locator pointer walker extended to list indices (backward compatible). i17 extended with a companyfacts doc (checked >= 3 parsers).
+  - Fix en route: pointer initially ended at the entry object; the api resolver correctly returned ApiRevision — pointer now ends at /val.
+  - `pytest tests/test_edgar_parser.py tests/test_invariants.py -q` → exit 0; `pytest -q` → exit 0 (230 tests); acceptance → 13/13
+
+NOW: U7, step 1

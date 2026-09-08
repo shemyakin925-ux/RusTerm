@@ -36,6 +36,9 @@ class ParseResult:
     facts: list[dict] = field(default_factory=list)
     unparsed: int = 0
     parser_version: str = PARSER_VERSION
+    # Проигравшие дедупликации: тот же (concept, unit, период) от более
+    # раннего флинга; несут superseded_by_locator победителя (TASK-8 U6).
+    superseded: list[dict] = field(default_factory=list)
 
 
 class Parser(Protocol):
@@ -171,8 +174,121 @@ class TableParser:
         return result
 
 
+class CompanyFactsParser:
+    """Настоящий companyfacts SEC EDGAR (TASK-8 U6):
+    facts.<taxonomy>.<concept>.units.<unit>[] с start/end/fy/fp/form/
+    filed/accn/frame.
+
+    basis — то же правило I3: determine_basis(latest_end_of_accn, end,
+    filed), где latest_end_of_accn — конец периода, на который отчитывался
+    этот accession. Дубликаты одного (concept, unit, период) из разных
+    флингов: живой — новейший filed, проигравший сохраняется в
+    result.superseded с ссылкой на локатор победителя — ничего не
+    выбрасывается и не усредняется.
+    """
+
+    source_name = "edgar"
+    parser_version = "companyfacts.v1"
+
+    def can_parse(self, metadata: dict) -> bool:
+        return metadata.get("doc_kind") == "companyfacts"
+
+    def parse(self, raw: bytes, context: dict) -> ParseResult:
+        import json as _json
+
+        from rusterm.core.fact import determine_basis
+
+        doc = _json.loads(raw.decode("utf-8"))
+        result = ParseResult(parser_version=self.parser_version)
+        request_hash = context.get("source_ref", "")
+        endpoint = context.get(
+            "endpoint", "https://data.sec.gov/api/xbrl/companyfacts")
+
+        # Проход 1: конец периода, на который отчитывался каждый accn
+        latest_end_by_accn: dict[str, str] = {}
+        for concepts in doc.get("facts", {}).values():
+            for key, node in concepts.items():
+                for entries in node.get("units", {}).values():
+                    for entry in entries:
+                        accn, end = entry.get("accn", ""), entry.get("end", "")
+                        if accn and (accn not in latest_end_by_accn
+                                     or end > latest_end_by_accn[accn]):
+                            latest_end_by_accn[accn] = end
+
+        # Проход 2: факты; ключ дедупликации (concept, unit, start, end)
+        seen: dict[tuple, dict] = {}
+        for taxonomy, concepts in doc.get("facts", {}).items():
+            for key, node in concepts.items():
+                concept = f"{taxonomy}:{key}"
+                for unit_kind, entries in node.get("units", {}).items():
+                    for idx, entry in enumerate(entries):
+                        end = entry.get("end", "")
+                        value = entry.get("val")
+                        if not end or value is None:
+                            result.unparsed += 1
+                            continue
+                        start = entry.get("start") or end
+                        filed = entry.get("filed", "")
+                        accn = entry.get("accn", "")
+                        locator = {
+                            "kind": "api",
+                            "endpoint": endpoint,
+                            "request_hash": request_hash,
+                            "json_pointer": (
+                                f"/facts/{taxonomy}/{key}"
+                                f"/units/{unit_kind}/{idx}/val"),
+                            "value_snapshot": str(value),
+                            "retrieved_at": 0.0,
+                            "schema": "api.v2",
+                        }
+                        fact = {
+                            "issuer_id": context.get("issuer_id"),
+                            "listing_id": context.get("listing_id"),
+                            "concept": concept,
+                            "value": str(value),
+                            "unit": unit_kind,
+                            "currency": None,
+                            "period_start": start,
+                            "period_end": end,
+                            "period_type": ("duration"
+                                            if entry.get("start")
+                                            else "instant"),
+                            "basis": determine_basis(
+                                latest_end_by_accn.get(accn, end),
+                                end, filed),
+                            "origin": "extracted",
+                            "source_ref": request_hash,
+                            "locator": locator,
+                            "parser_version": self.parser_version,
+                            "status": "ok",
+                            "accn": accn,
+                            "filed": filed,
+                        }
+                        dedup_key = (concept, unit_kind, start, end)
+                        previous = seen.get(dedup_key)
+                        if previous is None:
+                            seen[dedup_key] = fact
+                            result.facts.append(fact)
+                        elif filed > previous.get("filed", ""):
+                            # предыдущий флинг проигрывает новейшему
+                            previous["superseded_by_locator"] = dict(locator)
+                            previous["superseded_by_filed"] = filed
+                            result.facts.remove(previous)
+                            result.superseded.append(previous)
+                            seen[dedup_key] = fact
+                            result.facts.append(fact)
+                        else:
+                            fact["superseded_by_locator"] = dict(
+                                previous["locator"])
+                            fact["superseded_by_filed"] = \
+                                previous.get("filed", "")
+                            result.superseded.append(fact)
+        return result
+
+
 # Реестр парсеров: parse_auto выбирает первого, чей can_parse сказал «да».
-_PARSERS: list[Parser] = [SyntheticXBRLParser(), TableParser()]
+_PARSERS: list[Parser] = [SyntheticXBRLParser(), TableParser(),
+                          CompanyFactsParser()]
 
 
 def registered_parsers() -> list[Parser]:

@@ -581,9 +581,23 @@ def test_i17_parsers_apply_basis_rule():
             ]}],
         }],
     }
+    companyfacts_doc = {
+        "source": "synthetic", "note": "синтетический companyfacts I17",
+        "period_end": doc_period, "filed": "2025-02-15",
+        "facts": {"us-gaap": {"Revenues": {"units": {"USD": [
+            {"start": "2024-01-01", "end": doc_period, "val": 1000,
+             "accn": "0001", "form": "10-K", "filed": "2025-02-15",
+             "fy": 2024, "fp": "FY"},
+            {"start": "2023-01-01", "end": "2023-12-31", "val": 900,
+             "accn": "0001", "form": "10-K", "filed": "2025-02-15",
+             "fy": 2024, "fp": "FY"},
+        ]}}}},
+    }
     docs = [
         (json.dumps(xbrl_doc).encode(), {"doc_kind": "xbrl"}),
         (json.dumps(table_doc).encode(), {"doc_kind": "table"}),
+        (json.dumps(companyfacts_doc).encode(),
+         {"doc_kind": "companyfacts"}),
     ]
 
     checked = 0
@@ -610,4 +624,4 @@ def test_i17_parsers_apply_basis_rule():
         assert matched, (
             f"парсер {parser!r} не взял ни один документ I17 — "
             f"добавьте для него документ со сравнительной колонкой")
-    assert checked >= 2, f"проверено парсеров: {checked}, ожидалось >= 2"
+    assert checked >= 3, f"проверено парсеров: {checked}, ожидалось >= 3"
