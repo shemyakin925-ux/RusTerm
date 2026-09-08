@@ -429,6 +429,14 @@ class SnapshotRepo:
                        AND a.basis='as_reported')"""
         ).fetchall()
 
+    def lineage_fact_ids(self, measure_id: str) -> List[str]:
+        """fact_id входов меры — для панели источника в TUI (TASK-8 U11)."""
+        rows = self.conn.execute(
+            "SELECT fact_id FROM measure_lineage"
+            " WHERE measure_id=? AND fact_id IS NOT NULL",
+            (measure_id,)).fetchall()
+        return [r[0] for r in rows]
+
     def instruments_for_fact(self, fact_id: str) -> List[str]:
         """Инструменты, чьи снапшоты содержат меры с lineage,
         ссылающимся на факт (процесс 5, узел recompute)."""
@@ -558,6 +566,22 @@ class PeerSetRepo:
                  int(approved_by_user), approved_at,
                  json.dumps(criteria) if criteria else None),
             )
+
+    def peer_status_for_instrument(self, instrument_id: str) -> Optional[str]:
+        """verified/unverified по последней версии peer set, где состоит
+        инструмент; None — не состоит ни в одной (TASK-8 U11)."""
+        row = self.conn.execute(
+            """SELECT psv.approved_by_user
+               FROM peer_set_member m
+               JOIN peer_set_version psv
+                 ON m.peer_set_version_id = psv.peer_set_version_id
+               WHERE m.instrument_id = ?
+               ORDER BY psv.valid_from DESC, psv.version DESC LIMIT 1""",
+            (instrument_id,)).fetchone()
+        if row is None:
+            return None
+        return "verified" if row[0] else "unverified"
+
 
     def add_member(self, peer_set_version_id: str, instrument_id: str,
                    reason: Optional[str], excluded_stale: int = 0) -> None:

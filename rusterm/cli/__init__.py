@@ -310,6 +310,12 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_tui(args) -> int:
+    """Терминальный интерфейс (ADR-0009): только чтение, curses."""
+    from rusterm.tui import app
+    return app.run(args.root, args.watchlist)
+
+
 def cmd_doctor(args) -> int:
     paths, conn = _open(args.root)
     report = doctor_report(paths, conn)
@@ -570,6 +576,8 @@ def main(argv: list[str] | None = None) -> int:
     p_met.add_argument("--json", action="store_true")
     p_bud = sub.add_parser("budget", help="бюджет сетевых запросов")
     p_bud.add_argument("--json", action="store_true")
+    p_tui = sub.add_parser("tui", help="терминальный интерфейс (только чтение)")
+    p_tui.add_argument("--watchlist", default=None)
     args = parser.parse_args(argv)
 
     commands = {
@@ -578,7 +586,7 @@ def main(argv: list[str] | None = None) -> int:
         "demo": cmd_demo,
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
-        "status": cmd_status,
+        "status": cmd_status, "tui": cmd_tui,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "
