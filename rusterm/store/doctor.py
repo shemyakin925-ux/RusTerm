@@ -17,6 +17,13 @@ def doctor_report(paths: AppPaths, conn) -> dict:
     """Вернуть отчёт doctor: список проблем и счётчики проверенного."""
     problems: list[str] = []
 
+    # окружение: имена и происхождение, никогда значения (TASK-8 U4)
+    from .. import env as env_module
+    env_info = env_module.report()
+    if env_info["world_readable"]:
+        problems.append(
+            f"env-файл читается группой/остальными: {env_info['file']}")
+
     # схема: версия применённая и ожидаемая
     try:
         row = conn.execute(
@@ -72,4 +79,5 @@ def doctor_report(paths: AppPaths, conn) -> dict:
         "problems": problems,
         "schema_version": applied,
         "manifest_entries": manifest_entries,
+        "env": env_info,
     }

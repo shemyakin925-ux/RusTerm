@@ -418,6 +418,8 @@ def cmd_budget(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from rusterm import env as env_module
+    env_module.load_env()  # RUSTERM_* из ~/.rusterm.env, если не в окружении
     parser = argparse.ArgumentParser(
         prog="rusterm", description="EquityLab: локальный терминал (ядро)")
     parser.add_argument("--root", default=".", help="каталог данных")

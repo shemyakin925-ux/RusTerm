@@ -28,4 +28,9 @@
   - Fix en route: snapshot --as-of default None violated NOT NULL -> default today via args_as_of_default().
   - `pytest -q` → exit 0 (214 tests); acceptance → 13/13
 
-NOW: U4, step 1
+- U4 done: rusterm/env.py — load_env (existing env var wins, else  else ~/.rusterm.env; 'export NAME=value' and NAME=value, quotes stripped, blanks/# ignored, foreign names ignored), report() for doctor (names + origins only: 'окружение'/path/'—', world_readable flag), values never printed/logged/audited. main() bootstraps load_env before anything (RequestGate/NetworkGate see it via os.environ). doctor: env section + problem when env file is group/world-readable.
+  - Tests: 5 (pickup from file, env wins, missing file not an error, doctor names/origins never values, world-readable reported with exit 1).
+  - ~/.rusterm.env verified reachable: doctor via main() now reports the three names (values withheld).
+  - `pytest -q` → exit 0 (219 tests); acceptance → 13/13
+
+NOW: U9, step 1
