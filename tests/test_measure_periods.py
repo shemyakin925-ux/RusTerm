@@ -59,8 +59,9 @@ def _fact(repos, sha, concept, value, start, end,
 def _measure(repos, snapshot_id, concept):
     for m in repos.snapshot.get_measures(snapshot_id):
         if m[3] == concept:
-            return {"value": m[4], "start": m[5], "end": m[6],
-                    "null_reason": m[10], "measure_id": m[0]}
+            return {"value": m[4], "unit": m[5], "start": m[6],
+                    "end": m[7], "null_reason": m[10],
+                    "measure_id": m[0]}
     return None
 
 
@@ -156,6 +157,56 @@ def test_mixed_units_do_not_make_a_common_period():
         snap = repos.snapshot.latest_snapshot_id("ins1")
         margin = _measure(repos, snap, "net_margin")
         assert margin["null_reason"] == "period_mismatch"
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
+def test_v2_measure_carries_input_period_and_ratio_unit():
+    """TASK-9 V2: мера несёт период входов (не дату сборки) и единицу
+    из формулы — net_margin это ratio."""
+    tmpdir, conn, repos = _registry()
+    try:
+        obj = repos.raw.put(b'{"synthetic": "v2"}', provider="synthetic",
+                            block="fundamentals")
+        _fact(repos, obj.sha256, "revenue", "1000",
+              "2023-01-01", "2023-12-31")
+        _fact(repos, obj.sha256, "net_income", "100",
+              "2023-01-01", "2023-12-31")
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build("ins1", "i1", "2026-09-08")
+        snap = repos.snapshot.latest_snapshot_id("ins1")
+        margin = _measure(repos, snap, "net_margin")
+        assert margin["value"] == repr(0.1)
+        assert (margin["start"], margin["end"]) == \
+            ("2023-01-01", "2023-12-31")
+        rows = repos.snapshot.get_measures(snap)
+        assert all(r[5] == "ratio" for r in rows if r[3] == "net_margin")
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
+def test_v2_unit_table_covers_kinds_and_never_empty_period():
+    """Единица — свойство формулы: ratio/money/per_share/count; пустой
+    period_start не пишется ни одной мере, даже без входов."""
+    from rusterm.formulas import measure_unit
+    assert measure_unit("net_margin", "USD") == "ratio"
+    assert measure_unit("ebitda", "USD") == "USD"
+    assert measure_unit("eps_diluted", "USD") == "USD/share"
+    assert measure_unit("shares_diluted", "USD") == "шт."
+
+    tmpdir, conn, repos = _registry()
+    try:
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build("ins1", "i1", "2026-09-08")
+        snap = repos.snapshot.latest_snapshot_id("ins1")
+        for m in repos.snapshot.get_measures(snap):
+            assert m[5] != "", "пустой period_start у меры"
+            assert m[6] == "2026-09-08"  # без входов — as_of с причиной
+            assert m[10] is not None
     finally:
         conn.close()
         shutil.rmtree(tmpdir)

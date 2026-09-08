@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 from rusterm.core.peers import evaluate, percentile_share
-from rusterm.formulas import calculate_measure
+from rusterm.formulas import calculate_measure, measure_unit
 from rusterm.normalize.concepts import priority_rank, strip_taxonomy
 
 # Меры первого прохода: фундаментальные, считаются на issuer.
@@ -77,7 +77,7 @@ class SnapshotBuilder:
         result = BuildResult(snapshot_id=snapshot_id, version=version)
 
         # ── Проход 1: фундаментальные меры компании ──
-        inputs, lineage_by_concept, input_reasons = \
+        inputs, lineage_by_concept, input_reasons, periods, input_units = \
             self._issuer_inputs(issuer_id)
         computed: dict[str, float] = {}
         for concept, args in _BASE_MEASURES.items():
@@ -87,11 +87,18 @@ class SnapshotBuilder:
             if kw is not None:
                 m = calculate_measure(concept, **kw)
                 value, null_reason = m.value, m.null_reason
+            # период меры — период входов; пустой period_start не пишется:
+            # меры без входов несут as_of и объясняются null_reason (V2)
+            if concept in periods:
+                period_start, period_end = periods[concept]
+            else:
+                period_start, period_end = as_of, as_of
             self._snapshots.insert_measure_with_lineage(
                 dict(measure_id=str(uuid4()), snapshot_id=snapshot_id,
                      scope="issuer", scope_ref=issuer_id, concept=concept,
                      value=None if value is None else repr(value),
-                     unit="ratio", period_start="", period_end=as_of,
+                     unit=measure_unit(concept, input_units.get(concept, "")),
+                     period_start=period_start, period_end=period_end,
                      formula_id=concept, method_version="v1",
                      null_reason=null_reason, peer_set_version=None),
                 lineage_by_concept.get(concept, []))
@@ -156,7 +163,7 @@ class SnapshotBuilder:
                                   source_errors=source_errors)
         return result
 
-    def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict, dict]:
+    def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict, dict, dict]:
         """Входы мер из фактов as_reported по концепту; lineage ведёт
         к fact_id каждого входа.
 
@@ -191,6 +198,8 @@ class SnapshotBuilder:
         inputs: dict[str, dict] = {}
         lineage: dict[str, list] = {}
         reasons: dict[str, str] = {}
+        periods: dict[str, tuple[str, str]] = {}
+        input_units: dict[str, str] = {}
         for concept, args in _BASE_MEASURES.items():
             if any(a not in by_concept for a in args):
                 reasons[concept] = "missing_data"
@@ -215,11 +224,14 @@ class SnapshotBuilder:
                               == chosen_period]
                 row = min(candidates, key=lambda r: r["rank"])
                 chosen[a] = row["value"]
+                input_units[concept] = row["unit"]
                 lin.append({"fact_id": row["fact_id"],
                             "peer_measure_id": None, "role": "input"})
             inputs[concept] = chosen
             lineage[concept] = lin
-        return inputs, lineage, reasons
+            # мера несёт период своих входов, а не дату сборки (V2)
+            periods[concept] = (chosen_period[1], chosen_period[2])
+        return inputs, lineage, reasons, periods, input_units
 
     def _next_version(self, instrument_id: str) -> int:
         return self._snapshots.max_version(instrument_id) + 1

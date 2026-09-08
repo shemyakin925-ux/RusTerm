@@ -17,3 +17,6 @@ NOW: V0, step 1
 - V1 done: _issuer_inputs chooses the latest period_end where ALL inputs of a measure exist with the same unit (duration inputs also need the same period_start); no common period -> new null-reason period_mismatch; absent concept -> missing_data (reasons never merged); tag priority picks the winner among same-canonical rows; lineage fact_ids provably one period (test asserts lineage periods == FY2023 set). as_reported_facts returns unit/period_start/period_end (no second query, no SQL outside store).
   - Tests: tests/test_measure_periods.py — 4 (common-period FY2023 computation with lineage periods, period_mismatch, missing_data, unit-mismatch).
   - `pytest -q` → exit 0 (243 tests); acceptance → 13/13
+- V2 done: measure carries its inputs' period (chosen_period from V1; no-input measures carry as_of and a null-reason — empty period_start never written) and unit from the formula's table (formulas.py MEASURE_UNIT_KINDS + measure_unit: ratio/money/per_share/count; money keeps the inputs' unit, per-share = <unit>/share, counts = 'шт.').
+  - Tests: test_v2_measure_carries_input_period_and_ratio_unit; test_v2_unit_table_covers_kinds_and_never_empty_period (money/per_share/count via the table — a money _BASE_MEASURE itself lands with V4).
+  - `pytest -q` → exit 0 (245 tests); acceptance → 13/13

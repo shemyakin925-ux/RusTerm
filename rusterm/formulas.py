@@ -29,6 +29,45 @@ class Measure:
     scope: Scope = "issuer"  # уровень расчёта по data-model.md §4
 
 
+# Единица меры — свойство формулы, а не места вызова (TASK-9 V2):
+# ratio — доля; money — валюта входов; per_share — <валюта>/акция;
+# count — штуки. Валюта подставляется из единицы входных фактов.
+MEASURE_UNIT_KINDS: dict[str, str] = {
+    "ebitda": "money",
+    "gross_margin": "ratio",
+    "operating_margin": "ratio",
+    "net_margin": "ratio",
+    "effective_tax": "ratio",
+    "invested_capital": "money",
+    "roic": "ratio",
+    "roe": "ratio",
+    "asset_turnover": "ratio",
+    "nopat": "money",
+    "eps_diluted": "per_share",
+    "dps": "per_share",
+    "shares_diluted": "count",
+    "ev": "money",
+    "pe": "ratio",
+    "pb": "ratio",
+    "ps": "ratio",
+    "ev_ebitda": "ratio",
+    "div_yield": "ratio",
+}
+
+
+def measure_unit(concept: str, input_unit: str = "") -> str:
+    kind = MEASURE_UNIT_KINDS.get(concept, "ratio")
+    if kind == "ratio":
+        return "ratio"
+    if kind == "money":
+        return input_unit or ""
+    if kind == "per_share":
+        return f"{input_unit}/share" if input_unit else "share"
+    if kind == "count":
+        return "шт."
+    return kind
+
+
 def clip(x: float, lo: float, hi: float) -> float:
     """Ограничение значения диапазоном."""
     return max(lo, min(hi, x))
