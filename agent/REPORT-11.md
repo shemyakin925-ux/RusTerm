@@ -18,3 +18,10 @@ NOW: X3, step 1
 - X1 done: tests/test_e2e_cli.py drives the four commands as real subprocesses (python -m rusterm.cli) with a hermetic EDGAR: tests/e2e_stub/sitecustomize.py (PYTHONPATH) swaps EdgarProvider's transport to one serving company_tickers.json + companyfacts_m3 payloads. add resolves ticker→CIK+title online-branch; ingest --source edgar resolves ticker (map), fetches companyfacts (1 request/issuer), parses, maps, persists; snapshot yields ≥8 valued measures. Repeat pass: issuer/instrument/fact/raw_object counts unchanged, exit codes 0. cmd_ingest gained the edgar companyfacts branch (per issuer: registry CIK → provider.cik), honest error when the issuer has no CIK; PipelineResult not used on this path (no poll/jobs — companyfacts is one request per issuer).
   - Test count grew: e2e + updated demo-edgar expectation (demo issuer has no CIK → exit 1 'нет CIK', honest).
   - \`pytest -q\` → exit 0 (265 tests); acceptance → 13/13
+- X5 partial — B9, B10, B11, B16 done; B12, B13, B15, B17, B18, B19 остаются в очереди.
+  - B9: doctor проверяет дрейф raw store в обе стороны (строки без файла, файлы без строк), тест на сироту в обе стороны. `pytest tests/test_doctor.py -q` → exit 0.
+  - B10: watchlist show --version N печатает action и состав запрошенной версии. Тест: v1 после rollback до v3.
+  - B11: тест на pipe-вывод без ANSI-кодов (цвета пока нет — тест закрепляет отсутствие).
+  - B16: схема ключей четырёх --json команд закреплена тестом.
+  - Попутно: ключ show переименован current_version -> version (тесты обновлены, сильнее: показывается запрошенная версия с action).
+  - `pytest -q` → exit 0 (269 tests); acceptance → 13/13

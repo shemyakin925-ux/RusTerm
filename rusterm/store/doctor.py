@@ -74,6 +74,34 @@ def doctor_report(paths: AppPaths, conn) -> dict:
         if bad_measures:
             problems.append(f"мер с значением, но без lineage: {bad_measures}")
 
+    # сырьё против базы: дрейф в обе стороны (BACKLOG B9)
+    if db_ready:
+        # строка raw_object без файла на диске
+        import os as _os
+        rows = conn.execute("SELECT sha256 FROM raw_object").fetchall()
+        no_file = [r[0] for r in rows
+                   if not any((_os.path.exists(_os.path.join(
+                       str(paths.raw_store), r[0][:2], r[0] + ext)))
+                       for ext in ("", ".gz", ".zst"))]
+        if no_file:
+            problems.append(
+                f"строк raw_object без файла: {len(no_file)}")
+
+        # файлы под raw/store без строки в базе
+        orphans = []
+        for dirpath, _dirs, files in _os.walk(str(paths.raw_store)):
+            for fname in files:
+                if len(fname) < 64:
+                    continue
+                sha = fname[:64]
+                if not conn.execute(
+                        "SELECT 1 FROM raw_object WHERE sha256=?",
+                        (sha,)).fetchone():
+                    orphans.append(fname)
+        if orphans:
+            problems.append(
+                f"файлов в raw/store без строки в базе: {len(orphans)}")
+
     # факты без канонического концепта: как следующая дыра в карте
     # находится без чтения кода (TASK-9 V6). Имена тегов и счётчики —
     # никаких значений.

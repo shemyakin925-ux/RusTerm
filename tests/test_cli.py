@@ -141,7 +141,7 @@ def test_cli_watchlist_lifecycle_and_coverage(capsys):
         capsys.readouterr()
         assert main(["--root", root, "watchlist", "show", "w-demo"]) == 0
         shown = json.loads(capsys.readouterr().out)
-        assert shown["current_version"] == 2          # add — новая версия
+        assert shown["version"] == 2          # add — новая версия
         assert [m["instrument_id"]
                 for m in shown["members"]] == ["US-CLI-DEMO"]
 
@@ -167,7 +167,7 @@ def test_cli_watchlist_lifecycle_and_coverage(capsys):
         capsys.readouterr()
         assert main(["--root", root, "watchlist", "show", "w-demo"]) == 0
         shown = json.loads(capsys.readouterr().out)
-        assert shown["current_version"] == 3   # create v1, add v2, rollback v3
+        assert shown["version"] == 3   # create v1, add v2, rollback v3
         assert shown["action"] == "rollback:1"
         assert shown["members"] == []
     finally:
@@ -764,5 +764,70 @@ def test_w6_add_on_uninitialised_db_exits_1(capsys, monkeypatch):
         log_path = os.path.join(root, "logs", "app.log")
         assert not os.path.exists(log_path) or \
             "Traceback" not in open(log_path, encoding="utf-8").read()
+    finally:
+        shutil.rmtree(root)
+
+
+# ── BACKLOG B10/B16: историческая версия и схема --json ────────────────
+def test_b10_watchlist_show_historical_version(capsys):
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        main(["--root", root, "demo"])
+        main(["--root", root, "watchlist", "create", "w-h", "--name", "H"])
+        main(["--root", root, "watchlist", "add", "w-h",
+              "--instrument", "US-CLI-DEMO"])
+        main(["--root", root, "watchlist", "rollback", "w-h", "--to", "1"])
+        capsys.readouterr()
+        main(["--root", root, "watchlist", "show", "w-h",
+              "--version", "1"])
+        shown = json.loads(capsys.readouterr().out)
+        assert shown["version"] == 1
+        assert shown["action"] == "create"
+        assert shown["members"] == []
+    finally:
+        shutil.rmtree(root)
+
+
+def test_b11_output_is_plain_when_piped():
+    import io
+    import contextlib
+    root = tempfile.mkdtemp()
+    try:
+        main(["--root", root, "init"])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(io.TextIOWrapper(
+                io.BytesIO(), encoding="utf-8")) as fake:
+            main(["--root", root, "status"])
+        raw = fake.buffer.getvalue()
+        assert b"\x1b[" not in raw, "ANSI-код в выводе при pipe"
+    finally:
+        shutil.rmtree(root)
+
+
+def test_b16_json_commands_carry_expected_keys(capsys):
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        main(["--root", root, "demo"])
+        main(["--root", root, "ingest", "--instrument", "US-CLI-DEMO"])
+        main(["--root", root, "snapshot", "--instrument", "US-CLI-DEMO"])
+        capsys.readouterr()
+        expected = {
+            "status": {"data_dir", "schema_version", "instruments",
+                       "watchlists", "snapshots", "coverage", "budget",
+                       "env", "concept_map_version"},
+            "coverage": {"target", "concept_map_version", "rows"},
+            "metrics": {"metrics", "recorded"},
+            "budget": {"ceiling_per_night", "rate_per_second",
+                       "provider_ran", "used", "refused", "samples"},
+        }
+        extra = {"coverage": ["--instrument", "US-CLI-DEMO"]}
+        for command, keys in expected.items():
+            assert main(["--root", root, command, *extra.get(command, []),
+                         "--json"]) == 0
+            payload = json.loads(capsys.readouterr().out)
+            assert set(payload) == keys, (
+                f"{command}: {set(payload) ^ keys}")
     finally:
         shutil.rmtree(root)

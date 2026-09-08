@@ -551,13 +551,27 @@ def cmd_watchlist(args) -> int:
                 print(f"список {args.id!r} не найден", file=sys.stderr)
                 conn.close()
                 return 1
+            if args.version is not None:
+                vid = wl._version_id(args.id, args.version)
+            else:
+                vid = current["watchlist_version_id"]
+            if vid is None:
+                print(f"версия {args.version} списка {args.id!r} не найдена",
+                      file=sys.stderr)
+                conn.close()
+                return 1
+            version_row = conn.execute(
+                "SELECT action FROM watchlist_version"
+                " WHERE watchlist_version_id=?", (vid,)).fetchone()
+            version = args.version if args.version is not None \
+                else current["version"]
             print(json.dumps({
                 "watchlist_id": args.id,
-                "current_version": current["version"],
-                "action": current["action"],
-                "members": wl.members(args.id),
-                "groups": wl.groups(args.id),
-                "filters": wl.filters(args.id),
+                "version": version,
+                "action": version_row[0] if version_row else "",
+                "members": wl.members(args.id, version=version),
+                "groups": wl.groups(args.id, version=version),
+                "filters": wl.filters(args.id, version=version),
             }, ensure_ascii=False, indent=2))
         elif args.action == "rollback":
             result = wl.rollback_to(args.id, args.to)
@@ -742,6 +756,7 @@ def main(argv: list[str] | None = None) -> int:
     wl_sub.add_parser("list")
     p_show = wl_sub.add_parser("show")
     p_show.add_argument("id")
+    p_show.add_argument("--version", type=int, default=None)
     p_rb = wl_sub.add_parser("rollback")
     p_rb.add_argument("id")
     p_rb.add_argument("--to", type=int, required=True)
