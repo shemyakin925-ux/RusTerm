@@ -116,6 +116,18 @@ class VerificationService:
                 out.append((provider, concept, n))
         return out
 
+    def flag_parser(self, provider: str, concept: str,
+                    now: Optional[float] = None) -> bool:
+        """Узел 5 по имени из документа: деградировал ли (провайдер,
+        концепт) — порог 5 за скользящие 30 дней. Детерминирован."""
+        now = time.time() if now is None else now
+        counted = 0
+        for p, c, n in self._verifications.mismatch_counts(
+                now - DEGRADE_WINDOW_SECONDS):
+            if p == provider and c == concept:
+                counted = n
+        return counted >= DEGRADE_THRESHOLD
+
     def surface_coverage(self, instrument_id: str, coverage_repo) -> list:
         """Деградация парсера видна через coverage.reason, не только в логах:
         блок fundamentals получает error с причиной по каждому затронутому

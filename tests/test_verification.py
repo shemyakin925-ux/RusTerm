@@ -170,6 +170,40 @@ def test_degraded_parser_surfaces_through_coverage_reason():
         shutil.rmtree(tmpdir)
 
 
+def test_flag_parser_rolling_window_excludes_old_mismatches():
+    """Скользящее окно: расхождение старше 30 дней не считается к порогу
+    5 — четверка старых плюс одна свежая не деградирует, пятая свежая —
+    деградирует (TASK-8 U12.3)."""
+    import time as _time
+    tmpdir, conn, repos = _registry()
+    try:
+        sha, _, _, builder = _seed(repos)
+        service = VerificationService(
+            repos.fact, repos.verification, repos.snapshot,
+            repos.instrument, os.path.join(tmpdir, "golden.jsonl"))
+        # пять старых расхождений: исторически порог «достигнут»,
+        # но окно скользящее — они не должны считать
+        for i in range(5):
+            fid = _fact(repos, sha, "revenue", str(300 + i))
+            service.store_ground_truth(fid, "999")
+        old = _time.time() - 40 * 24 * 3600
+        conn.execute("UPDATE verification SET reported_at=?", (old,))
+        assert service.flag_parser("synthetic", "revenue") is False
+
+        # свежая одна — всё ещё не порог: старые в окно не попали
+        fid = _fact(repos, sha, "revenue", "400")
+        service.store_ground_truth(fid, "999")
+        assert service.flag_parser("synthetic", "revenue") is False
+        # добираем до пяти свежих — порог достигнут
+        for i in range(4):
+            fid = _fact(repos, sha, "revenue", str(500 + i))
+            service.store_ground_truth(fid, "999")
+        assert service.flag_parser("synthetic", "revenue") is True
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
 def test_propose_golden_appends_pair_and_marks_verification():
     tmpdir, conn, repos = _registry()
     try:
