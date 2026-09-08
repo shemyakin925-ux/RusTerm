@@ -750,3 +750,21 @@ def test_w0_gateless_provider_exits_1_with_reason_no_traceback(
             "Traceback" not in open(log_path, encoding="utf-8").read()
     finally:
         shutil.rmtree(root)
+
+
+def test_w6_add_on_uninitialised_db_exits_1(capsys, monkeypatch):
+    """TASK-10 W6: add до init — одна фраза с rusterm init, код 1,
+    никакого трейсбека в журнале."""
+    _without_sec_contact(monkeypatch)
+    root = _root()
+    try:
+        assert main(["--root", root, "add", "--ticker", "AAPL",
+                     "--market", "US", "--cik", "320193",
+                     "--name", "Apple Inc."]) == 1
+        err = capsys.readouterr().err
+        assert "база не создана; выполните rusterm init" in err
+        log_path = os.path.join(root, "logs", "app.log")
+        assert not os.path.exists(log_path) or \
+            "Traceback" not in open(log_path, encoding="utf-8").read()
+    finally:
+        shutil.rmtree(root)

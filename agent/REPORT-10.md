@@ -40,3 +40,7 @@ measure -> n/20 + reasons:
   - `pytest tests/test_m3_snapshot.py -q -s` → exit 0; `pytest -q` → exit 0 (264 tests: 262 passed, 1 skipped, 1 xfailed); acceptance → 13/13
 - W5 done: 'cagr' removed from _UNMAPPED_FORMULAS per ruling §0.2.3 (cagr(V, n) is a function over a named series, not an issuer measure; a measure row for it was a small lie); function kept in formulas.py, unit test added (100→200 over 4 years = 2**0.25-1; loss directions carry negative_denominator reasons — actual reasons used, my first guess was wrong). Snapshot pin updated: 27 measures.
   - `pytest -q` → exit 0 (265 tests); acceptance → 13/13
+- W6 done: cmd_add checks current_schema_version before touching repositories — uninitialised database prints 'база не создана; выполните rusterm init' and exits 1; no traceback in logs/app.log. (No shared guard exists — other commands apply migrations themselves, so the check lives in cmd_add only.)
+  - Note: previous patch attempt silently no-opped (unverified print) — caught by the failing test, applied via exact anchor.
+  - Tests: test_w6_add_on_uninitialised_db_exits_1.
+  - `pytest -q` → exit 0 (266 tests); acceptance → 13/13

@@ -334,6 +334,12 @@ def cmd_add(args) -> int:
     (есть контакт SEC) --cik/--name берутся из карты тикеров EDGAR;
     офлайн оба обязательны."""
     paths, conn = _open(args.root)
+    # add не создаёт схему: на неинициализированной базе — одна фраза
+    # и код 1, без трейсбека (TASK-10 W6)
+    if current_schema_version(conn) is None:
+        print("база не создана; выполните rusterm init", file=sys.stderr)
+        conn.close()
+        return 1
     repos = RepoRegistry(conn, paths)
     instruments = repos.instrument
     instrument_id = args.instrument_id or f"{args.market}-{args.ticker.upper()}"
