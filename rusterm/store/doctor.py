@@ -74,10 +74,29 @@ def doctor_report(paths: AppPaths, conn) -> dict:
         if bad_measures:
             problems.append(f"мер с значением, но без lineage: {bad_measures}")
 
+    # факты без канонического концепта: как следующая дыра в карте
+    # находится без чтения кода (TASK-9 V6). Имена тегов и счётчики —
+    # никаких значений.
+    unmapped_count = 0
+    unmapped_top: list = []
+    if db_ready:
+        unmapped_count = conn.execute(
+            "SELECT COUNT(*) FROM fact WHERE canonical_concept IS NULL"
+        ).fetchone()[0]
+        unmapped_top = [
+            {"tag": tag, "count": n} for tag, n in conn.execute(
+                """SELECT concept, COUNT(*) AS n FROM fact
+                   WHERE canonical_concept IS NULL
+                   GROUP BY concept ORDER BY n DESC LIMIT 5""")
+
+        ]
+
     return {
         "ok": not problems,
         "problems": problems,
         "schema_version": applied,
         "manifest_entries": manifest_entries,
         "env": env_info,
+        "unmapped_concepts": {"count": unmapped_count,
+                              "top": unmapped_top},
     }

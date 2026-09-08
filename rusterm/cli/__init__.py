@@ -12,6 +12,7 @@ import sys
 import uuid
 
 from rusterm.core.export import snapshot_to_csv, snapshot_to_json
+from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
 from rusterm.core.snapshot import SnapshotBuilder
 from rusterm.core.verification import VerificationService
 from rusterm.pipeline import IngestionPipeline
@@ -284,6 +285,7 @@ def cmd_status(args) -> int:
         "watchlists": len(repos.watchlist.list_watchlists()),
         "snapshots": repos.snapshot.latest_per_instrument(),
         "coverage": repos.coverage.status_summary(),
+        "concept_map_version": CONCEPT_MAP_VERSION,
         "budget": {
             "ceiling_per_night": 5000,
             "rate_per_second": 5,
@@ -535,8 +537,9 @@ def cmd_coverage(args) -> int:
         conn.close()
         return 1
     if args.json:
-        print(json.dumps({"target": target, "rows": rows},
-                         ensure_ascii=False))
+        print(json.dumps({"target": target,
+                          "concept_map_version": CONCEPT_MAP_VERSION,
+                          "rows": rows}, ensure_ascii=False))
         conn.close()
         return 0
     for row in rows:

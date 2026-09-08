@@ -203,3 +203,46 @@ def test_tui_has_no_sql_no_http():
         ["grep", "-rnE", r"execute\(|httpx|requests", "rusterm/tui/"],
         capture_output=True, text=True)
     assert result.returncode == 1, result.stdout  # 1 = совпадений нет
+
+
+def test_v6_source_panel_names_source_tag_and_map_version():
+    """TASK-9 V6: панель источника показывает, какой тег стал числом
+    и по какой версии карты."""
+    tmpdir, conn, repos = _registry()
+    try:
+        obj = repos.raw.put(b'{"synthetic": "v6"}', provider="synthetic",
+                            block="fundamentals")
+        fact_id = str(uuid.uuid4())
+        repos.fact.insert_fact(
+            fact_id=fact_id, issuer_id="i1", listing_id=None,
+            concept="us-gaap:Revenues", period_start="2024-01-01",
+            period_end="2024-12-31", period_type="duration",
+            value="1000", unit="USD", currency=None,
+            basis="as_reported", origin="extracted",
+            source_ref=obj.sha256,
+            locator={"kind": "xbrl", "doc_sha256": obj.sha256,
+                     "fact_id": fact_id, "concept": "us-gaap:Revenues"},
+            parser_version="synthetic.v1",
+            canonical_concept="revenue",
+            concept_map_version="us-gaap.v1")
+        repos.snapshot.create_snapshot("s1", "ins1", 1, "2024-12-31",
+                                       None, "none", "ready")
+        repos.snapshot.insert_measure_with_lineage(
+            dict(measure_id="m1", snapshot_id="s1", scope="issuer",
+                 scope_ref="i1", concept="net_margin", value="0.1",
+                 unit="ratio", period_start="2024-01-01",
+                 period_end="2024-12-31", formula_id="net_margin",
+                 method_version="v1", null_reason=None,
+                 peer_set_version=None),
+            [{"fact_id": fact_id, "peer_measure_id": None,
+              "role": "input"}])
+        card = model.card_rows(repos, "ins1")
+        measure = next(m for m in card["measures"]
+                       if m["concept"] == "net_margin")
+        panel = model.source_panel(repos, measure)
+        source = panel["sources"][0]
+        assert source["source_tag"] == "us-gaap:Revenues"
+        assert source["concept_map_version"] == "us-gaap.v1"
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)

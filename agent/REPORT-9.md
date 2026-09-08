@@ -34,3 +34,6 @@ NOW: V0, step 1
   - Offline half: test_m3_snapshot.py strengthened — apply_concept_map at ingest; >=15 of 20 issuers must have a non-null net_margin with a real period; every remaining null carries a reason from the fixed set. Result: 19/20 issuers non-null net_margin on the COMMITTED payloads (mapping V0 + periods V1 work on real data). 140 blocks missing with reasons (was 160).
   - `pytest tests/test_m2_golden.py tests/test_v4_formulas.py tests/test_m3_snapshot.py -q` → exit 0; `pytest -q` → exit 0 (257 tests); acceptance → 13/13
   - **M3v2: 20 issuers, 20 requests (refetch, not adopted), 19 of 20 issuers with non-null net_margin on committed payloads, nulls by fixed reasons**
+- V6 done: tui source_panel adds source_tag (fact.concept) + concept_map_version per input fact; coverage --json and status --json carry concept_map_version (CONCEPT_MAP_VERSION); doctor reports unmapped fact count + top-5 unmapped tags by name and count (SQL in store, names/counts only).
+  - Tests: source panel fields asserted (test_tui_model); doctor lists nothing on empty base without crashing (test_concept_map).
+  - `pytest -q` → exit 0 (259 tests); acceptance → 13/13

@@ -7,8 +7,11 @@ docs/data-dictionary.md §2 в обе стороны. Тег вне карты �
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -118,3 +121,24 @@ def test_normalize_module_has_no_sql_no_http():
          "rusterm/normalize/"],
         capture_output=True, text=True)
     assert result.returncode == 1, result.stdout
+
+
+def test_v6_doctor_lists_unmapped_tags_with_counts(capsys, monkeypatch):
+    import shutil
+    import tempfile
+    """TASK-9 V6: doctor показывает неотображённые теги по имени и
+    счётчику; на пустой базе не падает."""
+    from rusterm.cli import main
+    tmpdir = tempfile.mkdtemp()
+    root = os.path.join(tmpdir, "app")
+    try:
+        monkeypatch.setenv("RUSTERM_ENV_FILE",
+                           "/nonexistent/rusterm.env-for-tests")
+        assert main(["--root", root, "init"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "doctor"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["unmapped_concepts"]["count"] == 0
+        assert payload["unmapped_concepts"]["top"] == []
+    finally:
+        shutil.rmtree(tmpdir)

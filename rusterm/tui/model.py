@@ -114,6 +114,9 @@ def source_panel(repos, measure: dict) -> dict:
             "document": fact["source_ref"],
             "locator": locator,
             "fact_id": fact_id,
+            # какой тег стал этим числом и по какой карте (TASK-9 V6)
+            "source_tag": fact["concept"],
+            "concept_map_version": fact["concept_map_version"],
         })
     return {
         "measure_id": measure["measure_id"],
