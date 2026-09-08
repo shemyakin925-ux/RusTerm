@@ -204,7 +204,9 @@ def test_v2_unit_table_covers_kinds_and_never_empty_period():
         builder.build("ins1", "i1", "2026-09-08")
         snap = repos.snapshot.latest_snapshot_id("ins1")
         for m in repos.snapshot.get_measures(snap):
-            assert m[5] != "", "пустой period_start у меры"
+            assert m[6] != "", "пустой period_start у меры"
+            if m[4] is not None:
+                assert m[5] != "", "у меры со значением пустая единица"
             assert m[6] == "2026-09-08"  # без входов — as_of с причиной
             assert m[10] is not None
     finally:

@@ -38,7 +38,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
                      "--instrument", "US-CLI-DEMO"]) == 0
         out = capsys.readouterr().out
         assert "снапшот v1" in out
-        assert "со значением 3, пусто 0" in out
+        assert "со значением 4, пусто 24" in out
 
         # export json: значения из снапшота
         assert main(["--root", root, "export", "--instrument", "US-CLI-DEMO",

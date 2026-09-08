@@ -46,6 +46,21 @@ MEASURE_UNIT_KINDS: dict[str, str] = {
     "eps_diluted": "per_share",
     "dps": "per_share",
     "shares_diluted": "count",
+    "fcf": "money",
+    "interest_coverage": "ratio",
+    "net_debt": "money",
+    "net_debt_ebitda": "ratio",
+    "invested_capital": "money",
+    "roic": "ratio",
+    "fcf_yield": "ratio",
+    "market_cap": "money",
+    "market_cap_total": "money",
+    "ev": "money",
+    "cagr": "ratio",
+    "total_return": "ratio",
+    "drawdown": "ratio",
+    "price_adj": "money",
+    "hhi": "index",
     "ev": "money",
     "pe": "ratio",
     "pb": "ratio",
@@ -499,6 +514,24 @@ def calculate_measure(
         te = kwargs.get("tax_expense")
         pi = kwargs.get("pretax_income")
         value, null_reason = effective_tax_rate(te, pi)
+
+    elif concept == "fcf":
+        # fcf = ocf - capex (data-dictionary §3 «Денежный поток»)
+        ocf = kwargs.get("ocf")
+        capex = kwargs.get("capex")
+        if ocf is None or capex is None:
+            null_reason = "missing_data"
+        else:
+            value = ocf - capex
+
+    elif concept == "interest_coverage":
+        # interest_coverage = operating_income / interest_expense
+        oi = kwargs.get("operating_income")
+        ie = kwargs.get("interest_expense")
+        if oi is None or ie is None:
+            null_reason = "missing_data"
+        else:
+            value, null_reason = _divide_checked(oi, ie)
 
     elif concept == "market_cap":
         value, null_reason = market_cap_per_class(

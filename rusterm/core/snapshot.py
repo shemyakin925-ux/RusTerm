@@ -15,12 +15,55 @@ from rusterm.core.peers import evaluate, percentile_share
 from rusterm.formulas import calculate_measure, measure_unit
 from rusterm.normalize.concepts import priority_rank, strip_taxonomy
 
-# Меры первого прохода: фундаментальные, считаются на issuer.
-_BASE_MEASURES = {
-    "net_margin": ("net_income", "revenue"),
-    "operating_margin": ("operating_income", "revenue"),
-    "effective_tax": ("tax_expense", "pretax_income"),
+# Меры первого прохода (TASK-9 V4): все формулы §3 data-dictionary,
+# чьи входы — эмитентские концепты из карты V0.
+_MEASURE_FORMULAS: dict[str, dict[str, str]] = {
+    # концепт -> {ключ kwargs -> канонический вход}
+    "net_margin": {"net_income": "net_income", "revenue": "revenue"},
+    "operating_margin": {"operating_income": "operating_income",
+                         "revenue": "revenue"},
+    "effective_tax": {"tax_expense": "tax_expense",
+                      "pretax_income": "pretax_income"},
+    "gross_margin": {"gross_profit": "gross_profit", "revenue": "revenue"},
+    "ebitda": {"operating_income": "operating_income",
+               "d_and_a": "d_and_a"},
+    "fcf": {"ocf": "ocf", "capex": "capex"},
+    "interest_coverage": {"operating_income": "operating_income",
+                          "interest_expense": "interest_expense"},
 }
+
+# Двухпериодные: поток + сток (начало = предыдущий период стока).
+_TWO_PERIOD_MEASURES: dict[str, tuple[str, str]] = {
+    "roe": ("net_income", "total_equity"),
+    "asset_turnover": ("revenue", "total_assets"),
+}
+
+# Цепочка: nopat = operating_income * (1 - effective_tax); ставка берётся
+# из уже посчитанной меры effective_tax того же периода.
+_CHAIN_MEASURES: dict[str, dict[str, str]] = {
+    "nopat": {"operating_income": "operating_income",
+              "tax_rate": "effective_tax"},
+}
+
+# Формулы §3, чьи входы вне карты V0: строка видна с постоянной
+# причиной concept_not_mapped, не выбрасывается.
+_UNMAPPED_FORMULAS: tuple[str, ...] = (
+    "invested_capital", "roic", "net_debt", "net_debt_ebitda",
+    "fcf_yield", "market_cap", "market_cap_total", "ev", "pe", "pb",
+    "ps", "ev_ebitda", "div_yield", "cagr", "total_return", "drawdown",
+    "price_adj", "hhi",
+)
+
+_BASE_MEASURES = _MEASURE_FORMULAS  # совместимость с существующими тестами
+
+# Все канонические входы формул — то, что as_reported_facts запрашивает.
+base_concepts: tuple[str, ...] = tuple(sorted(
+    {c for inputs_map in _MEASURE_FORMULAS.values()
+     for c in inputs_map.values()}
+    | {flow for flow, _stock in _TWO_PERIOD_MEASURES.values()}
+    | {stock for _flow, stock in _TWO_PERIOD_MEASURES.values()}
+    | {"operating_income"}
+))
 
 
 @dataclass
@@ -76,35 +119,80 @@ class SnapshotBuilder:
         self._snapshots.add_block(snapshot_id, "fundamentals", "ready", None)
         result = BuildResult(snapshot_id=snapshot_id, version=version)
 
-        # ── Проход 1: фундаментальные меры компании ──
+        # ── Проход 1: формулы §3, чьи входы в карте V0 ──
         inputs, lineage_by_concept, input_reasons, periods, input_units = \
             self._issuer_inputs(issuer_id)
         computed: dict[str, float] = {}
-        for concept, args in _BASE_MEASURES.items():
-            kw = inputs.get(concept)
-            value = None
-            null_reason = input_reasons.get(concept, "missing_data")
-            if kw is not None:
-                m = calculate_measure(concept, **kw)
-                value, null_reason = m.value, m.null_reason
-            # период меры — период входов; пустой period_start не пишется:
-            # меры без входов несут as_of и объясняются null_reason (V2)
-            if concept in periods:
-                period_start, period_end = periods[concept]
-            else:
-                period_start, period_end = as_of, as_of
+        formula_groups: list[tuple[dict, bool]] = [
+            (_MEASURE_FORMULAS, False),
+            (_CHAIN_MEASURES, False),
+            (_TWO_PERIOD_MEASURES, True),
+        ]
+        written_measures: set[str] = set()
+        measure_row_ids: dict[str, str] = {}
+        for formulas, _is_two_period in formula_groups:
+            for concept in formulas:
+                if concept in written_measures:
+                    continue
+                raw_inputs = inputs.get(concept)
+                value = None
+                null_reason = input_reasons.get(concept, "missing_data")
+                if raw_inputs is not None:
+                    kw = dict(raw_inputs)
+                    # цепочка: значения-меры подставляются после расчёта
+                    # исходных мер того же прохода
+                    for kwarg, source in _CHAIN_MEASURES.get(
+                            concept, {}).items():
+                        if kw.get(kwarg) is None:
+                            kw[kwarg] = computed.get(source)
+                    if all(v is not None for v in kw.values()):
+                        m = calculate_measure(concept, **kw)
+                        value, null_reason = m.value, m.null_reason
+                if value is None and null_reason is None:
+                    null_reason = "missing_data"  # I4: NULL обязан причиной
+                if concept in periods:
+                    period_start, period_end = periods[concept]
+                else:
+                    period_start, period_end = as_of, as_of
+                measure_id = str(uuid4())
+                lineage_rows = lineage_by_concept.get(concept, [])
+                if concept in _CHAIN_MEASURES and "effective_tax" in \
+                        measure_row_ids:
+                    lineage_rows = lineage_rows + [
+                        {"fact_id": None,
+                         "peer_measure_id": measure_row_ids["effective_tax"],
+                         "role": "input"}]
+                self._snapshots.insert_measure_with_lineage(
+                    dict(measure_id=measure_id, snapshot_id=snapshot_id,
+                         scope="issuer", scope_ref=issuer_id,
+                         concept=concept,
+                         value=None if value is None else repr(value),
+                         unit=measure_unit(
+                             concept, input_units.get(concept, "")),
+                         period_start=period_start, period_end=period_end,
+                         formula_id=concept, method_version="v1",
+                         null_reason=null_reason, peer_set_version=None),
+                    lineage_rows)
+                written_measures.add(concept)
+                measure_row_ids[concept] = measure_id
+                result.measures += 1
+                if value is not None:
+                    computed[concept] = value
+
+        # ── Реестр формул §3 вне карты V0: строка видна, причина честна ──
+        for concept in _UNMAPPED_FORMULAS:
+            if concept in written_measures:
+                continue
             self._snapshots.insert_measure_with_lineage(
                 dict(measure_id=str(uuid4()), snapshot_id=snapshot_id,
                      scope="issuer", scope_ref=issuer_id, concept=concept,
-                     value=None if value is None else repr(value),
-                     unit=measure_unit(concept, input_units.get(concept, "")),
-                     period_start=period_start, period_end=period_end,
+                     value=None, unit=measure_unit(concept),
+                     period_start=as_of, period_end=as_of,
                      formula_id=concept, method_version="v1",
-                     null_reason=null_reason, peer_set_version=None),
-                lineage_by_concept.get(concept, []))
+                     null_reason="concept_not_mapped", peer_set_version=None),
+                [])
+            written_measures.add(concept)
             result.measures += 1
-            if value is not None:
-                computed[concept] = value
 
         # ── Проход 2: перцентили по посчитанным величинам пиров ──
         if peer_set_version and peer_measures:
@@ -163,22 +251,20 @@ class SnapshotBuilder:
                                   source_errors=source_errors)
         return result
 
-    def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict, dict, dict]:
-        """Входы мер из фактов as_reported по концепту; lineage ведёт
-        к fact_id каждого входа.
+    def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict, dict,
+                                                       dict, dict]:
+        """Входы всех формул §3 по каноническим концептам (TASK-9 V0/V4).
 
-        Одна мера — один период (TASK-9 V1): для меры берётся последняя
-        period_end, на которую есть ВСЕ её входы с одинаковой единицей и
-        basis='as_reported'; duration-вход дополнительно требует ту же
-        period_start. Нет общего периода — period_mismatch; концепт
-        отсутствует целиком — missing_data. Приоритет тега карты (V0):
-        при равном каноническом имени выигрывает меньший ранг.
+        Однопериодные: пересечение периодов входов (unit, start, end),
+        приоритет тега карты выбирает источник. Двухпериодные (roe,
+        asset_turnover): конец выбранного периода + предыдущий период
+        того же стока, иначе missing_prior_period. Цепочка nopat берёт
+        ставку из посчитанной effective_tax. Отсутствующий концепт —
+        missing_data; нет общего периода — period_mismatch. Причины не
+        сливаются.
         """
         rows = self._snapshots.as_reported_facts(
-            issuer_id, ("net_income", "revenue", "operating_income",
-                        "tax_expense", "pretax_income"))
-        base_concepts = ("net_income", "revenue", "operating_income",
-                         "tax_expense", "pretax_income")
+            issuer_id, tuple(sorted(base_concepts)))
         by_concept: dict[str, list] = {}
         for _concept, value, fact_id, unit, start, end, canonical in rows:
             key = canonical or _concept
@@ -195,42 +281,119 @@ class SnapshotBuilder:
                 "rank": priority_rank(key, local),
             })
 
+        def pick(concept: str, key: tuple) -> Optional[dict]:
+            candidates = [r for r in by_concept.get(concept, [])
+                          if (r["unit"], r["start"], r["end"]) == key]
+            return min(candidates, key=lambda r: r["rank"]) \
+                if candidates else None
+
+        def period_ends(concept: str) -> list[str]:
+            return sorted({r["end"] for r in by_concept.get(concept, [])},
+                          reverse=True)
+
         inputs: dict[str, dict] = {}
         lineage: dict[str, list] = {}
         reasons: dict[str, str] = {}
         periods: dict[str, tuple[str, str]] = {}
         input_units: dict[str, str] = {}
-        for concept, args in _BASE_MEASURES.items():
-            if any(a not in by_concept for a in args):
+
+        # ── Однопериодные формулы ──
+        for concept, inputs_map in _MEASURE_FORMULAS.items():
+            needed = set(inputs_map.values())
+            if any(a not in by_concept for a in needed):
                 reasons[concept] = "missing_data"
                 continue
-            # пересечение периодов: (unit, period_start, period_end)
-            key_sets = []
-            for a in args:
-                keys = set()
-                for row in by_concept[a]:
-                    keys.add((row["unit"], row["start"], row["end"]))
-                key_sets.append(keys)
+            key_sets = [{(r["unit"], r["start"], r["end"])
+                         for r in by_concept[a]} for a in needed]
             common = set.intersection(*key_sets)
             if not common:
                 reasons[concept] = "period_mismatch"
                 continue
-            chosen_period = max(common, key=lambda k: (k[2], k[1]))
-            chosen = {}
-            lin = []
-            for a in args:
-                candidates = [r for r in by_concept[a]
-                              if (r["unit"], r["start"], r["end"])
-                              == chosen_period]
-                row = min(candidates, key=lambda r: r["rank"])
-                chosen[a] = row["value"]
-                input_units[concept] = row["unit"]
+            chosen = max(common, key=lambda k: (k[2], k[1]))
+            values: dict[str, float] = {}
+            lin: list = []
+            units: list[str] = []
+            for kwarg, a in inputs_map.items():
+                row = pick(a, chosen)
+                values[kwarg] = row["value"]
+                units.append(row["unit"])
                 lin.append({"fact_id": row["fact_id"],
                             "peer_measure_id": None, "role": "input"})
-            inputs[concept] = chosen
+            inputs[concept] = values
             lineage[concept] = lin
-            # мера несёт период своих входов, а не дату сборки (V2)
-            periods[concept] = (chosen_period[1], chosen_period[2])
+            periods[concept] = (chosen[1], chosen[2])
+            input_units[concept] = units[0]
+
+        # ── Двухпериодные: конец выбранного периода + предыдущий период
+        # того же стока; нет предыдущего — missing_prior_period ──
+        for concept, (flow, stock) in _TWO_PERIOD_MEASURES.items():
+            flow_rows = by_concept.get(flow, [])
+            stock_ends = period_ends(stock)
+            if not flow_rows or not stock_ends:
+                reasons[concept] = "missing_data"
+                continue
+            chosen = max((k for k in
+                          {(r["unit"], r["start"], r["end"])
+                           for r in flow_rows}
+                          if k[2] in stock_ends),
+                         key=lambda k: (k[2], k[1]), default=None)
+            if chosen is None:
+                reasons[concept] = "period_mismatch"
+                continue
+            chosen_end = chosen[2]
+            earlier = [e for e in stock_ends if e < chosen_end]
+            if not earlier:
+                reasons[concept] = "missing_prior_period"
+                continue
+            prev_end = earlier[0]
+            flow_row = pick(flow, chosen)
+            # сток — мгновенная величина: выбирается по концу периода
+            cur_rows = [r for r in by_concept[stock]
+                        if r["end"] == chosen_end]
+            cur_row = min(cur_rows, key=lambda r: r["rank"])
+            prev_rows = [r for r in by_concept[stock]
+                         if r["end"] == prev_end]
+            prev_row = min(prev_rows, key=lambda r: r["rank"])
+            if flow_row is None or cur_row is None:
+                reasons[concept] = "period_mismatch"
+                continue
+            inputs[concept] = {
+                flow: flow_row["value"],
+                f"{stock}_begin": prev_row["value"],
+                f"{stock}_end": cur_row["value"],
+            }
+            input_units[concept] = flow_row["unit"]
+            periods[concept] = (chosen[1], chosen_end)
+            lineage[concept] = [
+                {"fact_id": flow_row["fact_id"], "peer_measure_id": None,
+                 "role": "input"},
+                {"fact_id": cur_row["fact_id"], "peer_measure_id": None,
+                 "role": "input"},
+                {"fact_id": prev_row["fact_id"], "peer_measure_id": None,
+                 "role": "input"},
+            ]
+
+        # ── Цепочка: nopat = operating_income * (1 - effective_tax) ──
+        # ставку даёт посчитанная effective_tax — собирается в build()
+        oi_rows = by_concept.get("operating_income", [])
+        et_period = periods.get("effective_tax")
+        if et_period is None or not oi_rows:
+            reasons["nopat"] = "missing_data"
+        else:
+            et_end = et_period[1]
+            oi_candidates = [r for r in oi_rows if r["end"] == et_end]
+            if not oi_candidates:
+                reasons["nopat"] = "period_mismatch"
+            else:
+                oi_row = min(oi_candidates, key=lambda r: r["rank"])
+                inputs["nopat"] = {"operating_income": oi_row["value"]}
+                periods["nopat"] = et_period
+                input_units["nopat"] = oi_row["unit"]
+                lineage["nopat"] = [
+                    {"fact_id": oi_row["fact_id"], "peer_measure_id": None,
+                     "role": "input"},
+                ]
+
         return inputs, lineage, reasons, periods, input_units
 
     def _next_version(self, instrument_id: str) -> int:
