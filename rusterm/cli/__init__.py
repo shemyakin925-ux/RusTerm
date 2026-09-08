@@ -396,11 +396,14 @@ def cmd_watchlist(args) -> int:
                   f"{result['version']} ({result['action']})")
         elif args.action == "export":
             from rusterm.core.watchlist_io import export_csv, export_json
-            text = (export_csv(wl, repos.instrument, args.list, args.as_of)
-                    if args.format == "csv"
-                    else export_json(wl, repos.instrument, args.list,
-                                     args.as_of))
+            outcome = (export_csv(wl, repos.instrument, args.list,
+                                  args.as_of)
+                       if args.format == "csv"
+                       else export_json(wl, repos.instrument, args.list,
+                                        args.as_of))
+            text, note = outcome
             print(text)
+            print(f"примечание: {note}", file=sys.stderr)
         elif args.action == "import":
             from rusterm.core.watchlist_io import import_rows, parse_import
             with open(args.file, encoding="utf-8") as fh:

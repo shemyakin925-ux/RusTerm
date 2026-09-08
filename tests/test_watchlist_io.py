@@ -133,7 +133,8 @@ def test_export_is_ticker_addressed_with_exact_columns():
     tmpdir, conn, instruments, watchlist = _setup()
     try:
         import_rows(watchlist, instruments, "w1", _four_rows(), AS_OF)
-        csv_text = export_csv(watchlist, instruments, "w1", AS_OF)
+        csv_text, note = export_csv(watchlist, instruments, "w1", AS_OF)
+        assert "industry пуст" in note
         header = csv_text.splitlines()[0]
         assert header == ",".join(EXPORT_COLUMNS)
         rows = parse_import(csv_text, "csv")
@@ -143,11 +144,12 @@ def test_export_is_ticker_addressed_with_exact_columns():
         assert by_ticker["MSFT"]["note"] == "новая"
         assert all(r["industry"] == "" for r in rows)
 
-        # JSON-экспорт — те же данные
-        rows_json = json.loads(
-            export_json(watchlist, instruments, "w1", AS_OF))
-        assert {r["ticker"] for r in rows_json} == \
+        # JSON-экспорт — те же данные плюс явная заметка о пустой колонке
+        payload = json.loads(
+            export_json(watchlist, instruments, "w1", AS_OF)[0])
+        assert {r["ticker"] for r in payload["rows"]} == \
             {r["ticker"] for r in rows}
+        assert "industry пуст" in payload["note"]
     finally:
         conn.close()
         shutil.rmtree(tmpdir)

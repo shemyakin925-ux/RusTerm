@@ -20,6 +20,10 @@ import uuid
 EXPORT_COLUMNS = ("ticker", "market", "isin", "industry", "note",
                   "added_at")
 
+# Источника отрасли в схеме нет (TASK-8 U12.4): колонка честно пуста,
+# и экспорт обязан это называть, а не молчать.
+INDUSTRY_EMPTY_NOTE = "industry пуст: источника отрасли в схеме нет"
+
 
 def export_rows(watchlist_repo, instrument_repo, watchlist_id: str,
                 as_of: str) -> list[dict]:
@@ -41,23 +45,28 @@ def export_rows(watchlist_repo, instrument_repo, watchlist_id: str,
             "added_at": added,
         })
     rows.sort(key=lambda r: r["ticker"])
-    return rows
+    return rows, INDUSTRY_EMPTY_NOTE
 
 
 def export_csv(watchlist_repo, instrument_repo, watchlist_id: str,
-               as_of: str) -> str:
-    rows = export_rows(watchlist_repo, instrument_repo, watchlist_id, as_of)
+               as_of: str) -> tuple:
+    rows, note = export_rows(watchlist_repo, instrument_repo,
+                             watchlist_id, as_of)
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=list(EXPORT_COLUMNS))
     writer.writeheader()
     writer.writerows(rows)
-    return buf.getvalue()
+    # заметка идёт отдельно от CSV: файл обязан оставаться чистым
+    # для обратного импорта
+    return buf.getvalue(), note
 
 
 def export_json(watchlist_repo, instrument_repo, watchlist_id: str,
-                as_of: str) -> str:
-    rows = export_rows(watchlist_repo, instrument_repo, watchlist_id, as_of)
-    return json.dumps(rows, ensure_ascii=False, indent=2)
+                as_of: str) -> tuple:
+    rows, note = export_rows(watchlist_repo, instrument_repo,
+                             watchlist_id, as_of)
+    return (json.dumps({"rows": rows, "note": note},
+                       ensure_ascii=False, indent=2), note)
 
 
 def parse_import(text: str, fmt: str) -> list[dict]:
