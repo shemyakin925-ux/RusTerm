@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 
@@ -662,5 +663,90 @@ def test_v3_two_share_classes_two_instruments(capsys, monkeypatch):
         assert issuers == 1, "один CIK — один эмитент"
         assert instruments == [("US-AAPL", "common"),
                                ("US-AAPL-A", "preferred")]
+    finally:
+        shutil.rmtree(root)
+
+
+# ── TASK-10 W0: онлайн-ветка rusterm add — герметично, без сети ────────
+def _fake_edgar_provider(monkeypatch):
+    """Подменяет реестрного провайдера на настоящего EdgarProvider
+    с транспортом на записанных ответах — сеть не трогается."""
+    from pathlib import Path
+
+    from rusterm.providers.budget import Budget, RateLimiter, RequestGate
+    from rusterm.providers.edgar import EdgarProvider
+
+    tickers = (Path(__file__).resolve().parents[1] / "tests" / "data"
+               / "edgar" / "company_tickers.json").read_bytes()
+
+    class FakeClock:
+        def __init__(self):
+            self.now = 0.0
+
+        def __call__(self):
+            return self.now
+
+        def sleep(self, s):
+            self.now += s
+
+    fc = FakeClock()
+
+    def transport(url, headers):
+        assert headers.get("User-Agent")
+        return 200, tickers, {}
+
+    class FakeEdgar(EdgarProvider):
+        def __init__(self, gate):
+            super().__init__(gate=gate,
+                             transport=transport)
+
+    monkeypatch.setattr("rusterm.cli.get_provider",
+                        lambda name, gate=None: FakeEdgar(gate=gate))
+
+
+def test_w0_add_online_resolves_cik_and_title(capsys, monkeypatch):
+    root = _root()
+    try:
+        monkeypatch.setenv("RUSTERM_SEC_UA", "Synthetic Test synthetic.invalid")
+        monkeypatch.delenv("RUSTERM_ENV_FILE", raising=False)
+        _fake_edgar_provider(monkeypatch)
+        assert main(["--root", root, "init"]) == 0
+        capsys.readouterr()
+        # ни --cik, ни --name: и то и другое приходит из карты EDGAR
+        assert main(["--root", root, "add", "--ticker", "AAPL",
+                     "--market", "US"]) == 0
+        out = capsys.readouterr().out
+        assert "CIK 320193" in out
+        import sqlite3
+        conn = sqlite3.connect(f"{root}/rusterm.db")
+        name, registry_id = conn.execute(
+            "SELECT name, registry_id FROM issuer").fetchone()
+        conn.close()
+        assert name == "Apple Inc.", "имя из карты потеряно"
+        assert registry_id == "320193"
+    finally:
+        shutil.rmtree(root)
+
+
+def test_w0_gateless_provider_exits_1_with_reason_no_traceback(
+        capsys, monkeypatch):
+    root = _root()
+    try:
+        monkeypatch.delenv("RUSTERM_SEC_UA", raising=False)
+        monkeypatch.setenv("RUSTERM_ENV_FILE",
+                           "/nonexistent/rusterm.env-for-tests")
+        # провайдер без гейта: реестр отвечает ConfigError-значением
+        monkeypatch.setattr(
+            "rusterm.cli.get_provider",
+            lambda name, gate=None: __import__(
+                "rusterm.providers.budget", fromlist=["ConfigError"]
+            ).ConfigError(reason=f"network_provider_requires_gate:{name}"))
+        assert main(["--root", root, "add", "--ticker", "AAPL",
+                     "--market", "US"]) == 1
+        err = capsys.readouterr().err
+        assert "network_provider_requires_gate:edgar" in err
+        log_path = os.path.join(root, "logs", "app.log")
+        assert not os.path.exists(log_path) or \
+            "Traceback" not in open(log_path, encoding="utf-8").read()
     finally:
         shutil.rmtree(root)

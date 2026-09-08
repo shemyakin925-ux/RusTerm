@@ -67,7 +67,7 @@ class EdgarProvider:
     source_name: str = "edgar"
     transport: Callable = _default_transport
 
-    _tickers: Optional[dict] = None
+    _tickers: Optional[dict] = None  # {ticker: (cik, title)}
     _submissions: Optional[dict] = None
 
     def _fetch_json(self, url: str) -> dict | ConfigError | NotModified:
@@ -86,8 +86,10 @@ class EdgarProvider:
             data = self._fetch_json(TICKERS_URL)
             if isinstance(data, (ConfigError, NotModified)):
                 return data
+            # (cik, title): имя эмитента доступно там же, где и CIK
             self._tickers = {
-                str(row["ticker"]).upper(): int(row["cik_str"])
+                str(row["ticker"]).upper(): (int(row["cik_str"]),
+                                             row.get("title", ""))
                 for row in data.values()
             }
         return self._tickers
@@ -101,10 +103,11 @@ class EdgarProvider:
         mapping = self._ticker_map()
         if isinstance(mapping, (ConfigError, NotModified, ProviderError)):
             return mapping
-        cik = mapping.get(ticker.upper())
-        if cik is None:
+        record = mapping.get(ticker.upper())
+        if record is None:
             return ProviderError(f"not_found:{ticker}")
-        return {"ticker": ticker.upper(), "cik": cik}
+        cik, title = record
+        return {"ticker": ticker.upper(), "cik": cik, "title": title}
 
     # ── submissions/CIK: фид изменений эмитента ─────────────────────────
 

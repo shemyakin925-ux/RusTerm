@@ -13,6 +13,7 @@ import uuid
 
 from rusterm.core.export import snapshot_to_csv, snapshot_to_json
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
+from rusterm.providers import get_provider
 from rusterm.core.snapshot import SnapshotBuilder
 from rusterm.core.verification import VerificationService
 from rusterm.pipeline import IngestionPipeline
@@ -343,14 +344,26 @@ def cmd_add(args) -> int:
     if cik is None or name is None:
         headers = NetworkGate().headers()
         if isinstance(headers, ConfigError):
+            # нет контакта и не хватает данных: пробуем сетевого
+            # провайдера без гейта — реестр честно откажет значением
+            provider = get_provider("edgar", gate=None)
+            reason = (provider.reason if isinstance(provider, ConfigError)
+                      else "contact_unset")
             missing = [flag for flag, value in
                        (("--cik", cik), ("--name", name)) if value is None]
-            print(f"нет контакта SEC ({headers.reason}); офлайн-режим "
+            print(f"нет контакта SEC ({reason}); офлайн-режим "
                   f"требует {' и '.join(missing)}; задайте их или "
                   f"заполните ~/.rusterm.env", file=sys.stderr)
             conn.close()
             return 1
+        # гейт обязателен: реестр возвращает ConfigError-значение,
+        # а не провайдера, если гейт не передан (TASK-10 W0)
         provider = get_provider("edgar", gate=RequestGate())
+        if isinstance(provider, ConfigError):
+            print(f"сетевой провайдер недоступен: {provider.reason}",
+                  file=sys.stderr)
+            conn.close()
+            return 1
         resolution = provider.resolve(args.ticker, args.market,
                                       args_as_of_default())
         if isinstance(resolution, _PE):
