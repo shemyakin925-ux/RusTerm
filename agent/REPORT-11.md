@@ -25,3 +25,20 @@ NOW: X3, step 1
   - B16: схема ключей четырёх --json команд закреплена тестом.
   - Попутно: ключ show переименован current_version -> version (тесты обновлены, сильнее: показывается запрошенная версия с action).
   - `pytest -q` → exit 0 (269 tests); acceptance → 13/13
+
+## HANDOFF
+Status:          DONE
+Items done:      X1, X2, X3, X4; X5 partial — B9, B10, B11, B16
+Items not done:  X5 остаток — B12, B13, B15, B17, B18, B19 (очередь не пуста, время сессии ограничено)
+Acceptance:      пройдено 13, провалено 0   (agent/ACCEPTANCE-9.txt)
+Tests:           283 collected: 281 passed, 1 skipped, 1 xfailed
+Real numbers:    issuers with a non-null net_margin: 19 of 20 (V5 committed payloads; JNJ restatement STOP остаётся в силе)
+Milestones:      M3-with-values yes, M5 no (no key)
+Network:         RUSTERM_SEC_UA set via ~/.rusterm.env — 0 requests this task (X1 edgar-ingest ходит на записанных payload'ах через sitecustomize)
+Model:           app LLM calls 0; own model GLM-5.3-Flash, exact call count not instrumented
+Pushed:          yes
+Questions for the coordinator:
+  - W1-vs-W2 conflict (six-most-recent vs JNJ check): implemented as annual-durations band + other-periods band; confirm the reading.
+  - operating_margin floor 15 vs 14/20 (JPM/PFE/CVX/XOM) and gross_margin floor 10 vs 7/20 — strict xfail carries the floors; coordinator to rule.
+  - total_equity_incl_nci missing from docs/data-dictionary.md §2 (check 10 bars docs edits) — dictionary row is owed.
+  - show: ключ переименован current_version -> version (X5/B10 попутно) — скрипты пользователей, читавшие старый ключ, сломаются.
