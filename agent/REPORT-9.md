@@ -37,3 +37,21 @@ NOW: V0, step 1
 - V6 done: tui source_panel adds source_tag (fact.concept) + concept_map_version per input fact; coverage --json and status --json carry concept_map_version (CONCEPT_MAP_VERSION); doctor reports unmapped fact count + top-5 unmapped tags by name and count (SQL in store, names/counts only).
   - Tests: source panel fields asserted (test_tui_model); doctor lists nothing on empty base without crashing (test_concept_map).
   - `pytest -q` → exit 0 (259 tests); acceptance → 13/13
+- V7 done-as-skip: `rusterm doctor` reports RUSTERM_LLM_PROVIDER/RUSTERM_LLM_API_KEY не заданы (origins —). `LLM key unset — M5 not exercised`; tests/test_llm_real.py skips cleanly and would fail loudly if a key appeared without the live path existing. Not simulated.
+
+## HANDOFF
+Status:          DONE
+Items done:      V0, V1, V2, V3, V4, V5 (offline half; network half stopped by golden rule), U9-U12 inherited, V6, V7-skip, V8
+Items not done:  V7 real-model half — LLM key unset (skipped by rule, not simulated); V5 network adoption of restated JNJ values — stopped by golden rule, coordinator to decide
+Acceptance:      пройдено 13, провалено 0   (agent/ACCEPTANCE-7.txt, taken at the commit before this final agent/-only commit)
+Tests:           N passed, M skipped, K xfailed (see final run below)
+Real numbers:    issuers with a non-null net_margin: 19 of 20
+Unmapped tags:   top 5 by count — from `rusterm doctor` on a real-data database; empty on the committed test database
+Milestones:      M3-with-values yes (19/20), M5 no
+Network:         RUSTERM_SEC_UA set via ~/.rusterm.env — ~25 requests (3 U5 probe + 5 M2 fetch + 15 M3 fetch + live test per suite run), 0 refused, 0 rate-limited
+Model:           app LLM calls 0; own model GLM-5.3-Flash, exact count not instrumented (~300 agent steps)
+Pushed:          yes
+Questions for the coordinator:
+  - JNJ restatement decision: adopt SEC's continuing-ops restatement (78740/79990) as new golden values, or pin golden to first-as-reported via recorded payloads (current state).
+  - V1 period rule: instant inputs match on end only — confirmed interpretation? (duration inputs require the same period_start).
+  - cagr registered as concept_not_mapped: the doc's cagr(V, n) is generic over V — needs a per-metric decision.
