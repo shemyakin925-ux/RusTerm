@@ -38,3 +38,5 @@ measure -> n/20 + reasons:
   roe: 18/20 (порог 12) причины: {'missing_data': 2}
   asset_turnover: 20/20 (порог 12) причины: —
   - `pytest tests/test_m3_snapshot.py -q -s` → exit 0; `pytest -q` → exit 0 (264 tests: 262 passed, 1 skipped, 1 xfailed); acceptance → 13/13
+- W5 done: 'cagr' removed from _UNMAPPED_FORMULAS per ruling §0.2.3 (cagr(V, n) is a function over a named series, not an issuer measure; a measure row for it was a small lie); function kept in formulas.py, unit test added (100→200 over 4 years = 2**0.25-1; loss directions carry negative_denominator reasons — actual reasons used, my first guess was wrong). Snapshot pin updated: 27 measures.
+  - `pytest -q` → exit 0 (265 tests); acceptance → 13/13

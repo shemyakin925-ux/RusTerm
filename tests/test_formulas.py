@@ -262,3 +262,15 @@ def test_price_adj_split_and_dividend_order_independent():
     assert one_order[1][1] == pytest.approx(101.0 * 0.5 * f_div)
     assert one_order[2][1] == pytest.approx(50.0 * f_div)
     assert one_order[3][1] == pytest.approx(49.0)
+
+
+def test_cagr_function_value_on_doubling_series():
+    """TASK-10 W5: cagr остаётся функцией formulas.py (убрана из мер):
+    рост 100 → 200 за 4 года — 2 ** 0.25 - 1."""
+    from rusterm.formulas import cagr
+    value, reason = cagr(100.0, 200.0, 4)
+    assert value == pytest.approx(2 ** 0.25 - 1)
+    assert reason is None
+    # от убытка и в убыток рост не определён (причины — из formulas.py)
+    assert cagr(-5.0, 200.0, 4) == (None, "negative_denominator")
+    assert cagr(100.0, -50.0, 4) == (None, "negative_denominator")

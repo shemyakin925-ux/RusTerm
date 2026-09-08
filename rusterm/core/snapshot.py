@@ -47,10 +47,13 @@ _CHAIN_MEASURES: dict[str, dict[str, str]] = {
 
 # Формулы §3, чьи входы вне карты V0: строка видна с постоянной
 # причиной concept_not_mapped, не выбрасывается.
+# cagr исключён решением координатора (TASK-10 §0.2.3): cagr(V, n) —
+# функция над именованным рядом, а не мера эмитента; функция остаётся
+# в formulas.py со своим unit-тестом.
 _UNMAPPED_FORMULAS: tuple[str, ...] = (
     "invested_capital", "roic", "net_debt", "net_debt_ebitda",
     "fcf_yield", "market_cap", "market_cap_total", "ev", "pe", "pb",
-    "ps", "ev_ebitda", "div_yield", "cagr", "total_return", "drawdown",
+    "ps", "ev_ebitda", "div_yield", "total_return", "drawdown",
     "price_adj", "hhi",
 )
 
