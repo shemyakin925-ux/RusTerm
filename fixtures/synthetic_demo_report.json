@@ -1,0 +1,15 @@
+{
+  "source": "synthetic",
+  "note": "Синтетический 10-K для демо-режима (TASK-8 U3): концепты достаточны для базовых мер (net_margin, operating_margin, effective_tax). Все данные выдуманы.",
+  "doc_kind": "xbrl",
+  "form_type": "10-K",
+  "filed_at": "2024-02-15",
+  "period_end": "2023-12-31",
+  "facts": {
+    "us-gaap_RevenueFromContract": {"concept": "revenue", "value": "1000", "unit": "USD", "period_start": "2023-01-01", "period_end": "2023-12-31", "period_type": "duration"},
+    "us-gaap_NetIncomeLoss": {"concept": "net_income", "value": "100", "unit": "USD", "period_start": "2023-01-01", "period_end": "2023-12-31", "period_type": "duration"},
+    "us-gaap_OperatingIncomeLoss": {"concept": "operating_income", "value": "200", "unit": "USD", "period_start": "2023-01-01", "period_end": "2023-12-31", "period_type": "duration"},
+    "us-gaap_IncomeTaxExpenseBenefit": {"concept": "tax_expense", "value": "20", "unit": "USD", "period_start": "2023-01-01", "period_end": "2023-12-31", "period_type": "duration"},
+    "us-gaap_IncomeLossFromContinuingOperations": {"concept": "pretax_income", "value": "120", "unit": "USD", "period_start": "2023-01-01", "period_end": "2023-12-31", "period_type": "duration"}
+  }
+}

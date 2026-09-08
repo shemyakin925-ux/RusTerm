@@ -22,19 +22,27 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         out = capsys.readouterr().out
         assert "schema_version=35" in out
 
-        # ingest: сбор по синтетическому провайдеру
-        assert main(["--root", root, "ingest"]) == 0
+        # demo: демо-данные создаются только явно (TASK-8 U3)
+        assert main(["--root", root, "demo"]) == 0
         out = capsys.readouterr().out
-        assert "фактов: 4" in out
+        assert "синтетические" in out
 
-        # snapshot: сборка версии
-        assert main(["--root", root, "snapshot"]) == 0
+        # ingest: сбор по селектору инструмента
+        assert main(["--root", root, "ingest",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        out = capsys.readouterr().out
+        assert "фактов: 6" in out
+
+        # snapshot: сборка версии, счётчик значений и пустых раздельно
+        assert main(["--root", root, "snapshot",
+                     "--instrument", "US-CLI-DEMO"]) == 0
         out = capsys.readouterr().out
         assert "снапшот v1" in out
-        assert "мер:" in out
+        assert "со значением 3, пусто 0" in out
 
         # export json: значения из снапшота
-        assert main(["--root", root, "export", "--format", "json"]) == 0
+        assert main(["--root", root, "export", "--instrument", "US-CLI-DEMO",
+                     "--format", "json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["snapshot"]["instrument_id"] == "US-CLI-DEMO"
         assert payload["measures"], "экспорт пуст"
@@ -42,8 +50,8 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         # export csv в файл
         import os
         csv_path = os.path.join(root, "export.csv")
-        assert main(["--root", root, "export", "--format", "csv",
-                     "--out", csv_path]) == 0
+        assert main(["--root", root, "export", "--instrument", "US-CLI-DEMO",
+                     "--format", "csv", "--out", csv_path]) == 0
         assert "null_reason" in open(csv_path, encoding="utf-8").read()
 
         # verify: новый интерфейс TASK-7 T14 — по id факта, с документом
@@ -107,7 +115,8 @@ def test_cli_export_without_snapshot_fails_clean(capsys):
     try:
         main(["--root", root, "init"])
         capsys.readouterr()
-        assert main(["--root", root, "export"]) == 1
+        assert main(["--root", root, "export",
+                     "--instrument", "US-CLI-DEMO"]) == 1
         assert "снапшотов нет" in capsys.readouterr().err
     finally:
         shutil.rmtree(root)
@@ -117,7 +126,9 @@ def test_cli_watchlist_lifecycle_and_coverage(capsys):
     root = _root()
     try:
         assert main(["--root", root, "init"]) == 0
-        assert main(["--root", root, "ingest"]) == 0
+        assert main(["--root", root, "demo"]) == 0
+        assert main(["--root", root, "ingest",
+                     "--instrument", "US-CLI-DEMO"]) == 0
         capsys.readouterr()
 
         # create / add / show
@@ -134,7 +145,8 @@ def test_cli_watchlist_lifecycle_and_coverage(capsys):
                 for m in shown["members"]] == ["US-CLI-DEMO"]
 
         # snapshot строит покрытие: все восемь блоков существуют
-        assert main(["--root", root, "snapshot"]) == 0
+        assert main(["--root", root, "snapshot",
+                     "--instrument", "US-CLI-DEMO"]) == 0
         capsys.readouterr()
         assert main(["--root", root, "coverage", "US-CLI-DEMO"]) == 0
         cov_lines = capsys.readouterr().out.strip().splitlines()
@@ -165,8 +177,10 @@ def test_cli_metrics_budget_watchlist_import_export(capsys):
     root = _root()
     try:
         assert main(["--root", root, "init"]) == 0
-        # ingest создаёт демо-инструмент, на которого ссылается watchlist
-        assert main(["--root", root, "ingest"]) == 0
+        # demo+ingest создают демо-инструмент, на который ссылается watchlist
+        assert main(["--root", root, "demo"]) == 0
+        assert main(["--root", root, "ingest",
+                     "--instrument", "US-CLI-DEMO"]) == 0
         capsys.readouterr()
 
         # metrics: пустая база — «нет данных», запись ничего не выдумывает
@@ -207,7 +221,8 @@ def test_cli_metrics_budget_watchlist_import_export(capsys):
         assert report["not_found"][0]["ticker"] == "ZZZZ"
 
         # ingest --source edgar: провайдера нет, честная ошибка
-        assert main(["--root", root, "ingest", "--source", "edgar"]) == 1
+        assert main(["--root", root, "ingest", "--instrument", "US-CLI-DEMO",
+                     "--source", "edgar"]) == 1
         assert "edgar-провайдер недоступен" in capsys.readouterr().err
     finally:
         shutil.rmtree(root)
@@ -284,5 +299,133 @@ def test_cli_verify_triggers_recompute_of_derived_measure(capsys):
         assert new_margin != old_margin
         assert new_margin == repr(100.0 / 2000.0)
         conn.close()
+    finally:
+        shutil.rmtree(root)
+
+
+def test_u3_demo_flow_yields_non_null_measures(capsys):
+    """TASK-8 U3: demo → ingest → snapshot даёт хотя бы одну меру со
+    значением, и строка снапшота разделяет значения и пустые."""
+    import sqlite3
+
+    root = _root()
+    try:
+        assert main(["--root", root, "demo"]) == 0
+        assert main(["--root", root, "ingest",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "snapshot",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        out = capsys.readouterr().out
+        assert "со значением" in out and "пусто" in out
+        # хотя бы одна мера с непустым значением — в базе
+        conn = sqlite3.connect(f"{root}/rusterm.db")
+        values = conn.execute(
+            "SELECT m.value FROM measure m").fetchall()
+        conn.close()
+        assert any(v[0] is not None for v in values), \
+            "демо-снапшот без единого значения"
+    finally:
+        shutil.rmtree(root)
+
+
+def test_u3_no_selector_exits_one(capsys):
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        assert main(["--root", root, "ingest"]) == 1
+        err = capsys.readouterr().err
+        assert "--instrument ID" in err
+        assert "--ticker T --market M" in err
+        assert "--watchlist ID" in err
+        assert main(["--root", root, "snapshot"]) == 1
+        assert "--instrument ID" in capsys.readouterr().err
+    finally:
+        shutil.rmtree(root)
+
+
+def test_u3_unresolved_ticker_exits_one_listing_candidates(capsys):
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        assert main(["--root", root, "ingest", "--ticker", "NOPE",
+                     "--market", "US"]) == 1
+        err = capsys.readouterr().err
+        assert "NOPE" in err and "не разрешён" in err
+    finally:
+        shutil.rmtree(root)
+
+
+def test_u3_two_instruments_two_snapshots_two_exports(capsys):
+    """Два разных инструмента в одной базе: сбор, снапшот и экспорт
+    каждого по --instrument; снапшоты и файлы разные."""
+    import os
+    import sqlite3
+    import uuid as _uuid
+
+    from rusterm.store.paths import AppPaths
+    from rusterm.store.repos import (
+        Instrument, InstrumentRepo, Issuer,
+    )
+
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        # второй инструмент добавляем в справочник напрямую
+        paths = AppPaths.from_root(root)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        instruments = InstrumentRepo(conn)
+        instruments.upsert_issuer(Issuer(
+            "i-second", "Second Corp (synthetic)", "US", None, None,
+            "us_gaap", "USD"))
+        instruments.upsert_instrument(Instrument(
+            "US-SECOND", "i-second", None, "common", "active", None))
+        conn.close()
+
+        assert main(["--root", root, "demo"]) == 0
+        assert main(["--root", root, "ingest",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        assert main(["--root", root, "ingest",
+                     "--instrument", "US-SECOND"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "snapshot",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        assert main(["--root", root, "snapshot",
+                     "--instrument", "US-SECOND"]) == 0
+        capsys.readouterr()
+
+        conn = sqlite3.connect(f"{root}/rusterm.db")
+        ids = [r[0] for r in conn.execute(
+            "SELECT DISTINCT snapshot_id FROM snapshot ORDER BY snapshot_id")]
+        conn.close()
+        assert len(ids) == 2, f"ожидались два разных снапшота, {ids}"
+
+        out_a = os.path.join(root, "export_a.json")
+        out_b = os.path.join(root, "export_b.json")
+        assert main(["--root", root, "export", "--instrument", "US-CLI-DEMO",
+                     "--out", out_a]) == 0
+        assert main(["--root", root, "export", "--instrument", "US-SECOND",
+                     "--out", out_b]) == 0
+        assert os.path.exists(out_a) and os.path.exists(out_b)
+        assert open(out_a).read() != open(out_b).read()
+    finally:
+        shutil.rmtree(root)
+
+
+def test_u3_watchlist_selector_ingests_current_members(capsys):
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        main(["--root", root, "demo"])
+        main(["--root", root, "watchlist", "create", "w-sel", "--name", "S"])
+        main(["--root", root, "watchlist", "add", "w-sel",
+              "--instrument", "US-CLI-DEMO"])
+        capsys.readouterr()
+        assert main(["--root", root, "ingest", "--watchlist", "w-sel"]) == 0
+        out = capsys.readouterr().out
+        assert "US-CLI-DEMO:" in out, "участник списка не прошёл сбор"
     finally:
         shutil.rmtree(root)

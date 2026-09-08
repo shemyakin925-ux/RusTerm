@@ -57,11 +57,89 @@ def _ensure_demo_instrument(conn) -> None:
                                              None, "common", "active", None))
 
 
-def cmd_ingest(args) -> int:
+
+
+def _select_instruments(args, repos):
+    """Селектор --instrument | --ticker+--market | --watchlist (U3).
+    Возвращает список (instrument_id, issuer_id); при ошибке печатает
+    причину в stderr и возвращает None. Молчаливый выбор первого
+    кандидата запрещён."""
+    chosen = [s for s in (getattr(args, "instrument", None),
+                          getattr(args, "ticker", None),
+                          getattr(args, "watchlist", None)) if s]
+    if len(chosen) != 1:
+        print("укажите ровно один способ выбора: --instrument ID, "
+              "--ticker T --market M или --watchlist ID", file=sys.stderr)
+        return None
+    if args.instrument:
+        instrument = repos.instrument.get_instrument(args.instrument)
+        if instrument is None:
+            print(f"инструмент {args.instrument!r} не найден; добавьте его "
+                  "через rusterm watchlist add или создайте демо: rusterm demo",
+                  file=sys.stderr)
+            return None
+        return [(instrument.instrument_id, instrument.issuer_id)]
+    if args.ticker:
+        market = getattr(args, "market", None)
+        if not market:
+            print("--ticker требует --market", file=sys.stderr)
+            return None
+        candidates = repos.instrument.resolve_ticker_candidates(
+            args.ticker, market, getattr(args, "as_of", None)
+            or args_as_of_default())
+        if not candidates:
+            print(f"тикер {args.ticker!r} на {market!r} не разрешён ни в один "
+                  "инструмент; проверьте тикер или добавьте инструмент",
+                  file=sys.stderr)
+            return None
+        if len(candidates) > 1:
+            print(f"тикер {args.ticker!r} неоднозначен, кандидаты: "
+                  f"{', '.join(candidates)}; уточните дату или рынок",
+                  file=sys.stderr)
+            return None
+        instrument = repos.instrument.get_instrument(candidates[0])
+        return [(instrument.instrument_id, instrument.issuer_id)]
+    # --watchlist: текущие участники списка
+    members = repos.watchlist.members(args.watchlist)
+    if not members:
+        print(f"список {args.watchlist!r} пуст или не найден",
+              file=sys.stderr)
+        return None
+    out = []
+    for member in members:
+        instrument = repos.instrument.get_instrument(member["instrument_id"])
+        if instrument is not None:
+            out.append((instrument.instrument_id, instrument.issuer_id))
+    return out
+
+
+def args_as_of_default():
+    import datetime
+    return datetime.date.today().isoformat()
+
+
+def cmd_demo(args) -> int:
+    """Демо-данные (TASK-8 U3): синтетический эмитент и инструмент
+    создаются только здесь, явно, с честной пометкой."""
     paths, conn = _open(args.root)
     apply_migrations(conn)
     _ensure_demo_instrument(conn)
+    print(f"создан демо-инструмент {DEMO_INSTRUMENT} (эмитент {DEMO_ISSUER}); "
+          "данные синтетические, выдуманные — не данные эмитента")
+    print("далее: rusterm ingest --instrument " + DEMO_INSTRUMENT
+          + " && rusterm snapshot --instrument " + DEMO_INSTRUMENT)
+    conn.close()
+    return 0
+
+
+def cmd_ingest(args) -> int:
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
+    targets = _select_instruments(args, repos)
+    if targets is None:
+        conn.close()
+        return 1
     if args.source == "edgar":
         # Реальный сбор никогда не является дефолтом (TASK-7 T14).
         try:
@@ -75,12 +153,16 @@ def cmd_ingest(args) -> int:
         provider = EdgarProvider(RequestGate())
         providers = {"edgar": provider}
     else:
-        providers = {"synthetic": SyntheticDisclosuresProvider()}
+        from rusterm.providers.disclosures import DEMO_INDEX_FIXTURE
+        providers = {"synthetic": SyntheticDisclosuresProvider(
+            fixture_path=DEMO_INDEX_FIXTURE)}
     pipe = IngestionPipeline(repos, providers)
-    result = pipe.run(DEMO_INSTRUMENT, DEMO_ISSUER, args.source)
-    print(f"заданий закрыто: {result.jobs_done}; фактов: {result.facts_stored}; "
-          f"дублей sha256: {result.duplicates}; неразобрано (E4): "
-          f"{result.needs_verification}; suspect (E5): {result.suspects}")
+    for instrument_id, issuer_id in targets:
+        result = pipe.run(instrument_id, issuer_id, args.source)
+        print(f"{instrument_id}: заданий закрыто: {result.jobs_done}; "
+              f"фактов: {result.facts_stored}; "
+              f"дублей sha256: {result.duplicates}; неразобрано (E4): "
+              f"{result.needs_verification}; suspect (E5): {result.suspects}")
     conn.close()
     return 0
 
@@ -88,19 +170,31 @@ def cmd_ingest(args) -> int:
 def cmd_snapshot(args) -> int:
     paths, conn = _open(args.root)
     apply_migrations(conn)
-    _ensure_demo_instrument(conn)
     repos = RepoRegistry(conn, paths)
+    targets = _select_instruments(args, repos)
+    if targets is None:
+        conn.close()
+        return 1
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage)
-    result = builder.build(DEMO_INSTRUMENT, DEMO_ISSUER, args.as_of)
-    print(f"снапшот v{result.version}: {result.snapshot_id}")
-    print(f"мер: {result.measures}; перцентилей: {result.percentiles}")
-    if result.diff.metric_changes:
-        print("изменение метрик: " + "; ".join(
-            f"{c}: {o} -> {n}" for c, o, n in result.diff.metric_changes))
-    if result.diff.revisions:
-        print("ревизии: " + "; ".join(f"{c} за {p}"
-                                      for c, p in result.diff.revisions))
+    as_of = args.as_of or args_as_of_default()
+    for instrument_id, issuer_id in targets:
+        result = builder.build(instrument_id, issuer_id, as_of)
+        print(f"{instrument_id}: снапшот v{result.version}: "
+              f"{result.snapshot_id}")
+        # «написано» и «имеет значение» — разные счётчики (TASK-8 U3)
+        measures = repos.snapshot.get_measures(result.snapshot_id)
+        with_value = sum(1 for m in measures if m[4] is not None)
+        null_measures = len(measures) - with_value
+        print(f"{instrument_id}: мер: {result.measures} — со значением "
+              f"{with_value}, пусто {null_measures}; "
+              f"перцентилей: {result.percentiles}")
+        if result.diff.metric_changes:
+            print("изменение метрик: " + "; ".join(
+                f"{c}: {o} -> {n}" for c, o, n in result.diff.metric_changes))
+        if result.diff.revisions:
+            print("ревизии: " + "; ".join(f"{c} за {p}"
+                                          for c, p in result.diff.revisions))
     conn.close()
     return 0
 
@@ -108,9 +202,11 @@ def cmd_snapshot(args) -> int:
 def cmd_export(args) -> int:
     paths, conn = _open(args.root)
     repo = SnapshotRepo(conn)
-    snapshot_id = repo.latest_snapshot_id(DEMO_INSTRUMENT)
+    snapshot_id = repo.latest_snapshot_id(args.instrument)
     if snapshot_id is None:
-        print("снапшотов нет — сначала snapshot", file=sys.stderr)
+        print(f"для {args.instrument!r} снапшотов нет — сначала "
+              "rusterm snapshot --instrument "
+              f"{args.instrument}", file=sys.stderr)
         conn.close()
         return 1
     snapshot = repo.get_snapshot(snapshot_id)
@@ -120,7 +216,8 @@ def cmd_export(args) -> int:
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(text)
-        print(f"экспорт снапшота v{snapshot['version']} -> {args.out}")
+        print(f"экспорт {args.instrument} снапшота "
+              f"v{snapshot['version']} -> {args.out}")
     else:
         print(text)
     conn.close()
@@ -327,11 +424,19 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init", help="создать каталог данных и применить миграции")
     p_ing = sub.add_parser("ingest", help="сбор; реальный источник — не дефолт")
+    p_ing.add_argument("--instrument", default=None)
+    p_ing.add_argument("--ticker", default=None)
+    p_ing.add_argument("--market", default=None)
+    p_ing.add_argument("--watchlist", default=None)
     p_ing.add_argument("--source", choices=("synthetic", "edgar"),
                        default="synthetic")
+    sub.add_parser("demo", help="создать синтетический демо-инструмент")
     p_snap = sub.add_parser("snapshot", help="собрать снапшот")
-    p_snap.add_argument("--as-of", default="2024-12-31")
+    p_snap.add_argument("--instrument", default=None)
+    p_snap.add_argument("--watchlist", default=None)
+    p_snap.add_argument("--as-of", default=None)
     p_exp = sub.add_parser("export", help="экспорт последнего снапшота")
+    p_exp.add_argument("--instrument", required=True)
     p_exp.add_argument("--format", choices=("json", "csv"), default="json")
     p_exp.add_argument("--out", default=None)
     p_ver = sub.add_parser("verify", help="ручное исправление факта")
@@ -383,6 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "init": cmd_init, "ingest": cmd_ingest, "snapshot": cmd_snapshot,
         "export": cmd_export, "verify": cmd_verify, "doctor": cmd_doctor,
+        "demo": cmd_demo,
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
     }

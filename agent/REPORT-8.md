@@ -23,4 +23,9 @@
 - U2 done: cmd_verify now calls VerificationService.recompute after store_ground_truth (SnapshotBuilder with coverage repo), prints 'пересчитано: <snapshot_id> v<version>' per rebuilt instrument (or 'нет мер с lineage на этот факт'), audit-log carries rebuilt list. Test test_cli_verify_triggers_recompute_of_derived_measure: init->seed->snapshot->verify via CLI; new snapshot version, net_margin 100/1000 -> 100/2000, version printed.
   - `pytest tests/test_cli.py -q -k recompute` → exit 0; `pytest -q` → exit 0; acceptance → 13/13
 
-NOW: U3, step 1
+- U3 done: US-CLI-DEMO killed as implicit default. New: _select_instruments (--instrument | --ticker+--market | --watchlist; exactly one; unresolved/ambiguous ticker exits 1 via resolve_ticker_candidates listing candidates, never silent first pick); ingest/snapshot loop over selected instruments with per-instrument lines; export --instrument required; cmd_demo creates the synthetic issuer+instrument explicitly ('данные синтетические, выдуманные'); init no longer creates demo data. Demo data: new synthetic fixtures synthetic_demo_index.json + synthetic_demo_report.json (concepts revenue/net_income/operating_income/tax_expense/pretax_income -> all three base measures compute non-null); snapshot line separates 'со значением N, пусто M'. grep 'US-CLI-DEMO' rusterm/ -> only the demo constant.
+  - Tests: 5 new (demo flow non-null + split counters, no-selector exit 1 x2 commands, unresolved ticker, two instruments two snapshots two exports, watchlist selector); existing CLI tests updated to demo+selectors, strength kept.
+  - Fix en route: snapshot --as-of default None violated NOT NULL -> default today via args_as_of_default().
+  - `pytest -q` → exit 0 (214 tests); acceptance → 13/13
+
+NOW: U4, step 1

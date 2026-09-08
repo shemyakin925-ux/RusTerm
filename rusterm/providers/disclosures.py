@@ -22,7 +22,12 @@ _SYNTHETIC_DOCS = {
     "synthetic://report-10k": "synthetic_report_10k.json",
     "synthetic://insider-form4": "synthetic_insider_form4.json",
     "synthetic://prices-table": "synthetic_prices_table.json",
+    # демо-набор CLI (TASK-8 U3): 10-K с концептами базовых мер
+    "synthetic://demo-10k": "synthetic_demo_report.json",
 }
+
+# Индекс для демо-режима CLI: 10-K с концептами базовых мер + инсайдеры.
+DEMO_INDEX_FIXTURE = _FIXTURES / "synthetic_demo_index.json"
 
 
 @dataclass(frozen=True)
