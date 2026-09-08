@@ -77,11 +77,13 @@ class SnapshotBuilder:
         result = BuildResult(snapshot_id=snapshot_id, version=version)
 
         # ── Проход 1: фундаментальные меры компании ──
-        inputs, lineage_by_concept = self._issuer_inputs(issuer_id)
+        inputs, lineage_by_concept, input_reasons = \
+            self._issuer_inputs(issuer_id)
         computed: dict[str, float] = {}
         for concept, args in _BASE_MEASURES.items():
             kw = inputs.get(concept)
-            value, null_reason = None, "missing_data"
+            value = None
+            null_reason = input_reasons.get(concept, "missing_data")
             if kw is not None:
                 m = calculate_measure(concept, **kw)
                 value, null_reason = m.value, m.null_reason
@@ -154,40 +156,70 @@ class SnapshotBuilder:
                                   source_errors=source_errors)
         return result
 
-    def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict]:
+    def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict, dict]:
         """Входы мер из фактов as_reported по концепту; lineage ведёт
-        к fact_id каждого входа."""
+        к fact_id каждого входа.
+
+        Одна мера — один период (TASK-9 V1): для меры берётся последняя
+        period_end, на которую есть ВСЕ её входы с одинаковой единицей и
+        basis='as_reported'; duration-вход дополнительно требует ту же
+        period_start. Нет общего периода — period_mismatch; концепт
+        отсутствует целиком — missing_data. Приоритет тега карты (V0):
+        при равном каноническом имени выигрывает меньший ранг.
+        """
         rows = self._snapshots.as_reported_facts(
             issuer_id, ("net_income", "revenue", "operating_income",
                         "tax_expense", "pretax_income"))
         base_concepts = ("net_income", "revenue", "operating_income",
                          "tax_expense", "pretax_income")
-        values: dict[str, tuple[float, str]] = {}
-        ranks: dict[str, int] = {}
-        for _concept, value, fact_id, _unit, _start, _end, canonical in rows:
+        by_concept: dict[str, list] = {}
+        for _concept, value, fact_id, unit, start, end, canonical in rows:
             key = canonical or _concept
             if key not in base_concepts:
                 continue
-            # первый тег таблицы, у которого есть факт, выигрывает:
-            # при равном каноническом имени берём меньший приоритетный ранг
             _taxonomy, local = strip_taxonomy(_concept)
-            rank = priority_rank(key, local)
-            if key in values and ranks.get(key, 1 << 30) <= rank:
-                continue
             try:
-                values[key] = (float(value), fact_id)
-                ranks[key] = rank
+                numeric = float(value)
             except (TypeError, ValueError):
                 continue
+            by_concept.setdefault(key, []).append({
+                "value": numeric, "fact_id": fact_id, "unit": unit,
+                "start": start, "end": end,
+                "rank": priority_rank(key, local),
+            })
+
         inputs: dict[str, dict] = {}
         lineage: dict[str, list] = {}
+        reasons: dict[str, str] = {}
         for concept, args in _BASE_MEASURES.items():
-            if all(a in values for a in args):
-                inputs[concept] = {a: values[a][0] for a in args}
-                lineage[concept] = [{"fact_id": values[a][1],
-                                     "peer_measure_id": None,
-                                     "role": "input"} for a in args]
-        return inputs, lineage
+            if any(a not in by_concept for a in args):
+                reasons[concept] = "missing_data"
+                continue
+            # пересечение периодов: (unit, period_start, period_end)
+            key_sets = []
+            for a in args:
+                keys = set()
+                for row in by_concept[a]:
+                    keys.add((row["unit"], row["start"], row["end"]))
+                key_sets.append(keys)
+            common = set.intersection(*key_sets)
+            if not common:
+                reasons[concept] = "period_mismatch"
+                continue
+            chosen_period = max(common, key=lambda k: (k[2], k[1]))
+            chosen = {}
+            lin = []
+            for a in args:
+                candidates = [r for r in by_concept[a]
+                              if (r["unit"], r["start"], r["end"])
+                              == chosen_period]
+                row = min(candidates, key=lambda r: r["rank"])
+                chosen[a] = row["value"]
+                lin.append({"fact_id": row["fact_id"],
+                            "peer_measure_id": None, "role": "input"})
+            inputs[concept] = chosen
+            lineage[concept] = lin
+        return inputs, lineage, reasons
 
     def _next_version(self, instrument_id: str) -> int:
         return self._snapshots.max_version(instrument_id) + 1
