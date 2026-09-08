@@ -1,6 +1,8 @@
 # TASK-8 — the program becomes something the user can install, launch and use
 
-- **Status: READY** — this is the task. Start here.
+- **Status: ACCEPTED** (08.09.2026) — closed. All of U0–U12 done,
+  13/13 on a clean checkout at `8c2f5b5`, 251 passed / 1 skipped.
+  The current task is `agent/TASK-9.md`.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-8.md`
 - **Supersedes:** TASK-7 (accepted, 15/20 items). Do not reopen it; the

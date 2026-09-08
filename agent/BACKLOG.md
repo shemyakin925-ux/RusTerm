@@ -36,6 +36,22 @@ this file.
   reading in a terminal or pasting into notes, null values as `—` with
   the reason in a footnote — accept: test asserting every null carries
   its reason and no number appears without a period — size: M
+- [ ] B14 — `tests/data/edgar/companyfacts_aapl.json` and
+  `companyfacts_m2_AAPL.json` are two recorded payloads for one issuer,
+  and nothing says how they differ; fold the tests onto one of them or
+  add a one-line header comment in the test that says why both exist —
+  accept: `ls tests/data/edgar/companyfacts*AAPL* companyfacts_aapl.json`
+  reflects the decision and the whole suite stays green — size: S
+- [ ] B15 — the null-reason vocabulary is spread across `formulas.py`,
+  `snapshot.py` and `coverage`: collect the allowed strings in one place
+  and add a guard test asserting no measure row is ever written with a
+  reason outside it — accept: test that seeds an unknown reason and
+  fails — size: M
+- [ ] B16 — `rusterm status --json` and `coverage --json` are asserted to
+  parse, but no test pins their **keys**; a renamed key would break a
+  user's script silently. Add a schema test listing the expected keys —
+  accept: test asserting the exact key set of each of the four `--json`
+  commands — size: S
 
 ## Done
 
