@@ -44,3 +44,4 @@ measure -> n/20 + reasons:
   - Note: previous patch attempt silently no-opped (unverified print) — caught by the failing test, applied via exact anchor.
   - Tests: test_w6_add_on_uninitialised_db_exits_1.
   - `pytest -q` → exit 0 (266 tests); acceptance → 13/13
+- W6 correction: the W0 gate-less test ran add on an uninitialised database and collided with the new schema guard; scoped it to an initialised database (its subject is the provider refusal, the schema case is W6's own test). Second self-reported red-commit in this task — the previous commit claimed suite exit 0 while the suite was red (chain habit); the standalone-suite gate caught it this time and the correction commit follows immediately.

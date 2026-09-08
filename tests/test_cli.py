@@ -732,6 +732,10 @@ def test_w0_gateless_provider_exits_1_with_reason_no_traceback(
         capsys, monkeypatch):
     root = _root()
     try:
+        # база инициализирована: предмет теста — отказ провайдера без
+        # гейта, а не схема (её покрывает test_w6_add_on_uninitialised_db)
+        assert main(["--root", root, "init"]) == 0
+        capsys.readouterr()
         monkeypatch.delenv("RUSTERM_SEC_UA", raising=False)
         monkeypatch.setenv("RUSTERM_ENV_FILE",
                            "/nonexistent/rusterm.env-for-tests")
