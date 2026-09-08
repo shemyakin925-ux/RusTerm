@@ -30,7 +30,7 @@ ISSUERS = sorted({entry["issuer"] for entry in GOLDEN})
 
 
 def _issuer_facts(issuer: str):
-    raw = (DATA / "edgar" / f"companyfacts_m2_{issuer}.json").read_bytes()
+    raw = (DATA / "edgar" / f"companyfacts_m3_{issuer}.json").read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     result = CompanyFactsParser().parse(
         raw, {"issuer_id": f"i-{issuer}", "source_ref": sha})

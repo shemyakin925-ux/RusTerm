@@ -96,7 +96,7 @@ def test_aapl_payload_ingests_with_canonical_concepts():
     имеют непустое canonical_concept."""
     from rusterm.parsers import CompanyFactsParser
     from rusterm.pipeline import apply_concept_map
-    raw = (DATA / "companyfacts_m2_AAPL.json").read_bytes()
+    raw = (DATA / "companyfacts_m3_AAPL.json").read_bytes()
     import hashlib
     sha = hashlib.sha256(raw).hexdigest()
     result = CompanyFactsParser().parse(raw, {"issuer_id": "i-aapl",

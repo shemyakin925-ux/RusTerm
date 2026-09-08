@@ -63,7 +63,7 @@ def _setup_aapl():
     repos.instrument.upsert_instrument(Instrument(
         "US-AAPL", "cik-320193", None, "common", "active", None))
 
-    raw = (DATA / "edgar" / "companyfacts_m2_AAPL.json").read_bytes()
+    raw = (DATA / "edgar" / "companyfacts_m3_AAPL.json").read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     obj = repos.raw.put(raw, provider="edgar", block="fundamentals",
                         url="https://data.sec.gov/api/xbrl/companyfacts/"

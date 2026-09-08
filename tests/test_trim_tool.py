@@ -81,3 +81,23 @@ def test_trim_is_deterministic_byte_for_byte():
     two = json.dumps(trim(json.loads(json.dumps(doc))),
                      separators=(",", ":"), sort_keys=True)
     assert one == two
+
+
+def test_quarter_and_annual_periods_kept_in_separate_bands():
+    """Квартальный сравнительный период 10-K не вытесняет годовой:
+    годовые и прочие периоды держат по шесть свежих в своих группах
+    (TASK-10 W2: проверка JNJ требует годовые)."""
+    from datetime import date
+    doc = _two_filing_doc()
+    # добавляем свежий квартальный период, который "вытеснил" бы годовой
+    doc["facts"]["us-gaap"]["Revenues"]["units"]["USD"].append(
+        {"start": "2025-10-01", "end": "2025-12-31", "val": 555,
+         "accn": "q4-2025", "form": "10-K", "filed": "2026-02-15",
+         "fy": 2025, "fp": "FY"})
+    out = trim(doc)
+    revenues = out["facts"]["us-gaap"]["Revenues"]["units"]["USD"]
+    annual = [e for e in revenues
+              if e["start"] == "2021-01-01" and e["end"] == "2021-12-31"]
+    assert len(annual) == 1 and annual[0]["val"] == 93775000000
+    q4 = [e for e in revenues if e["end"] == "2025-12-31"]
+    assert q4 and q4[0]["val"] == 555

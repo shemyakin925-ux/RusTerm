@@ -64,9 +64,6 @@ class FakeClock:
 
 
 def _payload_path(ticker: str) -> Path:
-    m2 = DATA / f"companyfacts_m2_{ticker}.json"
-    if m2.exists():
-        return m2
     return DATA / f"companyfacts_m3_{ticker}.json"
 
 

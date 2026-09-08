@@ -10,8 +10,11 @@
   теги, названные в json_pointer файла tests/data/golden_m2.json;
 - записи: только form == "10-K"; период (start, end) схлопывается в
   одну запись с ранней датой filed — это as_reported-значение периода;
-  рестайты обрабатывает determine_basis при ingest, не фикстура;
-- периоды: шесть самых свежих по end на тег на единицу;
+  рестайты обрабатывают determine_basis при ingest, не фикстура;
+- периоды: шесть самых свежих по end на тег на единицу — отдельно
+  среди годовых длительностей (>= 350 дней) и отдельно среди прочих
+  (мгновенных); иначе квартальные сравнительные периоды 10-K
+  вытесняют годовые, и проверка JNJ из W2 невыполнима;
 - поля записи: val, accn, form, filed, fy, fp, start, end, frame;
 - верхний уровень: cik, entityName, facts.us-gaap.
 
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -63,15 +67,28 @@ def trim(doc: dict, golden_path: Path = GOLDEN_PATH) -> dict:
         for unit, entries in node.get("units", {}).items():
             ten_k = [e for e in entries if e.get("form") == "10-K"]
             by_period: dict = {}
+            durations: dict = {}
             for e in ten_k:
                 key = (e.get("start") or "", e.get("end") or "")
-                prev = by_period.get(key)
+                target = by_period
+                if e.get("start"):
+                    d0 = date.fromisoformat(e["start"])
+                    d1 = date.fromisoformat(e["end"])
+                    if (d1 - d0).days >= 350:
+                        target = durations
+                prev = target.get(key)
                 if prev is None or e.get("filed", "") < prev.get("filed", ""):
-                    by_period[key] = e
-            kept = sorted(by_period.values(),
-                          key=lambda e: (e.get("end", ""),
-                                         e.get("filed", "")))[-6:]
+                    target[key] = e
+            kept_annual = sorted(durations.values(),
+                                 key=lambda e: (e.get("end", ""),
+                                                e.get("filed", "")))[-6:]
+            kept_other = sorted(by_period.values(),
+                                key=lambda e: (e.get("end", ""),
+                                               e.get("filed", "")))[-6:]
+            kept = kept_annual + kept_other
             if kept:
+                kept.sort(key=lambda e: (e.get("end", ""),
+                                         e.get("filed", "")))
                 units_out[unit] = [
                     {k: e[k] for k in KEEP_ENTRY_FIELDS if k in e}
                     for e in kept]

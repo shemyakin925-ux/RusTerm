@@ -13,7 +13,7 @@
   "form": "10-K",
   "filed": "2021-10-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/7/val"
  },
  {
   "issuer": "AAPL",
@@ -29,7 +29,7 @@
   "form": "10-K",
   "filed": "2022-10-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/8/val"
  },
  {
   "issuer": "AAPL",
@@ -45,7 +45,7 @@
   "form": "10-K",
   "filed": "2023-11-03",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/9/val"
  },
  {
   "issuer": "AAPL",
@@ -61,7 +61,7 @@
   "form": "10-K",
   "filed": "2024-11-01",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/10/val"
  },
  {
   "issuer": "AAPL",
@@ -77,7 +77,7 @@
   "form": "10-K",
   "filed": "2025-10-31",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/11/val"
  },
  {
   "issuer": "AAPL",
@@ -93,7 +93,7 @@
   "form": "10-K",
   "filed": "2021-10-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/7/val"
  },
  {
   "issuer": "AAPL",
@@ -109,7 +109,7 @@
   "form": "10-K",
   "filed": "2022-10-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/8/val"
  },
  {
   "issuer": "AAPL",
@@ -125,7 +125,7 @@
   "form": "10-K",
   "filed": "2023-11-03",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/9/val"
  },
  {
   "issuer": "AAPL",
@@ -141,7 +141,7 @@
   "form": "10-K",
   "filed": "2024-11-01",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/10/val"
  },
  {
   "issuer": "AAPL",
@@ -157,7 +157,7 @@
   "form": "10-K",
   "filed": "2025-10-31",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/11/val"
  },
  {
   "issuer": "AAPL",
@@ -173,7 +173,7 @@
   "form": "10-K",
   "filed": "2021-10-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
  },
  {
   "issuer": "AAPL",
@@ -189,7 +189,7 @@
   "form": "10-K",
   "filed": "2022-10-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
  },
  {
   "issuer": "AAPL",
@@ -205,7 +205,7 @@
   "form": "10-K",
   "filed": "2023-11-03",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
  },
  {
   "issuer": "AAPL",
@@ -221,7 +221,7 @@
   "form": "10-K",
   "filed": "2024-11-01",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
  },
  {
   "issuer": "AAPL",
@@ -237,7 +237,7 @@
   "form": "10-K",
   "filed": "2025-10-31",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/5/val"
  },
  {
   "issuer": "AAPL",
@@ -253,7 +253,7 @@
   "form": "10-K",
   "filed": "2021-10-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/1/val"
  },
  {
   "issuer": "AAPL",
@@ -269,7 +269,7 @@
   "form": "10-K",
   "filed": "2022-10-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/2/val"
  },
  {
   "issuer": "AAPL",
@@ -285,7 +285,7 @@
   "form": "10-K",
   "filed": "2023-11-03",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/3/val"
  },
  {
   "issuer": "AAPL",
@@ -301,7 +301,7 @@
   "form": "10-K",
   "filed": "2024-11-01",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/4/val"
  },
  {
   "issuer": "AAPL",
@@ -317,7 +317,7 @@
   "form": "10-K",
   "filed": "2025-10-31",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/5/val"
  },
  {
   "issuer": "AAPL",
@@ -333,7 +333,7 @@
   "form": "10-K",
   "filed": "2021-10-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
  },
  {
   "issuer": "AAPL",
@@ -349,7 +349,7 @@
   "form": "10-K",
   "filed": "2022-10-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
  },
  {
   "issuer": "AAPL",
@@ -365,7 +365,7 @@
   "form": "10-K",
   "filed": "2023-11-03",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
  },
  {
   "issuer": "AAPL",
@@ -381,7 +381,7 @@
   "form": "10-K",
   "filed": "2024-11-01",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
  },
  {
   "issuer": "AAPL",
@@ -397,7 +397,7 @@
   "form": "10-K",
   "filed": "2025-10-31",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/5/val"
  },
  {
   "issuer": "MSFT",
@@ -413,7 +413,7 @@
   "form": "10-K",
   "filed": "2022-07-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/7/val"
  },
  {
   "issuer": "MSFT",
@@ -429,7 +429,7 @@
   "form": "10-K",
   "filed": "2023-07-27",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/8/val"
  },
  {
   "issuer": "MSFT",
@@ -445,7 +445,7 @@
   "form": "10-K",
   "filed": "2024-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/9/val"
  },
  {
   "issuer": "MSFT",
@@ -461,7 +461,7 @@
   "form": "10-K",
   "filed": "2025-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/10/val"
  },
  {
   "issuer": "MSFT",
@@ -477,7 +477,7 @@
   "form": "10-K",
   "filed": "2026-07-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/11/val"
  },
  {
   "issuer": "MSFT",
@@ -493,7 +493,7 @@
   "form": "10-K",
   "filed": "2022-07-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/7/val"
  },
  {
   "issuer": "MSFT",
@@ -509,7 +509,7 @@
   "form": "10-K",
   "filed": "2023-07-27",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/8/val"
  },
  {
   "issuer": "MSFT",
@@ -525,7 +525,7 @@
   "form": "10-K",
   "filed": "2024-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/9/val"
  },
  {
   "issuer": "MSFT",
@@ -541,7 +541,7 @@
   "form": "10-K",
   "filed": "2025-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/10/val"
  },
  {
   "issuer": "MSFT",
@@ -557,7 +557,7 @@
   "form": "10-K",
   "filed": "2026-07-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/11/val"
  },
  {
   "issuer": "MSFT",
@@ -573,7 +573,7 @@
   "form": "10-K",
   "filed": "2022-07-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
  },
  {
   "issuer": "MSFT",
@@ -589,7 +589,7 @@
   "form": "10-K",
   "filed": "2023-07-27",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
  },
  {
   "issuer": "MSFT",
@@ -605,7 +605,7 @@
   "form": "10-K",
   "filed": "2024-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
  },
  {
   "issuer": "MSFT",
@@ -621,7 +621,7 @@
   "form": "10-K",
   "filed": "2025-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
  },
  {
   "issuer": "MSFT",
@@ -637,7 +637,7 @@
   "form": "10-K",
   "filed": "2026-07-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/5/val"
  },
  {
   "issuer": "MSFT",
@@ -653,7 +653,7 @@
   "form": "10-K",
   "filed": "2022-07-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/1/val"
  },
  {
   "issuer": "MSFT",
@@ -669,7 +669,7 @@
   "form": "10-K",
   "filed": "2023-07-27",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/2/val"
  },
  {
   "issuer": "MSFT",
@@ -685,7 +685,7 @@
   "form": "10-K",
   "filed": "2024-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/3/val"
  },
  {
   "issuer": "MSFT",
@@ -701,7 +701,7 @@
   "form": "10-K",
   "filed": "2025-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/4/val"
  },
  {
   "issuer": "MSFT",
@@ -717,7 +717,7 @@
   "form": "10-K",
   "filed": "2026-07-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/5/val"
  },
  {
   "issuer": "MSFT",
@@ -733,7 +733,7 @@
   "form": "10-K",
   "filed": "2022-07-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
  },
  {
   "issuer": "MSFT",
@@ -749,7 +749,7 @@
   "form": "10-K",
   "filed": "2023-07-27",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
  },
  {
   "issuer": "MSFT",
@@ -765,7 +765,7 @@
   "form": "10-K",
   "filed": "2024-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
  },
  {
   "issuer": "MSFT",
@@ -781,7 +781,7 @@
   "form": "10-K",
   "filed": "2025-07-30",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
  },
  {
   "issuer": "MSFT",
@@ -797,7 +797,7 @@
   "form": "10-K",
   "filed": "2026-07-29",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/5/val"
  },
  {
   "issuer": "JNJ",
@@ -813,7 +813,7 @@
   "form": "10-K",
   "filed": "2022-02-17",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/1/val"
  },
  {
   "issuer": "JNJ",
@@ -829,7 +829,7 @@
   "form": "10-K",
   "filed": "2023-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/3/val"
  },
  {
   "issuer": "JNJ",
@@ -845,7 +845,7 @@
   "form": "10-K",
   "filed": "2024-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/8/val"
  },
  {
   "issuer": "JNJ",
@@ -861,7 +861,7 @@
   "form": "10-K",
   "filed": "2025-02-13",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/10/val"
  },
  {
   "issuer": "JNJ",
@@ -877,7 +877,7 @@
   "form": "10-K",
   "filed": "2026-02-11",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax/units/USD/11/val"
  },
  {
   "issuer": "JNJ",
@@ -893,7 +893,7 @@
   "form": "10-K",
   "filed": "2022-02-17",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/1/val"
  },
  {
   "issuer": "JNJ",
@@ -909,7 +909,7 @@
   "form": "10-K",
   "filed": "2023-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/3/val"
  },
  {
   "issuer": "JNJ",
@@ -925,7 +925,7 @@
   "form": "10-K",
   "filed": "2024-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/8/val"
  },
  {
   "issuer": "JNJ",
@@ -941,7 +941,7 @@
   "form": "10-K",
   "filed": "2025-02-13",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/10/val"
  },
  {
   "issuer": "JNJ",
@@ -957,7 +957,7 @@
   "form": "10-K",
   "filed": "2026-02-11",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/11/val"
  },
  {
   "issuer": "JNJ",
@@ -973,7 +973,7 @@
   "form": "10-K",
   "filed": "2022-02-17",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
  },
  {
   "issuer": "JNJ",
@@ -989,7 +989,7 @@
   "form": "10-K",
   "filed": "2023-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
  },
  {
   "issuer": "JNJ",
@@ -1005,7 +1005,7 @@
   "form": "10-K",
   "filed": "2024-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
  },
  {
   "issuer": "JNJ",
@@ -1021,7 +1021,7 @@
   "form": "10-K",
   "filed": "2025-02-13",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
  },
  {
   "issuer": "JNJ",
@@ -1037,7 +1037,7 @@
   "form": "10-K",
   "filed": "2026-02-11",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/5/val"
  },
  {
   "issuer": "JNJ",
@@ -1053,7 +1053,7 @@
   "form": "10-K",
   "filed": "2022-02-17",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/1/val"
  },
  {
   "issuer": "JNJ",
@@ -1069,7 +1069,7 @@
   "form": "10-K",
   "filed": "2023-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/2/val"
  },
  {
   "issuer": "JNJ",
@@ -1085,7 +1085,7 @@
   "form": "10-K",
   "filed": "2024-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/3/val"
  },
  {
   "issuer": "JNJ",
@@ -1101,7 +1101,7 @@
   "form": "10-K",
   "filed": "2025-02-13",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/4/val"
  },
  {
   "issuer": "JNJ",
@@ -1117,7 +1117,7 @@
   "form": "10-K",
   "filed": "2026-02-11",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest/units/USD/5/val"
  },
  {
   "issuer": "JNJ",
@@ -1133,7 +1133,7 @@
   "form": "10-K",
   "filed": "2022-02-17",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
  },
  {
   "issuer": "JNJ",
@@ -1149,7 +1149,7 @@
   "form": "10-K",
   "filed": "2023-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
  },
  {
   "issuer": "JNJ",
@@ -1165,7 +1165,7 @@
   "form": "10-K",
   "filed": "2024-02-16",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
  },
  {
   "issuer": "JNJ",
@@ -1181,7 +1181,7 @@
   "form": "10-K",
   "filed": "2025-02-13",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
  },
  {
   "issuer": "JNJ",
@@ -1197,7 +1197,7 @@
   "form": "10-K",
   "filed": "2026-02-11",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/5/val"
  },
  {
   "issuer": "KO",
@@ -1213,7 +1213,7 @@
   "form": "10-K",
   "filed": "2022-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/1/val"
  },
  {
   "issuer": "KO",
@@ -1229,7 +1229,7 @@
   "form": "10-K",
   "filed": "2023-02-21",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/2/val"
  },
  {
   "issuer": "KO",
@@ -1245,7 +1245,7 @@
   "form": "10-K",
   "filed": "2024-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/3/val"
  },
  {
   "issuer": "KO",
@@ -1261,7 +1261,7 @@
   "form": "10-K",
   "filed": "2025-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/4/val"
  },
  {
   "issuer": "KO",
@@ -1277,7 +1277,7 @@
   "form": "10-K",
   "filed": "2026-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/5/val"
  },
  {
   "issuer": "KO",
@@ -1293,7 +1293,7 @@
   "form": "10-K",
   "filed": "2022-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/1/val"
  },
  {
   "issuer": "KO",
@@ -1309,7 +1309,7 @@
   "form": "10-K",
   "filed": "2023-02-21",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/2/val"
  },
  {
   "issuer": "KO",
@@ -1325,7 +1325,7 @@
   "form": "10-K",
   "filed": "2024-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/3/val"
  },
  {
   "issuer": "KO",
@@ -1341,7 +1341,7 @@
   "form": "10-K",
   "filed": "2025-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/4/val"
  },
  {
   "issuer": "KO",
@@ -1357,7 +1357,7 @@
   "form": "10-K",
   "filed": "2026-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/5/val"
  },
  {
   "issuer": "KO",
@@ -1373,7 +1373,7 @@
   "form": "10-K",
   "filed": "2022-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
  },
  {
   "issuer": "KO",
@@ -1389,7 +1389,7 @@
   "form": "10-K",
   "filed": "2023-02-21",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
  },
  {
   "issuer": "KO",
@@ -1405,7 +1405,7 @@
   "form": "10-K",
   "filed": "2024-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
  },
  {
   "issuer": "KO",
@@ -1421,7 +1421,7 @@
   "form": "10-K",
   "filed": "2025-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
  },
  {
   "issuer": "KO",
@@ -1437,7 +1437,7 @@
   "form": "10-K",
   "filed": "2026-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/5/val"
  },
  {
   "issuer": "KO",
@@ -1453,7 +1453,7 @@
   "form": "10-K",
   "filed": "2022-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/1/val"
  },
  {
   "issuer": "KO",
@@ -1469,7 +1469,7 @@
   "form": "10-K",
   "filed": "2023-02-21",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/2/val"
  },
  {
   "issuer": "KO",
@@ -1485,7 +1485,7 @@
   "form": "10-K",
   "filed": "2024-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/3/val"
  },
  {
   "issuer": "KO",
@@ -1501,7 +1501,7 @@
   "form": "10-K",
   "filed": "2025-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/4/val"
  },
  {
   "issuer": "KO",
@@ -1517,7 +1517,7 @@
   "form": "10-K",
   "filed": "2026-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/5/val"
  },
  {
   "issuer": "KO",
@@ -1533,7 +1533,7 @@
   "form": "10-K",
   "filed": "2022-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
  },
  {
   "issuer": "KO",
@@ -1549,7 +1549,7 @@
   "form": "10-K",
   "filed": "2023-02-21",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
  },
  {
   "issuer": "KO",
@@ -1565,7 +1565,7 @@
   "form": "10-K",
   "filed": "2024-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
  },
  {
   "issuer": "KO",
@@ -1581,7 +1581,7 @@
   "form": "10-K",
   "filed": "2025-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
  },
  {
   "issuer": "KO",
@@ -1597,7 +1597,7 @@
   "form": "10-K",
   "filed": "2026-02-20",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/5/val"
  },
  {
   "issuer": "XOM",
@@ -1613,7 +1613,7 @@
   "form": "10-K",
   "filed": "2022-02-23",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/1/val"
  },
  {
   "issuer": "XOM",
@@ -1629,7 +1629,7 @@
   "form": "10-K",
   "filed": "2023-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/2/val"
  },
  {
   "issuer": "XOM",
@@ -1645,7 +1645,7 @@
   "form": "10-K",
   "filed": "2024-02-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/3/val"
  },
  {
   "issuer": "XOM",
@@ -1661,7 +1661,7 @@
   "form": "10-K",
   "filed": "2025-02-19",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/4/val"
  },
  {
   "issuer": "XOM",
@@ -1677,7 +1677,7 @@
   "form": "10-K",
   "filed": "2026-02-18",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Revenues/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/Revenues/units/USD/5/val"
  },
  {
   "issuer": "XOM",
@@ -1693,7 +1693,7 @@
   "form": "10-K",
   "filed": "2022-02-23",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/1/val"
  },
  {
   "issuer": "XOM",
@@ -1709,7 +1709,7 @@
   "form": "10-K",
   "filed": "2023-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/2/val"
  },
  {
   "issuer": "XOM",
@@ -1725,7 +1725,7 @@
   "form": "10-K",
   "filed": "2024-02-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/3/val"
  },
  {
   "issuer": "XOM",
@@ -1741,7 +1741,7 @@
   "form": "10-K",
   "filed": "2025-02-19",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/4/val"
  },
  {
   "issuer": "XOM",
@@ -1757,7 +1757,7 @@
   "form": "10-K",
   "filed": "2026-02-18",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetIncomeLoss/units/USD/5/val"
  },
  {
   "issuer": "XOM",
@@ -1773,7 +1773,7 @@
   "form": "10-K",
   "filed": "2022-02-23",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
  },
  {
   "issuer": "XOM",
@@ -1789,7 +1789,7 @@
   "form": "10-K",
   "filed": "2023-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
  },
  {
   "issuer": "XOM",
@@ -1805,7 +1805,7 @@
   "form": "10-K",
   "filed": "2024-02-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
  },
  {
   "issuer": "XOM",
@@ -1821,7 +1821,7 @@
   "form": "10-K",
   "filed": "2025-02-19",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
  },
  {
   "issuer": "XOM",
@@ -1837,7 +1837,7 @@
   "form": "10-K",
   "filed": "2026-02-18",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/Assets/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/Assets/units/USD/5/val"
  },
  {
   "issuer": "XOM",
@@ -1853,7 +1853,7 @@
   "form": "10-K",
   "filed": "2022-02-23",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/1/val"
  },
  {
   "issuer": "XOM",
@@ -1869,7 +1869,7 @@
   "form": "10-K",
   "filed": "2023-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/2/val"
  },
  {
   "issuer": "XOM",
@@ -1885,7 +1885,7 @@
   "form": "10-K",
   "filed": "2024-02-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/3/val"
  },
  {
   "issuer": "XOM",
@@ -1901,7 +1901,7 @@
   "form": "10-K",
   "filed": "2025-02-19",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/4/val"
  },
  {
   "issuer": "XOM",
@@ -1917,7 +1917,7 @@
   "form": "10-K",
   "filed": "2026-02-18",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/StockholdersEquity/units/USD/5/val"
  },
  {
   "issuer": "XOM",
@@ -1933,7 +1933,7 @@
   "form": "10-K",
   "filed": "2022-02-23",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/0/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
  },
  {
   "issuer": "XOM",
@@ -1949,7 +1949,7 @@
   "form": "10-K",
   "filed": "2023-02-22",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/1/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
  },
  {
   "issuer": "XOM",
@@ -1965,7 +1965,7 @@
   "form": "10-K",
   "filed": "2024-02-28",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/2/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
  },
  {
   "issuer": "XOM",
@@ -1981,7 +1981,7 @@
   "form": "10-K",
   "filed": "2025-02-19",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/3/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
  },
  {
   "issuer": "XOM",
@@ -1997,6 +1997,6 @@
   "form": "10-K",
   "filed": "2026-02-18",
   "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json",
-  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/4/val"
+  "json_pointer": "/facts/us-gaap/NetCashProvidedByUsedInOperatingActivities/units/USD/5/val"
  }
 ]
