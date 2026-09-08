@@ -42,4 +42,8 @@
   - Fixes en route: budget payload precedence garbage; snapshot parser lacked --market/--ticker; coverage gained --instrument flag (consistent selector vocabulary).
   - `pytest tests/test_cli.py -q` → exit 0; `pytest -q` → exit 0 (224 tests); acceptance → 13/13
 
-NOW: U10, step 1
+- U10 done: README 'Быстрый старт' added after Содержание — clone→install→init→demo→ingest→snapshot→status→coverage→export (10 commands), where data lives, ~/.rusterm.env for real data, missing-block explanation. Every command executed for real from a fresh clone (/tmp/qstart, console script 'rusterm' on PATH after pip install -e .); real outputs quoted above and in this report: 'применено миграций: 34; schema_version=35', 'US-CLI-DEMO: заданий закрыто: 2; фактов: 6', 'мер: 3 — со значением 3, пусто 0', coverage/status/export lines as run. rusterm/cli/__main__.py added so python -m rusterm.cli works; subprocess test asserts exit 0 + usage for both -m and installed 'rusterm'. pip install -e . succeeded with empty dependencies (setuptools 68 wheel), no new deps.
+  - Disputed: README header still says 'код приложения ещё не пишется' — stale, but README outside the Быстрый старт section is out of my assigned scope; flagged for coordinator.
+  - `pytest -q` → exit 0 (225 tests); acceptance → 13/13
+
+NOW: U5, step 1

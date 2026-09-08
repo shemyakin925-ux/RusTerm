@@ -505,3 +505,23 @@ def test_u9_json_flag_parses_for_all_four_commands(capsys):
             assert isinstance(payload, dict)
     finally:
         shutil.rmtree(root)
+
+
+def test_u10_console_entry_point_as_subprocess(capsys):
+    """TASK-8 U10: точка входа работает как процесс — и как модуль,
+    и как установленный консольный скрипт."""
+    import subprocess
+    import sys
+
+    bare = subprocess.run([sys.executable, "-m", "rusterm.cli"],
+                          capture_output=True, text=True)
+    assert bare.returncode == 0
+    assert "Каталог данных" in bare.stdout
+    assert "rusterm init" in bare.stdout
+
+    import shutil
+    installed = shutil.which("rusterm")
+    if installed:  # скрипт появляется после pip install -e .
+        run = subprocess.run([installed], capture_output=True, text=True)
+        assert run.returncode == 0
+        assert "Каталог данных" in run.stdout

@@ -38,6 +38,40 @@ ownership, корпоративные действия, отраслевые м�
 
 ---
 
+## Быстрый старт
+
+Программа — локальный CLI: данные хранит в собственном каталоге, ничего
+не отправляет наружу. Установка и первый проход на синтетике:
+
+```bash
+git clone https://github.com/shemyakin925-ux/RusTerm.git
+cd RusTerm
+python3 -m pip install -e .
+rusterm init                                    # каталог данных + миграции БД
+rusterm demo                                    # синтетический демо-инструмент US-CLI-DEMO
+rusterm ingest --instrument US-CLI-DEMO         # сбор: 2 документа, 6 фактов
+rusterm snapshot --instrument US-CLI-DEMO       # снапшот: 3 меры, все со значениями
+rusterm status                                  # «что у меня есть»: база, снапшоты, покрытие
+rusterm coverage --instrument US-CLI-DEMO       # покрытие данных по блокам
+rusterm export --instrument US-CLI-DEMO --format csv --out demo.csv
+```
+
+Данные лежат в текущем каталоге: `rusterm.db`, `raw/`, `logs/`, `exports/`.
+Другой каталог — через `rusterm --root ~/rusterm-data init`.
+
+**Настоящие данные (SEC EDGAR).** Источнику нужен контакт: создайте файл
+`~/.rusterm.env` со строкой `RUSTERM_SEC_UA="Имя email@example.com"` —
+после этого доступен `rusterm ingest --instrument ID --source edgar`.
+Без файла сетевые команды честно сообщают, что путь недоступен. Котировки
+остаются синтетическими, пока не выбран вендор (docs/adr/0008 — решение
+за пользователем).
+
+**Пустой блок — не баг.** `rusterm coverage` показывает `missing` с
+причиной (`no_data:...`) — значит, данных по блоку нет, и это показано,
+а не спрятано.
+
+---
+
 ## 1. Назначение
 
 Дать частному инвестору по любому тикеру (а позже — по отрасли и watchlist):
