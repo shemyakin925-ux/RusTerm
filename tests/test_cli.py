@@ -534,3 +534,133 @@ def test_u10_console_entry_point_as_subprocess(capsys):
         run = subprocess.run([installed], capture_output=True, text=True)
         assert run.returncode == 0
         assert "Каталог данных" in run.stdout
+
+
+# ── TASK-9 V3: rusterm add — путь настоящей компании ───────────────────
+def _without_sec_contact(monkeypatch):
+    """Убираем контакт SEC целиком: и из окружения, и из env-файла
+    (load_env в main() читает файл) — тесты add идут офлайн,
+    --cik/--name обязательны, настоящих запросов нет."""
+    monkeypatch.delenv("RUSTERM_SEC_UA", raising=False)
+    monkeypatch.setenv("RUSTERM_ENV_FILE",
+                       "/nonexistent/rusterm.env-for-tests")
+
+
+def test_v3_add_creates_and_ingest_resolves_ticker(capsys, monkeypatch):
+    _without_sec_contact(monkeypatch)
+    root = _root()
+    try:
+        assert main(["--root", root, "init"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "add", "--ticker", "AAPL",
+                     "--market", "US", "--cik", "320193",
+                     "--name", "Apple Inc."]) == 0
+        capsys.readouterr()
+        # ingest по тикеру разрешается ровно в один инструмент
+        assert main(["--root", root, "ingest", "--ticker", "AAPL",
+                     "--market", "US"]) == 0
+        out = capsys.readouterr().out
+        # тикер разрешился ровно в один инструмент
+        assert out.count("заданий закрыто") == 1
+        assert "US-AAPL:" in out
+    finally:
+        shutil.rmtree(root)
+
+
+def test_v3_add_is_idempotent(capsys, monkeypatch):
+    _without_sec_contact(monkeypatch)
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        for _ in range(2):
+            assert main(["--root", root, "add", "--ticker", "AAPL",
+                         "--market", "US", "--cik", "320193",
+                         "--name", "Apple Inc."]) == 0
+        out = capsys.readouterr().out
+        assert "уже существует" in out
+        import sqlite3
+        conn = sqlite3.connect(f"{root}/rusterm.db")
+        issuers = conn.execute("SELECT COUNT(*) FROM issuer").fetchone()[0]
+        instruments = conn.execute(
+            "SELECT COUNT(*) FROM instrument").fetchone()[0]
+        conn.close()
+        assert (issuers, instruments) == (1, 1)
+    finally:
+        shutil.rmtree(root)
+
+
+def test_v3_watchlist_add_by_ticker(capsys, monkeypatch):
+    _without_sec_contact(monkeypatch)
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        main(["--root", root, "add", "--ticker", "AAPL", "--market", "US",
+              "--cik", "320193", "--name", "Apple Inc."])
+        main(["--root", root, "watchlist", "create", "my", "--name", "Мой"])
+        capsys.readouterr()
+        assert main(["--root", root, "watchlist", "add", "my",
+                     "--ticker", "AAPL", "--market", "US"]) == 0
+        capsys.readouterr()
+        main(["--root", root, "watchlist", "show", "my"])
+        shown = json.loads(capsys.readouterr().out)
+        assert [m["instrument_id"] for m in shown["members"]] == \
+            ["US-AAPL"]
+    finally:
+        shutil.rmtree(root)
+
+
+def test_v3_add_offline_requires_cik_and_name(capsys, monkeypatch):
+    _without_sec_contact(monkeypatch)
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        assert main(["--root", root, "add", "--ticker", "AAPL",
+                     "--market", "US"]) == 1
+        err = capsys.readouterr().err
+        assert "--cik" in err and "--name" in err
+    finally:
+        shutil.rmtree(root)
+
+
+def test_v3_unresolved_ticker_message_names_add(capsys, monkeypatch):
+    _without_sec_contact(monkeypatch)
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        assert main(["--root", root, "ingest", "--ticker", "NOPE",
+                     "--market", "US"]) == 1
+        err = capsys.readouterr().err
+        assert "rusterm add --ticker NOPE --market US" in err
+    finally:
+        shutil.rmtree(root)
+
+
+def test_v3_two_share_classes_two_instruments(capsys, monkeypatch):
+    _without_sec_contact(monkeypatch)
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        assert main(["--root", root, "add", "--ticker", "AAPL",
+                     "--market", "US", "--cik", "320193",
+                     "--name", "Apple Inc."]) == 0
+        assert main(["--root", root, "add", "--ticker", "AAPL.A",
+                     "--market", "US", "--cik", "320193",
+                     "--name", "Apple Inc.",
+                     "--instrument-id", "US-AAPL-A",
+                     "--class", "preferred"]) == 0
+        import sqlite3
+        conn = sqlite3.connect(f"{root}/rusterm.db")
+        issuers = conn.execute("SELECT COUNT(*) FROM issuer").fetchone()[0]
+        instruments = conn.execute(
+            "SELECT instrument_id, class FROM instrument"
+            " ORDER BY instrument_id").fetchall()
+        conn.close()
+        assert issuers == 1, "один CIK — один эмитент"
+        assert instruments == [("US-AAPL", "common"),
+                               ("US-AAPL-A", "preferred")]
+    finally:
+        shutil.rmtree(root)

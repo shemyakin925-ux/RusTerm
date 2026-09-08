@@ -23,6 +23,7 @@ from rusterm.store.repos import (
     Instrument,
     InstrumentRepo,
     Issuer,
+    Listing,
     RepoRegistry,
     SnapshotRepo,
 )
@@ -55,6 +56,12 @@ def _ensure_demo_instrument(conn) -> None:
                                      "US", None, None, "us_gaap", "USD"))
     instruments.upsert_instrument(Instrument(DEMO_INSTRUMENT, DEMO_ISSUER,
                                              None, "common", "active", None))
+    # тикерная история, чтобы --ticker работал и для демо (TASK-9 V3)
+    instruments.upsert_listing(Listing(f"{DEMO_INSTRUMENT}-listing",
+                                       DEMO_INSTRUMENT, "US", "USD", 1,
+                                       None, None))
+    instruments.add_ticker_history(f"{DEMO_INSTRUMENT}-listing",
+                                   "DEMO", "2020-01-01", None, None, None)
 
 
 
@@ -89,7 +96,8 @@ def _select_instruments(args, repos):
             or args_as_of_default())
         if not candidates:
             print(f"тикер {args.ticker!r} на {market!r} не разрешён ни в один "
-                  "инструмент; проверьте тикер или добавьте инструмент",
+                  f"инструмент; добавьте компанию: "
+                  f"rusterm add --ticker {args.ticker} --market {market}",
                   file=sys.stderr)
             return None
         if len(candidates) > 1:
@@ -317,6 +325,65 @@ def cmd_tui(args) -> int:
     return app.run(args.root, args.watchlist)
 
 
+def cmd_add(args) -> int:
+    """Создать эмитента + инструмент + листинг + историю тикера
+    (TASK-9 V3). Идемпотентно: повтор — «уже есть», код 0. Онлайн
+    (есть контакт SEC) --cik/--name берутся из карты тикеров EDGAR;
+    офлайн оба обязательны."""
+    paths, conn = _open(args.root)
+    repos = RepoRegistry(conn, paths)
+    instruments = repos.instrument
+    instrument_id = args.instrument_id or f"{args.market}-{args.ticker.upper()}"
+
+    from rusterm.providers.base import ProviderError as _PE
+    from rusterm.providers.budget import ConfigError, NetworkGate, RequestGate
+    cik, name = args.cik, args.name
+    if cik is None or name is None:
+        headers = NetworkGate().headers()
+        if isinstance(headers, ConfigError):
+            missing = [flag for flag, value in
+                       (("--cik", cik), ("--name", name)) if value is None]
+            print(f"нет контакта SEC ({headers.reason}); офлайн-режим "
+                  f"требует {' и '.join(missing)}; задайте их или "
+                  f"заполните ~/.rusterm.env", file=sys.stderr)
+            conn.close()
+            return 1
+        provider = get_provider("edgar", gate=RequestGate())
+        resolution = provider.resolve(args.ticker, args.market,
+                                      args_as_of_default())
+        if isinstance(resolution, _PE):
+            print(f"тикер {args.ticker!r} не найден в EDGAR: "
+                  f"{resolution.reason}", file=sys.stderr)
+            conn.close()
+            return 1
+        cik = cik if cik is not None else resolution["cik"]
+        name = name or resolution.get("title") or args.ticker.upper()
+
+    if instruments.get_instrument(instrument_id) is not None:
+        print(f"инструмент {instrument_id} уже существует")
+        conn.close()
+        return 0
+
+    issuer_id = f"cik-{cik}"
+    instruments.upsert_issuer(Issuer(
+        issuer_id, name, "US", str(cik), None, "us_gaap", "USD"))
+    instruments.upsert_instrument(Instrument(
+        instrument_id, issuer_id, None, args.class_, "active", None))
+    listing_id = f"{instrument_id}-listing"
+    instruments.upsert_listing(Listing(
+        listing_id, instrument_id, args.market, "USD", 1, None, None))
+    instruments.add_ticker_history(listing_id, args.ticker.upper(),
+                                   args_as_of_default(), None, None, None)
+    repos.audit.log("add", instrument_id,
+                    {"ticker": args.ticker.upper(), "market": args.market,
+                     "cik": cik}, True, "ok")
+    print(f"создан инструмент {instrument_id} "
+          f"(эмитент {name}, CIK {cik}, тикер {args.ticker.upper()} "
+          f"на {args.market})")
+    conn.close()
+    return 0
+
+
 def cmd_doctor(args) -> int:
     paths, conn = _open(args.root)
     report = doctor_report(paths, conn)
@@ -328,6 +395,13 @@ def cmd_doctor(args) -> int:
 def _scrub_url(url: str) -> str:
     from rusterm.store.repos import scrub_secret_url
     return scrub_secret_url(url)
+
+
+def instruments_resolve(repos, ticker: str, market: str) -> list | None:
+    """Разрешение тикера через InstrumentRepo.resolve_ticker_candidates —
+    второго резолвера нет (TASK-9 V3)."""
+    return repos.instrument.resolve_ticker_candidates(
+        ticker, market, args_as_of_default())
 
 
 def _next_version_full_composition(watchlist_repo, watchlist_id: str,
@@ -347,6 +421,7 @@ def cmd_watchlist(args) -> int:
     paths, conn = _open(args.root)
     repos = RepoRegistry(conn, paths)
     wl = repos.watchlist
+    instruments = repos.instrument
     try:
         if args.action == "create":
             wl.create_watchlist(args.id, args.name, None, None)
@@ -355,6 +430,23 @@ def cmd_watchlist(args) -> int:
                             {"name": args.name}, True, "ok")
             print(f"список {args.id} создан (версия 1)")
         elif args.action == "add":
+            if args.instrument is None:
+                if not args.ticker or not args.market:
+                    print("нужен --instrument ID либо --ticker T "
+                          "--market M", file=sys.stderr)
+                    conn.close()
+                    return 1
+                candidates = instruments_resolve(repos,
+                                                 args.ticker, args.market)
+                if candidates is None:
+                    conn.close()
+                    return 1
+                if len(candidates) > 1:
+                    print(f"тикер {args.ticker!r} неоднозначен: "
+                          f"{', '.join(candidates)}", file=sys.stderr)
+                    conn.close()
+                    return 1
+                args.instrument = candidates[0]
             vid = _next_version_full_composition(wl, args.id, "edit")
             wl.add_member(vid, args.instrument, args.note)
             repos.audit.log("watchlist_add", args.id,
@@ -520,6 +612,13 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--source", choices=("synthetic", "edgar"),
                        default="synthetic")
     sub.add_parser("demo", help="создать синтетический демо-инструмент")
+    p_add = sub.add_parser("add", help="добавить настоящую компанию")
+    p_add.add_argument("--ticker", required=True)
+    p_add.add_argument("--market", required=True)
+    p_add.add_argument("--cik", type=int, default=None)
+    p_add.add_argument("--name", default=None)
+    p_add.add_argument("--instrument-id", dest="instrument_id", default=None)
+    p_add.add_argument("--class", dest="class_", default="common")
     p_snap = sub.add_parser("snapshot", help="собрать снапшот")
     p_snap.add_argument("--instrument", default=None)
     p_snap.add_argument("--ticker", default=None)
@@ -547,7 +646,9 @@ def main(argv: list[str] | None = None) -> int:
     p_create.add_argument("--name", required=True)
     p_add = wl_sub.add_parser("add")
     p_add.add_argument("id")
-    p_add.add_argument("--instrument", required=True)
+    p_add.add_argument("--instrument", default=None)
+    p_add.add_argument("--ticker", default=None)
+    p_add.add_argument("--market", default=None)
     p_add.add_argument("--note", default=None)
     p_remove = wl_sub.add_parser("remove")
     p_remove.add_argument("id")
@@ -590,7 +691,7 @@ def main(argv: list[str] | None = None) -> int:
         "demo": cmd_demo,
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
-        "status": cmd_status, "tui": cmd_tui,
+        "status": cmd_status, "tui": cmd_tui, "add": cmd_add,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "

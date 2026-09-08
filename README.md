@@ -59,9 +59,19 @@ rusterm export --instrument US-CLI-DEMO --format csv --out demo.csv
 Данные лежат в текущем каталоге: `rusterm.db`, `raw/`, `logs/`, `exports/`.
 Другой каталог — через `rusterm --root ~/rusterm-data init`.
 
+**Настоящая компания.** Свою компанию добавляет команда `add` (пофамильно
+и офлайн — с `--cik` и `--name`; с контактом в `~/.rusterm.env` достаточно
+тикера):
+
+```bash
+rusterm add --ticker AAPL --market US --cik 320193 --name "Apple Inc."
+rusterm watchlist add my --ticker AAPL --market US
+rusterm ingest --watchlist my
+```
+
 **Настоящие данные (SEC EDGAR).** Источнику нужен контакт: создайте файл
 `~/.rusterm.env` со строкой `RUSTERM_SEC_UA="Имя email@example.com"` —
-после этого доступен `rusterm ingest --instrument ID --source edgar`.
+после этого доступен `rusterm ingest ... --source edgar`.
 Без файла сетевые команды честно сообщают, что путь недоступен. Котировки
 остаются синтетическими, пока не выбран вендор (docs/adr/0008 — решение
 за пользователем).
