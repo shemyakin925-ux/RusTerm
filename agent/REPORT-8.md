@@ -46,4 +46,7 @@
   - Disputed: README header still says 'код приложения ещё не пишется' — stale, but README outside the Быстрый старт section is out of my assigned scope; flagged for coordinator.
   - `pytest -q` → exit 0 (225 tests); acceptance → 13/13
 
+- U10 follow-up: pip install -e . generated rusterm.egg-info/ in the worktree; acceptance check 13 correctly flagged it. Added to .gitignore (generated artifact, standard practice — not project work).
+  - acceptance → 13/13 after .gitignore
+
 NOW: U5, step 1
