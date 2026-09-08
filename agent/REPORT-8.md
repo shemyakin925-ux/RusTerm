@@ -38,4 +38,8 @@
   - Leak found and closed: main() bootstrap sets RUSTERM_SEC_UA (user's real contact) into os.environ for every CLI test; my live-fetch placeholder test would then have executed pytest.fail against a valid contact. Placeholder removed — live segment fetch belongs to U5 with recorded payloads; offline integration test covers the doc's bullet (N7).
   - `pytest -q` → exit 0 (219 tests, 2 skips); acceptance → 13/13
 
-NOW: U9, step 1
+- U9 done: bare `rusterm` prints usage (program purpose, data dir, normal path init/watchlist/ingest/snapshot, status) and exits 0. New `rusterm status` (text or --json): data dir, schema version, instruments/watchlists counts, last snapshot per instrument (new SnapshotRepo.latest_per_instrument), coverage status summary (new CoverageRepo.status_summary), budget state, env origins. --json on status/coverage/metrics/budget prints one JSON object. Error discipline: expected errors exit 1 with a Russian sentence naming the next command; unexpected exceptions log traceback to logs/app.log, print that path, exit 2. status applies migrations idempotently (fresh DB reports zeros honestly); counts never conflate written vs known (U3 pattern).
+  - Fixes en route: budget payload precedence garbage; snapshot parser lacked --market/--ticker; coverage gained --instrument flag (consistent selector vocabulary).
+  - `pytest tests/test_cli.py -q` → exit 0; `pytest -q` → exit 0 (224 tests); acceptance → 13/13
+
+NOW: U10, step 1

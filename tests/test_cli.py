@@ -429,3 +429,79 @@ def test_u3_watchlist_selector_ingests_current_members(capsys):
         assert "US-CLI-DEMO:" in out, "участник списка не прошёл сбор"
     finally:
         shutil.rmtree(root)
+
+
+# ── TASK-8 U9: цельная программа — usage, status, коды выхода, --json ──
+def test_u9_bare_command_prints_usage_and_data_dir(capsys):
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert "Каталог данных" in out
+    assert "rusterm init" in out
+    assert "rusterm ingest" in out
+    assert "rusterm snapshot" in out
+    assert "watchlist" in out
+
+
+def test_u9_status_fresh_db_reports_zero_without_inventing(capsys):
+    root = _root()
+    try:
+        assert main(["--root", root, "init"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "status"]) == 0
+        out = capsys.readouterr().out
+        assert "инструментов: 0" in out
+        assert "снапшотов нет" in out
+        assert "покрытие: готово 0" in out
+    finally:
+        shutil.rmtree(root)
+
+
+def test_u9_status_after_demo_flow_reports_snapshot_and_coverage(capsys):
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        main(["--root", root, "demo"])
+        main(["--root", root, "ingest", "--instrument", "US-CLI-DEMO"])
+        main(["--root", root, "snapshot", "--instrument", "US-CLI-DEMO"])
+        capsys.readouterr()
+        assert main(["--root", root, "status", "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["instruments"] == 1
+        assert payload["schema_version"] == 35
+        assert len(payload["snapshots"]) == 1
+        assert payload["snapshots"][0]["version"] == 1
+        assert payload["coverage"]["ready"] >= 1
+        assert "RUSTERM_SEC_UA" in payload["env"]["vars"]
+    finally:
+        shutil.rmtree(root)
+
+
+def test_u9_unresolved_ticker_no_traceback(capsys):
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        assert main(["--root", root, "snapshot", "--ticker", "NOPE",
+                     "--market", "US"]) == 1
+        err = capsys.readouterr().err
+        assert "Traceback" not in err
+        assert "NOPE" in err
+    finally:
+        shutil.rmtree(root)
+
+
+def test_u9_json_flag_parses_for_all_four_commands(capsys):
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        main(["--root", root, "demo"])
+        main(["--root", root, "ingest", "--instrument", "US-CLI-DEMO"])
+        main(["--root", root, "snapshot", "--instrument", "US-CLI-DEMO"])
+        capsys.readouterr()
+        for argv in (["status"], ["coverage", "--instrument", "US-CLI-DEMO"],
+                     ["metrics"], ["budget"]):
+            assert main(["--root", root, *argv, "--json"]) == 0
+            payload = json.loads(capsys.readouterr().out)
+            assert isinstance(payload, dict)
+    finally:
+        shutil.rmtree(root)

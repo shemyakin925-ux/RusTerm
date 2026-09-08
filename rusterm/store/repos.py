@@ -399,6 +399,17 @@ class SnapshotRepo:
             (instrument_id,)).fetchone()
         return row[0] or 0
 
+    def latest_per_instrument(self) -> list:
+        """Последний снапшот каждого инструмента: для rusterm status."""
+        rows = self.conn.execute(
+            """SELECT instrument_id, snapshot_id, version, as_of
+               FROM snapshot s
+               WHERE version = (SELECT MAX(version) FROM snapshot
+                                WHERE instrument_id = s.instrument_id)
+               ORDER BY instrument_id""").fetchall()
+        keys = ("instrument_id", "snapshot_id", "version", "as_of")
+        return [dict(zip(keys, r)) for r in rows]
+
     def previous_snapshot(self, instrument_id: str) -> Optional[str]:
         """Предпоследняя версия: база для diff текущей сборки."""
         row = self.conn.execute(
@@ -996,6 +1007,14 @@ class CoverageRepo:
         # Словарь, а не sqlite3.Row: репозиторий не зависит от row_factory.
         return {"instrument_id": row[0], "block": row[1], "status": row[2],
                 "last_update": row[3], "reason": row[4]}
+
+    def status_summary(self) -> dict:
+        """Число блоков покрытия по статусам — для rusterm status."""
+        summary = {status: 0 for status in COVERAGE_STATUSES}
+        for status, n in self.conn.execute(
+                "SELECT status, COUNT(*) FROM coverage GROUP BY status"):
+            summary[status] = n
+        return summary
 
     def ensure_all(self, instrument_id: str,
                    known: dict[str, tuple[str, Optional[str]]],

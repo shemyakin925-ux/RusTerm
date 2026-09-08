@@ -258,6 +258,58 @@ def cmd_verify(args) -> int:
     return 0
 
 
+def cmd_status(args) -> int:
+    """«Что у меня есть»: каталог, схема, инструменты, снапшоты,
+    покрытие, сеть, окружение (TASK-8 U9). --json — один объект."""
+    from rusterm import env as env_module
+    paths, conn = _open(args.root)
+    apply_migrations(conn)  # идемпотентно; свежая база получает схему
+    repos = RepoRegistry(conn, paths)
+    applied = current_schema_version(conn)
+    budget_samples = {s[1]: s[3] for s in repos.metrics.samples()
+                      if s[1].startswith("provider_")}
+    payload = {
+        "data_dir": str(paths.root),
+        "schema_version": applied,
+        "instruments": repos.metrics.instrument_counts()["total"],
+        "watchlists": len(repos.watchlist.list_watchlists()),
+        "snapshots": repos.snapshot.latest_per_instrument(),
+        "coverage": repos.coverage.status_summary(),
+        "budget": {
+            "ceiling_per_night": 5000,
+            "rate_per_second": 5,
+            "provider_ran": bool(budget_samples),
+            "samples": budget_samples,
+        },
+        "env": env_module.report(),
+    }
+    conn.close()
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+        return 0
+    print(f"каталог данных: {payload['data_dir']}")
+    print(f"схема: {('версия ' + str(applied)) if applied else 'нет базы (rusterm init)'}")
+    print(f"инструментов: {payload['instruments']}; списков наблюдения: {payload['watchlists']}")
+    if payload["snapshots"]:
+        print("последние снапшоты:")
+        for s in payload["snapshots"]:
+            print(f"  {s['instrument_id']} — v{s['version']}, as_of {s['as_of']}")
+    else:
+        print("снапшотов нет")
+    cov = payload["coverage"]
+    print(f"покрытие: готово {cov['ready']}, устарело {cov['stale']}, "
+          f"в работе {cov['processing']}, отсутствует {cov['missing']}, "
+          f"ошибок {cov['error']}")
+    print("сеть: потолок 5000 запросов/ночь, 5/сек; провайдер не работал"
+          if not budget_samples else
+          f"сеть: зафиксированы счётчики: {budget_samples}")
+    print("окружение:")
+    for name, origin in payload["env"]["vars"].items():
+        state = "задана" if origin != "—" else "не задана"
+        print(f"  {name}: {state} ({origin})")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     paths, conn = _open(args.root)
     report = doctor_report(paths, conn)
@@ -365,17 +417,26 @@ def cmd_watchlist(args) -> int:
 def cmd_coverage(args) -> int:
     paths, conn = _open(args.root)
     repos = RepoRegistry(conn, paths)
-    if (args.target is None) == (args.watchlist is None):
-        print("укажите instrument-id или --watchlist, но не оба",
+    instrument = args.instrument or args.target
+    if (instrument is None) == (args.watchlist is None):
+        print("укажите instrument-id или --watchlist, но не оба; "
+              "например: rusterm coverage --instrument ID",
               file=sys.stderr)
         conn.close()
         return 1
+    target = args.watchlist or instrument
     rows = (repos.coverage.for_watchlist(args.watchlist)
-            if args.watchlist else repos.coverage.for_instrument(args.target))
+            if args.watchlist else repos.coverage.for_instrument(instrument))
     if not rows:
-        print("покрытия нет — сбор ещё не запускался", file=sys.stderr)
+        print("покрытия нет — сбор ещё не запускался; начните с "
+              "rusterm ingest", file=sys.stderr)
         conn.close()
         return 1
+    if args.json:
+        print(json.dumps({"target": target, "rows": rows},
+                         ensure_ascii=False))
+        conn.close()
+        return 0
     for row in rows:
         reason = f" причина: {row['reason']}" if row["reason"] else ""
         print(f"{row['instrument_id']}\t{row['block']}\t"
@@ -390,9 +451,14 @@ def cmd_metrics(args) -> int:
     from rusterm.core.metrics import SystemMetrics
     metrics = SystemMetrics(repos.metrics, request_gate=None)
     values = metrics.compute()
+    written = metrics.record(values) if args.record else 0
+    if args.json:
+        print(json.dumps({"metrics": values, "recorded": written},
+                         ensure_ascii=False))
+        conn.close()
+        return 0
     if args.record:
-        written = metrics.record(values)
-        print(f"записано проб: {written} (metрика без данных не пишется)")
+        print(f"записано проб: {written} (метрика без данных не пишется)")
     for name in values:
         value = values[name]
         print(f"{name}\t{'нет данных' if value is None else value}")
@@ -401,19 +467,30 @@ def cmd_metrics(args) -> int:
 
 
 def cmd_budget(args) -> int:
-    print("потолок запросов за ночь: 5000 (Budget), 5 в секунду "
-          "(RateLimiter); лимитеры не хранят состояние между процессами")
     paths, conn = _open(args.root)
     repos = RepoRegistry(conn, paths)
     samples = {s[1]: s[3] for s in repos.metrics.samples()
                if s[1].startswith("provider_")}
+    payload = {
+        "ceiling_per_night": 5000,
+        "rate_per_second": 5,
+        "provider_ran": bool(samples),
+        "used": 0 if not samples else None,
+        "refused": 0 if not samples else None,
+        "samples": samples,
+    }
+    conn.close()
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+        return 0
+    print("потолок запросов за ночь: 5000 (Budget), 5 в секунду "
+          "(RateLimiter); лимитеры не хранят состояние между процессами")
     if not samples:
         print("сетевой провайдер не работал: использовано 0, отказано 0 "
               "(записей в metric_sample нет)")
     else:
         for name in sorted(samples):
             print(f"{name} = {samples[name]}")
-    conn.close()
     return 0
 
 
@@ -423,7 +500,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="rusterm", description="EquityLab: локальный терминал (ядро)")
     parser.add_argument("--root", default=".", help="каталог данных")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
     sub.add_parser("init", help="создать каталог данных и применить миграции")
     p_ing = sub.add_parser("ingest", help="сбор; реальный источник — не дефолт")
     p_ing.add_argument("--instrument", default=None)
@@ -435,6 +512,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("demo", help="создать синтетический демо-инструмент")
     p_snap = sub.add_parser("snapshot", help="собрать снапшот")
     p_snap.add_argument("--instrument", default=None)
+    p_snap.add_argument("--ticker", default=None)
+    p_snap.add_argument("--market", default=None)
     p_snap.add_argument("--watchlist", default=None)
     p_snap.add_argument("--as-of", default=None)
     p_exp = sub.add_parser("export", help="экспорт последнего снапшота")
@@ -448,6 +527,8 @@ def main(argv: list[str] | None = None) -> int:
     p_ver.add_argument("--document", default="",
                        help="ссылка на документ (секреты из URL стираются)")
     sub.add_parser("doctor", help="самопроверка базы и store")
+    p_st = sub.add_parser("status", help="что у меня есть: база, снапшоты, покрытие, сеть")
+    p_st.add_argument("--json", action="store_true")
 
     p_wl = sub.add_parser("watchlist", help="списки наблюдения")
     wl_sub = p_wl.add_subparsers(dest="action", required=True)
@@ -481,10 +562,14 @@ def main(argv: list[str] | None = None) -> int:
 
     p_cov = sub.add_parser("coverage", help="покрытие инструмента или списка")
     p_cov.add_argument("target", nargs="?", default=None)
+    p_cov.add_argument("--instrument", default=None)
     p_cov.add_argument("--watchlist", default=None)
+    p_cov.add_argument("--json", action="store_true")
     p_met = sub.add_parser("metrics", help="девять системных метрик")
     p_met.add_argument("--record", action="store_true")
-    sub.add_parser("budget", help="бюджет сетевых запросов")
+    p_met.add_argument("--json", action="store_true")
+    p_bud = sub.add_parser("budget", help="бюджет сетевых запросов")
+    p_bud.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     commands = {
@@ -493,5 +578,34 @@ def main(argv: list[str] | None = None) -> int:
         "demo": cmd_demo,
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
+        "status": cmd_status,
     }
-    return commands[args.command](args)
+    if args.command is None:
+        print(f"RusTerm — локальный терминал по ценным бумагам. "
+              f"Каталог данных: {args.root}")
+        print("Обычный путь:")
+        print("  rusterm init")
+        print("  rusterm watchlist create <id> --name N   # или rusterm demo для пробы")
+        print("  rusterm watchlist add <id> --instrument ID")
+        print("  rusterm ingest --instrument ID [--source synthetic|edgar]")
+        print("  rusterm snapshot --instrument ID")
+        print("  rusterm status        # что у меня есть")
+        print("Справка по команде: rusterm <команда> --help")
+        return 0
+    try:
+        return commands[args.command](args)
+    except SystemExit:
+        raise
+    except Exception:
+        # неожиданная ошибка: трейсбек в журнал, путь — пользователю, код 2
+        import logging
+        import traceback
+        log_path = AppPaths.from_root(getattr(args, "root", ".")).app_log_path
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        logging.basicConfig(filename=str(log_path))
+        logging.getLogger("rusterm.cli").exception("внутренняя ошибка")
+        with open(log_path, "a", encoding="utf-8") as fh:
+            traceback.print_exc(file=fh)
+        print(f"внутренняя ошибка; подробности: {log_path}",
+              file=sys.stderr)
+        return 2
