@@ -18,6 +18,11 @@ from pathlib import Path
 
 ENV_NAMES = ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER", "RUSTERM_LLM_API_KEY")
 
+# Происхождения последнего load_env: после бутстрапа doctor обязан
+# показывать, ОТКУДА пришла переменная, а не «окружение» (load_env сам
+# пишет её в os.environ). None — бутстрапа ещё не было.
+_LAST_ORIGINS: dict | None = None
+
 
 def env_file_path(environ=None) -> Path:
     env = os.environ if environ is None else environ
@@ -70,6 +75,7 @@ def load_env(environ=None) -> dict:
 
     Возвращает {name: origin} для doctor: «окружение» / путь файла / «—».
     """
+    global _LAST_ORIGINS
     env = os.environ if environ is None else environ
     path = env_file_path(env)
     file_values = parse_env_file(_read(path)) if path.is_file() else {}
@@ -82,6 +88,7 @@ def load_env(environ=None) -> dict:
             origins[name] = str(path)
         else:
             origins[name] = "—"
+    _LAST_ORIGINS = dict(origins)
     return origins
 
 
@@ -92,14 +99,17 @@ def report(environ=None) -> dict:
     path = env_file_path(env)
     exists = path.is_file()
     file_values = parse_env_file(_read(path)) if exists else {}
-    origins: dict = {}
-    for name in ENV_NAMES:
-        if env.get(name):
-            origins[name] = "окружение"
-        elif name in file_values:
-            origins[name] = str(path)
-        else:
-            origins[name] = "—"
+    if _LAST_ORIGINS is not None:
+        origins = dict(_LAST_ORIGINS)
+    else:
+        origins = {}
+        for name in ENV_NAMES:
+            if env.get(name):
+                origins[name] = "окружение"
+            elif name in file_values:
+                origins[name] = str(path)
+            else:
+                origins[name] = "—"
     return {
         "file": str(path),
         "exists": exists,

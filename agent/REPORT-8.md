@@ -33,4 +33,9 @@
   - ~/.rusterm.env verified reachable: doctor via main() now reports the three names (values withheld).
   - `pytest -q` → exit 0 (219 tests); acceptance → 13/13
 
+- U4 done (corrected): rusterm/env.py load_env/report — existing env var wins, else  / ~/.rusterm.env; parse export/NAME=value, quotes, comments; foreign names ignored; values never printed. doctor: env section (names+origins+world_readable problem). main() bootstraps.
+  - METHOD VIOLATIONS this item, both self-reported: (1) committed once with the suite red (second time this task; B5 was the first) — the chain habit 'pytest && acceptance && commit' did not abort on failure; fixed by running the suite as its own gate before any commit from now on. (2) Design flaw found by the doctor test: after bootstrap, report() saw file-applied values as 'окружение' — load_env now records origins and doctor reads the record.
+  - Leak found and closed: main() bootstrap sets RUSTERM_SEC_UA (user's real contact) into os.environ for every CLI test; my live-fetch placeholder test would then have executed pytest.fail against a valid contact. Placeholder removed — live segment fetch belongs to U5 with recorded payloads; offline integration test covers the doc's bullet (N7).
+  - `pytest -q` → exit 0 (219 tests, 2 skips); acceptance → 13/13
+
 NOW: U9, step 1

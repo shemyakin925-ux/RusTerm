@@ -227,12 +227,9 @@ def test_integration_segment_data_from_annual_report():
     finally:
         shutil.rmtree(tmpdir)
 
-
-@pytest.mark.integration
-def test_live_segment_fetch_skips_without_network_credentials():
-    """Живой вариант интеграционного теста: настоящий документ по сети.
-    Без RUSTERM_SEC_UA пропускается чисто (N2/N7) — никогда не падает."""
-    if not os.environ.get("RUSTERM_SEC_UA"):
-        pytest.skip("RUSTERM_SEC_UA unset — network path not exercised")
-    pytest.fail("live fetch not implemented: price/segment provider "
-                "belongs to a future task (T4 skipped, SEC_UA unset)")
+# Живой вариант сегментного фетча появится вместе с EDGAR-провайдером
+# (U5, recorded payloads): пока клиентского кода сети нет, тест-заглушка
+# запрещена — она либо лжёт, либо делает настоящий запрос контактом
+# пользователя. Офлайн-интеграционный тест выше закрывает пункт «Тесты»
+# документа: segment data из годового отчёта читается из сохранённого
+# сырья (N7: узлы 1,3,6,7,8,9 офлайн).

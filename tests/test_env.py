@@ -15,6 +15,21 @@ from rusterm import env as env_module
 from rusterm.cli import main
 
 
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """load_env мутирует настоящий os.environ по своему контракту —
+    тест обязан вернуть его как был, чтобы не топить соседей."""
+    saved = {n: os.environ.get(n) for n in env_module.ENV_NAMES}
+    saved["RUSTERM_ENV_FILE"] = os.environ.get("RUSTERM_ENV_FILE")
+    env_module._LAST_ORIGINS = None
+    yield
+    for name, value in saved.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
 @pytest.fixture
 def env_file(tmp_path, monkeypatch):
     """Временный env-файл + RUSTERM_ENV_FILE на него; наши имена
@@ -67,7 +82,10 @@ def test_doctor_reports_names_and_origins_never_values(env_file,
     env_file.chmod(0o600)  # мирочитаемость проверяется отдельным тестом
     assert main(["--root", root, "init"]) == 0
     capsys.readouterr()
-    monkeypatch.delenv("RUSTERM_SEC_UA", raising=False)
+    # init уже применил файл к окружению — чистим все три, чтобы doctor
+    # показал происхождение из файла, а не «окружение»
+    for name in env_module.ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
     assert main(["--root", root, "doctor"]) == 0
     payload = capsys.readouterr().out
     assert "RUSTERM_SEC_UA" in payload
