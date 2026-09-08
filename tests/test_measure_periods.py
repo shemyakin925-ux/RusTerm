@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import io
+import json
 import os
 import shutil
 import sqlite3
@@ -135,7 +137,9 @@ def test_absent_concept_still_gives_missing_data():
         snap = repos.snapshot.latest_snapshot_id("ins1")
         margin = _measure(repos, snap, "net_margin")
         assert margin["value"] is None
-        assert margin["null_reason"] == "missing_data"
+        # первый токен — missing_data; продолжение называет концепты (X3)
+        assert margin["null_reason"].split(":")[0] == "missing_data"
+        assert "net_income" in margin["null_reason"]
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
@@ -209,6 +213,53 @@ def test_v2_unit_table_covers_kinds_and_never_empty_period():
                 assert m[5] != "", "у меры со значением пустая единица"
             assert m[6] == "2026-09-08"  # без входов — as_of с причиной
             assert m[10] is not None
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
+def test_x3_coverage_reason_names_missing_concepts():
+    """TASK-11 X3: причина фундаментального блока начинается с
+    missing_data и называет отсутствующие концепты по имени.
+    --json несёт их отдельным массивом."""
+    import subprocess
+    import sys as _sys
+
+    from rusterm.core.snapshot import SnapshotBuilder
+    from rusterm.store.repos import PeerSetRepo
+
+    tmpdir, conn, repos = _registry()
+    try:
+        obj = repos.raw.put(b'{"synthetic": "x3"}', provider="synthetic",
+                            block="fundamentals")
+        _fact(repos, obj.sha256, "revenue", "1000",
+              "2024-01-01", "2024-12-31")
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build("ins1", "i1", "2026-09-08")
+
+        cov = {r["block"]: r
+               for r in repos.coverage.for_instrument("ins1")}
+        reason = cov["fundamentals"]["reason"]
+        assert reason.startswith("missing_data:")
+        assert "net_income" in reason
+
+        # --json несёт список концептов отдельным массивом
+        from rusterm.cli import main
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            # тот же каталог app, что открыл _registry — одна база
+            main(["--root", os.path.join(tmpdir, "app"), "coverage",
+                  "--instrument", "ins1", "--json"])
+        payload = json.loads(buf.getvalue())
+        row = next(r for r in payload["rows"]
+                   if r["block"] == "fundamentals")
+        assert row["reason"].startswith("missing_data")
+        # массив отсутствующих концептов — рядом с причиной, в строке
+        assert isinstance(row.get("missing_concepts"), list)
+        assert "net_income" in row["missing_concepts"]
     finally:
         conn.close()
         shutil.rmtree(tmpdir)

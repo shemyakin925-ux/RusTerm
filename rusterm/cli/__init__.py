@@ -556,6 +556,13 @@ def cmd_coverage(args) -> int:
         conn.close()
         return 1
     if args.json:
+        # X3: список отсутствующих концептов — массивом рядом с причиной
+        for row in rows:
+            if (row["status"] == "missing"
+                    and (row["reason"] or "").startswith("missing_data:")):
+                row["missing_concepts"] = [
+                    c.strip() for c in row["reason"].split(":", 1)[1].split(",")
+                    if c.strip()]
         print(json.dumps({"target": target,
                           "concept_map_version": CONCEPT_MAP_VERSION,
                           "rows": rows}, ensure_ascii=False))

@@ -173,7 +173,9 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
                     assert m[6] and m[7], \
                         f"{snapshot['instrument_id']}/{m[3]}: значение без периода"
                 else:
-                    assert m[10] in fixed_reasons, \
+                    # X3: причина может продолжаться списком концептов —
+                    # матч по первому токену, не по всей строке
+                    assert m[10].split(":")[0] in fixed_reasons, \
                         f"{snapshot['instrument_id']}/{m[3]}: причина {m[10]!r}"
                     row["reasons"][m[10]] = row["reasons"].get(m[10], 0) + 1
 

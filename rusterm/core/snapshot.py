@@ -245,7 +245,9 @@ class SnapshotBuilder:
         known = {
             "fundamentals": (
                 ("ready", None) if computed
-                else ("missing", "no_as_reported_facts")),
+                else ("missing",
+                      input_reasons.get("net_margin",
+                                        "no_as_reported_facts"))),
             "peer_set": (
                 ("ready", None) if peer_set_version
                 else ("missing", "peer_set_not_confirmed")),
@@ -303,8 +305,10 @@ class SnapshotBuilder:
         # ── Однопериодные формулы ──
         for concept, inputs_map in _MEASURE_FORMULAS.items():
             needed = set(inputs_map.values())
-            if any(a not in by_concept for a in needed):
-                reasons[concept] = "missing_data"
+            absent = sorted(a for a in needed if a not in by_concept)
+            if absent:
+                # причина называет концепты, которых не было (X3)
+                reasons[concept] = "missing_data: " + ", ".join(absent)
                 continue
             key_sets = [{(r["unit"], r["start"], r["end"])
                          for r in by_concept[a]} for a in needed]

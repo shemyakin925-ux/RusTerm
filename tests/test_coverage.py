@@ -132,7 +132,9 @@ def test_snapshot_build_writes_all_eight_blocks_and_source_error():
         rows = {r["block"]: r for r in repos.coverage.for_instrument("ins1")}
         assert len(rows) == 8
         assert rows["fundamentals"]["status"] == "missing"  # фактов нет
-        assert rows["fundamentals"]["reason"] == "no_as_reported_facts"
+        # X3: причина называет отсутствующие концепты по имени
+        assert rows["fundamentals"]["reason"] == \
+            "missing_data: net_income, revenue"
         assert rows["peer_set"]["status"] == "missing"
         assert rows["peer_set"]["reason"] == "peer_set_not_confirmed"
         assert rows["prices"]["status"] == "error"  # E1/E2 виден в покрытии

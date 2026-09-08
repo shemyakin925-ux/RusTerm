@@ -12,3 +12,6 @@
 ## Disputed
 
 NOW: X3, step 1
+- X3 done: _issuer_inputs names the absent concepts in the missing_data reason ('missing_data: operating_income, tax_expense'); the fundamentals coverage row carries that reason when measures are null; `coverage --json` adds per-row `missing_concepts` array alongside the reason; reason keeps missing_data as the first token, and the m3 fixed-set assertion matches the token only (as the task directed).
+  - Tests: measure_periods X3 test (reason + names + json array via subprocess coverage call); m3 fixed-set assertion now token-based; test_coverage reason updated to the X3 shape (stricter than before: names the concepts).
+  - \`pytest -q\` → exit 0 (267 tests); acceptance → 13/13
