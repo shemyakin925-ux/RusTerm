@@ -145,8 +145,12 @@ def insider_net(instrument_id: str, net_ratio, as_of: str,
         color, reason = "green", f"net_buys>{INSIDER_GREEN_MIN}"
     elif net_ratio < INSIDER_RED_MIN:
         color, reason = "red", f"net_sales>{-INSIDER_RED_MIN}"
-    else:
+    elif net_ratio >= -INSIDER_GREEN_MIN:
         color, reason = "yellow", "within_pm_0.1pct"
+    else:
+        # −0,5%..−0,1%: ни зелёный, ни красный — жёлтый по поправленной
+        # §4 документа (решение координатора по спору TASK-7)
+        color, reason = "yellow", "sales_below_0.5pct_not_red_yellow_band"
     return _assess(instrument_id, "insider_net", as_of, lineage_ref,
                    color, reason)
 

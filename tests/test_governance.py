@@ -82,8 +82,12 @@ def test_indicator_4_insider_net_all_four_colors():
                            "doc#p4").color == "green"
     assert gov.insider_net("ins1", 0.0, "2024-12-31",
                            "doc#p4").color == "yellow"
-    assert gov.insider_net("ins1", -0.002, "2024-12-31",
-                           "doc#p4").color == "yellow"
+    yellow_band = gov.insider_net("ins1", -0.002, "2024-12-31", "doc#p4")
+    assert yellow_band.color == "yellow"
+    # −0,3% вне ±0,1%: причина показывает реальную полосу, не «в пределах»
+    assert "within_pm" not in yellow_band.reason
+    within = gov.insider_net("ins1", -0.001, "2024-12-31", "doc#p4")
+    assert within.reason == "within_pm_0.1pct"
     assert gov.insider_net("ins1", -0.006, "2024-12-31",
                            "doc#p4").color == "red"
     assert gov.insider_net("ins1", None, "2024-12-31",
