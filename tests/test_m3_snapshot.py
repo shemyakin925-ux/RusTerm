@@ -23,6 +23,7 @@ import pytest
 
 from rusterm.core.snapshot import SnapshotBuilder
 from rusterm.parsers import CompanyFactsParser
+from rusterm.pipeline import apply_concept_map
 from rusterm.providers.budget import (
     Budget,
     ConfigError,
@@ -98,8 +99,12 @@ def _ingest_companyfacts(repos, ticker: str, gate: RequestGate,
     stored_urls[url] = sha
     result = CompanyFactsParser().parse(
         raw, {"issuer_id": f"i-{ticker}", "source_ref": obj.sha256})
-    fact_dicts = [{**fact, "fact_id": str(uuid.uuid4())}
-                  for fact in result.facts]
+    fact_dicts = []
+    for fact in result.facts:
+        fact = dict(fact)
+        fact["fact_id"] = str(uuid.uuid4())
+        apply_concept_map(fact)
+        fact_dicts.append(fact)
     persist_ingestion_results(repos.conn, fact_dicts, [])
     return {"fetched": True, "facts": len(fact_dicts)}
 
@@ -140,6 +145,29 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
 
         snapshots = repos.snapshot.latest_per_instrument()
         assert len(snapshots) == 20
+
+        # Усиление V5: у большинства эмитентов net_margin имеет значение
+        # с настоящим периодом; каждый null — с причиной из набора
+        fixed_reasons = {
+            "missing_data", "period_mismatch", "missing_prior_period",
+            "concept_not_mapped", "denominator_zero",
+            "negative_denominator",
+        }
+        non_null_net_margin = 0
+        for snapshot in snapshots:
+            measures = repos.snapshot.get_measures(
+                snapshot["snapshot_id"])
+            net_margin = next(m for m in measures
+                              if m[3] == "net_margin")
+            if net_margin[4] is not None:
+                non_null_net_margin += 1
+                assert net_margin[6] and net_margin[7], \
+                    "значение без периода"
+            else:
+                assert net_margin[10] in fixed_reasons, \
+                    f"{snapshot['instrument_id']}: {net_margin[10]!r}"
+        assert non_null_net_margin >= 15, (
+            f"non-null net_margin: {non_null_net_margin}/20")
         coverage_rows = conn.execute(
             "SELECT instrument_id, COUNT(*) FROM coverage"
             " GROUP BY instrument_id").fetchall()
