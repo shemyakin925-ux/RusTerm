@@ -1,6 +1,7 @@
 # TASK-7 — the rest of the project, in priority order
 
-- **Status: READY** — this is the task. Start here.
+- **Status: ACCEPTED** (08.09.2026, 13/13 on a clean checkout of
+  `origin/agent/night-2` @ `81c7068`). Closed — see `agent/TASK-8.md`.
 - **Branch:** `agent/night-2`
 - **Report:** `agent/REPORT-7.md`
 - **Supersedes:** TASK-5, TASK-6 (merged in). Do not open them.
