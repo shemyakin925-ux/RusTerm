@@ -13,10 +13,11 @@ import uuid
 
 from rusterm.core.export import snapshot_to_csv, snapshot_to_json
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
+from rusterm.providers.budget import RequestGate
 from rusterm.providers import get_provider
 from rusterm.core.snapshot import SnapshotBuilder
 from rusterm.core.verification import VerificationService
-from rusterm.pipeline import IngestionPipeline
+from rusterm.pipeline import IngestionPipeline, apply_concept_map
 from rusterm.providers import SyntheticDisclosuresProvider
 from rusterm.store.db import apply_migrations, current_schema_version, open_connection
 from rusterm.store.doctor import doctor_report
@@ -152,29 +153,85 @@ def cmd_ingest(args) -> int:
         return 1
     if args.source == "edgar":
         # Реальный сбор никогда не является дефолтом (TASK-7 T14).
-        try:
-            from rusterm.providers.edgar import EdgarProvider
-        except ImportError:
-            print("edgar-провайдер недоступен: T4 не выполнялся "
-                  "(RUSTERM_SEC_UA не задан)", file=sys.stderr)
-            conn.close()
-            return 1
-        from rusterm.providers.budget import RequestGate
-        provider = EdgarProvider(RequestGate())
-        providers = {"edgar": provider}
-    else:
-        from rusterm.providers.disclosures import DEMO_INDEX_FIXTURE
-        providers = {"synthetic": SyntheticDisclosuresProvider(
-            fixture_path=DEMO_INDEX_FIXTURE)}
+        exit_code = 0
+        for instrument_id, issuer_id in targets:
+            code = _ingest_edgar_companyfacts(repos, instrument_id,
+                                              issuer_id, args_as_of_default())
+            if code != 0:
+                exit_code = code
+        conn.close()
+        return exit_code
+    from rusterm.providers.disclosures import DEMO_INDEX_FIXTURE
+    providers = {"synthetic": SyntheticDisclosuresProvider(
+        fixture_path=DEMO_INDEX_FIXTURE)}
     pipe = IngestionPipeline(repos, providers)
     for instrument_id, issuer_id in targets:
-        result = pipe.run(instrument_id, issuer_id, args.source)
+        result = pipe.run(instrument_id, issuer_id, "synthetic")
         print(f"{instrument_id}: заданий закрыто: {result.jobs_done}; "
               f"фактов: {result.facts_stored}; "
               f"дублей sha256: {result.duplicates}; неразобрано (E4): "
               f"{result.needs_verification}; suspect (E5): {result.suspects}; "
               f"неотображённых концептов: {result.unmapped_concepts}")
     conn.close()
+    return 0
+
+
+def _ingest_edgar_companyfacts(repos, instrument_id: str,
+                               issuer_id: str, as_of: str) -> int:
+    """Edgar-сбор (TASK-11 X1): карта тикеров (1 запрос на рынок) +
+    companyfacts (1 запрос на эмитента) -> raw -> parse -> факты.
+    Идемпотентно по sha256; неотображённые теги считаются."""
+    import hashlib
+    import uuid as _uuid
+
+    from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
+    from rusterm.parsers import CompanyFactsParser
+    from rusterm.providers.budget import ConfigError
+    from rusterm.store.repos import persist_ingestion_results
+
+    instrument = repos.instrument.get_instrument(instrument_id)
+    issuer = repos.instrument.get_issuer(instrument.issuer_id) \
+        if instrument else None
+    if issuer is None or not (issuer.registry_id or "").isdigit():
+        print(f"у эмитента {issuer_id!r} нет CIK — выполните "
+              f"rusterm add --ticker ... --market ...", file=sys.stderr)
+        return 1
+    gate = RequestGate()
+    provider = get_provider("edgar", gate=gate)
+    if isinstance(provider, ConfigError):
+        print(f"edgar-провайдер недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+    provider.cik = int(issuer.registry_id)
+
+    ref = repos.instrument.ticker_for_instrument(instrument_id, as_of) or {}
+    provider.resolve(ref.get("ticker", ""), "US", as_of)  # греет карту
+    facts = provider.fetch_companyfacts()
+    if isinstance(facts, ConfigError):
+        print(f"edgar недоступен: {facts.reason}", file=sys.stderr)
+        return 1
+    raw = json.dumps(facts, ensure_ascii=False, sort_keys=True).encode()
+    sha = hashlib.sha256(raw).hexdigest()
+    if repos.raw.has(sha):
+        print(f"{instrument_id}: companyfacts уже в store — пропущено")
+        return 0
+    obj = repos.raw.put(raw, provider="edgar", block="fundamentals",
+                        url=("https://data.sec.gov/api/xbrl/companyfacts/"
+                             f"CIK{int(issuer.registry_id):010d}.json"),
+                        instrument_id=instrument_id)
+    parsed = CompanyFactsParser().parse(
+        raw, {"issuer_id": issuer_id, "source_ref": obj.sha256})
+    fact_dicts = []
+    unmapped = 0
+    for fact in parsed.facts:
+        fact = dict(fact)
+        fact["fact_id"] = str(_uuid.uuid4())
+        unmapped += apply_concept_map(fact)
+        fact_dicts.append(fact)
+    persist_ingestion_results(repos.conn, fact_dicts, [])
+    repos.coverage.upsert(instrument_id, "fundamentals", "ready")
+    print(f"{instrument_id}: companyfacts загружены; фактов: "
+          f"{len(fact_dicts)}; неотображённых концептов: {unmapped}")
     return 0
 
 
@@ -744,8 +801,10 @@ def main(argv: list[str] | None = None) -> int:
         import traceback
         log_path = AppPaths.from_root(getattr(args, "root", ".")).app_log_path
         log_path.parent.mkdir(parents=True, exist_ok=True)
+        import traceback as _tb
         logging.basicConfig(filename=str(log_path))
         logging.getLogger("rusterm.cli").exception("внутренняя ошибка")
+        _tb.print_exc()  # при отладке e2e traceback виден и в stderr
         with open(log_path, "a", encoding="utf-8") as fh:
             traceback.print_exc(file=fh)
         print(f"внутренняя ошибка; подробности: {log_path}",

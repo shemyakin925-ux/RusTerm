@@ -221,18 +221,12 @@ def test_cli_metrics_budget_watchlist_import_export(capsys):
         assert report["added"] == []
         assert report["not_found"][0]["ticker"] == "ZZZZ"
 
-        # ingest --source edgar: провайдер существует (U5); у демо-эмитента
-        # нет CIK — конвейер честно отрабатывает E1 и не выдумывает данных
+        # ingest --source edgar: у демо-эмитента нет CIK — честный отказ
         assert main(["--root", root, "ingest", "--instrument", "US-CLI-DEMO",
-                     "--source", "edgar"]) == 0
-        out = capsys.readouterr().out
-        assert "US-CLI-DEMO: заданий закрыто: 0" in out
-        capsys.readouterr()
-        assert main(["--root", root, "coverage",
-                     "--instrument", "US-CLI-DEMO", "--json"]) == 0
-        cov = json.loads(capsys.readouterr().out)
-        errors = [r for r in cov["rows"] if r["status"] == "error"]
-        assert any("E1" in (r["reason"] or "") for r in errors)
+                     "--source", "edgar"]) == 1
+        err = capsys.readouterr().err
+        assert "нет CIK" in err
+        assert "rusterm add" in err
     finally:
         shutil.rmtree(root)
 
