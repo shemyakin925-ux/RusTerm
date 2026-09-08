@@ -49,4 +49,10 @@
 - U10 follow-up: pip install -e . generated rusterm.egg-info/ in the worktree; acceptance check 13 correctly flagged it. Added to .gitignore (generated artifact, standard practice — not project work).
   - acceptance → 13/13 after .gitignore
 
-NOW: U5, step 1
+- U5 done: rusterm/providers/edgar.py — ticker map (1 request for ALL tickers, cached), submissions/CIK poll_index (records after cursor, advance = max filingDate, repeat = 0 records + 0 requests), list_documents from cached submissions without bodies, fetch_document idempotent sha256 + NotModified on 304, fetch_companyfacts for U6. Transport injected: offline tests run on recorded real payloads (tests/data/edgar/: tickers trimmed to 8, submissions/companyfacts AAPL trimmed; real data per task, 12K total). REGISTRY ENFORCEMENT (the T3 leftover): get_provider('edgar') without gate returns ConfigError value 'network_provider_requires_gate:edgar'; with gate -> provider. Live integration test: 1 real request via RequestGate, skips cleanly when UA absent.
+  - Probed live shapes 2026-09-08 (3 requests, in report above): company_tickers {idx:{cik_str,ticker,title}}; submissions filings.recent parallel arrays (form/accessionNumber/filingDate/reportDate/primaryDocument); companyfacts facts.us-gaap.<concept>.units.<unit>[] with start/end/val/accn/fy/fp/form/filed/frame — matched the task's expected shapes, no deviation.
+  - DISPUTED: task ideal 'poll_index: one request per source, not per company' — EDGAR has NO global change feed; submissions is per-CIK. Implemented issuer-scoped poll (1 request per issuer feed) + the 1-request market-wide ticker map. The letter is unreachable, the intent (incrementality) is met per-company.
+  - Net requests so far: 3 probe + 1 live test = 4.
+  - `pytest tests/test_edgar.py -q` → exit 0 (7); `pytest -q` → exit 0 (226); acceptance → 13/13
+
+NOW: U6, step 1
