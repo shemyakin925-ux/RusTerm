@@ -12,4 +12,8 @@
 ## Disputed
 - §1.9 stop time (no new item after 09:30 Danang): this is a USER-INITIATED day session (the coordinator delivered TASK-8 at 09:39 and the user pointed me at it), not the scheduled 00:00–10:00 night run; interpreted §1.9 as bounding scheduled night shifts. Working the queue now; same discipline (cycle, selfcheck, commit+push per item).
 
-NOW: U0, step 1
+- U0 done: llm.py guard rebuilt on multiset containment of numeric tokens (Counter(found) - Counter(allowed) must be empty). _render now returns (text, substituted list of exact inserted strings); periods are no longer an allowed source (doc periods in model text are rejected unless substituted as a placeholder value); _normalize_number strips thousands separators (space/NBSP/comma-between-triads), treats ','=='.'; string compare, no tolerance. dispatcher of run() rewritten so any rejected block rejects the whole text.
+  - Coordinator's three probe texts (31%/12 млрд/рост в 2 раза) each rejected in full with single measure revenue=1000; token repeated beyond substitution count rejected; same token twice via two placeholders stored; '1,000' measure string normalizes and stores.
+  - `pytest tests/test_llm_guard.py -q` → exit 0 (7 passed); `pytest -q` → exit 0; acceptance → 13/13
+
+NOW: U1, step 1

@@ -14,12 +14,28 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections import Counter
 from typing import Protocol
 
 logger = logging.getLogger("rusterm.llm")
 
-_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)*")
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-z_0-9]+)\s*\}\}")
+_THOUSANDS_RE = re.compile(r"(\d)[,\u00a0 ](\d{3})(?=\D|$)")
+
+
+def _normalize_number(token: str) -> str:
+    """Канонический вид числа-токена (TASK-8 U0): разделители тысяч
+    (пробел, неразрывный пробел, запятая между триадами) убираются,
+    запятая и точка считаются одним десятичным разделителем. Сравнение
+    строковое: без округлений и допусков."""
+    t = token.replace("\u00a0", " ")
+    while True:
+        stripped = _THOUSANDS_RE.sub(r"\1\2", t)
+        if stripped == t:
+            break
+        t = stripped
+    return t.replace(",", ".")
 
 
 class LlmClient(Protocol):
@@ -62,53 +78,64 @@ class LlmSummarizer:
                 "Любое число не из списка — браковка всего текста.")
 
     def _render(self, text: str, measures: dict):
-        """Подставить числа из снапшота. Незнакомый плейсхолдер —
-        претензия на отсутствующие данные: текст бракуется."""
+        """Подставить числа из снапшота. Возвращает (текст, substituted):
+        substituted — точные строки, которые рендер вставил (значения мер).
+        Незнакомый плейсхолдер — претензия на отсутствующие данные:
+        текст бракуется."""
+        substituted: list[str] = []
+
         def sub(match):
             concept = match.group(1)
             if concept not in measures:
                 raise KeyError(concept)
-            return measures[concept]["value"]
+            value = measures[concept]["value"]
+            substituted.append(value)
+            return value
 
         try:
             rendered = _PLACEHOLDER_RE.sub(sub, text)
         except KeyError:
-            return None
+            return None, []
         if "{{" in rendered:
-            return None
-        return rendered
+            return None, []
+        return rendered, substituted
 
-    def _citations_for(self, rendered: str, measures: dict):
-        """Числа текста обязаны происходить из цитируемых мер; возвращает
-        citations или None, если найдено число вне цитат."""
-        allowed = []
-        for concept, m in measures.items():
-            for field in ("value", "period_start", "period_end"):
-                allowed.append((concept, m[field], m[field].replace(",", ".")))
-        normalized = rendered.replace(",", ".")
+    def _citations_for(self, text: str, substituted: list[str],
+                       measures: dict):
+        """Мультимножество числовых токенов текста обязано покрываться
+        мультимножеством токенов подставленных значений (TASK-8 U0:
+        подстроки вида «31» внутри «12-31» больше не цитата).
+
+        None — брак всего текста; [] — чисел нет, цитаты не нужны;
+        иначе список цитат по реально встретившимся мерам."""
+        allowed: Counter = Counter()
+        for value in substituted:
+            for token in _NUMBER_RE.findall(value):
+                allowed[_normalize_number(token)] += 1
+        found: Counter = Counter(
+            _normalize_number(token)
+            for token in _NUMBER_RE.findall(text))
+
+        if not found:
+            return []
+        if found - allowed:  # отрицательная разность = непокрытые числа
+            return None
+
         citations = []
-        used = set()
-        for number in _NUMBER_RE.findall(normalized):
-            hit = None
-            for concept, source, source_norm in allowed:
-                if number in source_norm:
-                    hit = concept
-                    break
-            if hit is None:
-                return None
-            used.add(hit)
+        used: set = set()
+        remaining = Counter(found)
+        for concept in sorted(measures):
+            for token in _NUMBER_RE.findall(measures[concept]["value"]):
+                token = _normalize_number(token)
+                if remaining[token] > 0:
+                    used.add(concept)
+                    remaining[token] -= 1
         for concept in sorted(used):
             m = measures[concept]
             citations.append({"concept": concept,
                               "period_end": m["period_end"],
                               "value": m["value"]})
         return citations
-
-    def _check_block(self, rendered: str, measures: dict):
-        """None — брак; иначе citations. Числа в highlights/risks проверяются
-        так же жёстко, как в summary."""
-        parts = [rendered]
-        return self._citations_for(" ".join(parts), measures)
 
     def run(self, instrument_id: str, snapshot_id: str,
             model: str = "unspecified") -> dict:
@@ -122,18 +149,32 @@ class LlmSummarizer:
             logger.info("llm confidence=%s (не используется в решениях)",
                         confidence)
 
-        summary = self._render(response.get("summary", ""), measures)
-        highlights = [self._render(h, measures)
-                      for h in response.get("highlights", [])]
-        risks = [self._render(r, measures)
-                 for r in response.get("risks", [])]
-        if (summary is None
-                or any(h is None for h in highlights)
-                or any(r is None for r in risks)):
+        summary, substituted = self._render(response.get("summary", ""),
+                                             measures)
+        highlights: list | None = []
+        risks: list | None = []
+        if summary is not None:
+            for part_name, target in (("highlights", 0), ("risks", 1)):
+                rendered_parts = []
+                for item in response.get(part_name, []):
+                    rendered, more = self._render(item, measures)
+                    if rendered is None:
+                        summary = None  # брак любого блока бракует всё
+                        break
+                    rendered_parts.append(rendered)
+                    substituted.extend(more)
+                if summary is None:
+                    highlights = risks = None
+                    break
+                if part_name == "highlights":
+                    highlights = rendered_parts
+                else:
+                    risks = rendered_parts
+        if summary is None or highlights is None or risks is None:
             return self._reject(instrument_id)
 
-        citations = self._citations_for(
-            " ".join([summary, *highlights, *risks]), measures)
+        combined = " ".join([summary, *highlights, *risks])
+        citations = self._citations_for(combined, substituted, measures)
         if citations is None:
             return self._reject(instrument_id)
 
