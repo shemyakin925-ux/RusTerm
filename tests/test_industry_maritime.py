@@ -233,3 +233,33 @@ def test_integration_segment_data_from_annual_report():
 # пользователя. Офлайн-интеграционный тест выше закрывает пункт «Тесты»
 # документа: segment data из годового отчёта читается из сохранённого
 # сырья (N7: узлы 1,3,6,7,8,9 офлайн).
+
+
+def test_u12_registry_uses_document_names_verbatim():
+    """TASK-8 U12.1: имена из «Специфичные метрики» зарегистрированы
+    дословно; реестр отличается от документа только на average_fleet_age
+    (разрешённое дополнение)."""
+    import re
+    from pathlib import Path
+
+    doc = (Path(__file__).resolve().parents[1] / "docs"
+           / "industry-metrics" / "maritime-tanker.md").read_text(
+        encoding="utf-8")
+    section = doc.split("## Специфичные метрики")[1].split("## Источники")[0]
+    doc_names = set(re.findall(r"\*\*(.+?)\*\*", section))
+    known = set(mt.known_measures())
+    assert doc_names <= known, f"не зарегистрированы: {doc_names - known}"
+    # вне документа остаются только имена функций Python и дополнение:
+    # семь *_pct, fleet_age_histogram и average_fleet_age
+    assert known - doc_names == {
+        "fleet_utilization_pct", "spot_vs_time_charter_exposure_pct",
+        "orderbook_to_fleet_ratio_pct", "scrubber_fitted_pct",
+        "IMO_2020_readiness_pct", "idle_capacity_pct", "blank_sailings_pct",
+        "fleet_age_histogram", "average_fleet_age",
+    }
+    # алиас считает то же, что и имя функции
+    a = mt.calculate_industry_measure("fleet_utilization_%",
+                                      off_hire_days=36.5)
+    b = mt.calculate_industry_measure("fleet_utilization_pct",
+                                      off_hire_days=36.5)
+    assert a.value == b.value == pytest.approx(90.0)

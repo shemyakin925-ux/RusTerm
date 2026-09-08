@@ -293,6 +293,8 @@ _DISPATCH = {
         kw.get("count")),
     "average_fleet_age": lambda **kw: average_fleet_age(
         kw.get("ages")),
+    "fleet_age_histogram": lambda **kw: fleet_age_histogram(
+        kw.get("ages")),
     "average_residual_years_by_class":
         lambda **kw: average_residual_years_by_class(
             kw.get("residual_years")),
@@ -331,6 +333,24 @@ def calculate_industry_measure(concept: str, **inputs) -> Measure:
     if concept not in _DISPATCH:
         raise KeyError(f"неизвестная отраслевая мера {concept!r}")
     return _DISPATCH[concept](**inputs)
+
+
+# Имена из документа дословно (TASK-8 U12.1): в maritime-tanker.md
+# семь метрик пишутся с «%», а fleet_age_profile — гистограмма.
+# Функции Python сохраняют *_pct, реестр знает оба имени.
+_ALIASES: dict[str, str] = {
+    "fleet_utilization_%": "fleet_utilization_pct",
+    "spot_vs_time_charter_exposure_%": "spot_vs_time_charter_exposure_pct",
+    "orderbook_to_fleet_ratio_%": "orderbook_to_fleet_ratio_pct",
+    "scrubber_fitted_%": "scrubber_fitted_pct",
+    "IMO_2020_readiness_%": "IMO_2020_readiness_pct",
+    "idle_capacity_%": "idle_capacity_pct",
+    "blank_sailings_%": "blank_sailings_pct",
+    "fleet_age_profile": "fleet_age_histogram",
+}
+
+for _doc_name, _code_name in _ALIASES.items():
+    _DISPATCH[_doc_name] = _DISPATCH[_code_name]
 
 
 def known_measures() -> tuple:
