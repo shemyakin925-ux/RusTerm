@@ -551,24 +551,18 @@ def cmd_watchlist(args) -> int:
                 print(f"список {args.id!r} не найден", file=sys.stderr)
                 conn.close()
                 return 1
-            if args.version is not None:
-                vid = wl._version_id(args.id, args.version)
-            else:
-                vid = current["watchlist_version_id"]
-            if vid is None:
-                print(f"версия {args.version} списка {args.id!r} не найдена",
+            version = args.version if args.version is not None \
+                else current["version"]
+            action = wl.version_action(args.id, version)
+            if action is None and args.version is not None:
+                print(f"версия {version} списка {args.id!r} не найдена",
                       file=sys.stderr)
                 conn.close()
                 return 1
-            version_row = conn.execute(
-                "SELECT action FROM watchlist_version"
-                " WHERE watchlist_version_id=?", (vid,)).fetchone()
-            version = args.version if args.version is not None \
-                else current["version"]
             print(json.dumps({
                 "watchlist_id": args.id,
                 "version": version,
-                "action": version_row[0] if version_row else "",
+                "action": action or "",
                 "members": wl.members(args.id, version=version),
                 "groups": wl.groups(args.id, version=version),
                 "filters": wl.filters(args.id, version=version),

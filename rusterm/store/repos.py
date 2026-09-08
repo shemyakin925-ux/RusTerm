@@ -750,6 +750,14 @@ class WatchlistRepo:
                 (vid, json.dumps(criteria, ensure_ascii=False)),
             )
 
+    def version_action(self, watchlist_id: str, version: int) -> Optional[str]:
+        """action строки запрошенной версии; None — версии нет."""
+        row = self.conn.execute(
+            """SELECT wv.action FROM watchlist_version wv
+               WHERE wv.watchlist_id=? AND wv.version=?""",
+            (watchlist_id, version)).fetchone()
+        return row[0] if row else None
+
     def copy_members(self, source_version_id: str,
                      target_version_id: str) -> None:
         """Перенести состав одной версии в другую (полный новый состав
