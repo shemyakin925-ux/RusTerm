@@ -267,25 +267,29 @@ class FactRepo:
                     locator: dict,
                     parser_version: str,
                     status: str = "ok",
-                    superseded_by: Optional[str] = None) -> None:
+                    superseded_by: Optional[str] = None,
+                    canonical_concept: Optional[str] = None,
+                    concept_map_version: Optional[str] = None) -> None:
         with writer_transaction(self.conn) as c:
             c.execute(
                 """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
                   period_start, period_end, period_type, value, unit, currency,
                   basis, origin, source_ref, locator, parser_version,
-                  status, superseded_by, ingested_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                  status, superseded_by, ingested_at,
+                  canonical_concept, concept_map_version)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (fact_id, issuer_id, listing_id, concept,
                  period_start, period_end, period_type, value, unit, currency,
                  basis, origin, source_ref, json.dumps(locator, ensure_ascii=False),
-                 parser_version, status, superseded_by, time.time()),
+                 parser_version, status, superseded_by, time.time(),
+                 canonical_concept, concept_map_version),
             )
 
     _FACT_COLUMNS = (
         "fact_id", "issuer_id", "listing_id", "concept", "period_start",
         "period_end", "period_type", "value", "unit", "currency", "basis",
         "origin", "source_ref", "locator", "parser_version", "status",
-        "superseded_by",
+        "superseded_by", "canonical_concept", "concept_map_version",
     )
 
     def get_fact(self, fact_id: str) -> Optional[dict]:
@@ -450,12 +454,17 @@ class SnapshotRepo:
         return [r[0] for r in rows]
 
     def as_reported_facts(self, issuer_id: str, concepts: tuple) -> list:
-        """Свежие as_reported-факты эмитента по списку концептов."""
+        """Свежие as_reported-факты эмитента по списку КАНОНИЧЕСКИХ
+        концептов (TASK-9 V0): тег источника остаётся в concept, а мера
+        собирается по canonical_concept. Возвращает unit и периоды, чтобы
+        выбор одного периода шёл без второго запроса."""
         placeholders = ",".join("?" * len(concepts))
         return self.conn.execute(
-            f"""SELECT concept, value, fact_id FROM fact
+            f"""SELECT concept, value, fact_id, unit, period_start,
+                       period_end, canonical_concept
+                FROM fact
                 WHERE issuer_id=? AND basis='as_reported' AND status='ok'
-                  AND concept IN ({placeholders})
+                  AND canonical_concept IN ({placeholders})
                 ORDER BY period_end DESC, ingested_at DESC""",
             (issuer_id, *concepts)).fetchall()
 
@@ -942,15 +951,17 @@ def persist_ingestion_results(conn: sqlite3.Connection,
                 """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
                   period_start, period_end, period_type, value, unit, currency,
                   basis, origin, source_ref, locator, parser_version,
-                  status, superseded_by, ingested_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                  status, superseded_by, ingested_at,
+                  canonical_concept, concept_map_version)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (f["fact_id"], f.get("issuer_id"), f.get("listing_id"),
                  f["concept"], f["period_start"], f["period_end"],
                  f["period_type"], f.get("value"), f["unit"],
                  f.get("currency"), f["basis"], f["origin"],
                  f["source_ref"], json.dumps(f["locator"], ensure_ascii=False),
                  f["parser_version"], f.get("status", "ok"),
-                 f.get("superseded_by"), time.time()))
+                 f.get("superseded_by"), time.time(),
+                 f.get("canonical_concept"), f.get("concept_map_version")))
         for instrument_id, block, status, reason in coverage_rows:
             c.execute(
                 """INSERT INTO coverage(instrument_id, block, status, last_update, reason)

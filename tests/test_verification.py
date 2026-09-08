@@ -58,6 +58,7 @@ def _fact(repos, sha, concept, value, period="2024-12-31"):
                                  "fact_id": "f-" + fact_id[:6],
                                  "concept": concept},
         parser_version="synthetic.v1",
+        canonical_concept=concept,
     )
     return fact_id
 

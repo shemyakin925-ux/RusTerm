@@ -61,6 +61,10 @@ class VerificationService:
             source_ref=wrong["source_ref"],   # ссылка на тот же документ
             locator=json.loads(wrong["locator"]),
             parser_version="manual",
+            # правка того же концепта: каноническое имя наследуется,
+            # иначе пересчёт не увидит ручной факт (TASK-9 V0)
+            canonical_concept=wrong.get("canonical_concept"),
+            concept_map_version=wrong.get("concept_map_version"),
         )
         self._facts.mark_superseded(wrong_fact_id, correct_id)
         self._verifications.capture(wrong_fact_id, correct_id, note)

@@ -16,6 +16,12 @@ from uuid import uuid4
 
 from rusterm.core.fact import locator_from_json, resolve_locator
 from rusterm.parsers import parse_auto
+from rusterm.normalize.concepts import (
+    CONCEPT_MAP_VERSION,
+    canonical_for,
+    priority_rank,
+    strip_taxonomy,
+)
 from rusterm.providers.base import ProviderError
 from rusterm.providers.disclosures import FetchedDocument, IndexRecord
 from rusterm.store.repos import RepoRegistry, persist_ingestion_results
@@ -38,6 +44,7 @@ _DISCLOSURE_BLOCKS = ("fundamentals", "ownership")
 @dataclass
 class PipelineResult:
     """Итог прогона конвейера — по узлам, для отчёта и тестов."""
+    unmapped_concepts: int = 0
     jobs_done: int = 0
     facts_stored: int = 0
     suspects: int = 0          # E5: записаны со статусом suspect
@@ -84,6 +91,21 @@ def _validate_fact(fact: dict, getter: Callable[[str], bytes]) -> list[str]:
     except Exception as e:  # локатор обязан разрешаться; не разрешился — проблема
         problems.append(f"resolve_error:{type(e).__name__}")
     return problems
+
+
+def apply_concept_map(fact: dict) -> int:
+    """Заполнить canonical_concept/concept_map_version у словаря факта
+    (TASK-9 V0). Возвращает 1, если тег не отобразился (факт остаётся,
+    каноническое имя — NULL: считается, а не выбрасывается)."""
+    taxonomy, local = strip_taxonomy(fact.get("concept", ""))
+    canonical = canonical_for(local) if taxonomy in ("", "us-gaap") else None
+    if canonical is not None:
+        fact["canonical_concept"] = canonical
+        fact["concept_map_version"] = CONCEPT_MAP_VERSION
+        return 0
+    fact["canonical_concept"] = None
+    fact["concept_map_version"] = None
+    return 1
 
 
 class IngestionPipeline:
@@ -225,13 +247,16 @@ class IngestionPipeline:
         getter = self._repos.raw.get
         fact_dicts: list[dict] = []
         suspects = 0
+        unmapped = 0
         for f in parsed.facts:
             fact = dict(f)
             fact["fact_id"] = str(uuid4())
             if _validate_fact(fact, getter):
                 fact["status"] = "suspect"
                 suspects += 1
+            unmapped += apply_concept_map(fact)
             fact_dicts.append(fact)
+        result.unmapped_concepts += unmapped
 
         # ── Узел 8: persist — факты + coverage одной транзакцией ──
         if not fact_dicts:

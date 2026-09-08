@@ -10,15 +10,14 @@ import pytest
 from rusterm.store.db import apply_migrations, writer_transaction, _SCHEMA_VERSION
 
 
-def test_schema_version_is_35():
-    """SCHEMA_VERSION: 32 таблицы + 33 (gzip в CHECK raw_object)
-    + 35 (governance_assessment; 34 не существует — superseded_by уже
-    был в DDL fact, TASK-7 T17)."""
-    assert _SCHEMA_VERSION == 35
+def test_schema_version_is_36():
+    """SCHEMA_VERSION: 32 таблицы + 33 (gzip) + 35 (governance)
+    + 36 (canonical_concept; 34 не существует, TASK-9 V0)."""
+    assert _SCHEMA_VERSION == 36
 
 
 def test_apply_migrations_creates_all_tables():
-    """M3: миграция создаёт все таблицы и устанавливает schema_version = 35."""
+    """M3: миграция создаёт все таблицы и устанавливает schema_version = 36."""
     import os
     tmpdir = tempfile.mkdtemp()
     db_path = os.path.join(tmpdir, "test.db")
@@ -30,7 +29,7 @@ def test_apply_migrations_creates_all_tables():
         # Берём максимальную версию (последняя применённая)
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 35
+        assert row[0] == 36
         # Ключевые таблицы
         tables = ["issuer", "instrument", "listing", "fact", "peer_set", "snapshot",
                   "measure", "coverage", "job", "audit_log",
@@ -135,6 +134,10 @@ def _make_v32_db_with_data(conn: sqlite3.Connection) -> None:
         [(v, 0.0, "seed") for v in range(1, 33)],
     )
     conn.execute(_OLD_RAW_OBJECT_DDL)
+    # настоящая база v32 содержит и fact (создаётся миграцией 11);
+    # без него миграция 36 (ALTER TABLE fact) не имеет смысла
+    conn.execute(
+        "CREATE TABLE fact (fact_id TEXT PRIMARY KEY, source_ref TEXT)")
     conn.executemany(
         "INSERT INTO raw_object(sha256, provider, fetched_at, bytes,"
         " content_type, compression) VALUES (?, 'synthetic', 0.0, 3,"
@@ -156,8 +159,8 @@ def test_migration_33_keeps_data_and_allows_gzip():
     try:
         _make_v32_db_with_data(conn)
         newly = apply_migrations(conn)
-        # с миграцией 35 (governance_assessment) применяются обе
-        assert newly == [33, 35], f"ожидались новые версии [33, 35], получили {newly}"
+        # v32-база получает 33 (gzip), 35 (governance) и 36 (canonical)
+        assert newly == [33, 35, 36], f"ожидались [33, 35, 36], получили {newly}"
         rows = dict(conn.execute(
             "SELECT sha256, compression FROM raw_object").fetchall())
         assert rows == {"a" * 64: "none", "b" * 64: "zstd"}, (

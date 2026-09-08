@@ -162,7 +162,8 @@ def cmd_ingest(args) -> int:
         print(f"{instrument_id}: заданий закрыто: {result.jobs_done}; "
               f"фактов: {result.facts_stored}; "
               f"дублей sha256: {result.duplicates}; неразобрано (E4): "
-              f"{result.needs_verification}; suspect (E5): {result.suspects}")
+              f"{result.needs_verification}; suspect (E5): {result.suspects}; "
+              f"неотображённых концептов: {result.unmapped_concepts}")
     conn.close()
     return 0
 

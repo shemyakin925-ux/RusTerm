@@ -46,11 +46,12 @@ def _fact(conn, concept, value, basis="as_reported", fact_id=None,
         """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
           period_start, period_end, period_type, value, unit, currency,
           basis, origin, source_ref, locator, parser_version,
-          status, superseded_by, ingested_at)
+          status, superseded_by, ingested_at,
+          canonical_concept, concept_map_version)
           VALUES (?, 'i1', NULL, ?, '2024-01-01', '2024-12-31', 'duration',
                   ?, 'USD', NULL, ?, 'extracted', 'src-x', '{}',
-                  'synthetic.v1', 'ok', NULL, ?)""",
-        (fid, concept, value, basis, ingested_at))
+                  'synthetic.v1', 'ok', NULL, ?, ?, 'us-gaap.v1')""",
+        (fid, concept, value, basis, ingested_at, concept))
     return fid
 
 

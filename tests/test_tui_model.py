@@ -61,7 +61,8 @@ def _seed_snapshot_with_measures(repos):
         source_ref=obj.sha256,
         locator={"kind": "xbrl", "doc_sha256": obj.sha256,
                  "fact_id": fact_id, "concept": "revenue"},
-        parser_version="synthetic.v1")
+        parser_version="synthetic.v1",
+        canonical_concept="revenue")
     repos.snapshot.create_snapshot("s1", "ins1", 1, "2024-12-31",
                                    None, "none", "ready")
     repos.snapshot.add_block("s1", "fundamentals", "ready", None)

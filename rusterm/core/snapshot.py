@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from rusterm.core.peers import evaluate, percentile_share
 from rusterm.formulas import calculate_measure
+from rusterm.normalize.concepts import priority_rank, strip_taxonomy
 
 # Меры первого прохода: фундаментальные, считаются на issuer.
 _BASE_MEASURES = {
@@ -159,15 +160,25 @@ class SnapshotBuilder:
         rows = self._snapshots.as_reported_facts(
             issuer_id, ("net_income", "revenue", "operating_income",
                         "tax_expense", "pretax_income"))
+        base_concepts = ("net_income", "revenue", "operating_income",
+                         "tax_expense", "pretax_income")
         values: dict[str, tuple[float, str]] = {}
-        for concept, value, fact_id in rows:
-            if concept in ("net_income", "revenue", "operating_income",
-                           "tax_expense", "pretax_income") \
-                    and concept not in values:
-                try:
-                    values[concept] = (float(value), fact_id)
-                except (TypeError, ValueError):
-                    continue
+        ranks: dict[str, int] = {}
+        for _concept, value, fact_id, _unit, _start, _end, canonical in rows:
+            key = canonical or _concept
+            if key not in base_concepts:
+                continue
+            # первый тег таблицы, у которого есть факт, выигрывает:
+            # при равном каноническом имени берём меньший приоритетный ранг
+            _taxonomy, local = strip_taxonomy(_concept)
+            rank = priority_rank(key, local)
+            if key in values and ranks.get(key, 1 << 30) <= rank:
+                continue
+            try:
+                values[key] = (float(value), fact_id)
+                ranks[key] = rank
+            except (TypeError, ValueError):
+                continue
         inputs: dict[str, dict] = {}
         lineage: dict[str, list] = {}
         for concept, args in _BASE_MEASURES.items():

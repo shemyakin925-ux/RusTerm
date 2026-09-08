@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 35  # 32 таблицы + 33 (gzip в CHECK) + 35 (governance_assessment)
+_SCHEMA_VERSION = 36  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept)
 
 
 def _checksum(text: str) -> str:
@@ -365,6 +365,19 @@ def _migrate_35_governance_assessment(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[35] = (_migrate_35_governance_assessment,
                           _GOVERNANCE_ASSESSMENT_DDL)
+
+
+# Миграция 36: тег источника остаётся в fact.concept, каноническое имя
+# из карты (rusterm/normalize/concepts.py, us-gaap.v1) пишется рядом —
+# NULL для неотображённых тегов, чтобы не врать (TASK-9 V0).
+def _migrate_36_canonical_concept(conn: sqlite3.Connection) -> None:
+    conn.execute("ALTER TABLE fact ADD COLUMN canonical_concept TEXT")
+    conn.execute("ALTER TABLE fact ADD COLUMN concept_map_version TEXT")
+
+
+_CUSTOM_MIGRATIONS[36] = (_migrate_36_canonical_concept,
+                          "ALTER TABLE fact ADD canonical_concept,"
+                          " concept_map_version")
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

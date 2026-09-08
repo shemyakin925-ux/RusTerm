@@ -495,6 +495,10 @@ def test_i16_schema_change_reaches_existing_db():
             "INSERT INTO schema_version(version, applied_at, checksum)"
             " VALUES (?, ?, ?)",
             [(v, 0.0, "seed") for v in range(1, 33)])
+        # настоящая база v32 содержит и fact (миграция 11) —
+        # миграция 36 добавляет к нему колонки
+        conn.execute(
+            "CREATE TABLE fact (fact_id TEXT PRIMARY KEY, source_ref TEXT)")
         # DDL raw_object до миграции 33: CHECK без 'gzip'
         conn.execute(
             "CREATE TABLE raw_object ("
