@@ -165,6 +165,13 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
                     f"{snapshot['instrument_id']}: {net_margin[10]!r}"
         assert non_null_net_margin >= 15, (
             f"non-null net_margin: {non_null_net_margin}/20")
+
+        # W3: неотображённых фактов нет — тег Including… закрыт картой
+        null_canonical = conn.execute(
+            "SELECT COUNT(*) FROM fact WHERE canonical_concept IS NULL"
+        ).fetchone()[0]
+        assert null_canonical == 0, (
+            f"{null_canonical} фактов без canonical_concept")
         coverage_rows = conn.execute(
             "SELECT instrument_id, COUNT(*) FROM coverage"
             " GROUP BY instrument_id").fetchall()

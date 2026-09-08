@@ -12,7 +12,7 @@
 """
 from __future__ import annotations
 
-CONCEPT_MAP_VERSION = "us-gaap.v1"
+CONCEPT_MAP_VERSION = "us-gaap.v2"  # v2: + total_equity_incl_nci (TASK-10 W3)
 
 CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "revenue": (
@@ -45,6 +45,11 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "st_investments": ("ShortTermInvestments",),
     "total_assets": ("Assets",),
     "total_equity": ("StockholdersEquity",),
+    # капитал включая неконтролирующую долю (TASK-10 W3): НЕ синоним
+    # total_equity и никогда с ним не суммируется; формулы пока нет —
+    # факт перестаёт быть невидимым
+    "total_equity_incl_nci": (
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",),
     "minority_interest": ("MinorityInterest",),
     "preferred_equity": ("PreferredStockValue",),
     "dps": ("CommonStockDividendsPerShareDeclared",),

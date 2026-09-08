@@ -28,16 +28,43 @@ from rusterm.normalize.concepts import (
 DATA = Path(__file__).resolve().parents[1] / "tests" / "data" / "edgar"
 
 
+# Имена, введённые решением координатора сверх словаря, с основанием:
+# правка docs/ запрещена проверкой 10, а строка в словаре появится
+# вместе с следующей ревизией документа.
+RULED_BEYOND_DICTIONARY = {
+    "total_equity_incl_nci": "TASK-10 W3: капитал включая НКУ, тег "
+    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+}
+
+
 def test_every_concept_name_exists_in_data_dictionary():
     """Страж (B7-стиль): левая колонка таблицы — имена из
-    docs/data-dictionary.md §2, в обе стороны."""
+    docs/data-dictionary.md §2, в обе стороны. Исключения — только
+    концепты, введённые решением координатора (RULED_BEYOND_DICTIONARY)."""
     doc = (Path(__file__).resolve().parents[1] / "docs"
            / "data-dictionary.md").read_text(encoding="utf-8")
     known = set(CONCEPT_MAP)
     missing = [name for name in known
                if f"`{name}`" not in doc and f"**{name}**" not in doc
                and name not in doc]
-    assert not missing, f"концептов нет в словаре: {missing}"
+    unexpected = set(missing) - set(RULED_BEYOND_DICTIONARY)
+    assert not unexpected, f"концептов нет в словаре: {unexpected}"
+    for name in set(missing):
+        assert name in RULED_BEYOND_DICTIONARY, name
+    # исключение действительно разрешено: концепт в карте
+    assert RULED_BEYOND_DICTIONARY.keys() <= known
+
+
+def test_w3_total_equity_incl_nci_maps_and_total_equity_does_not_absorb():
+    """TASK-10 W3: новый концепт маппится; total_equity НЕ поглощает
+    тег Including (теги не синонимы и не суммируются)."""
+    assert canonical_for(
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"
+    ) == "total_equity_incl_nci"
+    assert canonical_for("StockholdersEquity") == "total_equity"
+    assert CONCEPT_MAP["total_equity"] == ("StockholdersEquity",)
+    assert "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest" \
+        not in CONCEPT_MAP["total_equity"]
 
 
 def test_unknown_tag_maps_to_none_and_is_counted():
