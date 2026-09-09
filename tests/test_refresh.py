@@ -332,3 +332,101 @@ def test_a5_refresh_writes_one_audit_row_per_pass():
             (Path(root) / "logs").chmod(0o755)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_b20_cli_request_totals_match_per_result_calls(monkeypatch, capsys):
+    """BACKLOG B20: суммы requests в --json обязаны сходиться с суммой
+    RefreshResult.calls по results — и на нормальном проходе, и на
+    смешанном (один инструмент ошибается, его calls пусты). Проход
+    перехватывается обёрткой ровно один раз: totals сверяются с тем же
+    самым экземпляром результатов, который напечатан."""
+    import rusterm.cli as cli
+    from rusterm.providers.budget import RequestGate
+    from rusterm.providers.edgar import EdgarProvider
+    from rusterm.store.repos import Instrument, Issuer, WatchlistRepo
+
+    captured: dict = {}
+    real_refresh = cli.refresh_watchlist
+
+    def spy(repos_, factory, watchlist_id, as_of, **kw):
+        results = real_refresh(repos_, factory, watchlist_id, as_of, **kw)
+        captured["results"] = results
+        return results
+
+    monkeypatch.setattr(cli, "refresh_watchlist", spy)
+    monkeypatch.setenv("RUSTERM_SEC_UA", FAKE_UA)
+    transport = _MultiCikTransport(_saved_payload())
+
+    def fake_provider(name, gate: RequestGate):
+        assert name == "edgar"
+        return EdgarProvider(gate=gate, cik=0, transport=transport)
+
+    monkeypatch.setattr(cli, "get_provider", fake_provider)
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        from rusterm.store.db import apply_migrations
+        from rusterm.store.paths import AppPaths, ensure_app_dir
+        import sqlite3
+        paths = AppPaths.from_root(tmpdir)
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        repos = type("Repos", (), {"instrument": None, "watchlist": None})()
+        from rusterm.store.repos import RepoRegistry
+        repos = RepoRegistry(conn, paths)
+        wl = WatchlistRepo(conn)
+        wl.create_watchlist("w1", "n", None, None)
+        wl.new_version("v1", "w1", 1, "create", None)
+        vid = wl.current_version("w1")["watchlist_version_id"]
+        for n, cik in ((1, "900001"), (2, "900002")):
+            repos.instrument.upsert_issuer(Issuer(
+                f"i-{n}", f"Issuer {n}", "US", cik, None, "us_gaap", "USD"))
+            repos.instrument.upsert_instrument(Instrument(
+                f"US-B20-{n}", f"i-{n}", None, "common", "active", None))
+            wl.add_member(vid, f"US-B20-{n}", None)
+        conn.close()
+
+        # нормальный проход: оба обновлены
+        import json
+        assert cli.main(["--root", tmpdir, "refresh",
+                         "--watchlist", "w1", "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        results = captured["results"]
+        assert [r.action for r in results] == ["updated", "updated"]
+        assert payload["requests"]["submissions"] == \
+            sum(r.calls.get("submissions", 0) for r in results)
+        assert payload["requests"]["companyfacts"] == \
+            sum(r.calls.get("companyfacts", 0) for r in results)
+
+        # смешанный: третий инструмент без CIK ошибается (calls пусты)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        repos2 = RepoRegistry(conn, paths)
+        repos2.instrument.upsert_issuer(Issuer(
+            "i-bad", "Bad", "US", "not-a-cik", None, "us_gaap", "USD"))
+        repos2.instrument.upsert_instrument(Instrument(
+            "US-B20-BAD", "i-bad", None, "common", "active", None))
+        WatchlistRepo(conn).add_member(vid, "US-B20-BAD", None)
+        conn.close()
+
+        # --json-режим возвращает 0 и при ошибках (контракт закреплён
+        # тестом Z4 до B20) — смешанность прохода проверяется по action
+        assert cli.main(["--root", tmpdir, "refresh",
+                         "--watchlist", "w1", "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        results = captured["results"]
+        actions = sorted(r.action for r in results)
+        # второй проход качает companyfacts (дата подачи уехала), но
+        # payload тот же байт-в-байт — sha256-дедупликация даёт
+        # unchanged, не updated; ошибка CIK остаётся ошибкой
+        assert actions == ["error", "unchanged", "unchanged"], actions
+        bad = [r for r in results if r.action == "error"][0]
+        assert bad.calls == {}
+        assert payload["requests"]["submissions"] == \
+            sum(r.calls.get("submissions", 0) for r in results)
+        assert payload["requests"]["companyfacts"] == \
+            sum(r.calls.get("companyfacts", 0) for r in results)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
