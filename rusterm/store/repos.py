@@ -638,6 +638,44 @@ class PeerSetRepo:
                 (peer_set_version_id, instrument_id, reason, excluded_stale),
             )
 
+    def version_at(self, peer_set_id: str, as_of: str) -> Optional[dict]:
+        """Версия, чей интервал [valid_from, valid_to) покрывает дату
+        (TASK-17 E2, §0.2 ruling 5). Два совпадения — дефект данных:
+        ValueError называет оба, выбор не делается."""
+        rows = self.conn.execute(
+            """SELECT peer_set_version_id, version, origin, approved_by_user
+               FROM peer_set_version
+               WHERE peer_set_id=? AND valid_from<=?
+                 AND (valid_to IS NULL OR ?<valid_to)
+               ORDER BY valid_from""",
+            (peer_set_id, as_of, as_of)).fetchall()
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise ValueError(
+                f"несколько версий набора {peer_set_id!r} покрывают "
+                f"{as_of}: {[r[0] for r in rows]}")
+        return {"peer_set_version_id": rows[0][0], "version": rows[0][1],
+                "origin": rows[0][2], "approved": bool(rows[0][3])}
+
+    def member_snapshots_at(self, peer_set_version_id: str,
+                            as_of: str) -> dict:
+        """Для каждого участника версии — новейший снапшот с as_of<=даты
+        (TASK-17 E2). Нет снапшота на дату — None: участник не вносит
+        вклад и попадает в счётчик причин no_snapshot_at_date."""
+        out: dict[str, Optional[str]] = {}
+        for (iid,) in self.conn.execute(
+                "SELECT instrument_id FROM peer_set_member"
+                " WHERE peer_set_version_id=?",
+                (peer_set_version_id,)).fetchall():
+            row = self.conn.execute(
+                """SELECT snapshot_id FROM snapshot
+                   WHERE instrument_id=? AND as_of<=?
+                   ORDER BY as_of DESC, version DESC LIMIT 1""",
+                (iid, as_of)).fetchone()
+            out[iid] = row[0] if row else None
+        return out
+
 
 class WatchlistRepo:
     """Версии списков, групп, фильтров. Изменение — новая версия целиком."""
