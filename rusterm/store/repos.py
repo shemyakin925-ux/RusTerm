@@ -818,6 +818,38 @@ class WatchlistRepo:
                 (target_version_id, source_version_id, instrument_id))
             return cur.rowcount
 
+    def create_version_with_members(self, watchlist_id: str,
+                                    action: str, note: Optional[str],
+                                    members: list[tuple[str, str]]) -> dict:
+        """Новая версия + прежний состав + добавленные участники в ОДНОЙ
+        транзакции (TASK-16 D5, docs §3.2): сбой любого INSERT откатывает
+        версию и участников целиком — полусписка не остаётся. Возвращает
+        {watchlist_version_id, version}."""
+        current = self.current_version(watchlist_id)
+        if current is None:
+            raise ValueError(f"список {watchlist_id!r} не найден")
+        source_vid = current["watchlist_version_id"]
+        new_number = current["version"] + 1
+        vid = str(uuid.uuid4())
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO watchlist_version(watchlist_version_id,
+                  watchlist_id, version, created_at, action, note)
+                  VALUES (?, ?, ?, ?, ?, ?)""",
+                (vid, watchlist_id, new_number, time.time(), action, note))
+            c.execute(
+                """INSERT INTO watchlist_member(watchlist_version_id,
+                  instrument_id, note, added_at)
+                  SELECT ?, instrument_id, note, added_at
+                  FROM watchlist_member WHERE watchlist_version_id=?""",
+                (vid, source_vid))
+            for instrument_id, note_member in members:
+                c.execute(
+                    """INSERT INTO watchlist_member(watchlist_version_id,
+                      instrument_id, note, added_at) VALUES (?, ?, ?, ?)""",
+                    (vid, instrument_id, note_member, time.time()))
+        return {"watchlist_version_id": vid, "version": new_number}
+
     def rollback_to(self, watchlist_id: str, version: int) -> dict:
         """Откат — НОВАЯ версия, копирующая состав указанной: состав
         (members), группы и фильтры. Ничего не удаляется и не переписывается;
