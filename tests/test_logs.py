@@ -109,6 +109,15 @@ def test_app_log_rotates_past_limit():
         assert paths.app_log_path.exists()
         rotated = paths.app_log_path.with_name(paths.app_log_path.name + ".1")
         assert rotated.exists(), "ротация не произошла на 5 × 1 МБ лимите"
+        # B19: перерасход капа даёт ровно два файла (app.log + .1),
+        # самый свежий (активный) держит последнюю строку
+        siblings = sorted(p.name for p in paths.app_log_path.parent.glob(
+            paths.app_log_path.name + "*"))
+        assert siblings == ["app.log", "app.log.1"], siblings
+        with open(paths.app_log_path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        assert "000299" in lines[-1], \
+            f"последняя строка не в свежем файле: {lines[-1][-40:]!r}"
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
