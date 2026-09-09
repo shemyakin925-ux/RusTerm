@@ -79,6 +79,38 @@ class EdgarProvider:
 
         return self.gate.request(send)
 
+    def _fetch_json_conditional(self, url: str,
+                                validators: Optional[dict] = None):
+        """Условный GET (TASK-13 Z1): валидаторы ответа (ETag,
+        Last-Modified) приходят от вызывающего значением и возвращаются
+        в результате — провайдер состояния не хранит (I10). 304 —
+        NotModified, ноль байт тела; запрос при этом считается в
+        RequestGate: он был. 200 — (документ, свежие валидаторы)."""
+        validators = validators or {}
+
+        def send(headers: dict):
+            merged = dict(headers)
+            if validators.get("etag"):
+                merged["If-None-Match"] = validators["etag"]
+            if validators.get("last_modified"):
+                merged["If-Modified-Since"] = validators["last_modified"]
+            status, body, resp_headers = self.transport(url, merged)
+            if status == 304:
+                return NotModified(url)
+            doc = json.loads(body.decode("utf-8"))
+            fresh = {key.lower(): resp_headers[key]
+                     for key in ("ETag", "Last-Modified")
+                     if resp_headers.get(key)}
+            return doc, fresh
+
+        return self.gate.request(send)
+
+    def fetch_companyfacts_conditional(self, validators=None):
+        """companyfacts условным запросом (TASK-13 Z1/Z2). Форма
+        результата — как у _fetch_json_conditional."""
+        return self._fetch_json_conditional(
+            COMPANYFACTS_URL.format(cik=self.cik), validators)
+
     # ── Карта тикеров: один запрос на весь рынок ────────────────────────
 
     def _ticker_map(self) -> dict | ConfigError | NotModified:

@@ -211,3 +211,66 @@ def test_b17_duplicate_ticker_last_feed_row_wins():
     outcome = provider.resolve("DUP", "US", "2026-09-08")
     assert outcome == {"ticker": "DUP", "cik": 222,
                        "title": "Second Corp"}, outcome
+
+
+def test_z1_conditional_get_304_is_not_modified_and_still_counts():
+    """TASK-13 Z1: первый вызов — 200 + ETag, второй с If-None-Match —
+    304: NotModified, тело не разбирается, raw_object не создаётся,
+    gate.calls_made == 2 (304 был настоящим запросом)."""
+    import os
+    import shutil
+    import sqlite3
+    import tempfile
+
+    from rusterm.providers.edgar import NotModified
+    from rusterm.store.db import apply_migrations
+    from rusterm.store.paths import AppPaths, ensure_app_dir
+    from rusterm.store.repos import RawRepo
+
+    calls = {"n": 0}
+    conditional: list = []
+
+    def transport(url, headers):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return 200, b'{"cik": 320193}', {"ETag": '"W/abc123"'}
+        conditional.append(headers.get("If-None-Match"))
+        return 304, b"", {}
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        paths = AppPaths.from_root(os.path.join(tmpdir, "app"))
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        raw = RawRepo(paths, conn)
+        gate = _gate()
+        provider = EdgarProvider(gate=gate, cik=320193,
+                                 transport=transport)
+
+        outcome = provider.fetch_companyfacts_conditional()
+        assert not isinstance(outcome, NotModified), outcome
+        doc, validators = outcome
+        assert doc == {"cik": 320193}
+        assert validators.get("etag") == '"W/abc123"'
+
+        # 200-ответ хранится в raw store
+        raw.put(b'{"cik": 320193}', provider="edgar",
+                block="fundamentals", url=provider.COMPANYFACTS_URL
+                if hasattr(provider, "COMPANYFACTS_URL") else
+                "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json")
+
+        again = provider.fetch_companyfacts_conditional(validators)
+        assert isinstance(again, NotModified), again
+        assert again.url.endswith(".json")
+        assert conditional == ['"W/abc123"'], \
+            "If-None-Match не ушёл при втором вызове"
+        assert calls["n"] == 2
+        assert gate.calls_made == 2, "304 обязан считаться запросом"
+        assert conn.execute(
+            "SELECT COUNT(*) FROM raw_object").fetchone()[0] == 1, \
+            "304 не должен создавать raw_object"
+        conn.close()
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
