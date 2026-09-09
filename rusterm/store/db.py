@@ -420,6 +420,15 @@ _MIGRATION_38_INDEXES: tuple[str, ...] = (
     " ON measure_lineage(measure_id)",
 )
 
+# Имена объявленных схемой индексов: doctor сверяет их с sqlite_master —
+# уроненный индекс дрейф так же, как уроненная таблица (TASK-15 C4).
+_SCHEMA_INDEXES: tuple[str, ...] = (
+    "idx_fact_issuer_concept_period_basis",
+    "idx_fact_source_ref",
+    "idx_measure_snapshot",
+    "idx_measure_lineage_measure",
+)
+
 
 # A7: миграция 37 обещала «одна строка на эмитента и источник», а ключ
 # был issuer_id один — два источника сосуществовать не могли (§0.2.5).

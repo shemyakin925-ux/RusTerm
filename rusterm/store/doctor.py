@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .db import _SCHEMA_VERSION
+from .db import _SCHEMA_INDEXES, _SCHEMA_VERSION
 from .paths import AppPaths
 from .raw_store import iter_manifest_entries, object_path
 
@@ -73,6 +73,25 @@ def doctor_report(paths: AppPaths, conn) -> dict:
                      WHERE l.measure_id = m.measure_id)""").fetchone()[0]
         if bad_measures:
             problems.append(f"мер с значением, но без lineage: {bad_measures}")
+
+        # осиротевшее состояние сбора: строка без эмитента (TASK-15 C4)
+        state_orphans = conn.execute(
+            """SELECT COUNT(*) FROM issuer_ingest_state s
+               LEFT JOIN issuer i ON i.issuer_id = s.issuer_id
+               WHERE i.issuer_id IS NULL""").fetchone()[0]
+        if state_orphans:
+            problems.append(
+                f"строк issuer_ingest_state без эмитента: {state_orphans}")
+
+        # объявленные схемой индексы на месте (TASK-15 C4)
+        placeholders = ",".join("?" * len(_SCHEMA_INDEXES))
+        present = {r[0] for r in conn.execute(
+            f"SELECT name FROM sqlite_master WHERE type='index'"
+            f" AND name IN ({placeholders})", _SCHEMA_INDEXES)}
+        missing_indexes = sorted(set(_SCHEMA_INDEXES) - present)
+        if missing_indexes:
+            problems.append("индексов схемы нет в базе: "
+                            + ", ".join(missing_indexes))
 
     # сырьё против базы: дрейф в обе стороны (BACKLOG B9)
     if db_ready:

@@ -63,3 +63,52 @@ def test_doctor_silent_when_store_and_db_agree():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+def test_c4_doctor_names_state_orphans_and_dropped_index(capsys):
+    """TASK-15 C4: два новых дрейфа видны doctor'у — строка
+    issuer_ingest_state без эмитента и уроненный индекс схемы; exit 1,
+    в отчёте названы оба."""
+    import json
+    from rusterm.cli import main
+    tmpdir = tempfile.mkdtemp()
+    paths = AppPaths.from_root(tmpdir)
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    try:
+        apply_migrations(conn)
+        conn.execute(
+            "INSERT INTO issuer(issuer_id, name, jurisdiction,"
+            " reporting_standard, reporting_currency)"
+            " VALUES ('i1', 'Issuer 1', 'US', 'us_gaap', 'USD')")
+        conn.execute(
+            "INSERT INTO issuer_ingest_state(issuer_id, source,"
+            " last_filing_date, updated_at)"
+            " VALUES ('i1', 'edgar', '2026-01-01', '2026-01-01T00:00:00Z')")
+        conn.execute("INSERT INTO issuer(issuer_id, name, jurisdiction,"
+                     " reporting_standard, reporting_currency)"
+                     " VALUES ('i2', 'Ghost', 'US', 'us_gaap', 'USD')")
+        conn.execute(
+            "INSERT INTO issuer_ingest_state(issuer_id, source,"
+            " last_filing_date, updated_at)"
+            " VALUES ('i2', 'edgar', '2026-02-02', '2026-02-02T00:00:00Z')")
+        # осиротить строку состояния: FK отключается только на время
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("DELETE FROM issuer WHERE issuer_id='i2'")
+        conn.execute("PRAGMA foreign_keys=ON")
+        # уронить индекс
+        conn.execute("DROP INDEX idx_measure_snapshot")
+        assert conn.execute(
+            "PRAGMA foreign_keys").fetchone()[0] == 1
+        conn.close()
+
+        import io
+        assert main(["--root", tmpdir, "doctor"]) == 1
+        report = json.loads(capsys.readouterr().out)
+        assert report["ok"] is False
+        named = " ".join(report["problems"])
+        assert "строк issuer_ingest_state без эмитента: 1" in named
+        assert "idx_measure_snapshot" in named
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
