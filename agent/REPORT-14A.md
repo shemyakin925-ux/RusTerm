@@ -29,3 +29,4 @@ NOW: §0, step 8
 - B20 `python3 -m pytest tests/test_refresh.py -q` → `4 passed`; totals==sum(calls) на обоих проходах; `--json` возвращает 0 даже при ошибках (контракт Z4, отмечено). Инцидент: первый вариант коммита ушёл в git с красным тестом (пайп скрыл код возврата) — аменд до пуша, см. ## What not to trust. Коммит запушен.
 - B21 `python3 -m pytest tests/test_db.py -q` → `11 passed`; acceptance 13/13. Коммит запушен.
 - B22 `grep -rn '1100' rusterm/ --include='*.py'` → только `_STALE_LOOKBACK_DAYS = 1100`; tests → 10 passed, 1 xfailed; acceptance 13/13. Коммит запушен.
+- B23 `python3 -m pytest tests/test_trim_tool.py -q` → `5 passed`; acceptance 13/13. Коммит запушен.
