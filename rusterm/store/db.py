@@ -402,12 +402,13 @@ _CUSTOM_MIGRATIONS[37] = (_migrate_37_issuer_ingest_state,
                           _ISSUER_INGEST_STATE_DDL)
 
 
-# Миграция 38 (TASK-14 A1): первые индексы схемы — до неё каждая
-# выборка в проекте полный SCAN (Z3: restated_revisions() сканирует
-# fact дважды и на каждой сборке снапшота). Четыре индекса, по одному
-# на именованный запрос; пятый наугад — цена без пользы.
-# A7 дополнит эту же миграцию перестройкой issuer_ingest_state под
-# составной ключ (issuer_id, source) — та же версия, оба изменения.
+# Миграция 38 (TASK-14 A1/A7): две перемены одной версии — первые
+# индексы схемы и честный ключ issuer_ingest_state.
+#
+# A1: до индексов каждая выборка в проекте — полный SCAN (Z3:
+# restated_revisions() сканирует fact дважды на каждой сборке снапшота).
+# Четыре индекса, по одному на именованный запрос; пятый наугад — цена
+# без пользы.
 _MIGRATION_38_INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_fact_issuer_concept_period_basis"
     " ON fact(issuer_id, concept, period_end, basis)",
@@ -420,14 +421,44 @@ _MIGRATION_38_INDEXES: tuple[str, ...] = (
 )
 
 
-def _migrate_38_indexes(conn: sqlite3.Connection) -> None:
+# A7: миграция 37 обещала «одна строка на эмитента и источник», а ключ
+# был issuer_id один — два источника сосуществовать не могли (§0.2.5).
+# Ключ становится (issuer_id, source); перестройка по образцу миграции
+# 33: новая таблица, перелив, DROP, RENAME — существующие миграции
+# неприкосновенны, поэтому правка живёт здесь, в новой версии 38.
+_ISSUER_INGEST_STATE_V38_DDL = """CREATE TABLE issuer_ingest_state_new (
+        issuer_id TEXT NOT NULL REFERENCES issuer(issuer_id),
+        source TEXT NOT NULL DEFAULT 'edgar',
+        last_filing_date TEXT,
+        etag TEXT,
+        last_modified TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (issuer_id, source))"""
+
+_ISSUER_INGEST_STATE_V38_COLUMNS = (
+    "issuer_id, source, last_filing_date, etag, last_modified, updated_at"
+)
+
+
+def _migrate_38_indexes_and_state_key(conn: sqlite3.Connection) -> None:
     for ddl in _MIGRATION_38_INDEXES:
         conn.execute(ddl)
+    conn.execute(_ISSUER_INGEST_STATE_V38_DDL)
+    conn.execute(
+        f"INSERT INTO issuer_ingest_state_new"
+        f" ({_ISSUER_INGEST_STATE_V38_COLUMNS})"
+        f" SELECT {_ISSUER_INGEST_STATE_V38_COLUMNS}"
+        f" FROM issuer_ingest_state"
+    )
+    conn.execute("DROP TABLE issuer_ingest_state")
+    conn.execute("ALTER TABLE issuer_ingest_state_new RENAME TO"
+                 " issuer_ingest_state")
 
 
-_MIGRATION_38_CHECKSUM_TEXT = "; ".join(_MIGRATION_38_INDEXES)
+_MIGRATION_38_CHECKSUM_TEXT = \
+    "; ".join(_MIGRATION_38_INDEXES) + ";" + _ISSUER_INGEST_STATE_V38_DDL
 
-_CUSTOM_MIGRATIONS[38] = (_migrate_38_indexes,
+_CUSTOM_MIGRATIONS[38] = (_migrate_38_indexes_and_state_key,
                           _MIGRATION_38_CHECKSUM_TEXT)
 
 

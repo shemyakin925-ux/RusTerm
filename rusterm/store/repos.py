@@ -1427,7 +1427,7 @@ class IssuerStateRepo:
                 """INSERT INTO issuer_ingest_state(issuer_id, source,
                     last_filing_date, etag, last_modified, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(issuer_id) DO UPDATE SET
+                   ON CONFLICT(issuer_id, source) DO UPDATE SET
                     last_filing_date=excluded.last_filing_date,
                     etag=excluded.etag,
                     last_modified=excluded.last_modified,

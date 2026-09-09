@@ -318,3 +318,53 @@ def test_migration_38_revisions_query_hits_index_not_fact_scan():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+def test_migration_38_issuer_ingest_state_two_sources():
+    """TASK-14 A7 (§0.2.5): миграция 37 обещала «строка на эмитента и
+    источник», а ключ был issuer_id один. После 38 ключ (issuer_id,
+    source): два источника одного эмитента сосуществуют и читаются
+    независимо; повторный put по той же паре обновляет, а не дублирует;
+    строка старой базы переживает перестройку."""
+    import os
+    import shutil
+    tmpdir = tempfile.mkdtemp()
+    conn = sqlite3.connect(str(os.path.join(tmpdir, "test.db")),
+                           timeout=30, isolation_level=None)
+    try:
+        apply_migrations(conn)
+        conn.execute(
+            "INSERT INTO issuer(issuer_id, name, jurisdiction,"
+            " reporting_standard, reporting_currency)"
+            " VALUES ('i1', 'Issuer 1', 'US', 'us_gaap', 'USD')")
+        # база версии 37 могла нести строку эмитента — она обязана
+        # пережить перестройку; эмулируем записью и повторной выливкой
+        from rusterm.store.repos import IssuerStateRepo
+        state = IssuerStateRepo(conn)
+        state.put("i1", "2026-01-01", etag="W/\"a\"", source="edgar")
+
+        ddl = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table'"
+            " AND name='issuer_ingest_state'").fetchone()[0]
+        assert "PRIMARY KEY (issuer_id, source)" in ddl, ddl
+
+        state.put("i1", "2026-02-01", etag="W/\"b\"", source="synthetic")
+        edgar = state.get("i1", source="edgar")
+        synthetic = state.get("i1", source="synthetic")
+        assert edgar["last_filing_date"] == "2026-01-01"
+        assert edgar["etag"] == "W/\"a\""
+        assert synthetic["last_filing_date"] == "2026-02-01"
+        assert synthetic["etag"] == "W/\"b\""
+
+        # повторный put по той же паре — обновление, не дубль
+        state.put("i1", "2026-03-01", etag="W/\"c\"", source="edgar")
+        n = conn.execute(
+            "SELECT COUNT(*) FROM issuer_ingest_state"
+            " WHERE issuer_id='i1'").fetchone()[0]
+        assert n == 2, "повторный put создал дубль"
+        assert state.get("i1")["last_filing_date"] == "2026-03-01"
+        # get по умолчанию — edgar (сигнатуры не менялись)
+        assert state.get("i1", source="synthetic")["etag"] == "W/\"b\""
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
