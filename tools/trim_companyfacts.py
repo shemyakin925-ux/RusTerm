@@ -35,11 +35,30 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from rusterm.normalize.concepts import CONCEPT_MAP  # noqa: E402
+from rusterm.normalize.concepts import (  # noqa: E402
+    CONCEPT_MAP,
+    CONCEPT_MAP_IFRS,
+)
 
 KEEP_ENTRY_FIELDS = ("val", "accn", "form", "filed", "fy", "fp",
                      "start", "end", "frame")
 GOLDEN_PATH = REPO_ROOT / "tests" / "data" / "golden_m2.json"
+
+# Формы годовой отчётности по таксономии (TASK-18 G6): us-gaap —
+# домашние 10-K; ifrs-full — иностранные эмитенты MJDS: 40-F и 6-K.
+_FORMS_BY_TAXONOMY = {"us-gaap": ("10-K",), "ifrs-full": ("40-F", "6-K")}
+
+
+def _taxonomy_of(doc: dict) -> str | None:
+    """Таксономия payload'а: us-gaap, если есть; иначе ifrs-full;
+    иначе None (TASK-18 G6: обрезка держит ту таксономию, что несёт
+    payload, — поменялся только верхний ключ)."""
+    facts = doc.get("facts", {})
+    if "us-gaap" in facts:
+        return "us-gaap"
+    if "ifrs-full" in facts:
+        return "ifrs-full"
+    return None
 
 
 def golden_pointer_tags(golden_path: Path) -> set[str]:
@@ -57,18 +76,29 @@ def golden_pointer_tags(golden_path: Path) -> set[str]:
 
 
 def trim(doc: dict, golden_path: Path = GOLDEN_PATH) -> dict:
-    tags = {tag for tags in CONCEPT_MAP.values() for tag in tags}
-    tags |= golden_pointer_tags(golden_path)
+    taxonomy = _taxonomy_of(doc)
+    if taxonomy is None:
+        return {
+            "cik": doc.get("cik"),
+            "entityName": doc.get("entityName"),
+            "facts": {},
+        }
+    tag_map = CONCEPT_MAP_IFRS if taxonomy == "ifrs-full" else CONCEPT_MAP
+    tags = {tag for tags in tag_map.values() for tag in tags}
+    if taxonomy != "ifrs-full":
+        # golden-указатели относятся к us-gaap словарю (TASK-10 W1)
+        tags |= golden_pointer_tags(golden_path)
 
-    usgaap = doc.get("facts", {}).get("us-gaap", {})
+    usgaap = doc.get("facts", {}).get(taxonomy, {})
     out_concepts: dict = {}
     for name in sorted(usgaap):
         if name not in tags:
             continue
         node = usgaap[name]
         units_out: dict = {}
+        forms = _FORMS_BY_TAXONOMY.get(taxonomy, ("10-K",))
         for unit, entries in node.get("units", {}).items():
-            ten_k = [e for e in entries if e.get("form") == "10-K"]
+            ten_k = [e for e in entries if e.get("form") in forms]
             by_period: dict = {}
             durations: dict = {}
             for e in ten_k:
@@ -101,7 +131,7 @@ def trim(doc: dict, golden_path: Path = GOLDEN_PATH) -> dict:
     return {
         "cik": doc.get("cik"),
         "entityName": doc.get("entityName"),
-        "facts": {"us-gaap": out_concepts},
+        "facts": {taxonomy: out_concepts},
     }
 
 

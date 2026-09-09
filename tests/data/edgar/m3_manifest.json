@@ -78,5 +78,25 @@
   "CVX": {
     "cik": 93410,
     "sha256": "0076eb921dbe2fb4573cae0acff8e6bbcd3e87ba4371735a973d059399013c87"
+  },
+  "RY": {
+    "cik": 1000275,
+    "sha256": "4fbebf30141d84a9d178496d6f2e64a03e130f5b51d363bc180cf87d76618d2f"
+  },
+  "BMO": {
+    "cik": 927971,
+    "sha256": "11f4eb45b6b890bb7c248139102cfe378b2c737db8b0f1ba38e59fa71be69f52"
+  },
+  "CNQ": {
+    "cik": 1017413,
+    "sha256": "e1ab086d424e2792fdf06ab3cc92db9f8d6df680b419353fd6941c4f6d094539"
+  },
+  "CPTP": {
+    "cik": 202947,
+    "sha256": "760848e4974d93d2b55be49e9a6daf41a60f61d29071f0bf621168f48ebf7d36"
+  },
+  "NGGTF": {
+    "cik": 1004315,
+    "sha256": "2bdde7761033ab5b8c85653277b1e14b6813b4edf38fbcd465e25bb670c9e0d6"
   }
 }
