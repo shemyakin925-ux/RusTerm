@@ -33,3 +33,4 @@ NOW: C1, step 5
 - C3 подпроцессный тест: неизвестный id → rc 1 + stderr с именем; пустой → rc 0 + строка; --json keys {watchlist_id, dry_run, results, requests} в обоих случаях, error внутри results. `pytest` → 318 passed, 2 skipped; acceptance 13/13. Коммит запушен.
 - C4 `python3 -m pytest tests/test_doctor.py -q` → `3 passed`; `pytest` → 319 passed, 2 skipped; acceptance 13/13. Коммит запушен.
 - C5 `python3 -m pytest tests/test_tui_model.py -q` → `9 passed`; полный сюит `320 passed, 2 skipped` (rc=0 проверен напрямую, без пайпа); acceptance 13/13. Коммит запушен.
+- C6 `pytest tests/test_refresh_live.py -q -s` → `C6 live: 6 requests across two passes`; полный сюит 321 passed, 2 skipped (rc=0); acceptance 13/13. Расход сети: сам пункт 6 запросов; каждый прогон сюита ≈7 живых запросов (probe 1 + C6 6), приёмка гоняет сюит дважды — все приёмки ночи суммарно ≈ 60 живых запросов, потолок N3 5000/ночь не угрожается. Коммит запушен.
