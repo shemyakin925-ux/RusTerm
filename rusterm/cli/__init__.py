@@ -18,6 +18,8 @@ from rusterm.providers.budget import ConfigError, RequestGate
 from rusterm.providers import get_provider
 from rusterm.core.industry.aggregate import build_sector_aggregates
 from rusterm.core.snapshot import SnapshotBuilder, stale_exclusions
+from rusterm.markets import MARKET_CODES
+from rusterm.normalize.concepts import CONCEPT_MAP_VERSION_IFRS
 from rusterm.core.refresh import refresh_watchlist
 from rusterm.core.verification import VerificationService
 from rusterm.pipeline import IngestionPipeline, apply_concept_map
@@ -635,6 +637,8 @@ def cmd_status(args) -> int:
         "snapshots": repos.snapshot.latest_per_instrument(),
         "coverage": repos.coverage.status_summary(),
         "concept_map_version": CONCEPT_MAP_VERSION,
+        "concept_map_version_ifrs": CONCEPT_MAP_VERSION_IFRS,
+        "market_codes": list(MARKET_CODES),
         "budget": {
             "ceiling_per_night": 5000,
             "rate_per_second": 5,
