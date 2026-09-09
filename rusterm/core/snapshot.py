@@ -357,7 +357,7 @@ class SnapshotBuilder:
             by_concept.setdefault(key, []).append({
                 "value": numeric, "fact_id": fact_id, "unit": unit,
                 "start": start, "end": end,
-                "rank": priority_rank(key, local),
+                "rank": priority_rank(key, local, _taxonomy or "us-gaap"),
             })
 
         # ── Правило давности (TASK-12 Y2) ──

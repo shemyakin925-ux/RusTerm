@@ -17,8 +17,8 @@ from uuid import uuid4
 from rusterm.core.fact import locator_from_json, resolve_locator
 from rusterm.parsers import parse_auto
 from rusterm.normalize.concepts import (
-    CONCEPT_MAP_VERSION,
     canonical_for,
+    map_version,
     priority_rank,
     strip_taxonomy,
 )
@@ -95,13 +95,17 @@ def _validate_fact(fact: dict, getter: Callable[[str], bytes]) -> list[str]:
 
 def apply_concept_map(fact: dict) -> int:
     """Заполнить canonical_concept/concept_map_version у словаря факта
-    (TASK-9 V0). Возвращает 1, если тег не отобразился (факт остаётся,
-    каноническое имя — NULL: считается, а не выбрасывается)."""
+    (TASK-9 V0; TASK-18 G3/G4). Возвращает 1, если тег не отобразился
+    (факт остаётся, каноническое имя — NULL: считается, а не
+    выбрасывается). Таксономия берётся из префикса концепта факта
+    (us-gaap/ifrs-full — свои карты и свои версии карт)."""
     taxonomy, local = strip_taxonomy(fact.get("concept", ""))
-    canonical = canonical_for(local) if taxonomy in ("", "us-gaap") else None
+    effective = taxonomy or "us-gaap"
+    canonical = canonical_for(local, effective) \
+        if effective in ("us-gaap", "ifrs-full") else None
     if canonical is not None:
         fact["canonical_concept"] = canonical
-        fact["concept_map_version"] = CONCEPT_MAP_VERSION
+        fact["concept_map_version"] = map_version(effective)
         return 0
     fact["canonical_concept"] = None
     fact["concept_map_version"] = None

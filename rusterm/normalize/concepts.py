@@ -82,18 +82,68 @@ for _concept in CONCEPT_MAP:
     _PRIORITY[_concept].setdefault(_concept, len(_PRIORITY[_concept]))
 
 
-def canonical_for(local_tag: str) -> str | None:
-    """Каноническое имя для us-gaap локального тега; None — тег вне
-    карты: такой факт не выбрасывается, а остаётся неотображённым."""
+# ── Второй словарь: IFRS (TASK-18 G3, §0.2) ─────────────────────────────
+# Каждое имя взято решением по живым payload'ам Royal Bank, BP,
+# AstraZeneca (Bank of Montreal и Canadian Natural несут те же ядерные
+# теги). Ни одного тега сверх таблицы; два тега не суммируются; forbidden
+# lookalikes (см. тест) намеренно отсутствуют — они дают неверное число
+# там, где сейчас честная дыра.
+
+CONCEPT_MAP_VERSION_IFRS = "ifrs-full.v1"
+
+CONCEPT_MAP_IFRS: dict[str, tuple[str, ...]] = {
+    "revenue": ("Revenue", "RevenueFromContractsWithCustomers"),
+    "net_income": ("ProfitLossAttributableToOwnersOfParent", "ProfitLoss"),
+    "operating_income": ("ProfitLossFromOperatingActivities",),
+    "gross_profit": ("GrossProfit",),
+    "pretax_income": ("ProfitLossBeforeTax",),
+    "income_tax": ("IncomeTaxExpenseContinuingOperations",),
+    "d_and_a": ("DepreciationAndAmortisationExpense",
+                "AdjustmentsForDepreciationAndAmortisationExpense"),
+    "total_assets": ("Assets",),
+    "total_liabilities": ("Liabilities",),
+    "total_equity": ("EquityAttributableToOwnersOfParent",),
+    "total_equity_incl_nci": ("Equity",),
+    "cash": ("CashAndCashEquivalents",),
+    "ocf": ("CashFlowsFromUsedInOperatingActivities",),
+    "capex": ("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",),
+    "interest_expense": ("FinanceCosts",),
+    "shares_diluted": ("AdjustedWeightedAverageShares",),
+}
+
+_IFRS_TAG_TO_CONCEPT: dict[str, str] = {
+    tag: concept
+    for concept, tags in CONCEPT_MAP_IFRS.items()
+    for tag in tags
+}
+
+_IFRS_PRIORITY: dict[str, dict[str, int]] = {
+    concept: {tag: rank for rank, tag in enumerate(tags)}
+    for concept, tags in CONCEPT_MAP_IFRS.items()
+}
+
+
+def canonical_for(local_tag: str, taxonomy: str = "us-gaap") -> str | None:
+    """Каноническое имя для локального тега данной таксономии; None —
+    тег вне карты: такой факт не выбрасывается, а остаётся
+    неотображённым. Дефолт us-gaap: все существующие вызовы не меняют
+    поведения."""
     if not local_tag:
         return None
+    if taxonomy == "ifrs-full":
+        return _IFRS_TAG_TO_CONCEPT.get(local_tag)
     return _TAG_TO_CONCEPT.get(local_tag)
 
 
-def priority_rank(concept: str, local_tag: str) -> int:
-    """Ранг тега внутри концепта (0 — самый приоритетный). Неизвестный
-    тег получает ранг за пределами таблицы."""
-    return _PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
+def map_version(taxonomy: str = "us-gaap") -> str:
+    """Версия карты таксономии — для concept_map_version факта."""
+    return CONCEPT_MAP_VERSION_IFRS if taxonomy == "ifrs-full" \
+        else CONCEPT_MAP_VERSION
+
+
+def priority_rank_ifrs(concept: str, local_tag: str) -> int:
+    """Ранг IFRS-тега внутри концепта (см. priority_rank)."""
+    return _IFRS_PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
 
 
 def strip_taxonomy(concept: str) -> tuple[str, str]:
@@ -103,3 +153,13 @@ def strip_taxonomy(concept: str) -> tuple[str, str]:
         taxonomy, local = concept.split(":", 1)
         return taxonomy, local
     return "", concept
+
+
+def priority_rank(concept: str, local_tag: str,
+                  taxonomy: str = "us-gaap") -> int:
+    """Ранг тега внутри концепта (0 — самый приоритетный). Неизвестный
+    тег получает ранг за пределами таблицы. Таксономия выбирает таблицу
+    приоритетов (us-gaap / ifrs-full, TASK-18 G3)."""
+    if taxonomy == "ifrs-full":
+        return _IFRS_PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
+    return _PRIORITY.get(concept, {}).get(local_tag, 1 << 30)

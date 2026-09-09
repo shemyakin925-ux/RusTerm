@@ -204,9 +204,22 @@ class CompanyFactsParser:
         endpoint = context.get(
             "endpoint", "https://data.sec.gov/api/xbrl/companyfacts")
 
+        # TASK-18 G4 (§0.3 ruling 2): парсится та таксономия, которую
+        # несёт payload; обе — побеждает us-gaap. Ни одной из двух —
+        # разбираются все разделы как раньше (dei и прочие остаются
+        # неотображёнными). Имя таксономии уже живёт в json_pointer
+        # каждого факта — видимость без миграции.
+        facts_root = doc.get("facts", {})
+        if "us-gaap" in facts_root:
+            taxonomies = [("us-gaap", facts_root["us-gaap"])]
+        elif "ifrs-full" in facts_root:
+            taxonomies = [("ifrs-full", facts_root["ifrs-full"])]
+        else:
+            taxonomies = list(facts_root.items())
+
         # Проход 1: конец периода, на который отчитывался каждый accn
         latest_end_by_accn: dict[str, str] = {}
-        for concepts in doc.get("facts", {}).values():
+        for _taxonomy, concepts in taxonomies:
             for key, node in concepts.items():
                 for entries in node.get("units", {}).values():
                     for entry in entries:
@@ -217,7 +230,7 @@ class CompanyFactsParser:
 
         # Проход 2: факты; ключ дедупликации (concept, unit, start, end)
         seen: dict[tuple, dict] = {}
-        for taxonomy, concepts in doc.get("facts", {}).items():
+        for taxonomy, concepts in taxonomies:
             for key, node in concepts.items():
                 concept = f"{taxonomy}:{key}"
                 for unit_kind, entries in node.get("units", {}).items():
