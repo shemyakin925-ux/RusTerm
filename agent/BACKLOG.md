@@ -19,35 +19,7 @@ it by hand.
 
 ## Queue
 
-- [ ] B20 — `refresh` counts requests in two places: `RefreshResult.calls`
-  per instrument and the `requests` totals the CLI sums for `--json`.
-  Nothing asserts they agree — add a test that the totals equal the sum
-  over `results` for both a normal and a mixed (error) pass — accept:
-  test asserting the two agree on a pass with one erroring instrument —
-  size: S
-- [ ] B21 — `IssuerStateRepo.get` returns `None` for an unknown issuer
-  and for an issuer whose row exists under another source; only the first
-  is covered. Pin the second once the key is composite — accept: test
-  reading `source='synthetic'` for an issuer that has only an `edgar` row
-  — size: S
-- [ ] B22 — the 1100-day eligibility constant lives in
-  `rusterm/core/snapshot.py` and appears in three docstrings and two
-  tests as a literal. Name it once and reference it — accept: `grep -rn
-  '1100' rusterm/ tests/` shows the constant's definition and no other
-  literal in `rusterm/` — size: S
-- [ ] B23 — `tools/trim_companyfacts.py` has no test that the output is
-  byte-stable across two runs on the same input, although the docstring
-  now promises it — accept: test trimming one recorded payload twice and
-  comparing sha256 — size: S
-- [ ] B24 — `logs/app.log` rotation caps size but nothing caps the audit
-  JSONL, which only grows; apply the same cap and rollover to it —
-  accept: test writing past the cap and asserting exactly two files, the
-  newest holding the last line — size: M
-- [ ] B25 — `rusterm status --json` does not report the schema version
-  the database is actually at, only the one the code expects; a database
-  behind its code is invisible until `doctor` runs — add the observed
-  version beside the expected one — accept: test asserting both keys and
-  that they differ on a deliberately old database — size: S
+(empty)
 
 ## Done
 
@@ -82,3 +54,16 @@ it by hand.
 - [x] B19 — `logs/app.log` rotation: the test strengthened to the accept
   criterion (exactly two files, newest holds the last line) — TASK-12 Y7,
   verified 09.09
+- [x] B20 — `refresh --json` request totals pinned to the sum of
+  `RefreshResult.calls`, normal and mixed (error) pass — TASK-14 A8,
+  verified 09.09
+- [x] B21 — `IssuerStateRepo.get` returns `None` for a known issuer
+  under a different source — TASK-14 A8, verified 09.09
+- [x] B22 — the 1100-day rule named once (`_STALE_LOOKBACK_DAYS`),
+  prose refers to the name — TASK-14 A8, verified 09.09
+- [x] B23 — `trim_companyfacts` byte-stability on a recorded payload,
+  sha256 of two runs — TASK-14 A8, verified 09.09
+- [x] B24 — `audit.jsonl` capped and rolled over like `app.log` (same
+  constants, imported) — TASK-14 A8, verified 09.09
+- [x] B25 — `status --json` reports `schema_version_observed` beside
+  `schema_version_expected` — TASK-14 A8, verified 09.09
