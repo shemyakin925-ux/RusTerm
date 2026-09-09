@@ -9,6 +9,7 @@ peer set, появившиеся ревизии (ADR-0002: смешивать п
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from uuid import uuid4
 
 from rusterm.core.peers import evaluate, percentile_share
@@ -67,6 +68,20 @@ base_concepts: tuple[str, ...] = tuple(sorted(
     | {stock for _flow, stock in _TWO_PERIOD_MEASURES.values()}
     | {"operating_income"}
 ))
+
+# Правило давности (TASK-12 Y2): три года плюс люфт на сдвиг фингода.
+_STALE_LOOKBACK_DAYS = 1100
+
+
+def _eligible_input(period_end: str, anchor_date: date) -> bool:
+    """Входной факт годен, пока его конец отстаёт от anchor не более
+    чем на _STALE_LOOKBACK_DAYS дней; неразбираемая дата не
+    отбрасывается."""
+    try:
+        return (anchor_date - date.fromisoformat(period_end)).days \
+            <= _STALE_LOOKBACK_DAYS
+    except (TypeError, ValueError):
+        return True
 
 
 @dataclass
@@ -265,8 +280,9 @@ class SnapshotBuilder:
         asset_turnover): конец выбранного периода + предыдущий период
         того же стока, иначе missing_prior_period. Цепочка nopat берёт
         ставку из посчитанной effective_tax. Отсутствующий концепт —
-        missing_data; нет общего периода — period_mismatch. Причины не
-        сливаются.
+        missing_data; нет общего периода — period_mismatch. Факт старше
+        1100 дней от anchor (самого свежего конца периода эмитента) во
+        входы не годится (TASK-12 Y2). Причины не сливаются.
         """
         rows = self._snapshots.as_reported_facts(
             issuer_id, tuple(sorted(base_concepts)))
@@ -285,6 +301,29 @@ class SnapshotBuilder:
                 "start": start, "end": end,
                 "rank": priority_rank(key, local),
             })
+
+        # ── Правило давности (TASK-12 Y2) ──
+        # anchor — самый свежий period_end среди as_reported фактов
+        # эмитента по концептам набора мер. Факт, отстающий от anchor
+        # более чем на 1100 дней, во входы не годится: тег, которым
+        # компания перестала пользоваться, — отсутствующее раскрытие
+        # (missing_data), а не period_mismatch. Фильтр живёт в выборке
+        # входов, не в as_reported_facts: store хранит всё, и старый
+        # факт по-прежнему показывают verify и панель источника.
+        anchor = max((r["end"] for rows in by_concept.values()
+                      for r in rows), default=None)
+        try:
+            anchor_date = date.fromisoformat(anchor) if anchor else None
+        except (TypeError, ValueError):
+            anchor_date = None
+        if anchor_date is not None:
+            for key in list(by_concept):
+                fresh = [r for r in by_concept[key]
+                         if _eligible_input(r["end"], anchor_date)]
+                if fresh:
+                    by_concept[key] = fresh
+                else:
+                    del by_concept[key]
 
         def pick(concept: str, key: tuple) -> Optional[dict]:
             candidates = [r for r in by_concept.get(concept, [])

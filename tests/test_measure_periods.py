@@ -145,6 +145,55 @@ def test_absent_concept_still_gives_missing_data():
         shutil.rmtree(tmpdir)
 
 
+def test_stale_input_is_missing_data_not_period_mismatch():
+    """TASK-12 Y2: operating_income за 2012 при остальных входах 2025 —
+    это отсутствующее раскрытие (missing_data: operating_income),
+    а не period_mismatch; 1100-дневное правило давности."""
+    tmpdir, conn, repos = _registry()
+    try:
+        obj = repos.raw.put(b'{"synthetic": "y2a"}', provider="synthetic",
+                            block="fundamentals")
+        _fact(repos, obj.sha256, "revenue", "2000",
+              "2025-01-01", "2025-12-31")
+        _fact(repos, obj.sha256, "operating_income", "300",
+              "2012-01-01", "2012-12-31")
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build("ins1", "i1", "2026-09-08")
+        snap = repos.snapshot.latest_snapshot_id("ins1")
+        margin = _measure(repos, snap, "operating_margin")
+        assert margin["value"] is None
+        assert margin["null_reason"] == "missing_data: operating_income", \
+            margin["null_reason"]
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
+def test_eligible_inputs_on_different_recent_periods_still_mismatch():
+    """TASK-12 Y2: period_mismatch зарезервирован за годными входами
+    без общего периода — 2024 против 2025 остаётся period_mismatch."""
+    tmpdir, conn, repos = _registry()
+    try:
+        obj = repos.raw.put(b'{"synthetic": "y2b"}', provider="synthetic",
+                            block="fundamentals")
+        _fact(repos, obj.sha256, "revenue", "2000",
+              "2025-01-01", "2025-12-31")
+        _fact(repos, obj.sha256, "operating_income", "300",
+              "2024-01-01", "2024-12-31")
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build("ins1", "i1", "2026-09-08")
+        snap = repos.snapshot.latest_snapshot_id("ins1")
+        margin = _measure(repos, snap, "operating_margin")
+        assert margin["value"] is None
+        assert margin["null_reason"] == "period_mismatch", \
+            margin["null_reason"]
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
 def test_mixed_units_do_not_make_a_common_period():
     """Разные единицы у входов — общего периода нет (правило V1)."""
     tmpdir, conn, repos = _registry()
