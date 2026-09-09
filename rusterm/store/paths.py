@@ -46,7 +46,7 @@ class AppPaths:
     @property
     def audit_log_path(self) -> Path:
         """logs/audit.jsonl — операции пользователя, только добавление,
-        переживает потерю базы; никогда не ротируется."""
+        переживает потерю базы; ротация как у app.log (B24)."""
         return self.logs / "audit.jsonl"
 
 

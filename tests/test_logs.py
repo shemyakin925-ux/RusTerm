@@ -1,8 +1,8 @@
 """Тесты журналов (TASK-7 T13): три назначения, никогда не смешиваются.
 
 audit.jsonl — добавление, по JSON-объекту на строку, переживает потерю
-базы, никогда не ротируется. app.log — ротация 5 × 1 МБ. В журналах
-нет URL с ключом или токеном.
+базы; ротация как у app.log (BACKLOG B24). app.log — ротация 5 × 1 МБ.
+В журналах нет URL с ключом или токеном.
 """
 from __future__ import annotations
 
@@ -140,6 +140,40 @@ def test_destinations_never_mix():
         entry = json.loads(audit_lines[0])
         assert entry["action"] == "watchlist_import"
         assert "INFO" not in audit_lines[0], "лог приложения протёк в аудит"
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
+def test_b24_audit_jsonl_rotates_like_app_log():
+    """BACKLOG B24: audit.jsonl рос безгранично — получает тот же кап и
+    ролловер, что app.log. Переписав кап, видим ровно два файла, и
+    последняя строка — в активном (свежем); каждая строка обоих файлов
+    остаётся валидным JSON-объектом. backup_count=1: старая копия
+    замещается, файлов всегда не больше двух."""
+    tmpdir, conn, paths, repos = _registry()
+    audit = AuditRepo(conn, audit_log_path=paths.audit_log_path,
+                      max_bytes=1_000, backup_count=1)
+    try:
+        for i in range(50):  # ~530 байт строка: несколько ролловеров
+            audit.log("snapshot", f"ins{i}", {"pad": "x" * 400}, True, "ok")
+        siblings = sorted(p.name for p in
+                          paths.audit_log_path.parent.glob("audit.jsonl*"))
+        assert siblings == ["audit.jsonl", "audit.jsonl.1"], siblings
+        for name in siblings:
+            with open(paths.audit_log_path.parent / name,
+                      encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            assert lines, f"{name} пуст"
+            for line in lines:
+                assert json.loads(line)["action"] == "snapshot"
+        with open(paths.audit_log_path, encoding="utf-8") as fh:
+            last = fh.read().splitlines()[-1]
+        assert json.loads(last)["target"] == "ins49", (
+            "последняя строка не в активном файле")
+        # база не пострадала: все 50 операций в audit_log
+        assert conn.execute(
+            "SELECT COUNT(*) FROM audit_log").fetchone()[0] == 50
     finally:
         conn.close()
         shutil.rmtree(tmpdir)

@@ -15,6 +15,7 @@ from typing import Any, Iterator, Optional, List, Dict
 import sqlite3
 
 from rusterm.reasons import is_known_reason
+from rusterm.applog import APP_LOG_BACKUP_COUNT, APP_LOG_MAX_BYTES
 from .db import writer_transaction, apply_migrations
 from .paths import AppPaths, ensure_app_dir
 from .raw_store import StoredObject, RawIndexEntry, put_object, append_manifest_line, decompress_object, object_path, has_object
@@ -1364,11 +1365,29 @@ class AuditRepo:
     Отказ файла (каталог только для чтения, полный диск) не роняет
     операцию (B12): log() возвращает причину значением, а строка всё
     равно попадает в базу — потеря одного адресата не отменяет другой.
+
+    Размер файла ограничен ротацией, как у app.log (B24): тот же кап и
+    тот же запас копий (RotatingFileHandler-семантика) — доросший файл
+    становится .1, старшие копии сдвигаются, лишние уходят за пределом
+    backup_count.
     """
 
-    def __init__(self, conn: sqlite3.Connection, audit_log_path=None):
+    def __init__(self, conn: sqlite3.Connection, audit_log_path=None,
+                 max_bytes: int = APP_LOG_MAX_BYTES,
+                 backup_count: int = APP_LOG_BACKUP_COUNT):
         self.conn = conn
         self._audit_log_path = audit_log_path
+        self._max_bytes = max_bytes
+        self._backup_count = backup_count
+
+    def _rotate_if_needed(self, path: Path) -> None:
+        if not path.exists() or path.stat().st_size < self._max_bytes:
+            return
+        for i in range(self._backup_count - 1, 0, -1):
+            src = path.with_name(f"{path.name}.{i}")
+            if src.exists():
+                src.replace(path.with_name(f"{path.name}.{i + 1}"))
+        path.replace(path.with_name(f"{path.name}.1"))
 
     def log(self, action: str, target: Optional[str],
             payload: Optional[dict], confirmed: bool,
@@ -1384,6 +1403,7 @@ class AuditRepo:
             path = Path(self._audit_log_path)
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
+                self._rotate_if_needed(path)
                 with open(path, "a", encoding="utf-8") as fh:
                     fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
             except OSError as e:
