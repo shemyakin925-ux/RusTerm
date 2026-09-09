@@ -204,8 +204,9 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
         return 1
     provider.cik = int(issuer.registry_id)
 
-    ref = repos.instrument.ticker_for_instrument(instrument_id, as_of) or {}
-    provider.resolve(ref.get("ticker", ""), "US", as_of)  # греет карту
+    # TASK-12 Y5: тёплого прогона карты тикеров здесь больше нет — CIK
+    # уже пришёл из issuer.registry_id выше, а resolve тянул всю карту
+    # тикеров (один запрос за прогон) и выбрасывал результат.
     facts = provider.fetch_companyfacts()
     if isinstance(facts, ConfigError):
         print(f"edgar недоступен: {facts.reason}", file=sys.stderr)

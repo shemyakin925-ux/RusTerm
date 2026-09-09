@@ -3,14 +3,23 @@
 Автоматически импортируется интерпретатором (PYTHONPATH указывает на
 этот каталог): подменяет транспорт EdgarProvider на записи из
 tests/data/edgar — настоящая сеть не трогается.
+
+TASK-12 Y5: если задана RUSTERM_EDGAR_CALL_LOG, каждый прошедший
+транспорт запрос дописывается туда строкой "URL" — тест считает
+запросы подпроцесса (каждый URL = один запрос через gate).
 """
 import json
+import os
 from pathlib import Path
 
 _DATA = Path(__file__).resolve().parents[1] / "data" / "edgar"
 
 
 def _recorded_transport(url, headers):
+    log = os.environ.get("RUSTERM_EDGAR_CALL_LOG")
+    if log:
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(url + "\n")
     if "company_tickers.json" in url:
         return 200, (_DATA / "company_tickers.json").read_bytes(), {}
     for path in sorted(_DATA.glob("companyfacts_m3_*.json")):

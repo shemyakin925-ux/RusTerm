@@ -90,3 +90,39 @@ def test_x1_four_commands_end_to_end_twice():
         assert before == after, "повторный путь что-то создал"
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_y5_ingest_with_known_cik_makes_exactly_one_request():
+    """TASK-12 Y5: ingest --source edgar при известном CIK делает ровно
+    один запрос — companyfacts. Тёплого прогона карты тикеров больше
+    нет: CIK приходит из issuer.registry_id, а resolve тянул всю карту
+    и выбрасывал результат. Счётчик — подменный транспорт, каждый
+    прошедший запрос дописывает URL в лог (эквивалент gate.calls_made
+    для подпроцесса: gate считает те же запросы, что проходит
+    транспорт)."""
+    tmpdir = tempfile.mkdtemp()
+    root = tmpdir
+    _run = _make_run(root)
+    call_log = Path(tmpdir) / "edgar_calls.txt"
+    try:
+        assert _run("init").returncode == 0
+        # add создаёт эмитента с CIK (из карты тикеров) — сам считает
+        # один запрос, до старта счётчика
+        r = _run("add", "--ticker", TICKER, "--market", "US")
+        assert r.returncode == 0, r.stderr
+        env = dict(ENV)
+        env["RUSTERM_EDGAR_CALL_LOG"] = str(call_log)
+        r = subprocess.run(
+            [sys.executable, "-m", "rusterm.cli", "--root", root,
+             "ingest", "--ticker", TICKER, "--market", "US",
+             "--source", "edgar"],
+            capture_output=True, text=True, env=env)
+        assert r.returncode == 0, r.stderr
+        calls = [line for line in
+                 call_log.read_text(encoding="utf-8").splitlines()
+                 if line.strip()]
+        assert len(calls) == 1, (
+            f"ingest сделал {len(calls)} запросов: {calls}")
+        assert "companyfacts" in calls[0], calls
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
