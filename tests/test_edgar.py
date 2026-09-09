@@ -191,3 +191,23 @@ def _live_ua():
 
 def _live_gate():
     return RequestGate()  # NetworkGate читает настоящий os.environ
+
+
+def test_b17_duplicate_ticker_last_feed_row_wins():
+    """B17: тикер с двумя строками в карте (смена класса, релейстинг):
+    зафиксировано «побеждает последняя строка фида», ошибки
+    неоднозначности нет. Рукотворная двухстрочная карта; нижний регистр
+    в фиде нормализуется, как в живом company_tickers.json."""
+    feed = {
+        "0": {"cik_str": 111, "ticker": "DUP", "title": "First Corp"},
+        "1": {"cik_str": 222, "ticker": "dup", "title": "Second Corp"},
+    }
+
+    def transport(url, headers):
+        assert "company_tickers" in url
+        return 200, json.dumps(feed).encode(), {}
+
+    provider = EdgarProvider(gate=_gate(), transport=transport)
+    outcome = provider.resolve("DUP", "US", "2026-09-08")
+    assert outcome == {"ticker": "DUP", "cik": 222,
+                       "title": "Second Corp"}, outcome
