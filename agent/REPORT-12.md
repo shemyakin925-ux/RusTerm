@@ -62,3 +62,6 @@ NOW: Y7/B15, step 1
 - Y7/B15 done: rusterm/reasons.py = the single vocabulary (7 reasons; is_known_reason compares first token so X3 continuations pass); both measure writers in SnapshotRepo raise ValueError on an unknown reason (I4 style); guard test seeds bogus_reason and asserts rejection by both writers + nothing lands in DB; pytest tests/test_invariants.py -q -> 19 passed; pytest -q exit 0; acceptance 13/13. Note: acceptance briefly showed 12/13 mid-item because reasons.py was not yet staged — check 13; green after staging
 
 NOW: Y7/B17, step 1
+- Y7/B17 done: resolve() with a ticker present twice in the feed keeps the LAST feed row (dict built in feed order) — pinned by a hand-built two-row map test, incl. lowercase normalization; docstring states it and that a change requires a task item (§0.2.4); pytest tests/test_edgar.py -q -> 8 passed; pytest -q exit 0; acceptance 13/13
+
+NOW: Y7/B18, step 1
