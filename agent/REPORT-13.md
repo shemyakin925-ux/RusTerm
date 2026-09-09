@@ -42,3 +42,6 @@ NOW: Z3, step 8
   Ожидаемое от координатора решение (одно из): миграция 38 с индексом fact(issuer_id, concept, period_end, basis); либо отложить restated_revisions из _diff (считать только при наличии предыдущего снапшота и/или по issuer_id); либо кэшировать результат diff. Тест tests/test_m4_scale.py оставлен xfail(strict=True) с бюджетом 240 s: после починки он пройдёт и строгий xfail покраснеет — это сигнал, а не поломка.
 
 NOW: Z4, step 1
+- Z4 done: rusterm refresh --watchlist [--dry-run] [--json]; subprocess test proves dry-run makes 0 requests (call log empty) with a non-empty plan, first run prints 'обновлён (фактов N)', repeat prints 'не изменилось', --json keys pinned {watchlist_id, dry_run, results[...], requests{submissions, companyfacts}} with companyfacts=0 on the repeat; exit 0; pytest -q exit 0; acceptance 13/13
+
+NOW: Z5, step 1
