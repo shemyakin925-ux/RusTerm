@@ -34,3 +34,4 @@ Questions for the coordinator:
 NOW: D1, step 8
 - D2 `python3 -m pytest tests/test_tools.py -q` → `3 passed`; красная проверка: пятая запись delete_everything в TOOLS → registry-тест красный → убрана. Полный сюит 330 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
 - D3–D6 `python3 -m pytest tests/test_ops.py -q` → `5 passed`; полный сюит 335 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
+- D7+D8 подпроцессный тест `tests/test_ops.py` → `6 passed` (строки аудита трёх исходов, dry-run без записей, B12-строка на stderr, пин --json); `pytest tests/test_llm_guard.py -q` → `7 passed`; греп confidence — без операторов сравнения; полный сюит 336 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
