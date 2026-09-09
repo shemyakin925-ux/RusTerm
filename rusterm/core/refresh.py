@@ -14,7 +14,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from rusterm.parsers import CompanyFactsParser
 from rusterm.pipeline import apply_concept_map
@@ -69,10 +69,6 @@ def refresh_watchlist(repos, provider_factory: Callable,
     пересобирается только там, где приехали новые факты; при builder
     = None снапшоты не строятся вовсе."""
     results: list[RefreshResult] = []
-
-    def finish(res: RefreshResult):
-        results.append(res)
-        return res
 
     for member in repos.watchlist.members(watchlist_id):
         instrument = repos.instrument.get_instrument(member["instrument_id"])
