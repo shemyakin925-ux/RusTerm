@@ -16,6 +16,7 @@ from rusterm.core.export import snapshot_to_csv, snapshot_to_json, \
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
 from rusterm.providers.budget import ConfigError, RequestGate
 from rusterm.providers import get_provider
+from rusterm.core.industry.aggregate import build_sector_aggregates
 from rusterm.core.snapshot import SnapshotBuilder, stale_exclusions
 from rusterm.core.refresh import refresh_watchlist
 from rusterm.core.verification import VerificationService
@@ -525,6 +526,84 @@ def cmd_ops(args) -> int:
     return 1
 
 
+def cmd_industry(args) -> int:
+    """Агрегат по сектору на дату (TASK-17 E5/E6, веха M7).
+    --as-of выбирает версию peer set и снапшоты участников по дате;
+    каждая строка несёт n и счётчики причин — агрегат не прячет, сколько
+    участников за числом. Хранится в industry_aggregate (миграция 39)."""
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    as_of = args.as_of or args_as_of_default()
+
+    if repos.peer_set.version_at(args.sector, as_of) is None:
+        exists = conn.execute(
+            "SELECT 1 FROM peer_set WHERE peer_set_id=?",
+            (args.sector,)).fetchone()
+        reason = (f"сектор {args.sector!r} не найден" if not exists else
+                  f"у сектора {args.sector!r} нет версии на {as_of}")
+        print(reason, file=sys.stderr)
+        if args.json:
+            print(json.dumps({"sector": args.sector, "as_of": as_of,
+                              "verified": None, "aggregates": []},
+                             ensure_ascii=False))
+        conn.close()
+        return 1
+
+    built = build_sector_aggregates(repos, args.sector, as_of,
+                                    ("net_margin", "operating_margin",
+                                     "roe", "asset_turnover"))
+    conn.close()
+    if not built["verified"]:
+        print(f"peer set сектора {args.sector!r} не подтверждён "
+              f"(unverified)", file=sys.stderr)
+        if args.json:
+            print(json.dumps({
+                "sector": args.sector, "as_of": as_of, "verified": False,
+                "aggregates": [{"concept": a.concept, "p25": a.p25,
+                                "median": a.median, "p75": a.p75, "n": a.n,
+                                "null_reason": a.null_reason,
+                                "reason_counts": a.reason_counts}
+                               for a in built["aggregates"]]},
+                ensure_ascii=False))
+        return 1
+
+    # сборка сохраняется: append-only, повтор той же (версия, дата)
+    # обновляет строку, не плодя дублей (миграция 39)
+    paths2, conn2 = _open(args.root)
+    repos2 = RepoRegistry(conn2, paths2)
+    repos2.industry.store_aggregates(
+        built["peer_set_version_id"], as_of, built["aggregates"])
+    conn2.close()
+
+    if args.json:
+        print(json.dumps({
+            "sector": args.sector, "as_of": as_of,
+            "verified": built["verified"],
+            "aggregates": [{"concept": a.concept, "p25": a.p25,
+                            "median": a.median, "p75": a.p75, "n": a.n,
+                            "null_reason": a.null_reason,
+                            "reason_counts": a.reason_counts}
+                           for a in built["aggregates"]],
+        }, ensure_ascii=False))
+        return 0
+    print(f"сектор {args.sector}: версия {built['version']} на {as_of} "
+          f"(участников {len(built['members'])})")
+    for a in built["aggregates"]:
+        if a.null_reason:
+            counts = ("; ".join(f"{k}={v}"
+                                for k, v in sorted(a.reason_counts.items()))
+                      ) or "нет причин"
+            print(f"  {a.concept}: {a.null_reason} ({counts})")
+        else:
+            counts = "; ".join(f"{k}={v}"
+                               for k, v in sorted(a.reason_counts.items()))
+            suffix = f"; {counts}" if counts else ""
+            print(f"  {a.concept}: {a.p25} / {a.median} / {a.p75} "
+                  f"(n={a.n}{suffix})")
+    return 0
+
+
 def cmd_status(args) -> int:
     """«Что у меня есть»: каталог, схема, инструменты, снапшоты,
     покрытие, сеть, окружение (TASK-8 U9). --json — один объект."""
@@ -999,6 +1078,11 @@ def main(argv: list[str] | None = None) -> int:
     p_ops.add_argument("--confirm", action="store_true",
                        help="применить показанное (без флага — dry-run)")
     p_ops.add_argument("--json", action="store_true")
+    p_ind = sub.add_parser(
+        "industry", help="агрегат по сектору на дату (M7)")
+    p_ind.add_argument("--sector", required=True)
+    p_ind.add_argument("--as-of", dest="as_of", default=None)
+    p_ind.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     commands = {
@@ -1010,6 +1094,7 @@ def main(argv: list[str] | None = None) -> int:
         "status": cmd_status, "tui": cmd_tui, "add": cmd_add,
         "refresh": cmd_refresh,
         "ops": cmd_ops,
+        "industry": cmd_industry,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "

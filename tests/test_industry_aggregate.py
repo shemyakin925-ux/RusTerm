@@ -11,8 +11,10 @@ Null исключается и считается; 7 вкладчиков — pe
 """
 from __future__ import annotations
 
+import shutil
 import tempfile
 import uuid
+from pathlib import Path
 
 from rusterm.core.industry.aggregate import (
     METHOD_VERSION,
@@ -372,3 +374,123 @@ def test_e4_reproducibility_survives_three_levers():
         [(a.median, a.n) for a in first["aggregates"]]
     conn.close()
     shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_e5_e6_industry_command_exit_codes_json_and_reason_counts():
+    """TASK-17 E5/E6: разрешённый сектор — строки 'p25 / median / p75
+    (n=…)' со счётчиками причин в той же строке, exit 0; неизвестный и
+    неподтверждённый — exit 1 с названием причины; --json держит пин
+    ключей {sector, as_of, verified, aggregates}."""
+    import json
+    import os
+    import shutil
+    import sqlite3
+    import subprocess
+    import sys
+    from rusterm.store.db import apply_migrations
+    from rusterm.store.paths import AppPaths, ensure_app_dir
+    from rusterm.store.repos import Instrument, Issuer, RepoRegistry
+
+    repo = Path(__file__).resolve().parents[1]
+    env = {**os.environ,
+           "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+           "PYTHONPATH": os.pathsep.join(
+               [str(repo), os.environ.get("PYTHONPATH", "")]),
+           "TERM": "xterm"}
+
+    def run(root, *argv):
+        return subprocess.run(
+            [sys.executable, "-m", "rusterm.cli", "--root", root, *argv],
+            capture_output=True, text=True, env=env)
+
+    tmpdir = tempfile.mkdtemp()
+    root = tmpdir
+    try:
+        paths = AppPaths.from_root(root)
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        repos = RepoRegistry(conn, paths)
+        peers = repos.peer_set
+
+        # разрешённый сектор: 10 участников со значениями + 6 без меры
+        peers.create_peer_set("tank", "industry", "tankers")
+        peers.add_version("psv-tank", "tank", 1, "2025-01-01", None,
+                          "manual", "v1", True, None, None)
+        peers.create_peer_set("ghost-sector", "industry", "x")
+        peers.add_version("psv-ghost", "ghost-sector", 1, "2025-01-01",
+                          None, "classifier", "v1", False, None, None)
+        peers.add_member("psv-ghost", "ins-none", None)
+
+        def member(n: int) -> str:
+            iid = f"in-{n}"
+            repos.instrument.upsert_issuer(Issuer(
+                f"i-{n}", f"Issuer {n}", "US", None, None, "us_gaap",
+                "USD"))
+            repos.instrument.upsert_instrument(Instrument(
+                iid, f"i-{n}", None, "common", "active", None))
+            return iid
+
+        for n in range(10):
+            iid = member(n)
+            peers.add_member("psv-tank", iid, None)
+            repos.snapshot.create_snapshot(f"s-{n}", iid, 1, "2025-06-30",
+                                           None, "none", "ready")
+            repos.snapshot.insert_measure(
+                measure_id=f"m-{n}", snapshot_id=f"s-{n}", scope="issuer",
+                scope_ref=f"i-{n}", concept="net_margin",
+                value=repr(0.01 * (n + 1)), unit="ratio",
+                period_start="2025-01-01", period_end="2025-06-30",
+                formula_id="net_margin", method_version="v1",
+                null_reason=None, peer_set_version=None)
+        for n in range(6):  # участники без net_margin
+            iid = member(100 + n)
+            peers.add_member("psv-tank", iid, None)
+        conn.close()
+
+        # разрешённый сектор: числа со счётчиками причин, exit 0
+        r = run(root, "industry", "--sector", "tank",
+                "--as-of", "2025-06-30")
+        assert r.returncode == 0, r.stderr
+        assert "10 / 11 / 12" not in r.stdout  # значения из значений, не текст
+        assert "(n=10" in r.stdout, r.stdout
+        assert "no_value=6" in r.stdout, r.stdout
+        assert "operating_margin: peer_set_too_small" in r.stdout
+        r = run(root, "industry", "--sector", "tank",
+                "--as-of", "2025-06-30", "--json")
+        assert r.returncode == 0
+        payload = json.loads(r.stdout)
+        assert set(payload) == {"sector", "as_of", "verified",
+                                "aggregates"}, sorted(payload)
+        assert payload["verified"] is True
+        row = next(a for a in payload["aggregates"]
+                   if a["concept"] == "net_margin")
+        # 6 участников без снапшота: и no_value, и no_snapshot_at_date
+        assert row["n"] == 10
+        assert row["reason_counts"] == {"no_value": 6,
+                                        "no_snapshot_at_date": 6}
+        assert row["median"] is not None
+        null_row = next(a for a in payload["aggregates"]
+                        if a["concept"] == "operating_margin")
+        assert null_row["median"] is None
+        assert null_row["null_reason"] == "peer_set_too_small"
+
+        # неизвестный сектор: exit 1 с названием причины
+        r = run(root, "industry", "--sector", "nope", "--json")
+        assert r.returncode == 1
+        assert "не найден" in r.stderr
+        payload = json.loads(r.stdout)
+        assert set(payload) == {"sector", "as_of", "verified",
+                                "aggregates"}
+
+        # неподтверждённый сектор: exit 1 и сказано, что именно unverified
+        r = run(root, "industry", "--sector", "ghost-sector", "--json")
+        assert r.returncode == 1
+        assert "подтверждён" in r.stderr or "unverified" in r.stderr
+        payload = json.loads(r.stdout)
+        assert payload["verified"] is False
+        assert payload["aggregates"][0]["null_reason"] == \
+            "peer_set_not_confirmed"
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
