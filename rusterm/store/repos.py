@@ -605,6 +605,25 @@ class PeerSetRepo:
             return None
         return "verified" if row[0] else "unverified"
 
+    def peer_set_for_instrument(self, instrument_id: str) -> Optional[dict]:
+        """Последняя версия peer set инструмента с origin — read-only
+        инструмент get_peer_set (TASK-16 D2, docs §2.4)."""
+        row = self.conn.execute(
+            """SELECT psv.peer_set_version_id, psv.peer_set_id, psv.version,
+                      psv.origin, psv.valid_from, psv.approved_by_user
+               FROM peer_set_member m
+               JOIN peer_set_version psv
+                 ON m.peer_set_version_id = psv.peer_set_version_id
+               WHERE m.instrument_id = ?
+               ORDER BY psv.valid_from DESC, psv.version DESC LIMIT 1""",
+            (instrument_id,)).fetchone()
+        if row is None:
+            return None
+        return {"peer_set_version_id": row[0], "peer_set_id": row[1],
+                "version": row[2], "origin": row[3],
+                "valid_from": row[4],
+                "approved": bool(row[5])}
+
 
     def add_member(self, peer_set_version_id: str, instrument_id: str,
                    reason: Optional[str], excluded_stale: int = 0) -> None:
