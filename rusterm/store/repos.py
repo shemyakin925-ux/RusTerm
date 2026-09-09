@@ -14,6 +14,7 @@ from typing import Any, Iterator, Optional, List, Dict
 
 import sqlite3
 
+from rusterm.reasons import is_known_reason
 from .db import writer_transaction, apply_migrations
 from .paths import AppPaths, ensure_app_dir
 from .raw_store import StoredObject, RawIndexEntry, put_object, append_manifest_line, decompress_object, object_path, has_object
@@ -482,6 +483,10 @@ class SnapshotRepo:
                        method_version: Optional[str],
                        null_reason: Optional[str],
                        peer_set_version: Optional[str]) -> None:
+        if not is_known_reason(null_reason):
+            raise ValueError(
+                f"null_reason {null_reason!r} вне словаря"
+                "(rusterm/reasons.py, B15)")
         with writer_transaction(self.conn) as c:
             c.execute(
                 """INSERT INTO measure(measure_id, snapshot_id, scope, scope_ref,
@@ -517,6 +522,10 @@ class SnapshotRepo:
             raise ValueError("I4: measure без lineage не записывается")
         if value is None and not null_reason:
             raise ValueError("I4: value IS NULL требует null_reason")
+        if not is_known_reason(null_reason):
+            raise ValueError(
+                f"null_reason {null_reason!r} вне словаря"
+                "(rusterm/reasons.py, B15)")
         with writer_transaction(self.conn) as c:
             c.execute(
                 """INSERT INTO measure(measure_id, snapshot_id, scope, scope_ref,

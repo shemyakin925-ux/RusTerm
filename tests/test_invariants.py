@@ -629,3 +629,65 @@ def test_i17_parsers_apply_basis_rule():
             f"парсер {parser!r} не взял ни один документ I17 — "
             f"добавьте для него документ со сравнительной колонкой")
     assert checked >= 3, f"проверено парсеров: {checked}, ожидалось >= 3"
+
+
+# ── B15. null_reason пишется только из словаря ──────────────────────────
+def test_b15_null_reason_outside_vocabulary_rejected():
+    """Словарь причин — rusterm/reasons.py, единственное место. Запись
+    меры с неизвестной причиной отклоняется (сеем неизвестную — запись
+    падает); продолжение X3 проходит по первому токену; None легитимен."""
+    import uuid
+    from rusterm.reasons import NULL_REASONS, is_known_reason
+    from rusterm.store.repos import (
+        Instrument, InstrumentRepo, Issuer, SnapshotRepo,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = AppPaths.from_root(os.path.join(tmp, "app"))
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        InstrumentRepo(conn).upsert_issuer(Issuer(
+            "i1", "N", "US", None, None, "us_gaap", "USD"))
+        InstrumentRepo(conn).upsert_instrument(Instrument(
+            "ins1", "i1", None, "common", "active", None))
+        snapshots = SnapshotRepo(conn)
+        snapshots.create_snapshot("s1", "ins1", 1, "2024-01-01",
+                                  None, "none", "ready")
+
+        base = dict(measure_id="m-b15", snapshot_id="s1", scope="issuer",
+                    scope_ref="i1", concept="net_margin", value=None,
+                    unit="ratio", period_start="2024-01-01",
+                    period_end="2024-12-31", formula_id="net_margin",
+                    method_version="v1", null_reason="period_mismatch",
+                    peer_set_version=None)
+
+        # известная причина пишется обоими писателями
+        snapshots.insert_measure(**base)
+        snapshots.insert_measure_with_lineage(
+            dict(base, measure_id="m-b15-lin"), [])
+
+        # неизвестная причина отклоняется обоими писателями
+        with pytest.raises(ValueError, match="словаря"):
+            snapshots.insert_measure(**dict(base, null_reason="bogus_reason"))
+        with pytest.raises(ValueError, match="словаря"):
+            snapshots.insert_measure_with_lineage(
+                dict(base, measure_id="m-b15-bad",
+                     null_reason="bogus_reason"), [])
+        n = conn.execute(
+            "SELECT COUNT(*) FROM measure WHERE null_reason='bogus_reason'"
+        ).fetchone()[0]
+        assert n == 0, "неизвестная причина попала в базу"
+
+        # продолжение X3 проходит по первому токену
+        snapshots.insert_measure_with_lineage(
+            dict(base, measure_id="m-b15-x3",
+                 null_reason="missing_data: operating_income"), [])
+        assert is_known_reason("missing_data: operating_income")
+        assert not is_known_reason("bogus_reason")
+        assert is_known_reason(None)
+        assert {"missing_data", "period_mismatch",
+                "missing_prior_period", "concept_not_mapped",
+                "denominator_zero", "negative_denominator",
+                "jurisdiction_rate"} <= set(NULL_REASONS)
+        conn.close()
