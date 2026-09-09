@@ -142,8 +142,9 @@ class RuleClient:
     дальше тот же путь classify(), никакого отдельного тракта. Правила
     нарочито узкие: это заглушка провайдера, не вторая логика."""
 
-    def __init__(self, market: str = "US"):
-        self.market = market
+    def __init__(self, market: str | None = None):
+        from rusterm.markets import DEFAULT_MARKET
+        self.market = market or DEFAULT_MARKET
 
     def complete(self, prompt: str) -> str:
         message = prompt.rsplit("Запрос:", 1)[-1].strip()

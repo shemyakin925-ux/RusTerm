@@ -29,6 +29,7 @@ from .disclosures import (
 )
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+EXCHANGE_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 ARCHIVES_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accn_nodash}/{document}"
@@ -69,6 +70,7 @@ class EdgarProvider:
 
     _tickers: Optional[dict] = None  # {ticker: (cik, title)}
     _submissions: Optional[dict] = None
+    _venues: Optional[dict] = None   # {ticker: exchange} (TASK-18 G2)
 
     def _fetch_json(self, url: str) -> dict | ConfigError | NotModified:
         def send(headers: dict):
@@ -247,9 +249,41 @@ class EdgarProvider:
 
     # ── companyfacts: вход для реального XBRL-парсера (U6) ─────────────
 
+    def ticker_venues(self) -> dict | ConfigError | ProviderError:
+        """Тикер -> биржа из company_tickers_exchange.json (TASK-18 G2):
+        один запрос на провайдера, ответ кэшируется. Отсутствующий тикер
+        — просто не ключ в карте: наверху он становится venue=unknown."""
+        if self._venues is not None:
+            return self._venues
+        data = self._fetch_json(EXCHANGE_URL)
+        if isinstance(data, (ConfigError, ProviderError, NotModified)):
+            return data
+        venues: dict[str, str] = {}
+        for row in data.get("data", []):
+            if isinstance(row, dict):
+                ticker, exchange = row.get("ticker"), row.get("exchange")
+            else:
+                ticker = row[2] if len(row) > 2 else None
+                exchange = row[3] if len(row) > 3 else None
+            if ticker:
+                venues[str(ticker).upper()] = str(exchange or "unknown")
+        self._venues = venues
+        return venues
+
     def fetch_companyfacts(self) -> dict | ConfigError | NotModified \
             | ProviderError:
-        """Все XBRL-концепты эмитента одним запросом."""
+        """Все XBRL-концепты эмитента одним запросом. HTTP 404 — не
+        ошибка, а ответ: эмитент не подаёт XBRL в SEC (TASK-18 G5)."""
         if self.cik is None:
             return ProviderError("edgar_without_cik")
-        return self._fetch_json(COMPANYFACTS_URL.format(cik=self.cik))
+
+        def send(headers: dict):
+            status, body, resp_headers = self.transport(
+                COMPANYFACTS_URL.format(cik=self.cik), headers)
+            if status == 404:
+                return ProviderError("no_sec_filings")
+            if status == 304:
+                return NotModified(COMPANYFACTS_URL.format(cik=self.cik))
+            return json.loads(body.decode("utf-8"))
+
+        return self.gate.request(send)

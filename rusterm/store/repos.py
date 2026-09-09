@@ -153,18 +153,21 @@ class InstrumentRepo:
     def resolve_ticker_candidates(self, ticker: str, market: str,
                                   as_of: str) -> List[str]:
         """Все инструмент-id, подходящие под (тикер, рынок, дата).
-        Один — однозначно; несколько — неоднозначно; ноль — не найден."""
+        Один — однозначно; несколько — неоднозначно; ноль — не найден.
+        Рынок сверяется с площадкой листинга через реестр рынков
+        (TASK-18 G1/G2): площадка unknown рынку не противоречит."""
+        from rusterm.markets import venue_in_market
         rows = self.conn.execute(
-            """SELECT DISTINCT i.instrument_id
+            """SELECT DISTINCT i.instrument_id, l.exchange
                FROM ticker_history th
                JOIN listing l ON th.listing_id = l.listing_id
                JOIN instrument i ON l.instrument_id = i.instrument_id
-               WHERE th.ticker = ? AND l.exchange = ?
+               WHERE th.ticker = ?
                  AND th.valid_from <= ?
                  AND (th.valid_to IS NULL OR th.valid_to >= ?)""",
-            (ticker, market, as_of, as_of),
+            (ticker, as_of, as_of),
         ).fetchall()
-        return [r[0] for r in rows]
+        return [r[0] for r in rows if venue_in_market(r[1], market)]
 
     def ticker_for_instrument(self, instrument_id: str,
                               as_of: str) -> Optional[dict]:

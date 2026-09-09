@@ -94,7 +94,8 @@ def prepare(repos, watchlist_id: str, intent: Intent, as_of: str,
         return Clarification(
             "не заполнены обязательные параметры: " + ", ".join(absent))
 
-    market = intent.params.get("market", "US")
+    from rusterm.markets import DEFAULT_MARKET
+    market = intent.params.get("market", DEFAULT_MARKET)
     tickers = intent.params.get("tickers") or []
     if intent.name == "add_instruments" and not tickers:
         return Clarification("список тикеров пуст")

@@ -219,6 +219,16 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     if isinstance(facts, ConfigError):
         print(f"edgar недоступен: {facts.reason}", file=sys.stderr)
         return 1
+    from rusterm.providers.base import ProviderError as _PE
+    if isinstance(facts, _PE) and facts.reason == "no_sec_filings":
+        # TASK-18 G5 (§0.3 ruling 4): «не подаёт XBRL в SEC» — ответ, а
+        # не сбой. Инструмент существует, coverage missing с причиной,
+        # команда успешно завершилась.
+        repos.coverage.upsert(instrument_id, "fundamentals", "missing",
+                              reason="no_sec_filings")
+        print(f"{instrument_id}: эмитент не подаёт XBRL в SEC "
+              f"(companyfacts 404) — покрытие missing: no_sec_filings")
+        return 0
     raw = json.dumps(facts, ensure_ascii=False, sort_keys=True).encode()
     sha = hashlib.sha256(raw).hexdigest()
     if repos.raw.has(sha):
@@ -673,6 +683,14 @@ def cmd_add(args) -> int:
     (TASK-9 V3). Идемпотентно: повтор — «уже есть», код 0. Онлайн
     (есть контакт SEC) --cik/--name берутся из карты тикеров EDGAR;
     офлайн оба обязательны."""
+    # TASK-18 G1: --market валидируется реестром до всякой базы;
+    # опечатка не должна становиться эмитентом с чужой юрисдикцией
+    from rusterm.markets import get_market, known_codes
+    market_row = get_market(args.market)
+    if market_row is None:
+        print(f"неизвестный рынок {args.market!r}; известные коды: "
+              f"{known_codes()}", file=sys.stderr)
+        return 1
     paths, conn = _open(args.root)
     # add не создаёт схему: на неинициализированной базе — одна фраза
     # и код 1, без трейсбека (TASK-10 W6)
@@ -687,6 +705,7 @@ def cmd_add(args) -> int:
     from rusterm.providers.base import ProviderError as _PE
     from rusterm.providers.budget import ConfigError, NetworkGate, RequestGate
     cik, name = args.cik, args.name
+    provider = None
     if cik is None or name is None:
         headers = NetworkGate().headers()
         if isinstance(headers, ConfigError):
@@ -725,14 +744,23 @@ def cmd_add(args) -> int:
         conn.close()
         return 0
 
+    # TASK-18 G2: площадка — из собственного файла SEC, а не догадка
+    # вызывающего; тикера нет в файле — venue unknown, без исключения
+    venue = "unknown"
+    if provider is not None:
+        venues = provider.ticker_venues()
+        if not isinstance(venues, (ConfigError, _PE)):
+            venue = venues.get(args.ticker.upper(), "unknown")
+
     issuer_id = f"cik-{cik}"
     instruments.upsert_issuer(Issuer(
-        issuer_id, name, "US", str(cik), None, "us_gaap", "USD"))
+        issuer_id, name, market_row.jurisdiction, str(cik), None,
+        "us_gaap", "USD"))
     instruments.upsert_instrument(Instrument(
         instrument_id, issuer_id, None, args.class_, "active", None))
     listing_id = f"{instrument_id}-listing"
     instruments.upsert_listing(Listing(
-        listing_id, instrument_id, args.market, "USD", 1, None, None))
+        listing_id, instrument_id, venue, "USD", 1, None, None))
     instruments.add_ticker_history(listing_id, args.ticker.upper(),
                                    args_as_of_default(), None, None, None)
     repos.audit.log("add", instrument_id,
@@ -740,7 +768,7 @@ def cmd_add(args) -> int:
                      "cik": cik}, True, "ok")
     print(f"создан инструмент {instrument_id} "
           f"(эмитент {name}, CIK {cik}, тикер {args.ticker.upper()} "
-          f"на {args.market})")
+          f"на {args.market}, площадка {venue})")
     conn.close()
     return 0
 

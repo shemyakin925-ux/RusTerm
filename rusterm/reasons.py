@@ -17,6 +17,7 @@ NULL_REASONS: frozenset[str] = frozenset({
     "negative_denominator",  # отрицательный знаменатель — доля не имеет смысла
     "jurisdiction_rate",     # ставка налога вне допустимой юрисдикционной полосы
     "peer_set_too_small",    # вкладчиков меньше AGGREGATE_MIN_PEERS (I6, TASK-17 E1)
+    "no_sec_filings",        # эмитент не подаёт XBRL в SEC (404; TASK-18 G5)
 })
 
 
