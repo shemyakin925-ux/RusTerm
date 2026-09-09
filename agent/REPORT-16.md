@@ -32,3 +32,4 @@ Pushed:          yes
 Questions for the coordinator:
 
 NOW: D1, step 8
+- D2 `python3 -m pytest tests/test_tools.py -q` → `3 passed`; красная проверка: пятая запись delete_everything в TOOLS → registry-тест красный → убрана. Полный сюит 330 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
