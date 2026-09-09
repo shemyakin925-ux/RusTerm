@@ -9,6 +9,7 @@
 
 ## Disputed
 
+- Разовый провал полного сюита при прогоне перед коммитом C4 (1 failed  без захваченного имени; пайп с tail замаскировал код возврата и коммит  ушёл — повтор вчерашнего инцидента B20 с моей стороны). Четыре  последующих полных прогона зелёные (319 passed, 2 skipped), включая  два прогона приёмки. Подозреваемый — тайминг-чувствительный чекпоинт  в test_m4_scale (2.0 s на первый инструмент при нагрузке параллельной  сессией), но это гипотеза: имя теста не зафиксировано.
 ## HANDOFF
 Status:          WORKING
 Items done:      §0, C1 (commit pending)
@@ -31,3 +32,4 @@ NOW: C1, step 5
 - C2 `pytest tests/test_m4_scale.py -q -s` → `C2 shape: mean 0.0333 s/issuer, halves 1.60 s / 1.73 s, ratio 1.08`; `pytest` → 317 passed, 2 skipped; acceptance 13/13. Коммит запушен.
 - C3 подпроцессный тест: неизвестный id → rc 1 + stderr с именем; пустой → rc 0 + строка; --json keys {watchlist_id, dry_run, results, requests} в обоих случаях, error внутри results. `pytest` → 318 passed, 2 skipped; acceptance 13/13. Коммит запушен.
 - C4 `python3 -m pytest tests/test_doctor.py -q` → `3 passed`; `pytest` → 319 passed, 2 skipped; acceptance 13/13. Коммит запушен.
+- C5 `python3 -m pytest tests/test_tui_model.py -q` → `9 passed`; полный сюит `320 passed, 2 skipped` (rc=0 проверен напрямую, без пайпа); acceptance 13/13. Коммит запушен.
