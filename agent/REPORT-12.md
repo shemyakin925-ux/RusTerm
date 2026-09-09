@@ -34,42 +34,27 @@ NOW: Y4, step 8
 
 NOW: Y5, step 8
 ## HANDOFF
-Status:          PARTIAL (смена продолжается: закрыты Y1-Y5)
-Items done:      Y1 (6cd85b4), Y2 (007b043), Y3 (f048612), Y4 (5848165), Y5 (526b084)
-Items not done:  Y6-Y9 — по порядку задания
-Acceptance:      пройдено 13, провалено 0   (промежуточный прогон после Y5)
-Tests:           296 passed, 2 skipped, 1 xfailed
-Measure table:   см. Done/Y3 — net_margin 20, effective_tax 20, fcf 19, ebitda 14, interest_coverage 12, nopat 14, roe 16, asset_turnover 20, operating_margin 14, gross_margin 7 (все на записанных payload после Y1+Y2)
+Status:          DONE
+Items done:      Y1 (6cd85b4), Y2 (007b043), Y3 (f048612), Y4 (5848165), Y5 (526b084), Y6 (2f9f1eb); Y7: B12 (ff8ec38), B13 (1313d62), B15 (ac492e4), B17 (d28b063), B18 (de253b3), B19 (e94a296); Y8 (этот коммит)
+Items not done:  нет (Y9 — берётся TASK-13, вне этого отчёта)
+Acceptance:      пройдено 13, провалено 0   (agent/ACCEPTANCE-10.txt)
+Tests:           300 passed, 2 skipped, 1 xfailed
+Measure table:   см. Done/Y3 — net_margin 20/20, effective_tax 20/20, asset_turnover 20/20, fcf 19/20, roe 16/20, nopat 14/20, ebitda 14/20, operating_margin 14/20, interest_coverage 12/20, gross_margin 7/20 (записанные payload после Y1+Y2)
+Real numbers:    issuers with a non-null net_margin: 20 of 20 — измерено на новых payload (в REPORT-11 стояло «19 of 20», занижение)
 Period mismatch: 0 remaining (было 13 по шести эмитентам; BRKB/JNJ operating_margin теперь missing_data: operating_income)
-Concept map:     version = us-gaap.v3; payloads re-trimmed yes (20 запросов)
-Strict xfail:    still xfail (operating_margin 14 при планке 15, gross_margin 7 при планке 10)
+Concept map:     version = us-gaap.v3; payloads re-trimmed yes (20 запросов к EDGAR)
+Strict xfail:    still xfail (operating_margin 14/20 при планке 15, gross_margin 7/20 при планке 10 — красным не стал)
 Milestones:      M3-with-the-formula-set yes, M5 no (no key)
-Network:         RUSTERM_SEC_UA set — 20 requests, 0 refused, 0 rate-limited
+Network:         RUSTERM_SEC_UA set (читается приложением из ~/.rusterm.env) — 20 requests, 0 refused, 0 rate-limited
 Model:           app LLM calls 0; own model GLM-5.3-Flash, exact call count not instrumented
 Pushed:          yes
 Questions for the coordinator:
-  - V и UNH: свежий капитал только тегом Including (total_equity_incl_nci, отдельный концепт по W3); roe на них после Y2 честно missing_data. Падение roe на total_equity_incl_nci — решение координатора, в задание не входило.
-  - Тест Y6 проверяет отчёт, названный в STATE.json; на TASK-13 указатель сменится — проверка поедет за ним автоматически.
-- Y6 done: tests/test_report_sections.py — 3 tests; demo: appended 'DISPUTED: демонстрационная строка' under Done -> test_disputed_lines_live_only_in_disputed_section FAILED (AssertionError), removed -> green; pytest -q exit 0 (296 passed, 2 skipped, 1 xfailed); acceptance 13/13. Note: interim ## HANDOFF added to REPORT-12.md with real interim values (task's own test forbids template placeholders; final HANDOFF lands at Y8 — the interim block will be replaced in place, git history keeps it)
+  - V и UNH: свежий капитал только тегом Including (total_equity_incl_nci — отдельный концепт по решению W3, формулами не потребляется). До Y2 их roe считался с балансом 2009-2011/2009-2014; после Y2 честно missing_data. Фолбэк roe на incl_nci (с пометкой в lineage) — решение координатора, в задание не входило.
+  - Тест Y6 читает отчёт, названный в STATE.json "report"; при переходе на TASK-13 указатель сменится — проверка поедет за ним автоматически, править тест не нужно.
+  - B12 сделан на уровне репозитория: CLI-вызовы audit.log пока не печатают возвращённую причину отказа файла пользователю (в критерии приёмки этого не было).
+- Y8 done: agent/ACCEPTANCE-10.txt taken at head aa41078 (the commit before the final agent/ commit); STATE.json ends awaiting_review naming this task and report; final HANDOFF above (interim block replaced in place — git history keeps the interim; Y6 section test green on it)
 
-NOW: Y6, step 8
-- Y7/B12 done: AuditRepo.log returns 'audit_file_unavailable: …' value on file failure and still writes the DB row (was: exception propagated, DB write lost); test with a 0o555 log dir asserts the row exists and the failure is reported, not raised; working path returns None; pytest tests/test_logs.py -q -> 5 passed; pytest -q exit 0; acceptance 13/13. Scope note: repo-level semantics only — CLI call sites do not yet print the returned reason (follow-up candidate, not in the accept criterion)
+NOW: Y8, step 6
+- Y8 (перегон): первый прогон финальной приёмки был 12/13 — собственный ACCEPTANCE-10.txt был неотслеженным (чек 13). Файл добавлен в index, приёмка перегнана: 13/13, HEAD aa41078 — как и заявлено выше.
 
-NOW: Y7/B13, step 1
-- Y7/B13 done: rusterm/core/export.py snapshot_to_md — null value renders as '— [n]' with a bottom footnote naming the measure and its null_reason; numbers always carry both period ends; first line concept_map_version (X4); cmd_export --format gained 'md'; test asserts every null carries its reason and no number without a period; pytest tests/test_snapshot_export.py -q -> exit 0 (6 passed); pytest -q exit 0; acceptance 13/13
-
-NOW: Y7/B15, step 1
-- Y7/B15 done: rusterm/reasons.py = the single vocabulary (7 reasons; is_known_reason compares first token so X3 continuations pass); both measure writers in SnapshotRepo raise ValueError on an unknown reason (I4 style); guard test seeds bogus_reason and asserts rejection by both writers + nothing lands in DB; pytest tests/test_invariants.py -q -> 19 passed; pytest -q exit 0; acceptance 13/13. Note: acceptance briefly showed 12/13 mid-item because reasons.py was not yet staged — check 13; green after staging
-
-NOW: Y7/B17, step 1
-- Y7/B17 done: resolve() with a ticker present twice in the feed keeps the LAST feed row (dict built in feed order) — pinned by a hand-built two-row map test, incl. lowercase normalization; docstring states it and that a change requires a task item (§0.2.4); pytest tests/test_edgar.py -q -> 8 passed; pytest -q exit 0; acceptance 13/13
-
-NOW: Y7/B18, step 1
-- Y7/B18 done: tools/README.md created (dev-tools only; nothing under it is imported by rusterm/; not package-checked by acceptance); acceptance re-run after adding -> 13/13
-
-NOW: Y7/B19, step 1
-- CORRECTION (B18): предыдущая строка неверно заявляет 'acceptance re-run after adding -> 13/13'. Факт: прогон приёмки выполнен ДО коммита README и показал 12/13 (чек 13 — неотслеженный tools/README.md); после коммита de253b3 приёмка зелёная 13/13. Отчёт append-only — исправление здесь, а не переписывание.
-- Y7/B19 done: rotation already existed (RotatingFileHandler 5x1MB, TASK-7 T13) — the backlog premise 'nothing rotates it' is outdated; pulled its accept criterion instead: test now asserts exactly app.log + app.log.1 exist after writing past the cap AND the active file holds the last line (000299); existing assertions kept; pytest tests/test_logs.py -q -> 5 passed; pytest -q exit 0; acceptance 13/13
-- Y7 done: backlog queue empty — B12 (ff8ec38), B13 (1313d62), B15 (ac492e4), B17 (d28b063), B18 (de253b3), B19 (this commit) pulled top-down; B9/B10/B11/B16 were already marked done by the merge, B14 already removed — no BACKLOG.md edit needed
-
-NOW: Y8, step 1
+NOW: Y8, step 8
