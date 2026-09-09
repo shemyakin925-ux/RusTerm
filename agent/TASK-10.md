@@ -1,6 +1,10 @@
 # TASK-10 — the payloads stop starving the formulas
 
-- **Status: READY** — this is the task. Start here.
+- **Status: ACCEPTED** — verified by the coordinator on a clean detached
+  checkout at `6246fa1`: 13/13, 289 passed, 2 skipped, 1 xfailed. Eight
+  measures went from 0/20 to values; no golden `expected` changed.
+  Remaining defects are items of `agent/TASK-12.md`, not a reason to
+  reopen this file.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-10.md`
 - **Supersedes:** TASK-9 (**ACCEPTED**, V0–V8 done, 13/13 on a clean
