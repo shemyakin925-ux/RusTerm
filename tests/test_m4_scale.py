@@ -154,3 +154,127 @@ def test_m4_five_hundred_instruments_incremental():
         conn.close()
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── TASK-15 C2: стражи линейности — не разовый замер, а охрана ──────────
+
+# Именованный бюджет сборки: измеренный средний чек по эмитенту на этой
+# машине (замер C2 в REPORT-15) с запасом x3. Рост среднего красит тест.
+C2_MEAN_PER_ISSUER_BUDGET_S = 0.30
+C2_SHAPE_RATIO = 1.5          # вторая половина не дороже 1.5x первой
+C2_N_ISSUERS = 100
+C2_FAKE_UA = "Synthetic Test synthetic.invalid"
+
+
+def test_c2_hottest_queries_use_search_never_fact_scan():
+    """C2: три самых горячих запроса — restated_revisions,
+    as_reported_facts, get_measures — на свежей базе обязаны SEARCH-ить
+    по индексам миграции 38; полный SCAN fact или measure в плане —
+    регрессия, которую кто-то уронил индекс."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        paths = AppPaths.from_root(os.path.join(tmpdir, "app"))
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        repos = RepoRegistry(conn, paths)
+
+        calls = {
+            "revisions": lambda: repos.snapshot.restated_revisions("i-1"),
+            "as_reported": lambda: repos.snapshot.as_reported_facts(
+                "i-1", ("net_income", "revenue")),
+            "get_measures": lambda: repos.snapshot.get_measures("snap-x"),
+        }
+        for name, call in calls.items():
+            captured: list[str] = []
+            conn.set_trace_callback(captured.append)
+            try:
+                call()
+            finally:
+                conn.set_trace_callback(None)
+            assert captured, f"{name}: запрос не выполнен"
+            plan = [row[3] for row in conn.execute(
+                "EXPLAIN QUERY PLAN " + captured[0])]
+            assert not any("SCAN fact" in step or "SCAN measure" in step
+                           for step in plan), f"{name}: {plan}"
+            assert any("SEARCH" in step for step in plan), \
+                f"{name}: ни одного SEARCH: {plan}"
+        conn.close()
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_c2_hundred_issuer_build_shape_stays_linear():
+    """C2: форма кривой, а не скорость машины. Сто эмитентов на
+    записанном payload (данные грузит refresh без builder), затем
+    сборка снапшотов двумя половинами: средний чек — под именованным
+    бюджетом с запасом x3, вторая половина — не дороже 1.5x первой.
+    Возвращение квадрата видно по отношению половин на любом железе."""
+    payload = (Path(__file__).resolve().parents[1] / "tests" / "data"
+               / "edgar" / "companyfacts_m3_AAPL.json").read_bytes()
+    tmpdir = tempfile.mkdtemp()
+    try:
+        paths = AppPaths.from_root(os.path.join(tmpdir, "app"))
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        repos = RepoRegistry(conn, paths)
+        watchlist = WatchlistRepo(conn)
+        watchlist.create_watchlist("c2", "сто", None, None)
+        watchlist.new_version(str(uuid.uuid4()), "c2", 1, "create", None)
+        vid = watchlist.current_version("c2")["watchlist_version_id"]
+        for n in range(C2_N_ISSUERS):
+            repos.instrument.upsert_issuer(Issuer(
+                f"i-{n}", f"Issuer {n}", "US", str(800000 + n), None,
+                "us_gaap", "USD"))
+            repos.instrument.upsert_instrument(Instrument(
+                f"US-C2-{n:03d}", f"i-{n}", None, "common", "active", None))
+            watchlist.add_member(vid, f"US-C2-{n:03d}", None)
+
+        gate = RequestGate(
+            budget=Budget(max_requests=5000),
+            limiter=RateLimiter(per_second=10 ** 6),
+            gate=NetworkGate(environ={"RUSTERM_SEC_UA": C2_FAKE_UA}))
+        transport = _MultiCikTransport(payload)
+
+        def provider_factory(cik: int) -> EdgarProvider:
+            return EdgarProvider(gate=gate, cik=cik, transport=transport)
+
+        # данные без сборки: факты в базе, время тикает только за build
+        results = refresh_watchlist(repos, provider_factory, "c2",
+                                    "2026-09-09", builder=None)
+        assert all(r.action == "updated" for r in results)
+
+        members = [m["instrument_id"]
+                   for m in watchlist.members("c2")]
+        assert len(members) == C2_N_ISSUERS
+        half = C2_N_ISSUERS // 2
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+
+        started = time.monotonic()
+        for instrument_id in members[:half]:
+            builder.build(instrument_id, issuer_id := f"i-{members.index(instrument_id)}", as_of="2026-09-09")
+        first_half = time.monotonic() - started
+
+        started = time.monotonic()
+        for instrument_id in members[half:]:
+            builder.build(instrument_id, issuer_id := f"i-{members.index(instrument_id)}", as_of="2026-09-09")
+        second_half = time.monotonic() - started
+
+        mean_per_issuer = (first_half + second_half) / C2_N_ISSUERS
+        ratio = second_half / first_half
+        print(f"C2 shape: mean {mean_per_issuer:.4f} s/issuer, "
+              f"halves {first_half:.2f} s / {second_half:.2f} s, "
+              f"ratio {ratio:.2f}")
+        assert mean_per_issuer <= C2_MEAN_PER_ISSUER_BUDGET_S, (
+            f"средний чек {mean_per_issuer:.4f} s выше бюджета "
+            f"{C2_MEAN_PER_ISSUER_BUDGET_S} s")
+        assert ratio <= C2_SHAPE_RATIO, (
+            f"вторая половина {second_half:.2f} s против первой "
+            f"{first_half:.2f} s:ratio {ratio:.2f} — кривая загнулась")
+        conn.close()
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
