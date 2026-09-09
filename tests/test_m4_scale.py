@@ -1,18 +1,15 @@
-"""TASK-13 Z3: масштаб вехи M4 — пятьсот бумаг, инкрементальный проход.
+"""TASK-13 Z3 -> TASK-14 A1/A2/A3: масштаб вехи M4 — пятьсот бумаг,
+инкрементальный проход.
 
 Целиком офлайн: подставной транспорт, один записанный payload,
 размноженный по CIK, — пятьсот инструментов это пятьсот записей в базе,
 а не пятьсот скачиваний. Настоящая сеть не трогается.
 
-СТРУКТУРНАЯ НАХОДКА (подробно в ## Disputed agent/REPORT-13.md):
-SnapshotBuilder.build() на каждой сборке зовёт restated_revisions() —
-коррелированный EXISTS с полным SCAN fact; индексов в схеме нет, поэтому
-полный проход деградирует квадратично: замер 416.6 s на 100 эмитентах,
-экстраполяция на 500 — порядка 2.9 часов. До починки тест обязан падать
-(xfail(strict=True)) и делает это БЫСТРО: чекпоинт после первых 20
-инструментов против линейной доли бюджета. Когда причина уйдёт (индекс
-или отложенный diff), тест пройдёт и strict-xfail покраснеет — это
-задуманный исход, встанет на координацию.
+СТРУКТУРНАЯ НАХОДКА Z3 (REPORT-13) устранена в TASK-14: миграция 38 дала
+схеме первые индексы, restated_revisions() отвечает по одному эмитенту
+(A1/A2). Строгий xfail, обязывавший тест падать, снят — его причина
+больше не существует; поинструментальный чекпоинт против линейной доли
+бюджета остаётся: будущая регрессия обязана краснеть за секунды.
 """
 from __future__ import annotations
 
@@ -23,8 +20,6 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-
-import pytest
 
 from rusterm.core.refresh import refresh_watchlist
 from rusterm.core.snapshot import SnapshotBuilder
@@ -56,12 +51,6 @@ _PER_ISSUER_SHARE = M4_FIRST_PASS_BUDGET_S / N_ISSUERS
 _FIXED_ALLOWANCE_S = 2.0  # разогрев: первый инструмент несёт константу
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Z3: полный проход деградирует квадратично — build() зовёт "
-           "restated_revisions() (SCAN fact, без индексов) на каждую "
-           "сборку; 416.6 s на 100 эмитентах, на 500 — порядка 2.9 ч. "
-           "Замер и разбор в ## Disputed agent/REPORT-13.md")
 def test_m4_five_hundred_instruments_incremental():
     payload = (Path(__file__).resolve().parents[1] / "tests" / "data"
                / "edgar" / "companyfacts_m3_AAPL.json").read_bytes()
@@ -144,8 +133,12 @@ def test_m4_five_hundred_instruments_incremental():
 
         # проход 2: не изменилось — companyfacts не запрашивается,
         # ничего нового не создаётся
+        started_second = time.monotonic()
         second = refresh_watchlist(repos, provider_factory, "m4",
                                    "2026-09-09", builder=builder)
+        elapsed_second = time.monotonic() - started_second
+        print(f"M4 timings: first pass {elapsed_first:.2f} s, "
+              f"second pass {elapsed_second:.2f} s")
         assert len(second) == N_ISSUERS
         assert all(r.action == "unchanged" for r in second)
         cf_second = sum(1 for u in transport.log

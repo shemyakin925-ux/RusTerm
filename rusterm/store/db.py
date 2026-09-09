@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 37  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept) + 37 (issuer_ingest_state)
+_SCHEMA_VERSION = 38  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept) + 37 (issuer_ingest_state) + 38 (индексы; TASK-14 A1)
 
 
 def _checksum(text: str) -> str:
@@ -400,6 +400,35 @@ def _migrate_37_issuer_ingest_state(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[37] = (_migrate_37_issuer_ingest_state,
                           _ISSUER_INGEST_STATE_DDL)
+
+
+# Миграция 38 (TASK-14 A1): первые индексы схемы — до неё каждая
+# выборка в проекте полный SCAN (Z3: restated_revisions() сканирует
+# fact дважды и на каждой сборке снапшота). Четыре индекса, по одному
+# на именованный запрос; пятый наугад — цена без пользы.
+# A7 дополнит эту же миграцию перестройкой issuer_ingest_state под
+# составной ключ (issuer_id, source) — та же версия, оба изменения.
+_MIGRATION_38_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS idx_fact_issuer_concept_period_basis"
+    " ON fact(issuer_id, concept, period_end, basis)",
+    "CREATE INDEX IF NOT EXISTS idx_fact_source_ref"
+    " ON fact(source_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_measure_snapshot"
+    " ON measure(snapshot_id)",
+    "CREATE INDEX IF NOT EXISTS idx_measure_lineage_measure"
+    " ON measure_lineage(measure_id)",
+)
+
+
+def _migrate_38_indexes(conn: sqlite3.Connection) -> None:
+    for ddl in _MIGRATION_38_INDEXES:
+        conn.execute(ddl)
+
+
+_MIGRATION_38_CHECKSUM_TEXT = "; ".join(_MIGRATION_38_INDEXES)
+
+_CUSTOM_MIGRATIONS[38] = (_migrate_38_indexes,
+                          _MIGRATION_38_CHECKSUM_TEXT)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

@@ -12,8 +12,9 @@ from rusterm.store.db import apply_migrations, writer_transaction, _SCHEMA_VERSI
 
 def test_schema_version_is_36():
     """SCHEMA_VERSION: 32 таблицы + 33 (gzip) + 35 (governance)
-    + 36 (canonical_concept; 34 не существует, TASK-9 V0)."""
-    assert _SCHEMA_VERSION == 37
+    + 36 (canonical_concept; 34 не существует, TASK-9 V0)
+    + 37 (issuer_ingest_state) + 38 (индексы, TASK-14 A1)."""
+    assert _SCHEMA_VERSION == 38
 
 
 def test_apply_migrations_creates_all_tables():
@@ -29,7 +30,7 @@ def test_apply_migrations_creates_all_tables():
         # Берём максимальную версию (последняя применённая)
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 37
+        assert row[0] == 38
         # Ключевые таблицы
         tables = ["issuer", "instrument", "listing", "fact", "peer_set", "snapshot",
                   "measure", "coverage", "job", "audit_log",
@@ -122,7 +123,10 @@ _OLD_RAW_OBJECT_DDL = """CREATE TABLE raw_object (
 
 def _make_v32_db_with_data(conn: sqlite3.Connection) -> None:
     """База версии 32: все версии отмечены применёнными, raw_object —
-    со старым CHECK ('none','zstd') и двумя строками данных."""
+    со старым CHECK ('none','zstd') и двумя строками данных.
+    fact/measure/measure_lineage — в полной форме миграций 11/20/21:
+    настоящая база v32 их содержала, и миграция 38 индексирует их
+    колонки целиком (TASK-14 A1)."""
     conn.execute(
         "CREATE TABLE schema_version ("
         " version INTEGER PRIMARY KEY,"
@@ -134,10 +138,48 @@ def _make_v32_db_with_data(conn: sqlite3.Connection) -> None:
         [(v, 0.0, "seed") for v in range(1, 33)],
     )
     conn.execute(_OLD_RAW_OBJECT_DDL)
-    # настоящая база v32 содержит и fact (создаётся миграцией 11);
-    # без него миграция 36 (ALTER TABLE fact) не имеет смысла
     conn.execute(
-        "CREATE TABLE fact (fact_id TEXT PRIMARY KEY, source_ref TEXT)")
+        """CREATE TABLE fact (
+        fact_id TEXT PRIMARY KEY,
+        issuer_id TEXT,
+        listing_id TEXT,
+        concept TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        period_type TEXT NOT NULL CHECK (period_type IN ('instant','duration')),
+        value TEXT,
+        unit TEXT NOT NULL,
+        currency TEXT,
+        basis TEXT NOT NULL CHECK (basis IN ('as_reported','restated')),
+        origin TEXT NOT NULL CHECK (origin IN ('extracted','manual')),
+        source_ref TEXT NOT NULL,
+        locator TEXT NOT NULL,
+        parser_version TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('ok','suspect')),
+        superseded_by TEXT,
+        ingested_at REAL NOT NULL)""")
+    conn.execute(
+        """CREATE TABLE measure (
+        measure_id TEXT PRIMARY KEY,
+        snapshot_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        scope_ref TEXT NOT NULL,
+        concept TEXT NOT NULL,
+        value TEXT,
+        unit TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        formula_id TEXT,
+        method_version TEXT,
+        null_reason TEXT,
+        peer_set_version TEXT)""")
+    conn.execute(
+        """CREATE TABLE measure_lineage (
+        measure_id TEXT NOT NULL,
+        fact_id TEXT,
+        peer_measure_id TEXT,
+        role TEXT NOT NULL,
+        PRIMARY KEY (measure_id, fact_id, peer_measure_id, role))""")
     conn.executemany(
         "INSERT INTO raw_object(sha256, provider, fetched_at, bytes,"
         " content_type, compression) VALUES (?, 'synthetic', 0.0, 3,"
@@ -159,8 +201,10 @@ def test_migration_33_keeps_data_and_allows_gzip():
     try:
         _make_v32_db_with_data(conn)
         newly = apply_migrations(conn)
-        # v32-база получает 33 (gzip), 35 (governance) и 36 (canonical)
-        assert newly == [33, 35, 36, 37], f"ожидались [33, 35, 36, 37], получили {newly}"
+        # v32-база получает 33 (gzip), 35 (governance), 36 (canonical),
+        # 37 (issuer_ingest_state) и 38 (индексы, TASK-14 A1)
+        assert newly == [33, 35, 36, 37, 38], \
+            f"ожидались [33, 35, 36, 37, 38], получили {newly}"
         rows = dict(conn.execute(
             "SELECT sha256, compression FROM raw_object").fetchall())
         assert rows == {"a" * 64: "none", "b" * 64: "zstd"}, (
@@ -206,6 +250,72 @@ def test_fresh_db_raw_object_check_allows_gzip():
             " 'application/json', 'gzip')",
             ("e" * 64,),
         )
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
+# ── Миграция 38: первые индексы схемы (TASK-14 A1, находка Z3) ──────────
+
+_M48_INDEXES = {
+    "idx_fact_issuer_concept_period_basis",
+    "idx_fact_source_ref",
+    "idx_measure_snapshot",
+    "idx_measure_lineage_measure",
+}
+
+
+def test_migration_38_creates_exactly_four_named_indexes():
+    """На свежей базе ровно четыре именованных индекса миграции 38 —
+    по одному на именованный запрос; пятый наугад стоил бы без пользы."""
+    import os
+    import shutil
+    tmpdir = tempfile.mkdtemp()
+    conn = sqlite3.connect(str(os.path.join(tmpdir, "test.db")),
+                           timeout=30, isolation_level=None)
+    try:
+        apply_migrations(conn)
+        got = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+            " AND sql IS NOT NULL")}
+        assert got == _M48_INDEXES, (
+            f"ожидались ровно {_M48_INDEXES}, получены {got}")
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
+
+
+def test_migration_38_revisions_query_hits_index_not_fact_scan():
+    """Z3: restated_revisions() — коррелированный EXISTS по fact; без
+    индекса он полный SCAN на каждую строку внешнего прохода (квадрат).
+    Миграция 38 даёт подзапросу SEARCH по покрывающему индексу.
+    SQL берётся трассировкой настоящего вызова репозитория — тест
+    проверяет фактический запрос, а не его копию.
+
+    A2 сузит запрос до одного эмитента и усилит этот же тест: SEARCH
+    обязана стать и у внешнего прохода (SCAN f исчезнет вовсе)."""
+    import os
+    import shutil
+    tmpdir = tempfile.mkdtemp()
+    conn = sqlite3.connect(str(os.path.join(tmpdir, "test.db")),
+                           timeout=30, isolation_level=None)
+    try:
+        apply_migrations(conn)
+        from rusterm.store.repos import SnapshotRepo
+        captured: list[str] = []
+        conn.set_trace_callback(captured.append)
+        try:
+            SnapshotRepo(conn).restated_revisions()
+        finally:
+            conn.set_trace_callback(None)
+        assert captured, "restated_revisions не выполнил ни одного запроса"
+        plan = [row[3] for row in conn.execute(
+            "EXPLAIN QUERY PLAN " + captured[0])]
+        assert not any("SCAN a" in step for step in plan), (
+            f"коррелированный подзапрос снова сканирует fact: {plan}")
+        assert any("SEARCH a USING COVERING INDEX"
+                   " idx_fact_issuer_concept_period_basis" in step
+                   for step in plan), plan
     finally:
         conn.close()
         shutil.rmtree(tmpdir)

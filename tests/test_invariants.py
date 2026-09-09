@@ -495,10 +495,51 @@ def test_i16_schema_change_reaches_existing_db():
             "INSERT INTO schema_version(version, applied_at, checksum)"
             " VALUES (?, ?, ?)",
             [(v, 0.0, "seed") for v in range(1, 33)])
-        # настоящая база v32 содержит и fact (миграция 11) —
-        # миграция 36 добавляет к нему колонки
+        # настоящая база v32 содержит fact (миграция 11),
+        # measure (20) и measure_lineage (21) в полной форме —
+        # миграция 36 добавляет к fact колонки, 38 индексирует все три
         conn.execute(
-            "CREATE TABLE fact (fact_id TEXT PRIMARY KEY, source_ref TEXT)")
+            """CREATE TABLE fact (
+        fact_id TEXT PRIMARY KEY,
+        issuer_id TEXT,
+        listing_id TEXT,
+        concept TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        period_type TEXT NOT NULL CHECK (period_type IN ('instant','duration')),
+        value TEXT,
+        unit TEXT NOT NULL,
+        currency TEXT,
+        basis TEXT NOT NULL CHECK (basis IN ('as_reported','restated')),
+        origin TEXT NOT NULL CHECK (origin IN ('extracted','manual')),
+        source_ref TEXT NOT NULL,
+        locator TEXT NOT NULL,
+        parser_version TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('ok','suspect')),
+        superseded_by TEXT,
+        ingested_at REAL NOT NULL)""")
+        conn.execute(
+            """CREATE TABLE measure (
+        measure_id TEXT PRIMARY KEY,
+        snapshot_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        scope_ref TEXT NOT NULL,
+        concept TEXT NOT NULL,
+        value TEXT,
+        unit TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        formula_id TEXT,
+        method_version TEXT,
+        null_reason TEXT,
+        peer_set_version TEXT)""")
+        conn.execute(
+            """CREATE TABLE measure_lineage (
+        measure_id TEXT NOT NULL,
+        fact_id TEXT,
+        peer_measure_id TEXT,
+        role TEXT NOT NULL,
+        PRIMARY KEY (measure_id, fact_id, peer_measure_id, role))""")
         # DDL raw_object до миграции 33: CHECK без 'gzip'
         conn.execute(
             "CREATE TABLE raw_object ("
