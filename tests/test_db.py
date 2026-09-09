@@ -368,3 +368,31 @@ def test_migration_38_issuer_ingest_state_two_sources():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+def test_b21_issuer_state_get_none_for_other_source():
+    """BACKLOG B21: get возвращает None и для эмитента, чья строка есть,
+    но под другим источником — составной ключ сделает это честным
+    (миграция 38, A7). До 38 такой вызов вернул бы edgar-строку."""
+    import os
+    import shutil
+    tmpdir = tempfile.mkdtemp()
+    conn = sqlite3.connect(str(os.path.join(tmpdir, "test.db")),
+                           timeout=30, isolation_level=None)
+    try:
+        apply_migrations(conn)
+        conn.execute(
+            "INSERT INTO issuer(issuer_id, name, jurisdiction,"
+            " reporting_standard, reporting_currency)"
+            " VALUES ('i1', 'Issuer 1', 'US', 'us_gaap', 'USD')")
+        from rusterm.store.repos import IssuerStateRepo
+        state = IssuerStateRepo(conn)
+        assert state.get("i1") is None  # строки нет вовсе
+        state.put("i1", "2026-01-01", source="edgar")
+        assert state.get("i1", source="edgar") is not None
+        assert state.get("i1", source="synthetic") is None, (
+            "чужой источник вернул чужую строку")
+        assert state.get("i-missing") is None
+    finally:
+        conn.close()
+        shutil.rmtree(tmpdir)
