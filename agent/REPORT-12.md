@@ -59,3 +59,6 @@ NOW: Y7/B13, step 1
 - Y7/B13 done: rusterm/core/export.py snapshot_to_md — null value renders as '— [n]' with a bottom footnote naming the measure and its null_reason; numbers always carry both period ends; first line concept_map_version (X4); cmd_export --format gained 'md'; test asserts every null carries its reason and no number without a period; pytest tests/test_snapshot_export.py -q -> exit 0 (6 passed); pytest -q exit 0; acceptance 13/13
 
 NOW: Y7/B15, step 1
+- Y7/B15 done: rusterm/reasons.py = the single vocabulary (7 reasons; is_known_reason compares first token so X3 continuations pass); both measure writers in SnapshotRepo raise ValueError on an unknown reason (I4 style); guard test seeds bogus_reason and asserts rejection by both writers + nothing lands in DB; pytest tests/test_invariants.py -q -> 19 passed; pytest -q exit 0; acceptance 13/13. Note: acceptance briefly showed 12/13 mid-item because reasons.py was not yet staged — check 13; green after staging
+
+NOW: Y7/B17, step 1
