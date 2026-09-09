@@ -180,7 +180,21 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
                     # матч по первому токену, не по всей строке
                     assert m[10].split(":")[0] in fixed_reasons, \
                         f"{snapshot['instrument_id']}/{m[3]}: причина {m[10]!r}"
+                    # TASK-14 A4: голый missing_data недопустим — пропуск
+                    # называет отсутствующий вход
+                    assert m[10] != "missing_data", \
+                        f"{snapshot['instrument_id']}/{m[3]}: голая причина"
                     row["reasons"][m[10]] = row["reasons"].get(m[10], 0) + 1
+
+        # TASK-14 A4: у V и UNH нет свежего тега total_equity — их roe
+        # обязан называть отсутствующий знаменатель, а не голый пропуск
+        for snapshot in snapshots:
+            if snapshot["instrument_id"] not in ("in-V", "in-UNH"):
+                continue
+            for m in repos.snapshot.get_measures(snapshot["snapshot_id"]):
+                if m[3] == "roe" and m[4] is None:
+                    assert m[10] == "missing_data: total_equity", (
+                        f"{snapshot['instrument_id']}/roe: {m[10]!r}")
 
         # таблица печатается до ассертов — она нужна отчёту в любом случае
         print("measure -> n/20 + reasons:")

@@ -279,10 +279,12 @@ class SnapshotBuilder:
         приоритет тега карты выбирает источник. Двухпериодные (roe,
         asset_turnover): конец выбранного периода + предыдущий период
         того же стока, иначе missing_prior_period. Цепочка nopat берёт
-        ставку из посчитанной effective_tax. Отсутствующий концепт —
-        missing_data; нет общего периода — period_mismatch. Факт старше
-        1100 дней от anchor (самого свежего конца периода эмитента) во
-        входы не годится (TASK-12 Y2). Причины не сливаются.
+        ставку из посчитанной effective_tax. Отсутствующий вход назван
+        по имени — «missing_data: <концепты>» через запятую в
+        отсортированном порядке (X3, TASK-14 A4); нет общего периода —
+        period_mismatch. Факт старше 1100 дней от anchor (самого
+        свежего конца периода эмитента) во входы не годится (Y2).
+        Причины не сливаются.
         """
         rows = self._snapshots.as_reported_facts(
             issuer_id, tuple(sorted(base_concepts)))
@@ -375,8 +377,12 @@ class SnapshotBuilder:
         for concept, (flow, stock) in _TWO_PERIOD_MEASURES.items():
             flow_rows = by_concept.get(flow, [])
             stock_ends = period_ends(stock)
-            if not flow_rows or not stock_ends:
-                reasons[concept] = "missing_data"
+            absent = sorted(a for a in (flow, stock)
+                            if a not in by_concept)
+            if absent:
+                # A4: пропуск называет отсутствующую сторону, как
+                # однопериодная ветка (X3)
+                reasons[concept] = "missing_data: " + ", ".join(absent)
                 continue
             chosen = max((k for k in
                           {(r["unit"], r["start"], r["end"])
@@ -423,8 +429,15 @@ class SnapshotBuilder:
         # ставку даёт посчитанная effective_tax — собирается в build()
         oi_rows = by_concept.get("operating_income", [])
         et_period = periods.get("effective_tax")
-        if et_period is None or not oi_rows:
-            reasons["nopat"] = "missing_data"
+        # A4: называется то, чего не хватило (ставка или операционная
+        # прибыль); оба — через запятую в отсортированном порядке
+        absent = []
+        if et_period is None:
+            absent.append("effective_tax")
+        if not oi_rows:
+            absent.append("operating_income")
+        if absent:
+            reasons["nopat"] = "missing_data: " + ", ".join(absent)
         else:
             et_end = et_period[1]
             oi_candidates = [r for r in oi_rows if r["end"] == et_end]
