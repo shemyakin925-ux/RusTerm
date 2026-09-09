@@ -250,6 +250,32 @@ def cmd_refresh(args) -> int:
     paths, conn = _open(args.root)
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
+
+    # TASK-15 C3: команда, которой нечего делать, обязана это сказать.
+    # Неизвестный id — ошибка (stderr + код 1); пустой, но существующий
+    # список — обычная ситуация (строка, код 0). Топ-уровень --json не
+    # расширяется: ошибка живёт в существующей форме results.
+    if repos.watchlist.current_version(args.watchlist) is None:
+        reason = f"список наблюдения {args.watchlist!r} не найден"
+        print(reason, file=sys.stderr)
+        if args.json:
+            print(json.dumps({
+                "watchlist_id": args.watchlist,
+                "dry_run": bool(args.dry_run),
+                "results": [{"instrument_id": "", "issuer_id": "",
+                             "action": "error", "facts": None,
+                             "last_filing_date": None, "reason": reason}],
+                "requests": {"submissions": 0, "companyfacts": 0},
+            }, ensure_ascii=False))
+        conn.close()
+        return 1
+    if not repos.watchlist.members(args.watchlist):
+        # --json обязан оставаться машиночитаемым: заметка о пустоте
+        # идёт в тот же канал, что и весь не-JSON вывод команды
+        message = (f"список наблюдения {args.watchlist!r} пуст —"
+                   " участников нет")
+        print(message, file=sys.stderr if args.json else sys.stdout)
+
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage)
     gate = RequestGate()

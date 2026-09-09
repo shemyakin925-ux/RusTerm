@@ -430,3 +430,72 @@ def test_b20_cli_request_totals_match_per_result_calls(monkeypatch, capsys):
             sum(r.calls.get("companyfacts", 0) for r in results)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_c3_refresh_unknown_and_empty_watchlist_say_so():
+    """TASK-15 C3: неизвестный id — stderr с именем списка и код 1,
+    не молчаливый код 0; пустой существующий список — строка о пустоте
+    и код 0. --json в обоих случаях держит свой набор ключей, ошибка
+    живёт внутри results (action=error), не новым топ-уровневым ключом."""
+    import subprocess
+    import sys
+
+    repo = Path(__file__).resolve().parents[1]
+    stub = repo / "tests" / "e2e_stub"
+    env = {**os.environ,
+           "RUSTERM_SEC_UA": "Synthetic Test e2e.invalid",
+           "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+           "PYTHONPATH": os.pathsep.join(
+               [str(stub), str(repo), os.environ.get("PYTHONPATH", "")]),
+           "TERM": "xterm"}
+
+    def run(root, *argv):
+        return subprocess.run(
+            [sys.executable, "-m", "rusterm.cli", "--root", root, *argv],
+            capture_output=True, text=True, env=env)
+
+    tmpdir = tempfile.mkdtemp()
+    root = tmpdir
+    try:
+        assert run(root, "init").returncode == 0
+        assert run(root, "add", "--ticker", "AAPL", "--market", "US") \
+            .returncode == 0
+        assert run(root, "watchlist", "create", "w-real",
+                   "--name", "n").returncode == 0
+        assert run(root, "watchlist", "add", "w-real", "--ticker", "AAPL",
+                   "--market", "US").returncode == 0
+        assert run(root, "watchlist", "create", "w-empty",
+                   "--name", "e").returncode == 0
+
+        # 1) неизвестный id: код 1, имя списка на stderr
+        r = run(root, "refresh", "--watchlist", "nope")
+        assert r.returncode == 1, (r.returncode, r.stderr)
+        assert "nope" in r.stderr and r.stdout == "", (r.stderr, r.stdout)
+        r = run(root, "refresh", "--watchlist", "nope", "--json")
+        assert r.returncode == 1
+        assert "nope" in r.stderr
+        payload = json.loads(r.stdout)
+        assert set(payload) == {"watchlist_id", "dry_run", "results",
+                                "requests"}, sorted(payload)
+        assert payload["results"][0]["action"] == "error"
+        assert "nope" in payload["results"][0]["reason"]
+
+        # 2) пустой существующий список: код 0, строка о пустоте
+        r = run(root, "refresh", "--watchlist", "w-empty")
+        assert r.returncode == 0, r.stderr
+        assert "пуст" in r.stdout, r.stdout
+        r = run(root, "refresh", "--watchlist", "w-empty", "--json")
+        assert r.returncode == 0
+        assert "пуст" in r.stderr, r.stderr  # заметка не рвёт JSON-поток
+        payload = json.loads(r.stdout)
+        assert set(payload) == {"watchlist_id", "dry_run", "results",
+                                "requests"}, sorted(payload)
+        assert payload["results"] == []
+        assert payload["requests"] == {"submissions": 0, "companyfacts": 0}
+
+        # 3) контроль: обычный непустой список работает как раньше
+        r = run(root, "refresh", "--watchlist", "w-real")
+        assert r.returncode == 0, r.stderr
+        assert "обновлён" in r.stdout
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
