@@ -101,3 +101,25 @@ def test_quarter_and_annual_periods_kept_in_separate_bands():
     assert len(annual) == 1 and annual[0]["val"] == 93775000000
     q4 = [e for e in revenues if e["end"] == "2025-12-31"]
     assert q4 and q4[0]["val"] == 555
+
+
+def test_b23_trim_recorded_payload_sha256_stable_across_runs():
+    """BACKLOG B23: docstring инструмента обещает байт-в-байт
+    повторяемость перегенерации — на записанном payload реального
+    фида это никем не проверялось. Два прогона на одном входе обязаны
+    дать одинаковый sha256."""
+    import hashlib
+    payload = (Path(__file__).resolve().parents[1] / "tests" / "data"
+               / "edgar" / "companyfacts_m3_JNJ.json").read_text(
+                   encoding="utf-8")
+
+    def run() -> str:
+        doc = json.loads(payload)
+        out = json.dumps(trim(doc), separators=(",", ":"), sort_keys=True)
+        return hashlib.sha256(out.encode("utf-8")).hexdigest()
+
+    sha_one = run()
+    sha_two = run()
+    assert sha_one == sha_two, (
+        f"перегенерация нестабильна: {sha_one} != {sha_two}")
+    assert len(sha_one) == 64
