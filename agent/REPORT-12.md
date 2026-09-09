@@ -69,3 +69,7 @@ NOW: Y7/B18, step 1
 
 NOW: Y7/B19, step 1
 - CORRECTION (B18): предыдущая строка неверно заявляет 'acceptance re-run after adding -> 13/13'. Факт: прогон приёмки выполнен ДО коммита README и показал 12/13 (чек 13 — неотслеженный tools/README.md); после коммита de253b3 приёмка зелёная 13/13. Отчёт append-only — исправление здесь, а не переписывание.
+- Y7/B19 done: rotation already existed (RotatingFileHandler 5x1MB, TASK-7 T13) — the backlog premise 'nothing rotates it' is outdated; pulled its accept criterion instead: test now asserts exactly app.log + app.log.1 exist after writing past the cap AND the active file holds the last line (000299); existing assertions kept; pytest tests/test_logs.py -q -> 5 passed; pytest -q exit 0; acceptance 13/13
+- Y7 done: backlog queue empty — B12 (ff8ec38), B13 (1313d62), B15 (ac492e4), B17 (d28b063), B18 (de253b3), B19 (this commit) pulled top-down; B9/B10/B11/B16 were already marked done by the merge, B14 already removed — no BACKLOG.md edit needed
+
+NOW: Y8, step 1
