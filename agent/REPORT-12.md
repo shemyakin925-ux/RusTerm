@@ -33,3 +33,20 @@ NOW: Y4, step 8
 - Y5 done: resolve() warm-up call deleted (fetched the whole ticker map and discarded it; CIK came from issuer.registry_id); new subprocess test asserts ingest --source edgar with a known CIK makes exactly 1 request and it is companyfacts (counter = stub transport writing URLs to a log — the subprocess equivalent of gate.calls_made == 1); pytest tests/test_e2e_cli.py -q -> exit 0; pytest -q exit 0; acceptance 13/13
 
 NOW: Y5, step 8
+## HANDOFF
+Status:          PARTIAL (смена продолжается: закрыты Y1-Y5)
+Items done:      Y1 (6cd85b4), Y2 (007b043), Y3 (f048612), Y4 (5848165), Y5 (526b084)
+Items not done:  Y6-Y9 — по порядку задания
+Acceptance:      пройдено 13, провалено 0   (промежуточный прогон после Y5)
+Tests:           296 passed, 2 skipped, 1 xfailed
+Measure table:   см. Done/Y3 — net_margin 20, effective_tax 20, fcf 19, ebitda 14, interest_coverage 12, nopat 14, roe 16, asset_turnover 20, operating_margin 14, gross_margin 7 (все на записанных payload после Y1+Y2)
+Period mismatch: 0 remaining (было 13 по шести эмитентам; BRKB/JNJ operating_margin теперь missing_data: operating_income)
+Concept map:     version = us-gaap.v3; payloads re-trimmed yes (20 запросов)
+Strict xfail:    still xfail (operating_margin 14 при планке 15, gross_margin 7 при планке 10)
+Milestones:      M3-with-the-formula-set yes, M5 no (no key)
+Network:         RUSTERM_SEC_UA set — 20 requests, 0 refused, 0 rate-limited
+Model:           app LLM calls 0; own model GLM-5.3-Flash, exact call count not instrumented
+Pushed:          yes
+Questions for the coordinator:
+  - V и UNH: свежий капитал только тегом Including (total_equity_incl_nci, отдельный концепт по W3); roe на них после Y2 честно missing_data. Падение roe на total_equity_incl_nci — решение координатора, в задание не входило.
+  - Тест Y6 проверяет отчёт, названный в STATE.json; на TASK-13 указатель сменится — проверка поедет за ним автоматически.
