@@ -204,16 +204,40 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
                   f"(порог {floor}) причины: "
                   f"{row['reasons'] if row['reasons'] else '—'}")
 
-        # TASK-12 Y3: пороги 14 и 7 перенесены в floors выше; планки
-        # 15 и 10 остались только в xfail(strict=True) ниже — если
-        # данные поправятся и 15 станет достижим, xfail покраснеет и
-        # встанет на координацию. Это задуманный исход, не поломка.
-
         for measure, floor in floors.items():
             assert measure in table, f"меры {measure} нет в снапшотах"
             got = table[measure]["values"]
             assert got >= floor, (
                 f"{measure}: {got}/20 ниже порога {floor}")
+
+        # TASK-15 C1 (§0.1): строгий xfail W4 выведен из эксплуатации —
+        # планки, которые может сдвинуть только третье лицо, заменены
+        # точным составом пробелов. Замер M3-прогона 2026-09-09:
+        # operating_margin пуст ровно у шести, все — без тега
+        # OperatingIncomeLoss (JPM — банк; PFE/CVX/XOM не тегают;
+        # BRKB/JNJ — та же история тегов); gross_margin со значением
+        # ровно у семи. Новый эмитент, потерявший operating_income,
+        # красит тест; эмитент, его ОБРЕТШИЙ, тоже — это и есть
+        # сигнал для обзора, ради которого существовал xfail.
+        om_null: dict[str, str] = {}
+        gm_null: dict[str, str] = {}
+        gm_values = 0
+        for snapshot in snapshots:
+            ticker = snapshot["instrument_id"].removeprefix("in-")
+            for m in repos.snapshot.get_measures(snapshot["snapshot_id"]):
+                if m[3] == "operating_margin" and m[4] is None:
+                    om_null[ticker] = m[10]
+                if m[3] == "gross_margin":
+                    if m[4] is None:
+                        gm_null[ticker] = m[10]
+                    else:
+                        gm_values += 1
+        assert set(om_null) == {"BRKB", "CVX", "JNJ", "JPM", "PFE", "XOM"}, \
+            f"состав пробела operating_margin уехал: {sorted(om_null)}"
+        assert set(om_null.values()) == {"missing_data: operating_income"}
+        assert gm_values == 7, f"gross_margin со значением: {gm_values}"
+        assert len(gm_null) == 13
+        assert set(gm_null.values()) == {"missing_data: gross_profit"}
 
         # W3: неотображённых фактов нет — тег Including… закрыт картой
         null_canonical = conn.execute(
@@ -253,55 +277,5 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
         print(f"M3: 20 issuers, one pass, {gate.calls_made} requests, "
               f"{blocks_missing} blocks missing with reasons, repeat pass "
               "created 0 new objects/facts/jobs")
-    finally:
-        shutil.rmtree(tmpdir)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="W4: JPM/PFE/CVX/XOM не раскрывают OperatingIncomeLoss (14/20); "
-           "GrossProfit раскрывают 7/20 — дефект данных на координацию, "
-           "планки 15 и 10 не снижены")
-def test_w4_known_short_floors_operating_margin_and_gross_margin():
-    tmpdir = tempfile.mkdtemp()
-    try:
-        paths = AppPaths.from_root(os.path.join(tmpdir, "app"))
-        ensure_app_dir(paths)
-        conn = sqlite3.connect(str(paths.db_path), timeout=30,
-                               isolation_level=None)
-        apply_migrations(conn)
-        repos = RepoRegistry(conn, paths)
-
-        gate = RequestGate(
-            budget=Budget(max_requests=5000),
-            limiter=RateLimiter(per_second=5),
-            gate=NetworkGate(environ={"RUSTERM_SEC_UA": FAKE_UA}))
-        stored_urls: dict = {}
-
-        for ticker in ALL:
-            repos.instrument.upsert_issuer(Issuer(
-                f"i-{ticker}", f"{ticker} Corp (recorded payload)", "US",
-                None, None, "us_gaap", "USD"))
-            repos.instrument.upsert_instrument(Instrument(
-                f"in-{ticker}", f"i-{ticker}", None, "common", "active",
-                None))
-            _ingest_companyfacts(repos, ticker, gate, stored_urls)
-
-        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
-                                  coverage_repo=repos.coverage)
-        for ticker in ALL:
-            builder.build(f"in-{ticker}", f"i-{ticker}", "2026-09-08")
-
-        floors = {"operating_margin": 15, "gross_margin": 10}
-        counts = {}
-        for snapshot in repos.snapshot.latest_per_instrument():
-            for m in repos.snapshot.get_measures(snapshot["snapshot_id"]):
-                if m[3] in floors and m[4] is not None:
-                    counts[m[3]] = counts.get(m[3], 0) + 1
-        for measure, floor in floors.items():
-            assert counts.get(measure, 0) >= floor, (
-                f"{measure}: {counts.get(measure, 0)}/20 ниже порога "
-                f"{floor}")
-        conn.close()
     finally:
         shutil.rmtree(tmpdir)
