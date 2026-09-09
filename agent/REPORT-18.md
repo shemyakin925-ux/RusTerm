@@ -46,3 +46,4 @@ NOW: G3, step 1
   «path 'rusterm/formulas.py' exists on disk, but not in 'origin/main'».
 - DISPUTED (procedure): G1+G2+G5 в одном коммите fafb901 — изменения
   переплетены в cmd_add/edgar.py.
+- G6 записаны: RY 1000275, BMO 927971, CNQ 1017413 (ifrs-full), CPTP 202947 (us-gaap; ТЗ звало 21175 — фид победил), NGGTF 1004315 (ifrs-full). 6 запросов из 40. du 608 КБ < 1024; манифест 25 записей; повторная обрезка байт-в-байт (тест). golden_m6_ca.json: 120 значений с accn + pointer. Коммит запушен.
