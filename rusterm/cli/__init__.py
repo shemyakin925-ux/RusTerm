@@ -259,9 +259,29 @@ def cmd_refresh(args) -> int:
     results = refresh_watchlist(
         repos, provider_factory, args.watchlist, args_as_of_default(),
         dry_run=args.dry_run, builder=None if args.dry_run else builder)
-    conn.close()
-
     errors = sum(1 for r in results if r.action == "error")
+
+    # TASK-14 A5: проход мутирует store — факты, покрытие, снапшоты —
+    # и обязан оставить строку аудита, как всякая мутирующая команда.
+    # --dry-run ничего не меняет и строки не пишет. Отказ файла аудита
+    # (B12) команду не роняет: причина уходит на stderr, строка при
+    # этом всё равно в базе; код возврата — по результатам прохода.
+    if not args.dry_run:
+        file_error = repos.audit.log(
+            "refresh", args.watchlist,
+            {"updated": sum(1 for r in results if r.action == "updated"),
+             "unchanged": sum(1 for r in results
+                              if r.action == "unchanged"),
+             "error": errors,
+             "submissions": sum(r.calls.get("submissions", 0)
+                                for r in results),
+             "companyfacts": sum(r.calls.get("companyfacts", 0)
+                                 for r in results)},
+            confirmed=False,
+            result="ok" if errors == 0 else "errors")
+        if file_error:
+            print(file_error, file=sys.stderr)
+    conn.close()
     if args.json:
         print(json.dumps({
             "watchlist_id": args.watchlist,

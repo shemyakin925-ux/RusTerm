@@ -241,3 +241,94 @@ def test_z4_refresh_command_dry_run_zero_requests_and_json_keys():
         assert payload["requests"]["companyfacts"] == 0
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_a5_refresh_writes_one_audit_row_per_pass():
+    """TASK-14 A5: refresh мутирует store и обязан писать аудит.
+    Обычный проход — ровно одна строка audit_log (action=refresh,
+    target=список, payload=счётчики, confirmed=0, result=ok/errors);
+    --dry-run не пишет ничего; недоступный файл аудита даёт строку на
+    stderr и при этом строку в базе (B12), код возврата — свои заслуги
+    прохода. Подпроцессы на подменном EDGAR, настоящая сеть не трогается."""
+    import subprocess
+    import sys
+
+    repo = Path(__file__).resolve().parents[1]
+    stub = repo / "tests" / "e2e_stub"
+    env = {**os.environ,
+           "RUSTERM_SEC_UA": "Synthetic Test e2e.invalid",
+           "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+           "PYTHONPATH": os.pathsep.join(
+               [str(stub), str(repo), os.environ.get("PYTHONPATH", "")]),
+           "TERM": "xterm"}
+
+    def run(root, *argv):
+        return subprocess.run(
+            [sys.executable, "-m", "rusterm.cli", "--root", root, *argv],
+            capture_output=True, text=True, env=env)
+
+    def audit_rows(root):
+        import sqlite3
+        db = sqlite3.connect(f"{root}/rusterm.db")
+        try:
+            return db.execute(
+                "SELECT action, target, payload, confirmed, result"
+                " FROM audit_log ORDER BY ts").fetchall()
+        finally:
+            db.close()
+
+    tmpdir = tempfile.mkdtemp()
+    root = tmpdir
+    try:
+        assert run(root, "init").returncode == 0
+        assert run(root, "add", "--ticker", "AAPL", "--market", "US") \
+            .returncode == 0
+        assert run(root, "watchlist", "create", "w1",
+                   "--name", "n").returncode == 0
+        assert run(root, "watchlist", "add", "w1", "--ticker", "AAPL",
+                   "--market", "US").returncode == 0
+        baseline = len(audit_rows(root))  # строки add/watchlist — не ours
+
+        # --dry-run: изменений нет — строк нет
+        r = run(root, "refresh", "--watchlist", "w1", "--dry-run")
+        assert r.returncode == 0, r.stderr
+        assert len(audit_rows(root)) == baseline
+
+        # обычный проход: одна строка, счётчики и result закреплены
+        r = run(root, "refresh", "--watchlist", "w1")
+        assert r.returncode == 0, r.stderr
+        rows = audit_rows(root)
+        assert len(rows) == baseline + 1, rows[baseline:]
+        action, target, payload, confirmed, result = rows[baseline]
+        assert (action, target, confirmed, result) == \
+            ("refresh", "w1", 0, "ok"), rows[baseline]
+        assert json.loads(payload) == {
+            "updated": 1, "unchanged": 0, "error": 0,
+            "submissions": 1, "companyfacts": 1}, payload
+
+        # второй проход: unchanged — строка пишется и здесь
+        r = run(root, "refresh", "--watchlist", "w1")
+        assert r.returncode == 0, r.stderr
+        assert "не изменилось" in r.stdout
+        rows = audit_rows(root)
+        assert len(rows) == baseline + 2
+        assert json.loads(rows[baseline + 1][2])["unchanged"] == 1
+
+        # B12: logs/ только для чтения и audit.jsonl не существует —
+        # создать файл нельзя, apppend падает: stderr-строка + строка
+        # в базе, выход по заслугам прохода (0: ошибок в данных нет)
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return  # root игнорирует права каталога
+        (Path(root) / "logs" / "audit.jsonl").unlink()
+        (Path(root) / "logs").chmod(0o555)
+        try:
+            r = run(root, "refresh", "--watchlist", "w1")
+            assert r.returncode == 0, r.stderr
+            assert "audit_file_unavailable" in r.stderr, r.stderr
+            rows = audit_rows(root)
+            assert len(rows) == baseline + 3
+            assert rows[baseline + 2][4] == "ok"
+        finally:
+            (Path(root) / "logs").chmod(0o755)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
