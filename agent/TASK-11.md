@@ -1,8 +1,8 @@
 # TASK-11 — the end-to-end path, and what the program says it cannot do
 
-- **Status: READY** — but **only after every item of `agent/TASK-10.md`
-  is done.** Do not start here. TASK-10 is the night; this file exists so
-  that finishing early never means waiting for a review.
+- **Status: ACCEPTED** — X1–X4 done, X5 partial (B9, B10, B11, B16).
+  Verified on a clean detached checkout at `6246fa1`. The remaining
+  backlog items are queued in `agent/TASK-12.md` Y7.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-11.md` (a new file; TASK-10's report stays as
   it is)
