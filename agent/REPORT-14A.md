@@ -27,3 +27,4 @@ NOW: §0, step 8
 - A6 `python3 -c "…get_type_hints…"` → `ok`; `grep -n 'def finish' rusterm/core/refresh.py` → пусто; `python3 -m pytest` → `309 passed, 2 skipped, 1 xfailed`; acceptance 13/13. Коммит запушен.
 - A7 `python3 -m pytest tests/test_db.py -q` → `10 passed`; `python3 -m pytest` → `310 passed, 2 skipped, 1 xfailed`; acceptance 13/13. Перестройка внутри миграции 38 (как требует A7), 37 не тронута; текст checksum миграции 38 изменился против коммита 8f46d32 — ни одна база вне этого ночного бранча версию 38 применить не могла. Коммит запушен.
 - B20 `python3 -m pytest tests/test_refresh.py -q` → `4 passed`; totals==sum(calls) на обоих проходах; `--json` возвращает 0 даже при ошибках (контракт Z4, отмечено). Инцидент: первый вариант коммита ушёл в git с красным тестом (пайп скрыл код возврата) — аменд до пуша, см. ## What not to trust. Коммит запушен.
+- B21 `python3 -m pytest tests/test_db.py -q` → `11 passed`; acceptance 13/13. Коммит запушен.
