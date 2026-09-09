@@ -50,3 +50,11 @@ Questions for the coordinator:
    source in the schema, U12.4). Keep until M7, or drop the tool?
 
 NOW: D10, step 8
+
+## Addendum (found during TASK-17, 10.09)
+- HANDOVER DEFECT: c5f20a4 (the handover head) did NOT contain the
+  empty-apply guard in ops.apply — it existed only in the working tree,
+  so a clean checkout of the handover head fails test_d3_confidence.
+  Fixed at start of TASK-17 by commit 2d30407; acceptance 13/13 again.
+  Root cause unproven: either a staging miss or the parallel session
+  touching the file between edit and commit.
