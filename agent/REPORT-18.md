@@ -35,3 +35,4 @@ Pushed:          yes
 Questions for the coordinator:
 
 NOW: G3, step 1
+- G1+G2+G5 тесты: `test_markets.py` 3 passed, `test_venue_filings.py` 1 passed (страж-красная проверка выполнена); полный сюит 351 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
