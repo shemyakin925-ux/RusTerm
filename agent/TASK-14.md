@@ -523,7 +523,7 @@ succeeds.
 
 ### A10. Queue not empty
 
-`agent/TASK-15.md`, `agent/TASK-16.md` and `agent/TASK-17.md` are all
+`agent/TASK-15.md`, `TASK-16.md`, `TASK-17.md` and `TASK-18.md` are all
 `Status: READY` and waiting, in that order. If this night ends early,
 take the next one — do not idle and do not invent work. Each has its own
 report file; never write into a previous task's report.

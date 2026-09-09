@@ -4,6 +4,9 @@
   handed over, or when its items are exhausted before 09:30.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-17.md`
+- **Next in queue:** `agent/TASK-18.md` (Canada and the OTC venue,
+  plus the market registry), `Status: READY`, dependent on nothing
+  here — take it rather than idling.
 - **Depends on nothing in TASK-14, 15 or 16.** Every table this task
   needs exists today: `peer_set_version` carries `valid_from`/`valid_to`,
   `snapshot` carries `as_of` and `version`. If earlier nights went badly,

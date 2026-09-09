@@ -4,8 +4,8 @@
   handed over, or when its items are exhausted before 09:30.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-16.md`
-- **Next in queue:** `agent/TASK-17.md` (M7), `Status: READY`, dependent
-  on nothing here — take it rather than idling.
+- **Next in queue:** `agent/TASK-17.md` (M7), then `agent/TASK-18.md`
+  (Canada and OTC). Both `Status: READY` and dependent on nothing here.
 - **Depends on nothing in TASK-14 or TASK-15.** Every item below reads
   and writes code that exists today. If the two nights before this one
   went badly, this task is still runnable as written.

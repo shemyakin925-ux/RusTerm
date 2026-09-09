@@ -4,9 +4,9 @@
   and handed over, or when its items are exhausted before 09:30.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-15.md`
-- **Next in queue:** `agent/TASK-16.md` (M5), then `agent/TASK-17.md`
-  (M7). Both are `Status: READY` and depend on nothing here — take the
-  next one rather than idling.
+- **Next in queue:** `agent/TASK-16.md` (M5), `agent/TASK-17.md` (M7),
+  `agent/TASK-18.md` (Canada and OTC). All `Status: READY` and dependent
+  on nothing here — take the next one rather than idling.
 - **Depends on:** TASK-14 A1–A4. C2 and C5 assume the pass is linear and
   `restated_revisions` is issuer-scoped. If A1–A3 did not land, do C1,
   C3, C4, C6 and say in `## Blocked` that C2 waits on A1.
