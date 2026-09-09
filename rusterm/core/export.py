@@ -52,3 +52,30 @@ def snapshot_to_csv(measures: list) -> str:
                          m["period_end"], m["method_version"],
                          m["null_reason"]])
     return buf.getvalue()
+
+
+def snapshot_to_md(measures: list) -> str:
+    """Markdown-таблица снапшота для чтения в терминале или заметках
+    (B13). Пустая мера — прочерк со сноской, где названа её причина;
+    числа без периода не бывает: у каждой величины стоят оба конца
+    периода. Первая строка — версия карты, породившей числа (X4)."""
+    lines = [f"concept_map_version: {CONCEPT_MAP_VERSION}", "",
+             "| concept | value | unit | period_start | period_end |",
+             "|---|---|---|---|---|"]
+    footnotes: list[str] = []
+    for m in _rows_to_dicts(measures):
+        if m["value"] is None:
+            marker = len(footnotes) + 1
+            footnotes.append(
+                f"- [{marker}] {m['concept']}: {m['null_reason']}")
+            value = f"— [{marker}]"
+            unit = period_start = period_end = ""
+        else:
+            value = m["value"]
+            unit = m["unit"] or ""
+            period_start, period_end = m["period_start"], m["period_end"]
+        lines.append(f"| {m['concept']} | {value} | {unit} | "
+                     f"{period_start} | {period_end} |")
+    if footnotes:
+        lines += ["", "Причины пустых значений:"] + footnotes
+    return "\n".join(lines) + "\n"

@@ -10,7 +10,8 @@ import uuid
 
 import pytest
 
-from rusterm.core.export import snapshot_to_csv, snapshot_to_json
+from rusterm.core.export import snapshot_to_csv, snapshot_to_json, \
+    snapshot_to_md
 from rusterm.core.snapshot import SnapshotBuilder
 from rusterm.store.db import apply_migrations
 from rusterm.store.paths import AppPaths, ensure_app_dir
@@ -229,6 +230,60 @@ def test_export_matches_snapshot_without_recompute():
         for m in measures:
             if m[4] is None:
                 assert m[10], f"{m[3]}: NULL без причины"
+        conn.close()
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir)
+
+
+def test_export_md_nulls_as_footnotes_numbers_with_periods():
+    """B13: markdown-экспорт — пустая мера это прочерк со сноской, где
+    названа её причина; число не появляется без периода."""
+    from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
+    tmpdir, conn = _setup()
+    try:
+        _fact(conn, "net_income", "400")
+        _fact(conn, "revenue", "2000")
+        builder = SnapshotBuilder(SnapshotRepo(conn), PeerSetRepo(conn),
+                                  CoverageRepo(conn))
+        built = builder.build("ins1", "i1", "2024-12-31")
+        measures = SnapshotRepo(conn).get_measures(built.snapshot_id)
+
+        text = snapshot_to_md(measures)
+        lines = text.splitlines()
+        assert lines[0] == f"concept_map_version: {CONCEPT_MAP_VERSION}"
+
+        null_rows, valued_rows = [], []
+        for line in lines:
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if cells[0] == "concept":
+                continue
+            if cells[1].startswith("— ["):
+                null_rows.append(cells)
+            else:
+                valued_rows.append(cells)
+        assert valued_rows, "величин со значением не оказалось"
+        assert null_rows, "пустых мер не оказалось — сноски не проверишь"
+
+        # каждое число несёт оба конца периода
+        for cells in valued_rows:
+            assert cells[3] and cells[4], \
+                f"{cells[0]}: число без периода: {cells}"
+
+        # каждая пустая мера — со сноской, сноска называет её причину
+        stored = {m[3]: m for m in measures}
+        footnotes = [line for line in lines if line.startswith("- [")]
+        assert len(footnotes) == len(null_rows)
+        for cells in null_rows:
+            concept = cells[0]
+            marker = cells[1].split("[", 1)[1].split("]")[0]
+            reason = stored[concept][10]
+            assert reason, f"{concept}: пустая мера без причины"
+            match = next(f for f in footnotes
+                         if f.startswith(f"- [{marker}] {concept}:"))
+            assert reason in match, (reason, match)
         conn.close()
     finally:
         import shutil

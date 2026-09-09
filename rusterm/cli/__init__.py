@@ -11,7 +11,8 @@ import json
 import sys
 import uuid
 
-from rusterm.core.export import snapshot_to_csv, snapshot_to_json
+from rusterm.core.export import snapshot_to_csv, snapshot_to_json, \
+    snapshot_to_md
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
 from rusterm.providers.budget import RequestGate
 from rusterm.providers import get_provider
@@ -281,7 +282,8 @@ def cmd_export(args) -> int:
     snapshot = repo.get_snapshot(snapshot_id)
     measures = repo.get_measures(snapshot_id)
     text = (snapshot_to_csv(measures) if args.format == "csv"
-            else snapshot_to_json(snapshot, measures))
+            else snapshot_to_json(snapshot, measures)
+            if args.format == "json" else snapshot_to_md(measures))
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(text)
@@ -722,7 +724,8 @@ def main(argv: list[str] | None = None) -> int:
     p_snap.add_argument("--as-of", default=None)
     p_exp = sub.add_parser("export", help="экспорт последнего снапшота")
     p_exp.add_argument("--instrument", required=True)
-    p_exp.add_argument("--format", choices=("json", "csv"), default="json")
+    p_exp.add_argument("--format", choices=("json", "csv", "md"),
+                       default="json")
     p_exp.add_argument("--out", default=None)
     p_ver = sub.add_parser("verify", help="ручное исправление факта")
     p_ver.add_argument("--fact", required=True,
