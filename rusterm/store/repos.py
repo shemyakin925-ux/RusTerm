@@ -423,15 +423,19 @@ class SnapshotRepo:
             (instrument_id,)).fetchone()
         return row[0] if row else None
 
-    def restated_revisions(self) -> list:
-        """Ревизии: restated-факты по периодам, где есть as_reported."""
+    def restated_revisions(self, issuer_id: str) -> list:
+        """Ревизии ОДНОГО эмитента: restated-факты по периодам, где есть
+        as_reported (TASK-14 A2: без фильтра diff снапшота показывал
+        ревизии всех эмитентов базы; вызовов «по всем» нет и быть не
+        должно)."""
         return self.conn.execute(
             """SELECT f.concept, f.period_end FROM fact f
-               WHERE f.basis='restated' AND EXISTS (
+               WHERE f.issuer_id=? AND f.basis='restated' AND EXISTS (
                      SELECT 1 FROM fact a
                      WHERE a.issuer_id=f.issuer_id AND a.concept=f.concept
                        AND a.period_end=f.period_end
-                       AND a.basis='as_reported')"""
+                       AND a.basis='as_reported')""",
+            (issuer_id,)
         ).fetchall()
 
     def lineage_fact_ids(self, measure_id: str) -> List[str]:

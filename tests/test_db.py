@@ -286,14 +286,12 @@ def test_migration_38_creates_exactly_four_named_indexes():
 
 
 def test_migration_38_revisions_query_hits_index_not_fact_scan():
-    """Z3: restated_revisions() — коррелированный EXISTS по fact; без
-    индекса он полный SCAN на каждую строку внешнего прохода (квадрат).
-    Миграция 38 даёт подзапросу SEARCH по покрывающему индексу.
-    SQL берётся трассировкой настоящего вызова репозитория — тест
-    проверяет фактический запрос, а не его копию.
-
-    A2 сузит запрос до одного эмитента и усилит этот же тест: SEARCH
-    обязана стать и у внешнего прохода (SCAN f исчезнет вовсе)."""
+    """Z3 + TASK-14 A1/A2: restated_revisions() — коррелированный EXISTS
+    по fact; без индекса он полный SCAN (квадрат), без фильтра эмитента
+    внешний проход тоже SCAN. После миграции 38 и скоупа по issuer_id
+    в плане нет ни одного SCAN, оба прохода ищут по покрывающему
+    индексу. SQL берётся трассировкой настоящего вызова репозитория —
+    тест проверяет фактический запрос, а не его копию."""
     import os
     import shutil
     tmpdir = tempfile.mkdtemp()
@@ -305,17 +303,18 @@ def test_migration_38_revisions_query_hits_index_not_fact_scan():
         captured: list[str] = []
         conn.set_trace_callback(captured.append)
         try:
-            SnapshotRepo(conn).restated_revisions()
+            SnapshotRepo(conn).restated_revisions("i1")
         finally:
             conn.set_trace_callback(None)
         assert captured, "restated_revisions не выполнил ни одного запроса"
         plan = [row[3] for row in conn.execute(
             "EXPLAIN QUERY PLAN " + captured[0])]
-        assert not any("SCAN a" in step for step in plan), (
-            f"коррелированный подзапрос снова сканирует fact: {plan}")
-        assert any("SEARCH a USING COVERING INDEX"
+        assert not any("SCAN" in step for step in plan), (
+            f"полное сканирование fact в плане: {plan}")
+        assert any("SEARCH" in step for step in plan), plan
+        assert all("USING COVERING INDEX"
                    " idx_fact_issuer_concept_period_basis" in step
-                   for step in plan), plan
+                   for step in plan if "SEARCH" in step), plan
     finally:
         conn.close()
         shutil.rmtree(tmpdir)

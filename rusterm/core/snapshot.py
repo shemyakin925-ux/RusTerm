@@ -253,7 +253,7 @@ class SnapshotBuilder:
                     snapshot_id, "peer_comparison", "missing",
                     "percentile_threshold_not_met")
 
-        result.diff = self._diff(instrument_id, snapshot_id,
+        result.diff = self._diff(instrument_id, issuer_id, snapshot_id,
                                  peer_members_previous, peer_members_current)
 
         # ── Покрытие: все восемь блоков существуют после каждой сборки ──
@@ -445,7 +445,8 @@ class SnapshotBuilder:
     def _next_version(self, instrument_id: str) -> int:
         return self._snapshots.max_version(instrument_id) + 1
 
-    def _diff(self, instrument_id, snapshot_id, peer_prev, peer_cur) -> SnapshotDiff:
+    def _diff(self, instrument_id, issuer_id, snapshot_id,
+              peer_prev, peer_cur) -> SnapshotDiff:
         diff = SnapshotDiff()
         prev_snapshot_id = self._snapshots.previous_snapshot(instrument_id)
         if prev_snapshot_id:
@@ -460,5 +461,5 @@ class SnapshotBuilder:
             diff.peer_set_changes = [(sorted(set(peer_cur) - set(peer_prev)),
                                       sorted(set(peer_prev) - set(peer_cur)))]
         diff.revisions = [(c, p) for c, p
-                          in self._snapshots.restated_revisions()]
+                          in self._snapshots.restated_revisions(issuer_id)]
         return diff

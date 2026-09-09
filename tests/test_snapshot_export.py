@@ -42,7 +42,7 @@ def _setup():
 
 
 def _fact(conn, concept, value, basis="as_reported", fact_id=None,
-          ingested_at=0):
+          ingested_at=0, issuer_id="i1"):
     fid = fact_id or str(uuid.uuid4())
     conn.execute(
         """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
@@ -50,10 +50,10 @@ def _fact(conn, concept, value, basis="as_reported", fact_id=None,
           basis, origin, source_ref, locator, parser_version,
           status, superseded_by, ingested_at,
           canonical_concept, concept_map_version)
-          VALUES (?, 'i1', NULL, ?, '2024-01-01', '2024-12-31', 'duration',
+          VALUES (?, ?, NULL, ?, '2024-01-01', '2024-12-31', 'duration',
                   ?, 'USD', NULL, ?, 'extracted', 'src-x', '{}',
                   'synthetic.v1', 'ok', NULL, ?, ?, 'us-gaap.v1')""",
-        (fid, concept, value, basis, ingested_at, concept))
+        (fid, issuer_id, concept, value, basis, ingested_at, concept))
     return fid
 
 
@@ -193,6 +193,40 @@ def test_snapshot_three_diffs_are_separate():
         assert v2.diff.peer_set_changes == [(["c"], ["a"])]
         # 3) появившаяся ревизия
         assert ("revenue", "2024-12-31") in v2.diff.revisions
+        conn.close()
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir)
+
+
+def test_snapshot_diff_revisions_scoped_to_built_issuer():
+    """TASK-14 A2: diff снапшота отвечает за эмитента сборки. Два
+    эмитента, у каждого as_reported + restated по СВОЕМУ концепту;
+    сборка первого перечисляет в diff.revisions только концепт первого.
+    Без фильтра по issuer_id в restated_revisions() тест краснеет —
+    чужие ревизии текли в дифф каждого снапшота."""
+    tmpdir, conn = _setup()
+    try:
+        instruments = InstrumentRepo(conn)
+        instruments.upsert_issuer(Issuer("i2", "Second Corp (synthetic)",
+                                         "US", None, None, "us_gaap", "USD"))
+        instruments.upsert_instrument(Instrument("ins2", "i2", None,
+                                                 "common", "active", None))
+        # i1: ревизия по revenue; i2: ревизия по net_income
+        _fact(conn, "revenue", "2000")
+        _fact(conn, "revenue", "1900", basis="restated")
+        _fact(conn, "net_income", "400", issuer_id="i2")
+        _fact(conn, "net_income", "390", basis="restated", issuer_id="i2")
+
+        builder = SnapshotBuilder(SnapshotRepo(conn),
+                                  PeerSetRepo(conn), CoverageRepo(conn))
+        v1 = builder.build("ins1", "i1", "2024-12-31")
+        assert v1.diff.revisions == [("revenue", "2024-12-31")], \
+            f"чужие ревизии в диффе: {v1.diff.revisions}"
+
+        v2 = builder.build("ins2", "i2", "2024-12-31")
+        assert v2.diff.revisions == [("net_income", "2024-12-31")], \
+            f"чужие ревизии в диффе: {v2.diff.revisions}"
         conn.close()
     finally:
         import shutil
