@@ -1,8 +1,9 @@
 # TASK-13 — M4: пятьсот бумаг, и обновляется только то, что изменилось
 
-- **Status: READY** — но **только после того, как выполнены все пункты
-  `agent/TASK-12.md`.** Не начинай отсюда. TASK-12 — это ночь; этот файл
-  существует, чтобы ранний финиш не ждал рецензии.
+- **Status: ACCEPTED** — Z1–Z6 verified on a clean detached checkout at
+  `b90ac14`. Milestone M4 closed **partially**, exactly as reported: the
+  five-hundred-instrument pass is blocked by the Z3 finding, which is
+  **upheld** and fixed by `agent/TASK-14.md` A1–A3. Do not reopen.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-13.md` (новый файл; отчёт TASK-12 не трогать)
 - **Goal, in one sentence:** веха M4 из `docs/quality-and-observability.md`

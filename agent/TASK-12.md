@@ -1,6 +1,8 @@
 # TASK-12 — the dead tags that poison a period
 
-- **Status: READY** — this is the task. Start here.
+- **Status: ACCEPTED** — Y1–Y9 verified on a clean detached
+  checkout at `b90ac14` (acceptance 13/13, 303 passed). See
+  `agent/TASK-14.md` §0.1 for the review record. Do not reopen.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-12.md`
 - **Supersedes:** TASK-10 (**ACCEPTED**, W0–W8) and TASK-11
