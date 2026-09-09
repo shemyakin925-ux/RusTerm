@@ -282,9 +282,9 @@ class SnapshotBuilder:
         ставку из посчитанной effective_tax. Отсутствующий вход назван
         по имени — «missing_data: <концепты>» через запятую в
         отсортированном порядке (X3, TASK-14 A4); нет общего периода —
-        period_mismatch. Факт старше 1100 дней от anchor (самого
-        свежего конца периода эмитента) во входы не годится (Y2).
-        Причины не сливаются.
+        period_mismatch. Факт старше _STALE_LOOKBACK_DAYS дней от
+        anchor (самого свежего конца периода эмитента) во входы не
+        годится (Y2). Причины не сливаются.
         """
         rows = self._snapshots.as_reported_facts(
             issuer_id, tuple(sorted(base_concepts)))
@@ -307,11 +307,11 @@ class SnapshotBuilder:
         # ── Правило давности (TASK-12 Y2) ──
         # anchor — самый свежий period_end среди as_reported фактов
         # эмитента по концептам набора мер. Факт, отстающий от anchor
-        # более чем на 1100 дней, во входы не годится: тег, которым
-        # компания перестала пользоваться, — отсутствующее раскрытие
-        # (missing_data), а не period_mismatch. Фильтр живёт в выборке
-        # входов, не в as_reported_facts: store хранит всё, и старый
-        # факт по-прежнему показывают verify и панель источника.
+        # более чем на _STALE_LOOKBACK_DAYS, во входы не годится: тег,
+        # которым компания перестала пользоваться, — отсутствующее
+        # раскрытие (missing_data), а не period_mismatch. Фильтр живёт
+        # в выборке входов, не в as_reported_facts: store хранит всё,
+        # и старый факт по-прежнему показывают verify и панель источника.
         anchor = max((r["end"] for rows in by_concept.values()
                       for r in rows), default=None)
         try:
