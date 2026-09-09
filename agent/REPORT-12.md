@@ -65,3 +65,7 @@ NOW: Y7/B17, step 1
 - Y7/B17 done: resolve() with a ticker present twice in the feed keeps the LAST feed row (dict built in feed order) — pinned by a hand-built two-row map test, incl. lowercase normalization; docstring states it and that a change requires a task item (§0.2.4); pytest tests/test_edgar.py -q -> 8 passed; pytest -q exit 0; acceptance 13/13
 
 NOW: Y7/B18, step 1
+- Y7/B18 done: tools/README.md created (dev-tools only; nothing under it is imported by rusterm/; not package-checked by acceptance); acceptance re-run after adding -> 13/13
+
+NOW: Y7/B19, step 1
+- CORRECTION (B18): предыдущая строка неверно заявляет 'acceptance re-run after adding -> 13/13'. Факт: прогон приёмки выполнен ДО коммита README и показал 12/13 (чек 13 — неотслеженный tools/README.md); после коммита de253b3 приёмка зелёная 13/13. Отчёт append-only — исправление здесь, а не переписывание.
