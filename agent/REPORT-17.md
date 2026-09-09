@@ -17,3 +17,4 @@ Interim — filled at night end per §3.
 NOW: E1, step 1
 - E1 `python3 -m pytest tests/test_industry_aggregate.py -q` → `6 passed`; полный сюит 342 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
 - E2 `python3 -m pytest tests/test_industry_aggregate.py -q` → `7 passed`; полный сюит 343 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
+- E3 `python3 -m pytest tests/test_industry_aggregate.py -q` → `8 passed`; полный сюит 345 passed, 2 skipped (rc=0); acceptance 13/13. Миграция 39, `_SCHEMA_VERSION` 38→39. Коммит запушен.
