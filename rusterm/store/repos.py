@@ -1395,6 +1395,44 @@ class AuditRepo:
         return file_error
 
 
+class IssuerStateRepo:
+    """Состояние инкрементального сбора по эмитенту (TASK-13 Z2,
+    миграция 37): дата последней виденной отчётности + валидаторы кеша
+    companyfacts. Живёт в базе, а не в провайдере (I10)."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def get(self, issuer_id: str, source: str = "edgar") -> Optional[dict]:
+        row = self.conn.execute(
+            """SELECT issuer_id, source, last_filing_date, etag,
+               last_modified, updated_at FROM issuer_ingest_state
+               WHERE issuer_id=? AND source=?""",
+            (issuer_id, source)).fetchone()
+        if row is None:
+            return None
+        return {"issuer_id": row[0], "source": row[1],
+                "last_filing_date": row[2], "etag": row[3],
+                "last_modified": row[4], "updated_at": row[5]}
+
+    def put(self, issuer_id: str, last_filing_date: Optional[str],
+            etag: Optional[str] = None, last_modified: Optional[str] = None,
+            source: str = "edgar") -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO issuer_ingest_state(issuer_id, source,
+                    last_filing_date, etag, last_modified, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(issuer_id) DO UPDATE SET
+                    last_filing_date=excluded.last_filing_date,
+                    etag=excluded.etag,
+                    last_modified=excluded.last_modified,
+                    updated_at=excluded.updated_at""",
+                (issuer_id, source, last_filing_date, etag, last_modified,
+                 time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+            )
+
+
 # Фабрика для получения всех репозиториев
 class RepoRegistry:
     def __init__(self, conn: sqlite3.Connection, paths: AppPaths):
@@ -1412,4 +1450,5 @@ class RepoRegistry:
         self.metrics = MetricsRepo(conn)
         self.llm_summary = LlmSummaryRepo(conn)
         self.governance = GovernanceRepo(conn)
+        self.issuer_state = IssuerStateRepo(conn)
         self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)

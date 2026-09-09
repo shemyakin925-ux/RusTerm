@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 36  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept)
+_SCHEMA_VERSION = 37  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept) + 37 (issuer_ingest_state)
 
 
 def _checksum(text: str) -> str:
@@ -378,6 +378,28 @@ def _migrate_36_canonical_concept(conn: sqlite3.Connection) -> None:
 _CUSTOM_MIGRATIONS[36] = (_migrate_36_canonical_concept,
                           "ALTER TABLE fact ADD canonical_concept,"
                           " concept_map_version")
+
+
+# Миграция 37: состояние инкрементального сбора по эмитенту (TASK-13 Z2).
+# Дата последней виденной отчётности и валидаторы кеша companyfacts —
+# единственный источник истины для «не изменилось — не скачивается»;
+# хранится снаружи провайдера, потому что провайдер о базе не знает
+# (инвариант I10). Одна строка на эмитента и источник.
+_ISSUER_INGEST_STATE_DDL = """CREATE TABLE IF NOT EXISTS issuer_ingest_state (
+        issuer_id TEXT PRIMARY KEY REFERENCES issuer(issuer_id),
+        source TEXT NOT NULL DEFAULT 'edgar',
+        last_filing_date TEXT,
+        etag TEXT,
+        last_modified TEXT,
+        updated_at TEXT NOT NULL)"""
+
+
+def _migrate_37_issuer_ingest_state(conn: sqlite3.Connection) -> None:
+    conn.execute(_ISSUER_INGEST_STATE_DDL)
+
+
+_CUSTOM_MIGRATIONS[37] = (_migrate_37_issuer_ingest_state,
+                          _ISSUER_INGEST_STATE_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

@@ -111,6 +111,17 @@ class EdgarProvider:
         return self._fetch_json_conditional(
             COMPANYFACTS_URL.format(cik=self.cik), validators)
 
+    def latest_filing_date(self):
+        """Дата последней поданной отчётности из submissions (один
+        запрос, ответ кэшируется в провайдере); ProviderError/
+        ConfigError — значением. None — фид без отчётностей."""
+        data = self._load_submissions()
+        if isinstance(data, (ProviderError, ConfigError)):
+            return data
+        recent = data.get("filings", {}).get("recent", {})
+        dates = recent.get("filingDate") or []
+        return max(dates) if dates else None
+
     # ── Карта тикеров: один запрос на весь рынок ────────────────────────
 
     def _ticker_map(self) -> dict | ConfigError | NotModified:

@@ -21,7 +21,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         # init: каталог + миграции
         assert main(["--root", root, "init"]) == 0
         out = capsys.readouterr().out
-        assert "schema_version=36" in out
+        assert "schema_version=37" in out
 
         # demo: демо-данные создаются только явно (TASK-8 U3)
         assert main(["--root", root, "demo"]) == 0
@@ -72,7 +72,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         assert main(["--root", root, "doctor"]) == 0
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is True
-        assert report["schema_version"] == 36
+        assert report["schema_version"] == 37
     finally:
         shutil.rmtree(root)
 
@@ -98,14 +98,15 @@ def test_cli_doctor_reports_schema_drift(capsys):
         capsys.readouterr()
         import sqlite3
         conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
-        conn.execute("DELETE FROM schema_version WHERE version=36")
+        conn.execute("DELETE FROM schema_version WHERE version=37")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
-        # версии 34 не существует, поэтому после удаления 36 максимум — 35
-        assert report["schema_version"] == 35
-        assert any("schema_version=35" in p and "36" in p
+        # после удаления свежей версии 37 максимум — 36 (миграция 37 —
+        # issuer_ingest_state, TASK-13 Z2)
+        assert report["schema_version"] == 36
+        assert any("schema_version=36" in p and "37" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -471,7 +472,7 @@ def test_u9_status_after_demo_flow_reports_snapshot_and_coverage(capsys):
         assert main(["--root", root, "status", "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["instruments"] == 1
-        assert payload["schema_version"] == 36
+        assert payload["schema_version"] == 37
         assert len(payload["snapshots"]) == 1
         assert payload["snapshots"][0]["version"] == 1
         assert payload["coverage"]["ready"] >= 1
