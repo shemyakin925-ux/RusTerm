@@ -443,6 +443,88 @@ def cmd_verify(args) -> int:
     return 0
 
 
+def cmd_ops(args) -> int:
+    """Массовая операция под подтверждением (TASK-16 D7/D8,
+    docs/watchlist-and-llm.md §2–3): без --confirm — dry-run с пометкой
+    по каждой позиции и без единой записи; с --confirm — применение
+    одной транзакцией. Аудит: строка на исход (applied / refused /
+    clarification); dry-run строк не пишет (D4). Ключ модели tonight
+    нет — детерминированный RuleClient из core/intent."""
+    from rusterm.core.intent import Clarification, RuleClient, classify
+    from rusterm.core.ops import Refused, apply, prepare
+
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+
+    decision = classify(RuleClient(), args.request)
+    outcome, rows, version = "clarification", [], None
+    intent_name = getattr(decision, "name", None)
+    as_of = args_as_of_default()
+
+    if isinstance(decision, Clarification):
+        reason = decision.reason
+    else:
+        prepared = prepare(repos, args.watchlist, decision, as_of)
+        if isinstance(prepared, Clarification):
+            reason = prepared.reason
+        elif isinstance(prepared, Refused):
+            # отказ — исход, а не сухой показ: строка аудита обязана
+            # остаться и без подтверждения («мы этого не делали» —
+            # доказуемая часть, §3.5)
+            outcome, reason, rows = "refused", prepared.reason, []
+        else:
+            rows = prepared.rows
+            outcome = "dry-run"
+            reason = None
+            if args.confirm:
+                result_apply = apply(repos.watchlist, args.watchlist,
+                                     prepared.addable)
+                if result_apply["applied"]:
+                    outcome = "applied"
+                    version = result_apply["version"]
+                    reason = None
+                else:
+                    outcome, reason = "refused", result_apply["reason"]
+
+    if outcome != "dry-run":
+        counts: dict[str, int] = {}
+        for r in rows:
+            counts[r["status"]] = counts.get(r["status"], 0) + 1
+        payload = {"intent": intent_name, "counts": counts,
+                   "decision": outcome}
+        file_error = repos.audit.log(
+            "ops", args.watchlist, payload,
+            confirmed=bool(args.confirm), result=outcome)
+        if file_error:
+            print(file_error, file=sys.stderr)
+    conn.close()
+
+    if args.json:
+        print(json.dumps({
+            "watchlist_id": args.watchlist,
+            "intent": intent_name,
+            "outcome": outcome,
+            "rows": rows,
+            "version": version,
+        }, ensure_ascii=False))
+        exit_code = 0 if outcome in ("applied", "dry-run") else 1
+        return exit_code
+    for r in rows:
+        line = f"  {r['ticker']}: {r['status']}"
+        if r.get("reason"):
+            line += f" — {r['reason']}"
+        print(line)
+    if outcome == "dry-run":
+        print(f"сухой прогон: {len(rows)} позиций; примените с --confirm")
+        return 0
+    if outcome == "applied":
+        print(f"применено: версия {version}")
+        return 0
+    print(f"{outcome}: {reason}", file=sys.stderr)
+    return 1
+
+
 def cmd_status(args) -> int:
     """«Что у меня есть»: каталог, схема, инструменты, снапшоты,
     покрытие, сеть, окружение (TASK-8 U9). --json — один объект."""
@@ -908,6 +990,15 @@ def main(argv: list[str] | None = None) -> int:
     p_ref.add_argument("--watchlist", required=True)
     p_ref.add_argument("--dry-run", dest="dry_run", action="store_true")
     p_ref.add_argument("--json", action="store_true")
+    p_ops = sub.add_parser(
+        "ops",
+        help="массовая операция: предложение -> показ -> подтверждение")
+    p_ops.add_argument("--watchlist", required=True)
+    p_ops.add_argument("--request", required=True,
+                       help="текст запроса на естественном языке")
+    p_ops.add_argument("--confirm", action="store_true",
+                       help="применить показанное (без флага — dry-run)")
+    p_ops.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     commands = {
@@ -918,6 +1009,7 @@ def main(argv: list[str] | None = None) -> int:
         "metrics": cmd_metrics, "budget": cmd_budget,
         "status": cmd_status, "tui": cmd_tui, "add": cmd_add,
         "refresh": cmd_refresh,
+        "ops": cmd_ops,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "

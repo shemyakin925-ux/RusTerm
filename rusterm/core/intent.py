@@ -146,9 +146,9 @@ class RuleClient:
         self.market = market
 
     def complete(self, prompt: str) -> str:
-        message = prompt.rsplit("Запрос:", 1)[-1].strip().lower()
-        if message.startswith(("добав", "add")):
-            tickers = _ticker_like(prompt)
+        message = prompt.rsplit("Запрос:", 1)[-1].strip()
+        if message.lower().startswith(("добав", "add")):
+            tickers = _ticker_like(message)
             if tickers:
                 return json.dumps(
                     {"intent": "add_instruments",
@@ -160,5 +160,5 @@ class RuleClient:
 
 def _ticker_like(text: str) -> list[str]:
     import re
-    found = re.findall(r"\b[A-Z]{2,6}(?:\.[A-Z]{1,3})?\b", text)
+    found = re.findall(r"\b[A-Z][A-Z0-9]{1,5}(?:\.[A-Z]{1,3})?\b", text)
     return list(dict.fromkeys(found))

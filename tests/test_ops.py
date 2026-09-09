@@ -9,10 +9,12 @@ D6-разборка: refresh --watchlist — не правка состава, �
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import sqlite3
 import tempfile
+from pathlib import Path
 
 from rusterm.core.intent import Clarification, Intent
 from rusterm.core.ops import (
@@ -53,6 +55,7 @@ def _seed(n_extra: int = 5, delisted_one: bool = False):
     ensure_app_dir(paths)
     conn = sqlite3.connect(str(paths.db_path), timeout=30,
                            isolation_level=None)
+    conn.execute("PRAGMA foreign_keys=ON")
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
     wl = WatchlistRepo(conn)
@@ -96,9 +99,10 @@ def test_d3_five_conditions_each_failing_alone():
     каждое даёт уточнение/отказ и не меняет состояние."""
     tmpdir, conn, paths, repos, wl, vid, resolved = _seed()
     try:
-        sha = lambda: hashlib.sha256(
-            open(str(paths.db_path), "rb").read()).hexdigest()
-        baseline = sha()
+        def sha() -> str:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return hashlib.sha256(
+                open(str(paths.db_path), "rb").read()).hexdigest()
 
         # 1. намерение не распознано
         out = prepare(repos, "w1", Clarification("не понято"),
@@ -113,9 +117,23 @@ def test_d3_five_conditions_each_failing_alone():
         out = prepare(repos, "w1", _intent(["GHOST"]), "2026-09-09")
         assert isinstance(out, Proposal)
         assert all(r["status"] == STATUS_UNRESOLVED for r in out.rows)
-        # 4. размер выше лимита
-        big = _intent([f"BIG{n}" for n in range(OPERATION_LIMIT + 1)])
-        assert isinstance(prepare(repos, "w1", big, "2026-09-09"), Refused)
+        # 4. размер выше лимита: 101 реальный тикер сеются и резолвятся
+        from rusterm.store.repos import Listing
+        for n in range(OPERATION_LIMIT + 1):
+            repos.instrument.upsert_issuer(Issuer(
+                f"i-lim{n}", f"Issuer lim{n}", "US", str(710000 + n),
+                None, "us_gaap", "USD"))
+            repos.instrument.upsert_instrument(Instrument(
+                f"in-lim{n}", f"i-lim{n}", None, "common", "active", None))
+            repos.instrument.upsert_listing(Listing(
+                f"l-lim{n}", f"in-lim{n}", "US", "USD", 1, None, None))
+            repos.instrument.add_ticker_history(
+                f"l-lim{n}", f"LIM{n}", "2020-01-01", None, None, None)
+        big = _intent([f"LIM{n}" for n in range(OPERATION_LIMIT + 1)])
+        out = prepare(repos, "w1", big, "2026-09-09")
+        assert isinstance(out, Refused), out
+        assert "101" in out.reason
+        baseline = sha()  # все сиды завершены: дальше состояние иначе не меняется
 
         # 5. подтверждения нет — сухой показ, состояние не тронуто
         intent = _intent(["R2"])
@@ -226,7 +244,7 @@ def test_d5_apply_is_all_or_nothing():
                    for m in wl.members("w1")}
         assert members == {m["instrument_id"]
                            for m in wl.members("w1")}
-        assert "in-2" in members and len(members) == 10
+        assert "in-R2" in members and len(members) == 10
         # предыдущая версия доступна откату (§3.3)
         assert wl.version_action("w1", 1) == "create"
         conn.close()
@@ -293,5 +311,143 @@ def test_d6_limit_above_100_needs_second_confirmation_refresh_does_not():
         assert wl.current_version("w1")["version"] == version_before, \
             "refresh создал версию списка — это правка состава?"
         conn.close()
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_d7_d8_ops_command_audit_rows_confirm_and_json_keys():
+    """D7: строка аудита на каждый исход — applied (confirmed=1),
+    refused (confirmed как у пользователя), clarification (confirmed=0);
+    read-only logs/ оставляет строку в базе и печатает причину на stderr
+    (B12). D8: exit-коды dry-run/applied = 0, refused/clarification = 1;
+    --json держит пин ключей {watchlist_id, intent, outcome, rows,
+    version}."""
+    import subprocess
+    import sys
+
+    repo = Path(__file__).resolve().parents[1]
+    stub = repo / "tests" / "e2e_stub"
+    env = {**os.environ,
+           "RUSTERM_SEC_UA": "Synthetic Test e2e.invalid",
+           "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+           "PYTHONPATH": os.pathsep.join(
+               [str(stub), str(repo), os.environ.get("PYTHONPATH", "")]),
+           "TERM": "xterm"}
+
+    def run(root, *argv):
+        return subprocess.run(
+            [sys.executable, "-m", "rusterm.cli", "--root", root, *argv],
+            capture_output=True, text=True, env=env)
+
+    def audit_rows(root):
+        db = sqlite3.connect(f"{root}/rusterm.db")
+        try:
+            return db.execute(
+                "SELECT action, target, payload, confirmed, result"
+                " FROM audit_log ORDER BY ts").fetchall()
+        finally:
+            db.close()
+
+    tmpdir = tempfile.mkdtemp()
+    root = tmpdir
+    try:
+        assert run(root, "init").returncode == 0
+        for ticker in ("AAPL", "MSFT"):
+            assert run(root, "add", "--ticker", ticker,
+                       "--market", "US").returncode == 0
+        assert run(root, "watchlist", "create", "w1",
+                   "--name", "n").returncode == 0
+        assert run(root, "watchlist", "add", "w1", "--ticker", "AAPL",
+                   "--market", "US").returncode == 0
+
+        # clarification: запрос вне правил офлайн-классификатора
+        r = run(root, "ops", "--watchlist", "w1",
+                "--request", "а как дела у рынка вообще?")
+        assert r.returncode == 1, (r.returncode, r.stderr)
+        rows = audit_rows(root)
+        assert rows[-1][0] == "ops" and rows[-1][4] == "clarification"
+        assert rows[-1][3] == 0
+
+        # dry-run: статусы по позициям, код 0, НИ ОДНОЙ строки аудита
+        n0 = len(audit_rows(root))
+        r = run(root, "ops", "--watchlist", "w1",
+                "--request", "добавь MSFT")
+        assert r.returncode == 0, (r.returncode, r.stderr)
+        assert "будет добавлена" in r.stdout, r.stdout
+        assert len(audit_rows(root)) == n0  # dry-run не пишет
+        r = run(root, "ops", "--watchlist", "w1",
+                "--request", "добавь MSFT", "--json")
+        assert r.returncode == 0
+        payload = json.loads(r.stdout)
+        assert set(payload) == {"watchlist_id", "intent", "outcome",
+                                "rows", "version"}, sorted(payload)
+        assert payload["outcome"] == "dry-run" and payload["rows"]
+        assert payload["rows"][0]["status"] == "будет добавлена"
+
+        # applied: подтверждение применяет одной версией
+        r = run(root, "ops", "--watchlist", "w1",
+                "--request", "добавь MSFT", "--confirm")
+        assert r.returncode == 0, r.stderr
+        assert "применено" in r.stdout
+        rows = audit_rows(root)
+        assert len(rows) == n0 + 1
+        assert rows[-1][4] == "applied" and rows[-1][3] == 1
+
+        # повтор с подтверждением: MSFT уже в списке, применяться нечему
+        r = run(root, "ops", "--watchlist", "w1",
+                "--request", "добавь MSFT", "--confirm")
+        assert r.returncode == 1
+        rows = audit_rows(root)
+        assert len(rows) == n0 + 2
+        assert rows[-1][4] == "refused" and rows[-1][3] == 1
+
+        # D6 на команде: 101 тикер без второго подтверждения — отказ.
+        # 101 инструмент сеется прямо в базу: resolve обязан найти все
+        import sqlite3 as _sq
+        db = _sq.connect(f"{root}/rusterm.db", isolation_level=None)
+        db.executemany(
+            "INSERT INTO issuer(issuer_id, name, jurisdiction,"
+            " reporting_standard, reporting_currency)"
+            " VALUES (?, ?, 'US', 'us_gaap', 'USD')",
+            [(f"i-big{n}", f"Issuer big{n}") for n in range(101)])
+        db.executemany(
+            "INSERT INTO instrument(instrument_id, issuer_id, class,"
+            " status) VALUES (?, ?, 'common', 'active')",
+            [(f"in-big{n}", f"i-big{n}") for n in range(101)])
+        db.executemany(
+            "INSERT INTO listing(listing_id, instrument_id, exchange,"
+            " currency, is_primary) VALUES (?, ?, 'US', 'USD', 1)",
+            [(f"l-big{n}", f"in-big{n}") for n in range(101)])
+        db.executemany(
+            "INSERT INTO ticker_history(listing_id, ticker, valid_from)"
+            " VALUES (?, ?, '2020-01-01')",
+            [(f"l-big{n}", f"BIG{n:03d}") for n in range(101)])
+        db.close()
+        big_request = "добавь " + ", ".join(
+            f"BIG{n:03d}" for n in range(101))
+        r = run(root, "ops", "--watchlist", "w1",
+                "--request", big_request, "--confirm")
+        assert r.returncode == 1, r.stdout
+        assert "лимит" in r.stderr, r.stderr
+        rows = audit_rows(root)
+        assert len(rows) == n0 + 3
+        assert rows[-1][4] == "refused"
+
+        # B12: logs/ только для чтения и audit.jsonl нет — строка на
+        # stderr, строка в базе, выход по заслугам
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return
+        (Path(root) / "logs" / "audit.jsonl").unlink()
+        (Path(root) / "logs").chmod(0o555)
+        try:
+            r = run(root, "ops", "--watchlist", "w1",
+                    "--request", "а что ты умеешь?")
+            assert r.returncode == 1
+            assert "audit_file_unavailable" in r.stderr, r.stderr
+            rows = audit_rows(root)
+            assert len(rows) == n0 + 4
+            assert rows[-1][4] == "clarification"
+        finally:
+            (Path(root) / "logs").chmod(0o755)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
