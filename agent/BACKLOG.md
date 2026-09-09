@@ -11,26 +11,12 @@ this file.
 - [ ] <ID> — <one-line objective> — accept: <command or check> — size: <S/M/L>
 ```
 
-Два пространства имён, чтобы параллельные правки не сталкивались
-на общей последовательности номеров: **B** — пункты координатора,
-**R** — дефекты, найденные сторонними рецензиями и перепроверенные
-запуском. Номера внутри своего пространства не переиспользуются.
+Two ID namespaces, so parallel edits do not collide on one counter:
+**B** — coordinator items, **R** — defects found by outside reviews and
+re-verified by running them. Numbers are never reused within a namespace.
 
 ## Queue
 
-- [ ] B9 — `doctor` does not check the raw store against the database:
-  assert every `raw_object` row has its file on disk and every file under
-  `raw/` has a row, and report drift in both directions with counts —
-  accept: new test seeding one orphan row and one orphan file, `doctor`
-  exits 1 naming both — size: M
-- [ ] B10 — `watchlist show` cannot read a historical version from the
-  CLI although `WatchlistRepo.members(version=…)` supports it: add
-  `--version N` and make it print the version's action and members —
-  accept: test asserting v1 members after a rollback created v3 — size: S
-- [ ] B11 — CLI output ignores `NO_COLOR` and non-tty: if colour is ever
-  added, gate it on both; until then add the test that asserts output is
-  plain when stdout is a pipe — accept: subprocess test comparing piped
-  output byte-for-byte with the expected plain text — size: S
 - [ ] B12 — the audit JSONL has no failure path of its own: if
   `logs/audit.jsonl` cannot be written (read-only dir, full disk), the
   operation currently raises through. Return an error value and still
@@ -41,73 +27,94 @@ this file.
   reading in a terminal or pasting into notes, null values as `—` with
   the reason in a footnote — accept: test asserting every null carries
   its reason and no number appears without a period — size: M
+- [ ] B15 — the null-reason vocabulary is spread across `formulas.py`,
+  `snapshot.py` and `coverage`: collect the allowed strings in one place
+  and add a guard test asserting no measure row is ever written with a
+  reason outside it — accept: test that seeds an unknown reason and
+  fails — size: M
+- [ ] B17 — `EdgarProvider.resolve()` is the only resolver, and nothing
+  asserts what it does with a ticker that maps to two CIKs (a class
+  change, a re-listing): pin the behaviour with a test on a hand-built
+  two-row ticker map — accept: test asserting the documented outcome,
+  whichever it is, and a docstring line stating it — size: S
+- [ ] B18 — `tools/` has no test of its own beyond TASK-10 W1's: if a
+  second dev tool lands there, add a one-line README in `tools/` saying
+  what belongs there and that nothing under it is imported by the
+  application — accept: `tools/README.md` exists and acceptance stays
+  13/13 — size: S
+- [ ] B19 — `logs/app.log` gets a traceback for every internal error but
+  nothing rotates it; cap it at a size and roll one file over — accept:
+  test writing past the cap and asserting exactly two files exist and the
+  newest holds the last line — size: M
 
-### Дефекты из рецензий
+### Review findings (namespace R)
 
-- [ ] R1 — `effective_tax_rate` считает ставку при убытке: docstring
-  требует «pretax_income <= 0 → ставка юрисдикции», код проверяет только
-  `== 0`. `(-100, -1000)` даёт `0.1`, а `(100, -1000)` даёт ровно `0.0`,
-  потому что `clip` обрезает снизу нулём — нулевая ставка выглядит
-  правдоподобно и не вызовет подозрений. Ставка идёт в NOPAT, NOPAT —
-  в ROIC — accept: обе пары дают `null` с причиной, тест в
-  `tests/test_formulas.py` green — size: S
-- [ ] R2 — Маржи принимают отрицательный знаменатель: `gross_margin`,
-  `operating_margin`, `net_margin` проверяют `revenue == 0`, тогда как
-  data dictionary требует `null` при знаменателе `<= 0`.
-  `gross_margin(10, -100)` = `-0.1`, при том что соседний
-  `roic(10, -1, -1)` в том же модуле возвращает
-  `(None, 'negative_denominator')` — accept: три маржи дают
-  `negative_denominator`, тест green — size: S
-- [ ] R3 — `calculate_measure("invested_capital")` бросает `TypeError`
-  на неполных данных: ветка допускает вызов при заполненных
-  `total_equity`, `minority_interest`, `total_debt`, а сама функция
-  требует пять обязательных аргументов. Контракт движка
-  (`docs/module-contracts.md`) запрещает исключения — только `null`
-  с причиной; отсутствие cash в отчётности обычно — accept: вызов без
-  `cash`/`st_investments` даёт `null` с `missing_data`, тест green — size: S
-- [ ] R4 — EBITDA молча равна operating income при нераскрытой D&A:
-  при `operating_income is not None` и `d_and_a is None` значение
-  остаётся равным operating income с пустым `null_reason`. EBITDA —
-  база для EV/EBITDA и net debt / EBITDA. Вдобавок возвращается
-  `Measure` с непустым `value` и пустым `lineage`, что запрещено
-  инвариантом I4 — accept: даёт `null` с `missing_data`, I4 это ловит,
-  тест green — size: S
-- [ ] R5 — `Fact` объявлен неизменяемым, но изменяем: шесть классов
-  локаторов — `@dataclass(frozen=True)`, сам `Fact` (`fact.py:141`) —
-  обычный `@dataclass`, `f.value = "2"` проходит. Инвариант I2 этого
-  не ловит, потому что проверяет текст `repos.py` через
-  `inspect.getsource`, а не поведение — accept: `frozen=True`,
-  `superseded_by` меняется через `dataclasses.replace`, I2 дополнен
-  проверкой `FrozenInstanceError` — size: M
-- [ ] R6 — Миграция не снимает резервную копию базы вопреки
-  `docs/data-model.md` §8 п.4 и собственному docstring `db.py`:
-  в коде нет ни `shutil.copy`, ни временного файла. Пока миграции
-  только создавали таблицы, цена была нулевой; теперь есть процедурные
-  миграции с переносом данных. Копию снимать через `conn.backup(dst)`,
-  а не `shutil.copy`: база в режиме WAL, часть данных в `-wal`-файле —
-  accept: копия создаётся до миграций и удаляется после успеха, тест
-  на то, что при сбое она остаётся, green — size: M
-- [ ] R7 — Запись в content-addressed store не атомарна:
-  `raw_store.py:148,152` пишут через `target.write_bytes(...)` без
-  временного файла и `os.replace`. Падение оставит обрезанный объект,
-  который `has_object` сочтёт существующим. Store — единственный архив
-  первоисточников, повреждённый объект ломает lineage и
-  `resolve(locator)` — accept: запись идёт во временный файл рядом
-  и переносится `os.replace`, тест green — size: M
-- [ ] R8 — Сбой в `RawRepo.put` оставляет сирот: объект пишется
-  на диск, строка дописывается в манифест, и только потом идёт `INSERT`.
-  Исключение на вставке оставляет файл и манифест без строки в базе
-  (воспроизведено: диск `True`, манифест 1, БД 0). Повторный `put`
-  строку чинит, но дописывает в append-only манифест второй экземпляр
-  той же записи (манифест 2), что исказит восстановление индекса —
-  accept: либо вставка в БД идёт до манифеста, либо сбой откатывает
-  обе записи; тест на обе ветки green — size: M
-- [ ] R9 — Записанный `checksum` миграции никогда не сверяется:
-  `apply_migrations` пишет checksum в `schema_version`, но при старте
-  не сравнивает его с текущим SQL. Правку уже применённой миграции —
-  ту, что породила дефект Д1, — движок не заметил бы даже теоретически
-  — accept: расхождение checksum применённой версии даёт внятную
-  ошибку при старте, тест green — size: M
+Found by outside reviewers, each re-verified by running it against
+`agent/night-2` at `6246fa1` (289 passed, 2 skipped, 1 xfailed).
+All nine still reproduce.
+
+- [ ] R1 — `effective_tax_rate` computes a rate on a loss: the docstring
+  says `pretax_income <= 0` -> jurisdiction rate, the code only tests
+  `== 0`. `(-100, -1000)` -> `0.1`; `(100, -1000)` -> `0.0`, because
+  `clip` floors at zero — a plausible-looking 0% that raises no
+  suspicion. The rate feeds NOPAT, NOPAT feeds ROIC — accept: both
+  pairs return null with a reason, test green — size: S
+- [ ] R2 — margins accept a negative denominator: `gross_margin`,
+  `operating_margin`, `net_margin` test `revenue == 0`, while the data
+  dictionary requires null for a denominator `<= 0`.
+  `gross_margin(10, -100)` -> `-0.1`, whereas `roic(10, -1, -1)` in the
+  same module returns `(None, 'negative_denominator')` — accept: all
+  three return `negative_denominator`, test green — size: S
+- [ ] R3 — `calculate_measure("invested_capital")` raises on partial
+  data: the branch admits a call with `total_equity`, `minority_interest`
+  and `total_debt`, while the function itself needs five positional
+  arguments. `docs/module-contracts.md` forbids exceptions — null with
+  a reason only; missing cash is ordinary in filings — accept: the call
+  without `cash`/`st_investments` returns null with `missing_data`,
+  test green — size: S
+- [ ] R4 — EBITDA silently equals operating income when D&A is not
+  disclosed: with `operating_income` set and `d_and_a` None the value
+  stays at operating income and `null_reason` is empty. EBITDA is the
+  base for EV/EBITDA and net debt / EBITDA. It also returns a `Measure`
+  with a non-empty `value` and an empty `lineage`, which invariant I4
+  forbids — accept: returns null with `missing_data`, I4 catches it,
+  test green — size: S
+- [ ] R5 — `Fact` is declared immutable but is not: the six locator
+  classes are `@dataclass(frozen=True)`, `Fact` itself (`fact.py:141`)
+  is a plain `@dataclass`, and `f.value = "2"` succeeds. Invariant I2
+  misses this because it greps the text of `repos.py` via
+  `inspect.getsource` instead of testing behaviour — accept:
+  `frozen=True`, `superseded_by` updated through `dataclasses.replace`,
+  I2 extended with a `FrozenInstanceError` check — size: M
+- [ ] R6 — migrations take no backup of the database, against
+  `docs/data-model.md` §8.4 and `db.py`'s own docstring: no
+  `shutil.copy`, no temp file. Harmless while migrations only created
+  tables; there are procedural migrations moving data now. Take the copy
+  with `conn.backup(dst)`, not `shutil.copy` — the database runs in WAL
+  and part of the data sits in the `-wal` file — accept: copy created
+  before migrations and removed after success, plus a test that it
+  survives a failed migration — size: M
+- [ ] R7 — writes to the content-addressed store are not atomic:
+  `raw_store.py` writes through `target.write_bytes(...)` with no temp
+  file and no `os.replace`. A crash leaves a truncated object that
+  `has_object` reports as present. The store is the only archive of
+  primary sources; a corrupted object breaks lineage and
+  `resolve(locator)` — accept: write to a temp file alongside and move
+  it with `os.replace`, test green — size: M
+- [ ] R8 — a failure in `RawRepo.put` leaves orphans: the object is
+  written to disk, the line is appended to the manifest, and only then
+  the `INSERT` runs. An exception on insert leaves file and manifest
+  with no database row (reproduced: disk True, manifest 1, db 0).
+  A retry does repair the row, but appends a second copy of the same
+  record to the append-only manifest (manifest 2), which skews index
+  rebuild — accept: either the insert precedes the manifest, or a
+  failure rolls both back; tests for both branches green — size: M
+- [ ] R9 — a migration's recorded `checksum` is never verified:
+  `apply_migrations` writes it into `schema_version` but never compares
+  it with the current SQL at startup. Editing an already-applied
+  migration — the very defect that started this list — would go
+  unnoticed — accept: a checksum mismatch on an applied version fails
+  at startup with a clear message, test green — size: M
 
 ## Done
 
@@ -120,8 +127,13 @@ this file.
 - [x] B6 — `doctor` reports schema drift, test added — TASK-7, verified 08.09
 - [x] B7 — coverage blocks doc/code drift guard — TASK-7, verified 08.09
 - [x] B8 — zstd branch covered by a fake module — TASK-7, verified 08.09
-
-- [x] R0 — фабрика соединения с обязательными PRAGMA. Закрыто
-  в `9155908`: `db.open_connection(paths)` выставляет WAL
-  и `foreign_keys=ON`. Найдено сторонней рецензией как латентный
-  дефект, исправлено до того, как появился вызывающий код.
+- [x] B14 — two AAPL payloads: folded into TASK-10 W2/W7 as a task item,
+  removed from the queue 09.09
+- [x] B9 — doctor сверяет raw store с базой в обе стороны — TASK-11 X5, проверено 09.09
+- [x] B10 — watchlist show --version N — TASK-11 X5, проверено 09.09
+- [x] B11 — вывод в pipe без ANSI, тест — TASK-11 X5, проверено 09.09
+- [x] B16 — схема ключей четырёх --json команд закреплена — TASK-11 X5, проверено 09.09
+- [x] R0 — connection factory with mandatory PRAGMAs — closed in
+  `9155908`: `db.open_connection(paths)` sets WAL and `foreign_keys=ON`.
+  Raised by an outside review as a latent defect, fixed before any
+  calling code existed.

@@ -61,6 +61,7 @@
 | `total_debt` | instant | валюта | кратко- и долгосрочный долг **включая** финансовую аренду |
 | `total_assets` | instant | валюта | |
 | `total_equity` | instant | валюта | капитал акционеров без неконтролирующей доли |
+| `total_equity_incl_nci` | instant | валюта | капитал **включая** неконтролирующую долю; отдельный концепт, а не синоним `total_equity` — два тега никогда не складываются и не подменяют друг друга. Формулами пока не потребляется; заведён, чтобы факт по тегу `StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest` не оставался неотображённым |
 | `minority_interest` | instant | валюта | |
 | `preferred_equity` | instant | валюта | |
 | `dps` | duration | валюта/акцию | объявленные дивиденды на акцию, по классу (`scope=instrument`) |
