@@ -144,6 +144,9 @@ def apply(watchlist_repo, watchlist_id: str,
     """Условие 5 пройдено: одна новая версия и все участники в ОДНОЙ
     транзакции. Сбой посередине откатывает целиком — ноль новых версий,
     ноль новых участников; ошибка возвращается значением."""
+    if not addable:
+        return {"applied": False,
+                "reason": "нет позиций к добавлению"}
     current = watchlist_repo.current_version(watchlist_id)
     if current is None:
         return {"applied": False,
