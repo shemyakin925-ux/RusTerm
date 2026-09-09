@@ -3,8 +3,8 @@ docs/watchlist-and-llm.md §2.2, processes.md «Процесс 3»).
 
 Модуль получает ТЕКСТ ответа модели значением и возвращает решение
 значением: Intent или Clarification. Никогда не исключение, никогда
-действие. Базы данных здесь нет и не будет: никаких импортов из
-rusterm.store. HTTP тоже: клиент — вызываемый объект, который отдаёт
+действие. Базы данных здесь нет и не будет: модуль ничего не знает о
+хранилище. HTTP тоже: клиент — вызываемый объект, который отдаёт
 строку; настоящий провайдер появится в rusterm/providers/ отдельно.
 
 Ошибке по таблице процессов: не-JSON или намерение вне списка — один
@@ -97,38 +97,43 @@ def classify(client, message: str) -> Intent | Clarification:
 
     Не-JSON или намерение вне списка: ровно один повтор с жёстким
     напоминанием формата (итого два вызова клиента), затем
-    Clarification. Ни исключений, ни действий.
+    Clarification. Известное намерение без обязательного параметра —
+    Clarification сразу: повтор форматом не лечит. Ни исключений,
+    ни действий.
     """
     prompt = f"{_PROMPT}\nЗапрос: {message}"
     raw = str(client.complete(prompt))
-    parsed = _try_parse(raw)
-    if isinstance(parsed, Clarification):
+    intent, clarification, retryable = _try_parse(raw)
+    if intent is None and retryable:
         retry = str(client.complete(
             f"{_FORMAT_REMINDER}\nЗапрос: {message}\n"
             f"Твой предыдущий ответ: {raw[:500]}"))
-        parsed = _try_parse(retry)
-    return parsed
+        intent, clarification, retryable = _try_parse(retry)
+    return intent if intent is not None else clarification
 
 
-def _try_parse(raw: str) -> Intent | Clarification:
+def _try_parse(raw: str) -> tuple[Intent | None, Clarification | None,
+                                  bool]:
+    """(Intent, None, False) — распознано; иначе (None, Clarification,
+    повторять_ли_формат)."""
     try:
         data = json.loads(raw)
     except (ValueError, TypeError):
-        return Clarification("ответ модели не JSON")
+        return None, Clarification("ответ модели не JSON"), True
     if not isinstance(data, dict):
-        return Clarification("ответ модели не JSON-объект")
+        return None, Clarification("ответ модели не JSON-объект"), True
     name = data.get("intent")
     if name not in INTENTS:
-        return Clarification(f"намерение {name!r} вне списка")
+        return None, Clarification(f"намерение {name!r} вне списка"), True
     params = data.get("params") or {}
     if not isinstance(params, dict):
-        return Clarification("params не объект")
+        return None, Clarification("params не объект"), True
     absent = missing_params(name, params)
     if absent:
-        return Clarification(
-            "не заполнены обязательные параметры: "
-            + ", ".join(absent))
-    return Intent(name, params, data.get("confidence"))
+        return None, Clarification(
+            "не заполнены обязательные параметры: " + ", ".join(absent)
+        ), False
+    return Intent(name, params, data.get("confidence")), None, False
 
 
 class RuleClient:
