@@ -14,9 +14,10 @@ import uuid
 from rusterm.core.export import snapshot_to_csv, snapshot_to_json, \
     snapshot_to_md
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
-from rusterm.providers.budget import RequestGate
+from rusterm.providers.budget import ConfigError, RequestGate
 from rusterm.providers import get_provider
 from rusterm.core.snapshot import SnapshotBuilder
+from rusterm.core.refresh import refresh_watchlist
 from rusterm.core.verification import VerificationService
 from rusterm.pipeline import IngestionPipeline, apply_concept_map
 from rusterm.providers import SyntheticDisclosuresProvider
@@ -235,6 +236,60 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     print(f"{instrument_id}: companyfacts загружены; фактов: "
           f"{len(fact_dicts)}; неотображённых концептов: {unmapped}")
     return 0
+
+
+def cmd_refresh(args) -> int:
+    """Инкрементальный проход по списку наблюдения (TASK-13 Z4).
+    Одну команду ставят в cron; демона, службы и фонового потока в
+    проекте нет. --dry-run печатает план, не делая ни одного запроса."""
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                              coverage_repo=repos.coverage)
+    gate = RequestGate()
+
+    def provider_factory(cik: int):
+        provider = get_provider("edgar", gate=gate)
+        if isinstance(provider, ConfigError):
+            return provider
+        provider.cik = cik
+        return provider
+
+    results = refresh_watchlist(
+        repos, provider_factory, args.watchlist, args_as_of_default(),
+        dry_run=args.dry_run, builder=None if args.dry_run else builder)
+    conn.close()
+
+    errors = sum(1 for r in results if r.action == "error")
+    if args.json:
+        print(json.dumps({
+            "watchlist_id": args.watchlist,
+            "dry_run": bool(args.dry_run),
+            "results": [{"instrument_id": r.instrument_id,
+                         "issuer_id": r.issuer_id, "action": r.action,
+                         "facts": r.facts,
+                         "last_filing_date": r.last_filing_date,
+                         "reason": r.reason} for r in results],
+            "requests": {"submissions": sum(
+                             r.calls.get("submissions", 0)
+                             for r in results if r.action != "planned"),
+                         "companyfacts": sum(
+                             r.calls.get("companyfacts", 0)
+                             for r in results if r.action != "planned")},
+        }, ensure_ascii=False))
+        return 0
+    for r in results:
+        if r.action == "updated":
+            print(f"{r.instrument_id}: обновлён (фактов {r.facts})")
+        elif r.action == "unchanged":
+            print(f"{r.instrument_id}: не изменилось ({r.reason}; "
+                  f"последняя отчётность {r.last_filing_date})")
+        elif r.action == "planned":
+            print(f"{r.instrument_id}: запланировано ({r.reason})")
+        else:
+            print(f"{r.instrument_id}: ошибка ({r.reason})")
+    return 0 if errors == 0 else 1
 
 
 def cmd_snapshot(args) -> int:
@@ -782,6 +837,11 @@ def main(argv: list[str] | None = None) -> int:
     p_bud.add_argument("--json", action="store_true")
     p_tui = sub.add_parser("tui", help="терминальный интерфейс (только чтение)")
     p_tui.add_argument("--watchlist", default=None)
+    p_ref = sub.add_parser("refresh",
+                           help="инкрементальный проход по списку наблюдения (для cron)")
+    p_ref.add_argument("--watchlist", required=True)
+    p_ref.add_argument("--dry-run", dest="dry_run", action="store_true")
+    p_ref.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     commands = {
@@ -791,6 +851,7 @@ def main(argv: list[str] | None = None) -> int:
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
         "status": cmd_status, "tui": cmd_tui, "add": cmd_add,
+        "refresh": cmd_refresh,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "

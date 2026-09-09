@@ -22,6 +22,13 @@ def _recorded_transport(url, headers):
             fh.write(url + "\n")
     if "company_tickers.json" in url:
         return 200, (_DATA / "company_tickers.json").read_bytes(), {}
+    if "submissions" in url:
+        # TASK-13 Z4: фиксированный фид подачи — дата не меняется,
+        # второй refresh обязан увидеть «не изменилось»
+        body = {"filings": {"recent": {
+            "form": ["10-K"], "filingDate": ["2026-01-15"],
+            "reportDate": ["2025-12-31"]}}}
+        return 200, json.dumps(body).encode(), {}
     for path in sorted(_DATA.glob("companyfacts_m3_*.json")):
         doc = json.loads(path.read_bytes())
         if f"CIK{doc['cik']:010d}" in url:

@@ -165,3 +165,79 @@ def test_z2_second_pass_requests_submissions_only():
         conn.close()
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_z4_refresh_command_dry_run_zero_requests_and_json_keys():
+    """TASK-13 Z4: rusterm refresh --watchlist как команда для cron.
+    --dry-run делает 0 запросов и печатает непустой план; обычный прогон
+    печатает по строке на инструмент; --json разбирается json.loads,
+    ключи закреплены этим тестом. Подпроцессы на подменном EDGAR."""
+    import subprocess
+    import sys
+
+    repo = Path(__file__).resolve().parents[1]
+    stub = repo / "tests" / "e2e_stub"
+    env = {**os.environ,
+           "RUSTERM_SEC_UA": "Synthetic Test e2e.invalid",
+           "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+           "PYTHONPATH": os.pathsep.join(
+               [str(stub), str(repo), os.environ.get("PYTHONPATH", "")]),
+           "TERM": "xterm"}
+
+    def run(root, *argv, call_log=None):
+        e = dict(env)
+        if call_log is not None:
+            e["RUSTERM_EDGAR_CALL_LOG"] = str(call_log)
+        return subprocess.run(
+            [sys.executable, "-m", "rusterm.cli", "--root", root, *argv],
+            capture_output=True, text=True, env=e)
+
+    tmpdir = tempfile.mkdtemp()
+    root = tmpdir
+    call_log = Path(tmpdir) / "calls.txt"
+    try:
+        assert run(root, "init").returncode == 0
+        r = run(root, "add", "--ticker", "AAPL", "--market", "US")
+        assert r.returncode == 0, r.stderr
+        assert run(root, "watchlist", "create", "w1",
+                   "--name", "n").returncode == 0
+        assert run(root, "watchlist", "add", "w1", "--ticker", "AAPL",
+                   "--market", "US").returncode == 0
+
+        # --dry-run: 0 запросов, непустой план
+        r = run(root, "refresh", "--watchlist", "w1", "--dry-run",
+                call_log=call_log)
+        assert r.returncode == 0, r.stderr
+        assert call_log.exists() is False or \
+            call_log.read_text().strip() == "", \
+            "dry-run обязан сделать 0 запросов"
+        plan_lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+        assert plan_lines, "план dry-run пуст"
+
+        # обычный прогон: по строке на инструмент, все обновлены
+        r = run(root, "refresh", "--watchlist", "w1")
+        assert r.returncode == 0, r.stderr
+        lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+        assert len(lines) == 1 and "обновлён" in lines[0], lines
+
+        # повтор: не изменилось
+        r = run(root, "refresh", "--watchlist", "w1")
+        assert r.returncode == 0, r.stderr
+        assert "не изменилось" in r.stdout
+
+        # --json: ключи закреплены (B16-стиль)
+        r = run(root, "refresh", "--watchlist", "w1", "--json")
+        assert r.returncode == 0, r.stderr
+        payload = json.loads(r.stdout)
+        assert set(payload) == {"watchlist_id", "dry_run", "results",
+                                "requests"}, sorted(payload)
+        assert payload["watchlist_id"] == "w1"
+        assert payload["dry_run"] is False
+        assert set(payload["results"][0]) == {
+            "instrument_id", "issuer_id", "action", "facts",
+            "last_filing_date", "reason"}, sorted(payload["results"][0])
+        assert payload["results"][0]["action"] == "unchanged"
+        assert set(payload["requests"]) == {"submissions", "companyfacts"}
+        assert payload["requests"]["companyfacts"] == 0
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
