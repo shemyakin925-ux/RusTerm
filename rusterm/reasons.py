@@ -16,6 +16,7 @@ NULL_REASONS: frozenset[str] = frozenset({
     "denominator_zero",      # знаменатель формулы равен нулю
     "negative_denominator",  # отрицательный знаменатель — доля не имеет смысла
     "jurisdiction_rate",     # ставка налога вне допустимой юрисдикционной полосы
+    "peer_set_too_small",    # вкладчиков меньше AGGREGATE_MIN_PEERS (I6, TASK-17 E1)
 })
 
 
