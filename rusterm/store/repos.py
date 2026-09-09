@@ -1348,6 +1348,9 @@ class AuditRepo:
 
     JSONL-строка в logs/audit.jsonl пишется ПЕРЕД записью в базу и
     переживает любой сбой базы — в этом смысл файла (TASK-7 T13).
+    Отказ файла (каталог только для чтения, полный диск) не роняет
+    операцию (B12): log() возвращает причину значением, а строка всё
+    равно попадает в базу — потеря одного адресата не отменяет другой.
     """
 
     def __init__(self, conn: sqlite3.Connection, audit_log_path=None):
@@ -1355,16 +1358,23 @@ class AuditRepo:
         self._audit_log_path = audit_log_path
 
     def log(self, action: str, target: Optional[str],
-            payload: Optional[dict], confirmed: bool, result: Optional[str]) -> None:
+            payload: Optional[dict], confirmed: bool,
+            result: Optional[str]) -> Optional[str]:
+        """None — обе цели записаны; строка 'audit_file_unavailable: …'
+        — файл недоступен, строка при этом записана в базу."""
         entry = {"ts": time.time(), "action": action,
                  "target": scrub_secret_url(target),
                  "payload": scrub_payload(payload),
                  "confirmed": int(confirmed), "result": result}
+        file_error: Optional[str] = None
         if self._audit_log_path is not None:
             path = Path(self._audit_log_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            except OSError as e:
+                file_error = f"audit_file_unavailable: {e}"
         with writer_transaction(self.conn) as c:
             c.execute(
                 """INSERT INTO audit_log(ts, action, target, payload, confirmed, result)
@@ -1373,6 +1383,7 @@ class AuditRepo:
                  json.dumps(entry["payload"]) if entry["payload"] else None,
                  int(confirmed), result),
             )
+        return file_error
 
 
 # Фабрика для получения всех репозиториев

@@ -12,6 +12,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -47,6 +48,34 @@ def test_audit_line_survives_db_connection_closed():
             conn.close()
         except sqlite3.ProgrammingError:
             pass  # соединение уже закрыто тестом
+        shutil.rmtree(tmpdir)
+
+
+def test_audit_file_failure_does_not_lose_the_db_row():
+    """B12: logs/ только для чтения — операция не теряется и не падает:
+    log() возвращает причину значением, строка попадает в базу."""
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root игнорирует права каталога")
+    tmpdir, conn, paths, repos = _registry()
+    readonly = Path(tmpdir) / "readonly"
+    readonly.mkdir()
+    audit = AuditRepo(conn, audit_log_path=readonly / "logs" / "audit.jsonl")
+    try:
+        os.chmod(readonly, 0o555)
+        outcome = audit.log("add", "US-AAPL", {"cik": 320193}, True, "ok")
+        assert isinstance(outcome, str), \
+            f"ожидалось значение ошибки, получено {outcome!r}"
+        assert outcome.startswith("audit_file_unavailable"), outcome
+        rows = conn.execute(
+            "SELECT action, target FROM audit_log").fetchall()
+        assert rows == [("add", "US-AAPL")], "строка потеряна"
+        # рабочий путь по-прежнему пишет файл и возвращает None
+        os.chmod(readonly, 0o755)
+        assert repos.audit.log("export", "ins1", None, True, "ok") is None
+        assert (paths.audit_log_path).exists()
+    finally:
+        os.chmod(readonly, 0o755)
+        conn.close()
         shutil.rmtree(tmpdir)
 
 
