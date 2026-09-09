@@ -12,7 +12,7 @@
 """
 from __future__ import annotations
 
-CONCEPT_MAP_VERSION = "us-gaap.v2"  # v2: + total_equity_incl_nci (TASK-10 W3)
+CONCEPT_MAP_VERSION = "us-gaap.v3"  # v3: + теги-преемники capex/d_and_a (TASK-12 Y1)
 
 CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "revenue": (
@@ -28,7 +28,10 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "operating_income": ("OperatingIncomeLoss",),
     "d_and_a": ("DepreciationDepletionAndAmortization",
                 "DepreciationAmortizationAndAccretionNet",
-                "DepreciationAndAmortization"),
+                "DepreciationAndAmortization",
+                # преемник (TASK-12 Y1): TSLA и другие; добавлен в конец —
+                # приоритет прежних тегов не тронут
+                "Depreciation"),
     "net_income": ("NetIncomeLoss", "ProfitLoss"),
     "pretax_income": (
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
@@ -40,7 +43,10 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "shares_diluted": ("WeightedAverageNumberOfDilutedSharesOutstanding",),
     "ocf": ("NetCashProvidedByUsedInOperatingActivities",
             "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
-    "capex": ("PaymentsToAcquirePropertyPlantAndEquipment",),
+    "capex": ("PaymentsToAcquirePropertyPlantAndEquipment",
+              # преемник (TASK-12 Y1): AMZN; после прежнего тега —
+              # эмитент, сдающий оба, продолжает получать прежний
+              "PaymentsToAcquireProductiveAssets"),
     "cash": ("CashAndCashEquivalentsAtCarryingValue",),
     "st_investments": ("ShortTermInvestments",),
     "total_assets": ("Assets",),

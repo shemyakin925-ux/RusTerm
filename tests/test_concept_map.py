@@ -75,6 +75,27 @@ def test_unknown_tag_maps_to_none_and_is_counted():
     assert canonical_for("Revenues") == "revenue"
 
 
+def test_y1_switched_tags_map_and_lookalike_does_not():
+    """TASK-12 Y1: два названных тега-преемника маппятся; похожий по
+    подстроке PaymentsToAcquireMarketableSecurities — нет (карта
+    расширяется именованным решением, никогда подстрочным поиском).
+    Новый тег стоит после прежнего: приоритет не тронут."""
+    assert canonical_for("PaymentsToAcquireProductiveAssets") == "capex"
+    assert canonical_for("Depreciation") == "d_and_a"
+    assert canonical_for("PaymentsToAcquireMarketableSecurities") is None
+    capex_tags = CONCEPT_MAP["capex"]
+    assert capex_tags.index(
+        "PaymentsToAcquirePropertyPlantAndEquipment") < \
+        capex_tags.index("PaymentsToAcquireProductiveAssets")
+    assert CONCEPT_MAP["d_and_a"][-1] == "Depreciation"
+    # прежние приоритеты d_and_a не сдвинулись
+    assert CONCEPT_MAP["d_and_a"][:3] == (
+        "DepreciationDepletionAndAmortization",
+        "DepreciationAmortizationAndAccretionNet",
+        "DepreciationAndAmortization")
+    assert CONCEPT_MAP_VERSION == "us-gaap.v3"
+
+
 def test_priority_first_tag_wins_when_both_present():
     """Оба тега в payload'е: каноническое имя одно («revenue»), а выбор
     источника — по приоритетному рангу (RFC-тег раньше Revenues)."""
