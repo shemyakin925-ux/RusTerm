@@ -638,6 +638,13 @@ class PeerSetRepo:
                 (peer_set_version_id, instrument_id, reason, excluded_stale),
             )
 
+    def exists(self, peer_set_id: str) -> bool:
+        """Существует ли набор (TASK-17 E5: команда различает
+        'не найден' и 'нет версии на дату')."""
+        return self.conn.execute(
+            "SELECT 1 FROM peer_set WHERE peer_set_id=?",
+            (peer_set_id,)).fetchone() is not None
+
     def version_at(self, peer_set_id: str, as_of: str) -> Optional[dict]:
         """Версия, чей интервал [valid_from, valid_to) покрывает дату
         (TASK-17 E2, §0.2 ruling 5). Два совпадения — дефект данных:

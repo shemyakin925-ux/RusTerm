@@ -537,9 +537,7 @@ def cmd_industry(args) -> int:
     as_of = args.as_of or args_as_of_default()
 
     if repos.peer_set.version_at(args.sector, as_of) is None:
-        exists = conn.execute(
-            "SELECT 1 FROM peer_set WHERE peer_set_id=?",
-            (args.sector,)).fetchone()
+        exists = repos.peer_set.exists(args.sector)
         reason = (f"сектор {args.sector!r} не найден" if not exists else
                   f"у сектора {args.sector!r} нет версии на {as_of}")
         print(reason, file=sys.stderr)
