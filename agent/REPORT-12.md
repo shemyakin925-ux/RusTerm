@@ -30,3 +30,6 @@ NOW: Y3, step 8
 - Y4 done: grep -rn RULED_BEYOND_DICTIONARY tests/ rusterm/ -> empty; pytest tests/test_concept_map.py -q -> exit 0; assert not missing restored — stricter than the old 'assert not unexpected' (old asserted only the difference against the exemption set; new asserts the full set); the three removed lines were the exemption machinery the task named for deletion, no test coverage lost; pytest -q exit 0; acceptance 13/13
 
 NOW: Y4, step 8
+- Y5 done: resolve() warm-up call deleted (fetched the whole ticker map and discarded it; CIK came from issuer.registry_id); new subprocess test asserts ingest --source edgar with a known CIK makes exactly 1 request and it is companyfacts (counter = stub transport writing URLs to a log — the subprocess equivalent of gate.calls_made == 1); pytest tests/test_e2e_cli.py -q -> exit 0; pytest -q exit 0; acceptance 13/13
+
+NOW: Y5, step 8
