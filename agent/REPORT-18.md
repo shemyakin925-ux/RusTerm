@@ -47,3 +47,4 @@ NOW: G3, step 1
 - DISPUTED (procedure): G1+G2+G5 в одном коммите fafb901 — изменения
   переплетены в cmd_add/edgar.py.
 - G6 записаны: RY 1000275, BMO 927971, CNQ 1017413 (ifrs-full), CPTP 202947 (us-gaap; ТЗ звало 21175 — фид победил), NGGTF 1004315 (ifrs-full). 6 запросов из 40. du 608 КБ < 1024; манифест 25 записей; повторная обрезка байт-в-байт (тест). golden_m6_ca.json: 120 значений с accn + pointer. Коммит запушен.
+- G7 golden: 120 значений (RY 39 / BMO 39 / CNQ 42), все разрешаются по accn + pointer. G8 таблица (verbatim) ниже в HANDOFF. Коммит запушен.
