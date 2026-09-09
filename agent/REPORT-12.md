@@ -27,3 +27,6 @@ NOW: Y2, step 8
 - Y3 done (docstring): tools/trim_companyfacts.py now names output contract sort_keys=True + byte-stability; four rules all named (10-K only; earliest-filed collapse; 6 annual >=350d + 6 other bands per tag per unit; sort_keys byte-stable); pytest -q exit 0; acceptance 13/13
 
 NOW: Y3, step 8
+- Y4 done: grep -rn RULED_BEYOND_DICTIONARY tests/ rusterm/ -> empty; pytest tests/test_concept_map.py -q -> exit 0; assert not missing restored — stricter than the old 'assert not unexpected' (old asserted only the difference against the exemption set; new asserts the full set); the three removed lines were the exemption machinery the task named for deletion, no test coverage lost; pytest -q exit 0; acceptance 13/13
+
+NOW: Y4, step 8
