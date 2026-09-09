@@ -36,3 +36,13 @@ Questions for the coordinator:
 
 NOW: G3, step 1
 - G1+G2+G5 тесты: `test_markets.py` 3 passed, `test_venue_filings.py` 1 passed (страж-красная проверка выполнена); полный сюит 351 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
+- G3+G4 `python3 -m pytest tests/test_ifrs_map.py -q` → `7 passed`; полный сюит 358 passed, 2 skipped (rc=0); acceptance 13/13. Гварды байт-тождества переведены с origin/main (файла там нет) на голову старта задачи 23737a7 — см. ## Disputed. Коммит запушен.
+## Disputed
+- DISPUTED (coordination bug, §1.10): origin/main не содержит
+  rusterm/formulas.py и rusterm/normalize/concepts.py — дерево main
+  отстаёт от кода, которым пользуется вся ночь. Байт-стражи G3/G4
+  закреплены на голову старта TASK-18 (23737a7) вместо origin/main;
+  цитаты: TASK-18 G4 «byte-identical to origin/main» vs факт
+  «path 'rusterm/formulas.py' exists on disk, but not in 'origin/main'».
+- DISPUTED (procedure): G1+G2+G5 в одном коммите fafb901 — изменения
+  переплетены в cmd_add/edgar.py.
