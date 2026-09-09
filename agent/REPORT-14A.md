@@ -34,3 +34,4 @@ NOW: §0, step 8
 ## User-directed side task (chat, 2026-09-09, outside TASK-14 scope)
 - The user directly instructed (chat) to build an external PDF->data tool in `~/TextConv/rusconv/` (outside this repo): PDF -> per-page text -> local gpt-oss-20b (LM Studio) -> validated records (financial / physical-operational / other), CSV+JSON outputs. No repo code touched, no commits made for it. Logged here per the AGENTS.md rule: user chat instructions outrank the task queue; final arbiter is the user.
 - B24 `python3 -m pytest tests/test_logs.py -q` → `6 passed`; `python3 -m pytest` → `314 passed, 2 skipped, 1 xfailed`; acceptance 13/13. Коммит запушен.
+- B25 `python3 -m pytest tests/test_cli.py -q` → `32 passed`; `python3 -m pytest` → `315 passed, 2 skipped, 1 xfailed`; acceptance 13/13. Коммит запушен.
