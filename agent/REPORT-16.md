@@ -16,22 +16,37 @@
 ## Disputed
 
 ## HANDOFF
-Status:          WORKING
-Items done:      §0, D1
-Items not done:  D2–D10 in progress
-Acceptance:      пройдено 13, провалено 0 at start (9ff4587)
-Tests:           321 passed, 2 skipped, 0 xfailed at start
-M5 half one:     pending D8
-M5 half two:     pending D8
-Read-only tools: pending D2
-Milestones:      M5 pending
+Status:          DONE
+Items done:      §0, D1, D2, D3, D4, D5, D6, D7, D8, D9 (queue empty), D10
+Items not done:  none
+Acceptance:      пройдено 13, провалено 0   (agent/ACCEPTANCE-14.txt)
+Tests:           336 passed, 2 skipped, 0 xfailed
+M5 half one:     python3 -m pytest tests/test_llm_guard.py -q → 7 passed
+                 (числа из снапшота подстановкой; число без citations
+                 бракует текст целиком; файл не тронут)
+M5 half two:     python3 -m rusterm.cli --root … ops --watchlist w1
+                 --request "добавь MSFT" --confirm → «применено: версия 2»,
+                 audit ops/applied/confirmed=1; тот же вызов без --confirm
+                 → dry-run, ноль записей (sha256 базы неизменен, тест D4);
+                 101 тикер с --confirm без второго подтверждения размера
+                 → refused, exit 1 (тест D6/D8)
+Read-only tools: ровно {resolve_ticker, list_industry_instruments,
+                 get_peer_set, get_snapshot_block} — закреплено тестом;
+                 sha256 базы после вызова всех четырёх не меняется
+Milestones:      M5 yes — обе половины: числа со ссылками (llm_guard)
+                 и ни одной массовой операции без подтверждения (ops:
+                 dry-run по умолчанию, confirm применяет, лимит 100,
+                 аудит каждого исхода)
 Strict xfail:    none
-Network:         0 requests; app LLM calls 0 (fake client)
-Model:           GLM-5.3-Flash
-Pushed:          yes
+Network:         0 requests tonight (item fully offline); app LLM calls 0
+                 (fake RuleClient; real-key path not exercised — no key)
+Model:           own model GLM-5.3-Flash
+Pushed:          yes (through the final acceptance commit)
 Questions for the coordinator:
+1. RuleClient is tonight's deterministic stand-in for the model provider
+   (tickers parsed from the request text). When a real provider lands,
+   should ops switch on RUSTERM_LLM_API_KEY automatically?
+2. list_industry_instruments honestly returns an empty list (no industry
+   source in the schema, U12.4). Keep until M7, or drop the tool?
 
-NOW: D1, step 8
-- D2 `python3 -m pytest tests/test_tools.py -q` → `3 passed`; красная проверка: пятая запись delete_everything в TOOLS → registry-тест красный → убрана. Полный сюит 330 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
-- D3–D6 `python3 -m pytest tests/test_ops.py -q` → `5 passed`; полный сюит 335 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
-- D7+D8 подпроцессный тест `tests/test_ops.py` → `6 passed` (строки аудита трёх исходов, dry-run без записей, B12-строка на stderr, пин --json); `pytest tests/test_llm_guard.py -q` → `7 passed`; греп confidence — без операторов сравнения; полный сюит 336 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
+NOW: D10, step 8
