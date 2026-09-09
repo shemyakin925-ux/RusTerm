@@ -56,3 +56,6 @@ NOW: Y6, step 8
 - Y7/B12 done: AuditRepo.log returns 'audit_file_unavailable: …' value on file failure and still writes the DB row (was: exception propagated, DB write lost); test with a 0o555 log dir asserts the row exists and the failure is reported, not raised; working path returns None; pytest tests/test_logs.py -q -> 5 passed; pytest -q exit 0; acceptance 13/13. Scope note: repo-level semantics only — CLI call sites do not yet print the returned reason (follow-up candidate, not in the accept criterion)
 
 NOW: Y7/B13, step 1
+- Y7/B13 done: rusterm/core/export.py snapshot_to_md — null value renders as '— [n]' with a bottom footnote naming the measure and its null_reason; numbers always carry both period ends; first line concept_map_version (X4); cmd_export --format gained 'md'; test asserts every null carries its reason and no number without a period; pytest tests/test_snapshot_export.py -q -> exit 0 (6 passed); pytest -q exit 0; acceptance 13/13
+
+NOW: Y7/B15, step 1
