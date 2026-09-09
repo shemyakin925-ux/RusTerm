@@ -839,9 +839,10 @@ def test_b16_json_commands_carry_expected_keys(capsys):
         main(["--root", root, "snapshot", "--instrument", "US-CLI-DEMO"])
         capsys.readouterr()
         expected = {
-            "status": {"data_dir", "schema_version", "instruments",
-                       "watchlists", "snapshots", "coverage", "budget",
-                       "env", "concept_map_version"},
+            "status": {"data_dir", "schema_version",
+                       "schema_version_expected", "schema_version_observed",
+                       "instruments", "watchlists", "snapshots", "coverage",
+                       "budget", "env", "concept_map_version"},
             "coverage": {"target", "concept_map_version", "rows"},
             "metrics": {"metrics", "recorded"},
             "budget": {"ceiling_per_night", "rate_per_second",
@@ -854,5 +855,29 @@ def test_b16_json_commands_carry_expected_keys(capsys):
             payload = json.loads(capsys.readouterr().out)
             assert set(payload) == keys, (
                 f"{command}: {set(payload) ^ keys}")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_b25_status_json_reports_observed_and_expected_schema(capsys):
+    """BACKLOG B25: status --json показывает и версию, которую ждёт код,
+    и версию, на которой база была застигнута тихой миграцией. На
+    нарочно старой базе ключи различаются; после status база снова на
+    текущей версии."""
+    root = _root()
+    try:
+        main(["--root", root, "init"])
+        capsys.readouterr()
+        import sqlite3
+        conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
+        conn.execute("DELETE FROM schema_version WHERE version=38")
+        conn.close()
+        assert main(["--root", root, "status", "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["schema_version_observed"] == 37, payload
+        assert payload["schema_version_expected"] == 38
+        assert payload["schema_version_observed"] != \
+            payload["schema_version_expected"]
+        assert payload["schema_version"] == 38  # синхронизация жива
     finally:
         shutil.rmtree(root)

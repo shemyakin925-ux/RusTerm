@@ -21,7 +21,12 @@ from rusterm.core.refresh import refresh_watchlist
 from rusterm.core.verification import VerificationService
 from rusterm.pipeline import IngestionPipeline, apply_concept_map
 from rusterm.providers import SyntheticDisclosuresProvider
-from rusterm.store.db import apply_migrations, current_schema_version, open_connection
+from rusterm.store.db import (
+    _SCHEMA_VERSION,
+    apply_migrations,
+    current_schema_version,
+    open_connection,
+)
 from rusterm.store.doctor import doctor_report
 from rusterm.store.paths import AppPaths, ensure_app_dir
 from rusterm.store.repos import (
@@ -409,6 +414,9 @@ def cmd_status(args) -> int:
     покрытие, сеть, окружение (TASK-8 U9). --json — один объект."""
     from rusterm import env as env_module
     paths, conn = _open(args.root)
+    # BACKLOG B25: версия «как застали» снимается ДО тихой миграции —
+    # база, отставшая от кода, видна в status, а не только в doctor
+    observed = current_schema_version(conn)
     apply_migrations(conn)  # идемпотентно; свежая база получает схему
     repos = RepoRegistry(conn, paths)
     applied = current_schema_version(conn)
@@ -417,6 +425,8 @@ def cmd_status(args) -> int:
     payload = {
         "data_dir": str(paths.root),
         "schema_version": applied,
+        "schema_version_expected": _SCHEMA_VERSION,
+        "schema_version_observed": observed,
         "instruments": repos.metrics.instrument_counts()["total"],
         "watchlists": len(repos.watchlist.list_watchlists()),
         "snapshots": repos.snapshot.latest_per_instrument(),
@@ -435,6 +445,8 @@ def cmd_status(args) -> int:
         print(json.dumps(payload, ensure_ascii=False))
         return 0
     print(f"каталог данных: {payload['data_dir']}")
+    if observed is not None and applied != observed:
+        print(f"схема: найдена версия {observed}, обновлена до {applied}")
     print(f"схема: {('версия ' + str(applied)) if applied else 'нет базы (rusterm init)'}")
     print(f"инструментов: {payload['instruments']}; списков наблюдения: {payload['watchlists']}")
     if payload["snapshots"]:
