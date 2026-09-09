@@ -14,6 +14,8 @@ import datetime
 import json
 from typing import Optional
 
+from rusterm.core.snapshot import measure_inputs, stale_exclusions
+
 NULL_MARK = "—"
 
 
@@ -58,6 +60,8 @@ def list_rows(repos, watchlist_id: Optional[str]) -> list[dict]:
 def card_rows(repos, instrument_id: str) -> dict:
     """Экран «Карточка»: меры, покрытие с причинами, governance."""
     snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)
+    instrument = repos.instrument.get_instrument(instrument_id)
+    issuer_id = instrument.issuer_id if instrument else None
     measures = []
     for m in (repos.snapshot.get_measures(snapshot_id)
               if snapshot_id else []):
@@ -71,6 +75,8 @@ def card_rows(repos, instrument_id: str) -> dict:
             "unit": unit,
             "period": end,
             "method_version": method_version,
+            # TASK-15 C5: панель источника ищет исключённое по эмитенту
+            "issuer_id": issuer_id,
         })
     coverage = [
         {"block": r["block"], "status": r["status"], "reason": r["reason"]}
@@ -100,7 +106,12 @@ def card_rows(repos, instrument_id: str) -> dict:
 
 def source_panel(repos, measure: dict) -> dict:
     """Панель источника выделенной меры: документ, локатор входного
-    факта, method_version. Всё через репозитории, вычислений нет."""
+    факта, method_version. Всё через репозитории, вычислений нет.
+
+    TASK-15 C5: у пустой меры показывается и то, что исключено правилом
+    давности Y2 — «устаревший (последний 2012-12-31, anchor 2025-12-31)».
+    Факт при этом остаётся в store, мера и её причина не меняются.
+    """
     lineage = repos.snapshot.lineage_fact_ids(measure["measure_id"])
     sources = []
     for fact_id in lineage:
@@ -118,11 +129,32 @@ def source_panel(repos, measure: dict) -> dict:
             "source_tag": fact["concept"],
             "concept_map_version": fact["concept_map_version"],
         })
+    stale = []
+    issuer_id = measure.get("issuer_id")
+    if issuer_id and measure.get("value") in (None, NULL_MARK):
+        wanted = set(measure_inputs(measure["concept"]))
+        exclusions = stale_exclusions(repos.snapshot, issuer_id)
+        for fact_id, (period_end, anchor) in sorted(
+                exclusions.items(), key=lambda kv: kv[1][0]):
+            fact = repos.fact.get_fact(fact_id)
+            if fact is None:
+                continue
+            key = fact.get("canonical_concept") or fact["concept"]
+            if wanted and key not in wanted:
+                continue
+            stale.append({
+                "fact_id": fact_id,
+                "source_tag": fact["concept"],
+                "period_end": period_end,
+                "marker": f"устаревший (последний {period_end},"
+                          f" anchor {anchor})",
+            })
     return {
         "measure_id": measure["measure_id"],
         "concept": measure["concept"],
         "method_version": measure.get("method_version"),
         "sources": sources,
+        "stale": stale,
     }
 
 

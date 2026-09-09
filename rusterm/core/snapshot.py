@@ -84,6 +84,62 @@ def _eligible_input(period_end: str, anchor_date: date) -> bool:
         return True
 
 
+def measure_inputs(concept: str) -> tuple[str, ...]:
+    """Канонические входы меры §3 — для показа исключённого (TASK-15
+    C5). Пусто для концепта без формулы в картах V4."""
+    if concept in _MEASURE_FORMULAS:
+        return tuple(sorted(set(_MEASURE_FORMULAS[concept].values())))
+    if concept in _TWO_PERIOD_MEASURES:
+        flow, stock = _TWO_PERIOD_MEASURES[concept]
+        return tuple(sorted({flow, stock}))
+    if concept in _CHAIN_MEASURES:
+        return tuple(sorted(set(_CHAIN_MEASURES[concept].values())))
+    return ()
+
+
+def stale_exclusions(snapshot_repo, issuer_id: str) -> dict:
+    """TASK-15 C5: факты эмитента, исключённые правилом давности Y2.
+
+    anchor — тот же, что в _issuer_inputs: самый свежий period_end
+    среди as_reported фактов эмитента по концептам набора мер (значение
+    обязано разбираться числом). Возвращает {fact_id: (period_end,
+    anchor)} для фактов, отставших от anchor более чем на
+    _STALE_LOOKBACK_DAYS дней. Это чтение на as_reported_facts, без
+    новых колонок: мера ничего не узнаёт о показе, исключённое видит
+    представление.
+    """
+    rows = snapshot_repo.as_reported_facts(issuer_id, base_concepts)
+    anchor = None
+    for _concept, value, _fact_id, _unit, _start, end, canonical in rows:
+        key = canonical or _concept
+        if key not in base_concepts:
+            continue
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            continue
+        if end > (anchor or ""):
+            anchor = end
+    if anchor is None:
+        return {}
+    try:
+        anchor_date = date.fromisoformat(anchor)
+    except (TypeError, ValueError):
+        return {}
+    out: dict[str, tuple[str, str]] = {}
+    for _concept, value, fact_id, _unit, _start, end, canonical in rows:
+        key = canonical or _concept
+        if key not in base_concepts:
+            continue
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            continue
+        if not _eligible_input(end, anchor_date):
+            out[fact_id] = (end, anchor)
+    return out
+
+
 @dataclass
 class SnapshotDiff:
     """Три раздельных сравнения с предыдущей версией (processes.md §142)."""

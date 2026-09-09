@@ -16,7 +16,7 @@ from rusterm.core.export import snapshot_to_csv, snapshot_to_json, \
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
 from rusterm.providers.budget import ConfigError, RequestGate
 from rusterm.providers import get_provider
-from rusterm.core.snapshot import SnapshotBuilder
+from rusterm.core.snapshot import SnapshotBuilder, stale_exclusions
 from rusterm.core.refresh import refresh_watchlist
 from rusterm.core.verification import VerificationService
 from rusterm.pipeline import IngestionPipeline, apply_concept_map
@@ -431,6 +431,14 @@ def cmd_verify(args) -> int:
                     True, f"manual_fact={correct}; rebuilt=[{rebuilt}]")
     print(f"manual-факт {correct} записан, {args.fact} помечен superseded")
     print(f"пересчитано: {rebuilt}")
+    # TASK-15 C5: если правленный факт был исключён правилом давности,
+    # пользователь видит почему — тот же маркер, что в панели источника
+    wrong = repos.fact.get_fact(args.fact)
+    if wrong and wrong.get("issuer_id"):
+        exclusions = stale_exclusions(repos.snapshot, wrong["issuer_id"])
+        if args.fact in exclusions:
+            period_end, anchor = exclusions[args.fact]
+            print(f"устаревший (последний {period_end}, anchor {anchor})")
     conn.close()
     return 0
 

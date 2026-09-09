@@ -246,3 +246,62 @@ def test_v6_source_panel_names_source_tag_and_map_version():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+def test_c5_source_panel_lists_stale_excluded_fact_with_marker():
+    """TASK-15 C5: у эмитента с operating_income от 2012 и revenue от
+    2025 мера operating_margin пуста с 'missing_data: operating_income';
+    панель источника перечисляет факт 2012 с маркером и обеими датами —
+    факт видим как устаревший, а не исчез. Причина меры не меняется."""
+    from rusterm.core.snapshot import SnapshotBuilder
+
+    tmpdir, conn, repos = _registry()
+    try:
+        obj = repos.raw.put(b'{"synthetic": "c5"}', provider="synthetic",
+                            block="fundamentals")
+
+        def fact(concept, canonical, end, value):
+            fid = str(uuid.uuid4())
+            repos.fact.insert_fact(
+                fact_id=fid, issuer_id="i1", listing_id=None,
+                concept=concept, period_start=f"{end[:4]}-01-01",
+                period_end=end, period_type="duration", value=value,
+                unit="USD", currency=None, basis="as_reported",
+                origin="extracted", source_ref=obj.sha256,
+                locator={"kind": "xbrl", "doc_sha256": obj.sha256,
+                         "fact_id": fid, "concept": concept},
+                parser_version="synthetic.v1", canonical_concept=canonical)
+            return fid
+
+        stale_id = fact("us-gaap:OperatingIncomeLoss", "operating_income",
+                        "2012-12-31", "50000")
+        fact("us-gaap:Revenues", "revenue", "2025-12-31", "2000")
+
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build("ins1", "i1", "2026-09-09")
+
+        card = model.card_rows(repos, "ins1")
+        measure = next(m for m in card["measures"]
+                       if m["concept"] == "operating_margin")
+        assert measure["value"] == model.NULL_MARK
+        assert measure["null_reason"] == "missing_data: operating_income", \
+            measure["null_reason"]
+
+        panel = model.source_panel(repos, measure)
+        assert panel["stale"], "исключённый факт не показан"
+        entry = panel["stale"][0]
+        assert entry["fact_id"] == stale_id
+        assert entry["period_end"] == "2012-12-31"
+        assert entry["marker"] == ("устаревший (последний 2012-12-31,"
+                                   " anchor 2025-12-31)"), entry["marker"]
+
+        # у меры со значением исключённое не показывается
+        revenue_measure = next(m for m in card["measures"]
+                               if m["concept"] == "net_margin")
+        revenue_panel = model.source_panel(repos, revenue_measure)
+        if revenue_measure["value"] != model.NULL_MARK:
+            assert revenue_panel["stale"] == []
+        conn.close()
+    finally:
+        shutil.rmtree(tmpdir)
