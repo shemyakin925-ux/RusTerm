@@ -53,3 +53,6 @@ Questions for the coordinator:
 - Y6 done: tests/test_report_sections.py — 3 tests; demo: appended 'DISPUTED: демонстрационная строка' under Done -> test_disputed_lines_live_only_in_disputed_section FAILED (AssertionError), removed -> green; pytest -q exit 0 (296 passed, 2 skipped, 1 xfailed); acceptance 13/13. Note: interim ## HANDOFF added to REPORT-12.md with real interim values (task's own test forbids template placeholders; final HANDOFF lands at Y8 — the interim block will be replaced in place, git history keeps it)
 
 NOW: Y6, step 8
+- Y7/B12 done: AuditRepo.log returns 'audit_file_unavailable: …' value on file failure and still writes the DB row (was: exception propagated, DB write lost); test with a 0o555 log dir asserts the row exists and the failure is reported, not raised; working path returns None; pytest tests/test_logs.py -q -> 5 passed; pytest -q exit 0; acceptance 13/13. Scope note: repo-level semantics only — CLI call sites do not yet print the returned reason (follow-up candidate, not in the accept criterion)
+
+NOW: Y7/B13, step 1
