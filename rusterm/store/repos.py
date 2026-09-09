@@ -1564,4 +1564,51 @@ class RepoRegistry:
         self.llm_summary = LlmSummaryRepo(conn)
         self.governance = GovernanceRepo(conn)
         self.issuer_state = IssuerStateRepo(conn)
+        self.industry = IndustryRepo(conn)
         self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)
+
+
+class IndustryRepo:
+    """Хранение отраслевых агрегатов (TASK-17 E3): append-only по сути,
+    повторная сборка той же (версия, дата, мера, метод) обновляет строку,
+    а не плодит дубли. NULL-тройка обязана нести причину из словаря B15 —
+    на уровне таблицы это CHECK, здесь — тот же сторож, что у мер."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def store_aggregates(self, peer_set_version_id: str, as_of: str,
+                         aggregates: list) -> int:
+        from rusterm.reasons import is_known_reason
+        written = 0
+        with writer_transaction(self.conn) as c:
+            for agg in aggregates:
+                if agg.null_reason is not None and \
+                        not is_known_reason(agg.null_reason):
+                    raise ValueError(
+                        f"null_reason {agg.null_reason!r} вне словаря")
+                c.execute(
+                    """INSERT INTO industry_aggregate(
+                      industry_aggregate_id, peer_set_version_id, as_of,
+                      concept, p25, median, p75, n, method_version,
+                      null_reason, built_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ON CONFLICT(peer_set_version_id, as_of, concept,
+                                  method_version) DO UPDATE SET
+                        p25=excluded.p25, median=excluded.median,
+                        p75=excluded.p75, n=excluded.n,
+                        null_reason=excluded.null_reason,
+                        built_at=excluded.built_at""",
+                    (str(uuid.uuid4()), peer_set_version_id, as_of,
+                     agg.concept, agg.p25, agg.median, agg.p75, agg.n,
+                     agg.method_version, agg.null_reason, time.time()))
+                written += 1
+        return written
+
+    def get_aggregates(self, peer_set_version_id: str, as_of: str) -> list:
+        return self.conn.execute(
+            """SELECT concept, p25, median, p75, n, method_version,
+                      null_reason, built_at
+               FROM industry_aggregate
+               WHERE peer_set_version_id=? AND as_of=?
+               ORDER BY concept""", (peer_set_version_id, as_of)).fetchall()

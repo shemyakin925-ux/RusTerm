@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 38  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept) + 37 (issuer_ingest_state) + 38 (индексы; TASK-14 A1)
+_SCHEMA_VERSION = 39  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept) + 37 (issuer_ingest_state) + 38 (индексы) + 39 (industry_aggregate; TASK-17 E3)
 
 
 def _checksum(text: str) -> str:
@@ -469,6 +469,40 @@ _MIGRATION_38_CHECKSUM_TEXT = \
 
 _CUSTOM_MIGRATIONS[38] = (_migrate_38_indexes_and_state_key,
                           _MIGRATION_38_CHECKSUM_TEXT)
+
+
+# Миграция 39 (TASK-17 E3): industry_aggregate — отраслевой агрегат,
+# append-only, строка на (версия набора, дата, мера, method_version).
+# Значения TEXT по той же причине, что measure.value: никакого дрейфа
+# float между записью и чтением. null_reason обязателен для NULL-тройки
+# (I4), причина — из словаря rusterm/reasons.py.
+_INDUSTRY_AGGREGATE_DDL = """CREATE TABLE IF NOT EXISTS industry_aggregate (
+        industry_aggregate_id TEXT PRIMARY KEY,
+        peer_set_version_id TEXT NOT NULL REFERENCES peer_set_version(peer_set_version_id),
+        as_of TEXT NOT NULL,
+        concept TEXT NOT NULL,
+        p25 TEXT,
+        median TEXT,
+        p75 TEXT,
+        n INTEGER NOT NULL,
+        method_version TEXT NOT NULL,
+        null_reason TEXT,
+        built_at REAL NOT NULL,
+        UNIQUE (peer_set_version_id, as_of, concept, method_version),
+        CHECK (
+            (p25 IS NULL AND median IS NULL AND p75 IS NULL
+             AND null_reason IS NOT NULL) OR
+            (p25 IS NOT NULL AND median IS NOT NULL
+             AND p75 IS NOT NULL)
+        ))"""
+
+
+def _migrate_39_industry_aggregate(conn: sqlite3.Connection) -> None:
+    conn.execute(_INDUSTRY_AGGREGATE_DDL)
+
+
+_CUSTOM_MIGRATIONS[39] = (_migrate_39_industry_aggregate,
+                          _INDUSTRY_AGGREGATE_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

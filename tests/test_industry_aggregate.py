@@ -170,3 +170,68 @@ def test_e2_as_of_selects_versions_composition_and_numbers_survive():
     conn.close()
     shutil.rmtree(tmpdir, ignore_errors=True)
     del first
+
+
+def test_e3_store_aggregates_repeat_build_no_duplicates():
+    """TASK-17 E3: миграция 39 создаёт industry_aggregate на свежей базе;
+    повторная сборка той же (версия, дата, мера, метод) обновляет строку,
+    а не плодит дубли; NULL-тройка без причины из словаря B15 не пишется."""
+    import os
+    import shutil
+    import sqlite3
+    from rusterm.core.industry.aggregate import AggregateMeasure
+    from rusterm.store.db import apply_migrations
+    from rusterm.store.paths import AppPaths, ensure_app_dir
+    from rusterm.store.repos import RepoRegistry
+
+    tmpdir = tempfile.mkdtemp()
+    paths = AppPaths.from_root(os.path.join(tmpdir, "app"))
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    try:
+        apply_migrations(conn)
+        repos = RepoRegistry(conn, paths)
+        from rusterm.store.repos import Instrument, Issuer
+        repos.instrument.upsert_issuer(Issuer(
+            "i1", "Issuer 1", "US", None, None, "us_gaap", "USD"))
+        repos.instrument.upsert_instrument(Instrument(
+            "ins1", "i1", None, "common", "active", None))
+        peers = repos.peer_set
+        peers.create_peer_set("sector", "industry", "tankers")
+        peers.add_version("psv1", "sector", 1, "2025-01-01", None,
+                          "manual", "v1", True, None, None)
+
+        agg = sector_aggregate(
+            "net_margin", [(f"in-{i}", float(i)) for i in range(10)],
+            verified=True)
+        assert repos.industry.store_aggregates(
+            "psv1", "2025-06-30", [agg]) == 1
+        rows = repos.industry.get_aggregates("psv1", "2025-06-30")
+        assert len(rows) == 1
+        assert rows[0][0] == "net_margin" and rows[0][4] == 10
+
+        # повторная сборка: обновление, не дубль
+        repos.industry.store_aggregates("psv1", "2025-06-30", [agg])
+        assert len(repos.industry.get_aggregates("psv1", "2025-06-30")) == 1
+
+        # NULL-тройка обязана нести причину из словаря
+        null_agg = AggregateMeasure(concept="fcf",
+                                    null_reason="peer_set_too_small")
+        repos.industry.store_aggregates("psv1", "2025-06-30", [null_agg])
+        rows = repos.industry.get_aggregates("psv1", "2025-06-30")
+        assert len(rows) == 2
+        by_concept = {r[0]: r for r in rows}
+        assert by_concept["fcf"][6] == "peer_set_too_small"
+        assert by_concept["fcf"][1:4] == (None, None, None)
+        try:
+            repos.industry.store_aggregates("psv1", "2025-06-30", [
+                AggregateMeasure(concept="ebitda",
+                                 null_reason="bogus_reason")])
+            raised = False
+        except ValueError:
+            raised = True
+        assert raised, "причина вне словаря B15 записалась"
+        conn.close()
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
