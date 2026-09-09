@@ -27,3 +27,4 @@ Pushed:          yes (through the C1 commit)
 Questions for the coordinator:
 
 NOW: C1, step 5
+- C1 `grep -rn "known_short_floors" tests/` → пусто; `pytest tests/test_m3_snapshot.py -q -rx` → 1 passed; `pytest` → 315 passed, 2 skipped, 0 xfailed; acceptance 13/13. Таблица (verbatim) в HANDOFF. Коммит запушен.
