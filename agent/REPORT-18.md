@@ -15,37 +15,57 @@
   hunks riskier than the combined commit.
 
 ## HANDOFF
-Status:          WORKING
-Items done:      §0, G1, G2, G5 (commit pending)
-Items not done:  G3–G13 in progress
-Acceptance:      пройдено 13, провалено 0 at start (23737a7)
-Tests:           347 passed, 2 skipped, 0 xfailed at start
-Markets:         {US, CA, OTC} pinned
-Issuers taken:   pending G6
-Measure table:   pending G8
-Golden m6 CA:    pending G7
-No-filings path: NOFILE (stub 404) — coverage missing no_sec_filings
-formulas.py:     guard test pending G4
-Payload size:    pending G6
-Both taxonomies: pending G6
-Milestones:      pending
-Network:         ~0 so far (stub-only); budget 40
+Status:          DONE
+Items done:      §0, G1, G2, G3, G4, G5, G6, G7, G8, G9, G10, G11, G12
+                 (queue empty), G13
+Items not done:  none. UK отсутствует по решению пользователя (§0.1.1),
+                 не «не успели».
+Acceptance:      пройдено 13, провалено 0   (agent/ACCEPTANCE-16.txt)
+Tests:           361 passed, 2 skipped, 0 xfailed
+Markets:         ровно {US, CA, OTC}; неизвестный код — exit 1 с
+                 перечнем; литералов рынка в formulas/core/normalize нет
+Issuers taken:   CA IFRS: RY 1000275, BMO 927971, CNQ 1017413;
+                 OTC: CPTP 202947 (фид победил ТЗ-21175), NGGTF 1004315
+                 (ifrs-full — OTC с полным XBRL). Пропуск по правилу:
+                 эмитенты OTC без filings (TRUFF-класс) — честный 404.
+Measure table:   M6 measure -> n/5 + reasons:
+                   net_margin: 5/5 причины: —
+                   operating_margin: 1/5 причины: {'missing_data: operating_income': 4}
+                   effective_tax: 1/5 причины: {'missing_data: tax_expense': 4}
+                   fcf: 1/5 причины: {'missing_data: capex': 3, 'missing_data: ocf': 1}
+                   ebitda: 0/5 причины: {'missing_data: operating_income': 3, 'missing_data: d_and_a, operating_income': 1, 'missing_data: d_and_a': 1}
+                   interest_coverage: 1/5 причины: {'missing_data: interest_expense, operating_income': 3, 'missing_data: operating_income': 1}
+                   nopat: 0/5 причины: {'missing_data: effective_tax, operating_income': 3, 'missing_data: operating_income': 1, 'missing_data: effective_tax': 1}
+                   roe: 4/5 причины: {'missing_data: total_equity': 1}
+                   asset_turnover: 4/5 причины: {'missing_prior_period': 1}
+                   gross_margin: 0/5 причины: {'missing_data: gross_profit': 5}
+Golden m6 CA:    120 значений (RY 39 / BMO 39 / CNQ 42), каждое
+                 разрешается из записанного payload по accn + json_pointer
+No-filings path: NOFILE (стаб, companyfacts 404) — инструмент создан,
+                 coverage missing no_sec_filings, exit 0, ноль raw_object
+formulas.py:     байт-в-байт равен голове старта TASK-18 (23737a7) —
+                 тест-гвард; origin/main файл не содержит (Disputed)
+Payload size:    du -sk tests/data/edgar/ = 608 КБ, лимит 1024 КБ соблюдён
+Both taxonomies: ни один из пяти записанных не несёт us-gaap и
+                 ifrs-full одновременно; при таком payload побеждает
+                 us-gaap — покрыто тестом G4 (двух-таксономичный
+                 синтетический payload)
+Milestones:      M6 (Canada) yes — доказательства: тест G7 (golden по
+                 accn+pointer), таблица G8, гвард G4 formulas.py;
+                 UK half dropped by decision, not missed.
+                 OTC yes — 2 из 2 записанных OTC имеют XBRL; эмитент без
+                 filings честно отвечает coverage missing no_sec_filings
+                 (тест G5), а не падением или тишиной.
+Strict xfail:    none
+Network:         RUSTERM_SEC_UA set via ~/.rusterm.env; 6 запросов из
+                 бюджета 40 (карта тикеров + 5 companyfacts)
 Model:           app LLM calls 0; own model GLM-5.3-Flash
-Pushed:          yes
+Pushed:          yes (through the final acceptance commit)
 Questions for the coordinator:
+1. TSX-only эмитенты (CSU-класс) остаются недостижимыми — где это
+   задокументировать для пользователя, кроме README-обещаний?
+2. CPTP: ТЗ звало CIK 21175, живой фид даёт 202947 — фид побеждил.
+   Верно ли поняты «venue/jurisdiction» для CA-эмитентов, торгующихся
+   на NYSE (venue NYSE, рынок CA)?
 
-NOW: G3, step 1
-- G1+G2+G5 тесты: `test_markets.py` 3 passed, `test_venue_filings.py` 1 passed (страж-красная проверка выполнена); полный сюит 351 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
-- G3+G4 `python3 -m pytest tests/test_ifrs_map.py -q` → `7 passed`; полный сюит 358 passed, 2 skipped (rc=0); acceptance 13/13. Гварды байт-тождества переведены с origin/main (файла там нет) на голову старта задачи 23737a7 — см. ## Disputed. Коммит запушен.
-## Disputed
-- DISPUTED (coordination bug, §1.10): origin/main не содержит
-  rusterm/formulas.py и rusterm/normalize/concepts.py — дерево main
-  отстаёт от кода, которым пользуется вся ночь. Байт-стражи G3/G4
-  закреплены на голову старта TASK-18 (23737a7) вместо origin/main;
-  цитаты: TASK-18 G4 «byte-identical to origin/main» vs факт
-  «path 'rusterm/formulas.py' exists on disk, but not in 'origin/main'».
-- DISPUTED (procedure): G1+G2+G5 в одном коммите fafb901 — изменения
-  переплетены в cmd_add/edgar.py.
-- G6 записаны: RY 1000275, BMO 927971, CNQ 1017413 (ifrs-full), CPTP 202947 (us-gaap; ТЗ звало 21175 — фид победил), NGGTF 1004315 (ifrs-full). 6 запросов из 40. du 608 КБ < 1024; манифест 25 записей; повторная обрезка байт-в-байт (тест). golden_m6_ca.json: 120 значений с accn + pointer. Коммит запушен.
-- G7 golden: 120 значений (RY 39 / BMO 39 / CNQ 42), все разрешаются по accn + pointer. G8 таблица (verbatim) ниже в HANDOFF. Коммит запушен.
-- G9 e2e CA-RY + OTC-CPTP: exit 0 по всей цепочке, экспорт непуст, юрисдикция+площадка верны. G10 status --json: + concept_map_version_ifrs, + market_codes; B16-пин дополнен. Полный сюит 360 passed, 2 skipped (rc=0); acceptance 13/13. Коммит запушен.
+NOW: G13, step 8
