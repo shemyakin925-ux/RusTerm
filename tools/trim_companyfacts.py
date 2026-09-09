@@ -19,7 +19,10 @@
 - верхний уровень: cik, entityName, facts.us-gaap.
 
 Использование: python3 tools/trim_companyfacts.py [файл] < payload
-(файл или stdin). Вывод — stdout, байт-в-байт повторяем.
+(файл или stdin). Контракт вывода (TASK-12 Y3): json.dumps c
+sort_keys=True, разделители без пробелов — байт-в-байт повторяем при
+перегенерации; обрезка детерминирована, повторный прогон на том же
+входе даёт те же байты и тот же sha256 в manifest.
 """
 from __future__ import annotations
 

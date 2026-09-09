@@ -144,8 +144,10 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
         assert len(snapshots) == 20
 
         # Пороги W4 по каждой мере (из 20), заданы координатором.
-        # Две меры с известной недостачей данных — в отдельном
-        # xfail(strict=True)-тесте ниже, планки не снижены.
+        # TASK-12 Y3, решение §0.2.2: operating_margin 14 и gross_margin
+        # 7 — измеренная правда (JPM — банк, PFE/CVX/XOM не тегают
+        # OperatingIncomeLoss стабильно; GrossProfit раскрывают 7 из 20),
+        # пороги в проходном тесте — чтобы регрессия ловилась здесь.
         floors = {
             "net_margin": 20,
             "effective_tax": 15,
@@ -155,8 +157,9 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
             "nopat": 12,
             "roe": 12,
             "asset_turnover": 12,
+            "operating_margin": 14,
+            "gross_margin": 7,
         }
-        known_short_floors = {"operating_margin": 15, "gross_margin": 10}
         fixed_reasons = {
             "missing_data", "period_mismatch", "missing_prior_period",
             "concept_not_mapped", "denominator_zero",
@@ -187,10 +190,10 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
                   f"(порог {floor}) причины: "
                   f"{row['reasons'] if row['reasons'] else '—'}")
 
-        # порог операционной маржи: JPM/PFE/CVX/XOM не раскрывают
-        # OperatingIncomeLoss вовсе (14/20) — дефект данных, отчётен
-        # координатору; xfail(strict) вернёт красный, если данные
-        # поправятся и порог станет достижим
+        # TASK-12 Y3: пороги 14 и 7 перенесены в floors выше; планки
+        # 15 и 10 остались только в xfail(strict=True) ниже — если
+        # данные поправятся и 15 станет достижим, xfail покраснеет и
+        # встанет на координацию. Это задуманный исход, не поломка.
 
         for measure, floor in floors.items():
             assert measure in table, f"меры {measure} нет в снапшотах"
