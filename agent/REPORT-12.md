@@ -50,3 +50,6 @@ Pushed:          yes
 Questions for the coordinator:
   - V и UNH: свежий капитал только тегом Including (total_equity_incl_nci, отдельный концепт по W3); roe на них после Y2 честно missing_data. Падение roe на total_equity_incl_nci — решение координатора, в задание не входило.
   - Тест Y6 проверяет отчёт, названный в STATE.json; на TASK-13 указатель сменится — проверка поедет за ним автоматически.
+- Y6 done: tests/test_report_sections.py — 3 tests; demo: appended 'DISPUTED: демонстрационная строка' under Done -> test_disputed_lines_live_only_in_disputed_section FAILED (AssertionError), removed -> green; pytest -q exit 0 (296 passed, 2 skipped, 1 xfailed); acceptance 13/13. Note: interim ## HANDOFF added to REPORT-12.md with real interim values (task's own test forbids template placeholders; final HANDOFF lands at Y8 — the interim block will be replaced in place, git history keeps it)
+
+NOW: Y6, step 8
