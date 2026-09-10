@@ -146,6 +146,15 @@ answers 200 with `{"status":"100","message":"Authentication Keys is
 missing."}` when unkeyed — the API is alive and wants a free registered
 key. English filings and XBRL downloads are available; no bot wall.
 
+Key registration (verified live by the coordinator on 10.09.2026):
+English portal `https://engopendart.fss.or.kr/`, application form at
+`/uss/umt/EgovMberInsertView.do` (200, 65 KB), keys afterwards at
+`/mng/userApiKeyListView.do`, usage at `/mng/apiUsageStatusView.do`,
+endpoint docs at `/guide/main.do?apiGrpCd=DE001`…`DE006`. **The form
+asks for a requested IP** — if the key turns out to be IP-bound, a
+changed address is a `source_unreachable` you must not mistake for a
+bad key. Record which it was in the report.
+
 - `DartProvider(DisclosuresProvider)` declaring host, 2/s, its nightly
   ceiling. No key → `ConfigError` value and the offline path (N2).
 - `can_auto_ingest` (TASK-19 F3) answers truthfully for a `corp_code`.
