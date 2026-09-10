@@ -25,3 +25,10 @@
 - (pending, end of shift)
 
 NOW: section 0, step 4
+- F1 (commit 3af771f): Market.access + KR/BR/AU rows (providers
+  intentionally unresolved), per-market venue prefixes, docstring
+  jurisdiction/venue ruling. tests/test_db.py synthetic 'UK'->'GB'.
+  Verify: pytest tests/test_markets.py tests/test_db.py -q -> 15 passed;
+  acceptance STATUS=0 13/13; grep UK in rusterm/ tests/ empty.
+  P1 note: 3 removed asserts replaced by strictly stronger pins
+  (ordered 6-tuple; 7-code stderr listing).
