@@ -1071,6 +1071,17 @@ def cmd_markets(args) -> int:
     return 0
 
 
+def cmd_import(args) -> int:
+    """Место конвейера ручного импорта (ADR-0011 ①-③, BACKLOG B26):
+    команда существует, чтобы совет `rusterm add` был копируемым
+    дословно, и честно отвечает, что конвейер ещё не подключён, —
+    реализацию привозят полосы ТЗ-20 L5/L6. Ничего не читает и не
+    пишет."""
+    print("ручной импорт: конвейер ещё не подключён (поставят полосы "
+          "ТЗ-20 L5/L6); файл не принят", file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     from rusterm import env as env_module
     env_module.load_env()  # RUSTERM_* из ~/.rusterm.env, если не в окружении
@@ -1174,6 +1185,11 @@ def main(argv: list[str] | None = None) -> int:
     p_ops.add_argument("--confirm", action="store_true",
                        help="применить показанное (без флага — dry-run)")
     p_ops.add_argument("--json", action="store_true")
+    p_imp = sub.add_parser("import",
+                           help="ручной импорт отчётов (ADR-0011; ТЗ-20)")
+    p_imp.add_argument("path", nargs="+", help="файлы отчётов")
+    p_imp.add_argument("--issuer", required=True)
+    p_imp.add_argument("--market", default=None)
     p_mkt = sub.add_parser("markets",
                            help="реестр рынков: коды, провайдеры, доступ")
     p_mkt.add_argument("--json", action="store_true")
@@ -1195,6 +1211,7 @@ def main(argv: list[str] | None = None) -> int:
         "ops": cmd_ops,
         "industry": cmd_industry,
         "markets": cmd_markets,
+        "import": cmd_import,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "

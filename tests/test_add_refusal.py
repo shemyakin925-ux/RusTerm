@@ -108,3 +108,22 @@ def test_unresolved_market_provider_is_config_error_value(
     assert code == 1
     assert _issuer_count(paths) == 0
     assert "provider_not_implemented:dart" in capsys.readouterr().err
+
+
+def test_manual_import_advice_is_copy_paste_runnable(app_root, monkeypatch,
+                                                     capsys):
+    """B26: совет manual_import_required содержит команду, которую
+    пользователь копирует дословно, и парсер CLI её принимает."""
+    import re as _re
+    import shlex as _shlex
+
+    root, paths = app_root
+    assert _run_add(root, monkeypatch, False) == 0
+    out = capsys.readouterr().out
+    match = _re.search(r"rusterm import .*", out)
+    assert match, out
+    tokens = _shlex.split(match.group(0))[1:]  # без слова rusterm
+    code = cli.main(["--root", str(root)] + tokens)
+    # парсер команду принял (не SystemExit); место честно отказывает
+    assert code == 1
+    assert "ТЗ-20" in capsys.readouterr().err
