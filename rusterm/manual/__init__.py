@@ -119,28 +119,60 @@ def _quote_numbers(quote: str) -> set[str]:
     return numbers
 
 
-def verify(record: Record, document: Document) -> bool:
-    """Ступень ③ (ADR-0011): детерминированный контроль записи.
+VERIFIED = "verified"      # цитата дословно на странице, число в цитате
+NEAR_MISS = "near_miss"    # цитата дословно, число узнаётся только при
+                           # стирании всех разделителей (другая запись
+                           # формата); строгий канон его не узнал
+FAILED = "failed"          # цитаты нет / не та страница / числа нет
 
-    True — обе проверки сошлись:
+
+def _digits_only(text: str) -> str:
+    """Цифры и знак текста без всяких разделителей: самый свободный
+    вид числа — для распознавания «почти попал»."""
+    t = text.strip().replace("\u00a0", " ").replace(" ", "")
+    if t[:1] in ("+", "-"):
+        return t[0] + "".join(ch for ch in t[1:] if ch.isdigit())
+    return "".join(ch for ch in t if ch.isdigit())
+
+
+def verify_status(record: Record, document: Document) -> str:
+    """Ступень ③ (ADR-0011) с тремя исходами (BACKLOG B23).
+
+    verified — обе проверки сошлись:
       1. цитата дословно присутствует на своей странице;
       2. число значения стоит числом среди чисел цитаты (токены,
          канонический вид; «142» не содержит «42»).
-    False — что-то не сошлось: запись с False сохраняется и видна, но
-    в меры снапшота не попадает (причина manual_unverified).
+    near_miss — цитата дословна, но строгий канон число не узнал, а
+      свободная запись (только цифры, без разделителей) узнала: «1234»
+      против «1.234». Попадание в near_miss — повод посмотреть глазами,
+      не основание верить (в меры такое не попадает, как failed).
+    failed — цитаты нет, не та страница или числа значения нет в цитате.
+
+    Запись с исходом, кроме verified, сохраняется и видна, но в меры
+    снапшота не попадает (причина manual_unverified).
 
     Пределы честны (ADR-0011 ③): проверка не доказывает, что модель
     взяла число из правильной колонки правильного периода.
     """
     if not record.quote:
-        return False
+        return FAILED
     page = document.page(record.page_no)
     if page is None or record.quote not in page.text:
-        return False
+        return FAILED
     value = _canon_number(record.value)
-    if value is None:
-        return False
-    return value in _quote_numbers(record.quote)
+    if value is not None and value in _quote_numbers(record.quote):
+        return VERIFIED
+    # строгий канон не узнал: свободная запись — только цифры
+    value_digits = _digits_only(record.value)
+    if value_digits and value_digits in _digits_only(record.quote):
+        return NEAR_MISS
+    return FAILED
 
 
-__all__ = ["Page", "Document", "Record", "extract_text", "verify"]
+def verify(record: Record, document: Document) -> bool:
+    """Двухзначная обёртка над verify_status: True — verified."""
+    return verify_status(record, document) == VERIFIED
+
+
+__all__ = ["Page", "Document", "Record", "extract_text", "verify",
+           "verify_status", "VERIFIED", "NEAR_MISS", "FAILED"]

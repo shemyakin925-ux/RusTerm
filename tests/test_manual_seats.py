@@ -96,3 +96,30 @@ def test_extract_text_seat_refuses_every_format_as_value(tmp_path):
     result = extract_text(path)
     assert isinstance(result, ProviderError)
     assert result.reason.startswith("format_unsupported")
+
+
+# ── BACKLOG B23: near-miss как отдельный исход verify ──────────────────
+
+def test_verify_status_thousands_separator_mismatch_is_near_miss():
+    """B23: цитата дословна, число в другой записи формата — исход
+    near_miss, а не failed и не verified."""
+    from rusterm.manual import FAILED, NEAR_MISS, VERIFIED, verify_status
+    doc = _doc((1, PAGE_1), (2, PAGE_2))
+    # «1.234» — европейские тысячи; строгий канон не узнаёт
+    status = verify_status(_record(value="1.234", metric="revenue",
+                                   quote="revenue reached 1 234 million"),
+                           doc)
+    assert status == NEAR_MISS
+    # свободная запись узнаёт, строгий — нет
+    assert verify(_record(value="1.234", metric="revenue",
+                          quote="revenue reached 1 234 million"),
+                  doc) is False
+    # апостроф-разделитель — тоже near_miss
+    assert verify_status(_record(value="1234567",
+                                 quote="1'234'567 tonnes moved"),
+                         _doc((1, "1'234'567 tonnes moved"))
+                         ) == NEAR_MISS
+    # контроль исходов: ок — verified, выдуманное — failed
+    assert verify_status(_record(), doc) == VERIFIED
+    assert verify_status(_record(value="99"), doc) == FAILED
+    assert verify_status(_record(quote=""), doc) == FAILED
