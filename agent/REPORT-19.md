@@ -32,3 +32,6 @@ NOW: section 0, step 4
   acceptance STATUS=0 13/13; grep UK in rusterm/ tests/ empty.
   P1 note: 3 removed asserts replaced by strictly stronger pins
   (ordered 6-tuple; 7-code stderr listing).
+- F2 (commit 299c1c1): six reasons added with
+  ADR comments; guard untouched. pytest test_repos+test_metrics+
+  test_invariants -q -> 38 passed; acceptance STATUS=0 13/13.
