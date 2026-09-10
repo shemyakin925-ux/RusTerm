@@ -35,3 +35,9 @@ NOW: section 0, step 4
 - F2 (commit 299c1c1): six reasons added with
   ADR comments; guard untouched. pytest test_repos+test_metrics+
   test_invariants -q -> 38 passed; acceptance STATUS=0 13/13.
+- F3 (commit f315247): can_auto_ingest on
+  protocol + EDGAR/synthetic (True); cmd_add uses registry provider
+  and asks before creating. Verify: test_add_refusal 4 passed,
+  cli/edgar/providers/venue_filings 54 passed, acceptance 13/13.
+  Scope note: offline add (--cik/--name) has no provider to ask —
+  unchanged; per-market add flows belong to TASK-20 lanes.
