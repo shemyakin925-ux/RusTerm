@@ -1576,6 +1576,8 @@ class RepoRegistry:
         self.issuer_state = IssuerStateRepo(conn)
         self.industry = IndustryRepo(conn)
         self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)
+        self.document = DocumentRepo(conn)
+        self.manual_extraction = ManualExtractionRepo(conn)
 
 
 class IndustryRepo:
@@ -1622,3 +1624,107 @@ class IndustryRepo:
                FROM industry_aggregate
                WHERE peer_set_version_id=? AND as_of=?
                ORDER BY concept""", (peer_set_version_id, as_of)).fetchall()
+
+
+class DocumentRepo:
+    """Заголовки импортированных документов (TASK-19 F4, миграция 40,
+    ADR-0011). sha256 первичен: тот же файл импортируется один раз,
+    повтор — False, а не дубль. Тело документа живёт на диске
+    пользователя; база хранит только заголовок и происхождение."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def put(self, sha256: str, filename: str, format: str,
+            page_count: int, byte_len: int, issuer_id: Optional[str] = None,
+            imported_at: Optional[float] = None) -> bool:
+        """Вставить заголовок. True — записан; False — такой sha256 уже
+        есть (тот же файл повторно не импортируется)."""
+        with writer_transaction(self.conn) as c:
+            row = c.execute(
+                "SELECT 1 FROM document WHERE sha256=?",
+                (sha256,)).fetchone()
+            if row is not None:
+                return False
+            c.execute(
+                """INSERT INTO document(sha256, filename, format,
+                   page_count, issuer_id, imported_at, bytes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (sha256, filename, format, page_count, issuer_id,
+                 imported_at if imported_at is not None else time.time(),
+                 byte_len))
+        return True
+
+    def get(self, sha256: str) -> Optional[dict]:
+        row = self.conn.execute(
+            """SELECT sha256, filename, format, page_count, issuer_id,
+               imported_at, bytes FROM document WHERE sha256=?""",
+            (sha256,)).fetchone()
+        if row is None:
+            return None
+        return {"sha256": row[0], "filename": row[1], "format": row[2],
+                "page_count": row[3], "issuer_id": row[4],
+                "imported_at": row[5], "bytes": row[6]}
+
+    def for_issuer(self, issuer_id: str) -> list:
+        return self.conn.execute(
+            """SELECT sha256, filename, format, page_count, imported_at
+               FROM document WHERE issuer_id=? ORDER BY imported_at""",
+            (issuer_id,)).fetchall()
+
+
+class ManualExtractionRepo:
+    """Записи-кандидаты ручного импорта (TASK-19 F4, миграция 40,
+    ADR-0011): ступень ② даёт кандидата с дословной цитатой, ступень ③ —
+    детерминированный исход verified. Append-only: исход контроля —
+    данные, а не правка; запись с verified=no сохраняется и видна, но в
+    меры снапшота не попадает (причина manual_unverified)."""
+
+    _CATEGORIES = ("financial", "physical", "other")
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def add(self, document_sha256: str, page_no: int, category: str,
+            metric: str, value: Optional[str], unit: Optional[str],
+            period: Optional[str], quote: str, verified: bool,
+            model: str, prompt_version: str) -> str:
+        """Записать кандидата, вернуть extraction_id. Категория вне трёх
+        слов и пустая цитата отклоняются до SQL (тем же стилем, что
+        сторож B15 у мер) — CHECK таблицы страховка, не интерфейс."""
+        if category not in self._CATEGORIES:
+            raise ValueError(
+                f"category {category!r} вне словаря"
+                "('financial'|'physical'|'other', ADR-0011 ②)")
+        if not quote:
+            raise ValueError("цитата обязательна (ADR-0011 ②): запись "
+                             "без дословной цитаты не хранится")
+        extraction_id = str(uuid.uuid4())
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO manual_extraction(document_sha256, page_no,
+                   category, metric, value, unit, period, quote, verified,
+                   model, prompt_version)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (document_sha256, page_no, category, metric, value, unit,
+                 period, quote, int(bool(verified)), model, prompt_version))
+        return extraction_id
+
+    def for_document(self, document_sha256: str) -> list:
+        return self.conn.execute(
+            """SELECT rowid, document_sha256, page_no, category, metric,
+               value, unit, period, quote, verified, model, prompt_version
+               FROM manual_extraction WHERE document_sha256=?
+               ORDER BY page_no, rowid""", (document_sha256,)).fetchall()
+
+    def counts(self, document_sha256: str) -> dict:
+        """Сколько кандидатов всего/подтверждено: карточка источника
+        обязана показывать, сколько кандидатов не прошло контроль."""
+        rows = self.conn.execute(
+            """SELECT verified, COUNT(*) FROM manual_extraction
+               WHERE document_sha256=? GROUP BY verified""",
+            (document_sha256,)).fetchall()
+        by_verified = {r[0]: r[1] for r in rows}
+        total = sum(by_verified.values())
+        return {"total": total, "verified": by_verified.get(1, 0),
+                "unverified": by_verified.get(0, 0)}

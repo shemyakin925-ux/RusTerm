@@ -15,7 +15,7 @@ def test_schema_version_is_36():
     + 36 (canonical_concept; 34 не существует, TASK-9 V0)
     + 37 (issuer_ingest_state) + 38 (индексы)
     + 39 (industry_aggregate, TASK-17 E3)."""
-    assert _SCHEMA_VERSION == 39
+    assert _SCHEMA_VERSION == 40
 
 
 def test_apply_migrations_creates_all_tables():
@@ -31,7 +31,7 @@ def test_apply_migrations_creates_all_tables():
         # Берём максимальную версию (последняя применённая)
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 39
+        assert row[0] == 40
         # Ключевые таблицы
         tables = ["issuer", "instrument", "listing", "fact", "peer_set", "snapshot",
                   "measure", "coverage", "job", "audit_log",
@@ -65,8 +65,10 @@ def test_apply_migrations_idempotent():
             apply_migrations(conn2)
             count1 = conn1.execute("SELECT count(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
             count2 = conn2.execute("SELECT count(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
-            # 32 таблицы миграций (включая schema_version) + governance_assessment + issuer_ingest_state
-            assert count1 == count2 == 35
+            # 32 таблицы миграций (включая schema_version)
+            # + governance_assessment + issuer_ingest_state
+            # + industry_aggregate + document + manual_extraction
+            assert count1 == count2 == 37
         finally:
             conn2.close()
     finally:
@@ -203,9 +205,10 @@ def test_migration_33_keeps_data_and_allows_gzip():
         _make_v32_db_with_data(conn)
         newly = apply_migrations(conn)
         # v32-база получает 33 (gzip), 35 (governance), 36 (canonical),
-        # 37 (issuer_ingest_state) и 38 (индексы, TASK-14 A1)
-        assert newly == [33, 35, 36, 37, 38, 39], \
-            f"ожидались [33, 35, 36, 37, 38, 39], получили {newly}"
+        # 37 (issuer_ingest_state), 38 (индексы), 39 (агрегат) и
+        # 40 (ручной импорт, TASK-19 F4)
+        assert newly == [33, 35, 36, 37, 38, 39, 40], \
+            f"ожидались [33, 35, 36, 37, 38, 39, 40], получили {newly}"
         rows = dict(conn.execute(
             "SELECT sha256, compression FROM raw_object").fetchall())
         assert rows == {"a" * 64: "none", "b" * 64: "zstd"}, (
@@ -397,3 +400,90 @@ def test_b21_issuer_state_get_none_for_other_source():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+# ── Миграция 40 (TASK-19 F4): document, manual_extraction,
+#    fact.source_kind ──────────────────────────────────────────────────
+
+def test_migration_40_applied_twice_produces_no_duplicates():
+    """F4: повторное применение миграций не плодит ни версий, ни строк
+    (счётчиками, не на глаз); CHECK словарей жив."""
+    import os
+    tmpdir = tempfile.mkdtemp()
+    conn = sqlite3.connect(os.path.join(tmpdir, "t40.db"), timeout=30,
+                           isolation_level=None)
+    try:
+        first = apply_migrations(conn)
+        assert 40 in first
+        # повтор: ничего нового
+        second = apply_migrations(conn)
+        assert second == []
+        assert conn.execute(
+            "SELECT COUNT(*) FROM schema_version WHERE version=40"
+        ).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM document"
+                            ).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM manual_extraction"
+                            ).fetchone()[0] == 0
+        # чужой source_kind не вставляется: словарь ADR-0011 enforced
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """INSERT INTO fact(fact_id, issuer_id, concept,
+                   period_start, period_end, period_type, unit, basis,
+                   origin, source_ref, locator, parser_version, status,
+                   ingested_at, source_kind)
+                   VALUES ('f-x','i','c','2024-01-01','2024-12-31',
+                   'duration','USD','as_reported','extracted','s','l',
+                   'p','ok',0,'bogus')""")
+        # чужая категория manual_extraction не вставляется
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """INSERT INTO manual_extraction(document_sha256, page_no,
+                   category, metric, quote, verified, model, prompt_version)
+                   VALUES ('x','1','bogus','m','q',1,'model','v1')""")
+    finally:
+        conn.close()
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_v39_database_migrates_fact_source_kind_defaults_provider(monkeypatch):
+    """F4: настоящая база v39 поднимается до 40, и каждый прежний факт
+    читается source_kind='provider' — DEFAULT сохраняет смысл
+    существующих строк (никакой перезаливки)."""
+    import os
+    import rusterm.store.db as db_module
+    tmpdir = tempfile.mkdtemp()
+    conn = sqlite3.connect(os.path.join(tmpdir, "v39.db"), timeout=30,
+                           isolation_level=None)
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        real_version = db_module._SCHEMA_VERSION
+        monkeypatch.setattr(db_module, "_SCHEMA_VERSION", 39)
+        apply_migrations(conn)
+        assert conn.execute(
+            "SELECT MAX(version) FROM schema_version").fetchone()[0] == 39
+        # сырьё и факт в терминах v39 (source_kind ещё нет в таблице)
+        conn.execute(
+            """INSERT INTO raw_object(sha256, provider, fetched_at, bytes,
+               content_type, compression) VALUES (?, 'edgar', 0, 3,
+               'application/json', 'none')""", ("a" * 64,))
+        conn.execute(
+            """INSERT INTO fact(fact_id, issuer_id, concept, period_start,
+               period_end, period_type, value, unit, basis, origin,
+               source_ref, locator, parser_version, status, ingested_at)
+               VALUES ('f1','i','Revenues','2024-01-01','2024-12-31',
+               'duration','100','USD','as_reported','extracted',?,
+               'l','p.v1','ok',0)""", ("a" * 64,))
+        # подъём: схема дозировано доезжает до 40
+        monkeypatch.setattr(db_module, "_SCHEMA_VERSION", real_version)
+        newly = apply_migrations(conn)
+        assert newly == [40]
+        rows = conn.execute(
+            "SELECT fact_id, source_kind FROM fact").fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == "f1" and rows[0][1] == "provider"
+    finally:
+        conn.close()
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)

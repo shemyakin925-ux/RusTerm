@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 39  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept) + 37 (issuer_ingest_state) + 38 (индексы) + 39 (industry_aggregate; TASK-17 E3)
+_SCHEMA_VERSION = 40  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept) + 37 (issuer_ingest_state) + 38 (индексы) + 39 (industry_aggregate) + 40 (document, manual_extraction, fact.source_kind; TASK-19 F4)
 
 
 def _checksum(text: str) -> str:
@@ -503,6 +503,55 @@ def _migrate_39_industry_aggregate(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[39] = (_migrate_39_industry_aggregate,
                           _INDUSTRY_AGGREGATE_DDL)
+
+
+# Миграция 40 (TASK-19 F4): ручной импорт документов (ADR-0011).
+# Три перемены одной версии — единственная миграция ночи: полосы
+# TASK-20 rusterm/store/db.py не трогают (ADR-0012 §2).
+#   document — заголовок импортированного файла; sha256 первичен, тот же
+#     файл импортируется один раз; issuer_id nullable: файл может быть
+#     импортирован до привязки к эмитенту;
+#   manual_extraction — записи-кандидаты ступени ② с исходом контроля ③;
+#     value/period TEXT — без дрейфа float, как measure.value; quote NOT
+#     NULL — запись без дословной цитаты до базы не доезжает (ADR-0011 ②);
+#     verified 0/1 — исход детерминированного контроля;
+#   fact.source_kind — происхождение факта, инвариант ADR-0011: смешать
+#     ручной и машинный факт нельзя. DEFAULT 'provider' сохраняет смысл
+#     всех существующих строк.
+_DOCUMENT_DDL = """CREATE TABLE IF NOT EXISTS document (
+        sha256 TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        format TEXT NOT NULL,
+        page_count INTEGER NOT NULL,
+        issuer_id TEXT REFERENCES issuer(issuer_id),
+        imported_at REAL NOT NULL,
+        bytes INTEGER NOT NULL)"""
+
+_MANUAL_EXTRACTION_DDL = """CREATE TABLE IF NOT EXISTS manual_extraction (
+        document_sha256 TEXT NOT NULL REFERENCES document(sha256),
+        page_no INTEGER NOT NULL,
+        category TEXT NOT NULL CHECK (category IN ('financial','physical','other')),
+        metric TEXT NOT NULL,
+        value TEXT,
+        unit TEXT,
+        period TEXT,
+        quote TEXT NOT NULL,
+        verified INTEGER NOT NULL CHECK (verified IN (0,1)),
+        model TEXT NOT NULL,
+        prompt_version TEXT NOT NULL)"""
+
+
+def _migrate_40_manual_import(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "ALTER TABLE fact ADD COLUMN source_kind TEXT NOT NULL"
+        " DEFAULT 'provider' CHECK (source_kind IN ('provider','manual'))")
+    conn.execute(_DOCUMENT_DDL)
+    conn.execute(_MANUAL_EXTRACTION_DDL)
+
+
+_CUSTOM_MIGRATIONS[40] = (_migrate_40_manual_import,
+                          "ALTER TABLE fact ADD source_kind;"
+                          + _DOCUMENT_DDL + ";" + _MANUAL_EXTRACTION_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

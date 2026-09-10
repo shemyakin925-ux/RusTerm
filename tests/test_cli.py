@@ -21,7 +21,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         # init: каталог + миграции
         assert main(["--root", root, "init"]) == 0
         out = capsys.readouterr().out
-        assert "schema_version=39" in out
+        assert "schema_version=40" in out
 
         # demo: демо-данные создаются только явно (TASK-8 U3)
         assert main(["--root", root, "demo"]) == 0
@@ -72,7 +72,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         assert main(["--root", root, "doctor"]) == 0
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is True
-        assert report["schema_version"] == 39
+        assert report["schema_version"] == 40
     finally:
         shutil.rmtree(root)
 
@@ -99,16 +99,17 @@ def test_cli_doctor_reports_schema_drift(capsys):
         capsys.readouterr()
         import sqlite3
         conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
-        for v in (37, 38, 39):
+        for v in (37, 38, 39, 40):
             conn.execute("DELETE FROM schema_version WHERE version=?", (v,))
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
-        # после удаления 37–39 максимум — 36 (миграция 37 —
-        # issuer_ingest_state, 38 — индексы, 39 — industry_aggregate)
+        # после удаления 37–40 максимум — 36 (миграция 37 —
+        # issuer_ingest_state, 38 — индексы, 39 — агрегат,
+        # 40 — ручной импорт): MAX не видит дырок, сносим верх тоже
         assert report["schema_version"] == 36
-        assert any("schema_version=36" in p and "39" in p
+        assert any("schema_version=36" in p and "40" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -125,13 +126,14 @@ def test_cli_doctor_reports_schema_drift_38(capsys):
         conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
         conn.execute("DELETE FROM schema_version WHERE version=38")
         conn.execute("DELETE FROM schema_version WHERE version=39")
+        conn.execute("DELETE FROM schema_version WHERE version=40")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
-        # после удаления 38 и 39 максимум — 37
+        # после удаления 38 и выше максимум — 37
         assert report["schema_version"] == 37
-        assert any("schema_version=37" in p and "39" in p
+        assert any("schema_version=37" in p and "40" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -147,12 +149,13 @@ def test_cli_doctor_reports_schema_drift_39(capsys):
         import sqlite3
         conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
         conn.execute("DELETE FROM schema_version WHERE version=39")
+        conn.execute("DELETE FROM schema_version WHERE version=40")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
         assert report["schema_version"] == 38
-        assert any("schema_version=38" in p and "39" in p
+        assert any("schema_version=38" in p and "40" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -518,7 +521,7 @@ def test_u9_status_after_demo_flow_reports_snapshot_and_coverage(capsys):
         assert main(["--root", root, "status", "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["instruments"] == 1
-        assert payload["schema_version"] == 39
+        assert payload["schema_version"] == 40
         assert len(payload["snapshots"]) == 1
         assert payload["snapshots"][0]["version"] == 1
         assert payload["coverage"]["ready"] >= 1
@@ -882,25 +885,48 @@ def test_b16_json_commands_carry_expected_keys(capsys):
         shutil.rmtree(root)
 
 
-def test_b25_status_json_reports_observed_and_expected_schema(capsys):
+def test_b25_status_json_reports_observed_and_expected_schema(capsys, monkeypatch):
     """BACKLOG B25: status --json показывает и версию, которую ждёт код,
     и версию, на которой база была застигнута тихой миграцией. На
     нарочно старой базе ключи различаются; после status база снова на
     текущей версии."""
+    import rusterm.store.db as db_module
+    root = _root()
+    try:
+        # настоящая база v39 (инициализация при _SCHEMA_VERSION=39),
+        # а не vandalизм строк: миграция 40 (ALTER) не переигрывается
+        real_version = db_module._SCHEMA_VERSION
+        monkeypatch.setattr(db_module, "_SCHEMA_VERSION", real_version - 1)
+        main(["--root", root, "init"])
+        monkeypatch.setattr(db_module, "_SCHEMA_VERSION", real_version)
+        capsys.readouterr()
+        assert main(["--root", root, "status", "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["schema_version_observed"] == real_version - 1, payload
+        assert payload["schema_version_expected"] == real_version
+        assert payload["schema_version_observed"] != \
+            payload["schema_version_expected"]
+        assert payload["schema_version"] == real_version  # синхронизация жива
+    finally:
+        shutil.rmtree(root)
+
+
+def test_cli_doctor_reports_schema_drift_40(capsys):
+    """TASK-19 F4: миграция 40 (ручной импорт) видна doctor'у ровно как
+    предыдущие — той же силой, без исключений."""
     root = _root()
     try:
         main(["--root", root, "init"])
         capsys.readouterr()
         import sqlite3
         conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
-        conn.execute("DELETE FROM schema_version WHERE version=39")
+        conn.execute("DELETE FROM schema_version WHERE version=40")
         conn.close()
-        assert main(["--root", root, "status", "--json"]) == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["schema_version_observed"] == 38, payload
-        assert payload["schema_version_expected"] == 39
-        assert payload["schema_version_observed"] != \
-            payload["schema_version_expected"]
-        assert payload["schema_version"] == 39  # синхронизация жива
+        assert main(["--root", root, "doctor"]) == 1
+        report = json.loads(capsys.readouterr().out)
+        assert report["ok"] is False
+        assert report["schema_version"] == 39
+        assert any("schema_version=39" in p and "40" in p
+                   for p in report["problems"])
     finally:
         shutil.rmtree(root)

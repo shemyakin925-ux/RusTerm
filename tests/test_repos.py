@@ -273,3 +273,46 @@ def test_raw_repo_compressed_large():
     
     import shutil
     shutil.rmtree(tmpdir)
+
+
+# ── TASK-19 F4: DocumentRepo и ManualExtractionRepo (миграция 40) ──────
+
+def test_document_repo_put_is_idempotent_by_sha256(conn_and_registry):
+    """F4: тот же файл (тот же sha256) импортируется один раз — повтор
+    возвращает False, а не плодит строку; чтение даёт заголовок."""
+    conn, registry, paths = conn_and_registry
+    sha = "b" * 64
+    assert registry.document.put(sha, "annual.pdf", "pdf", 120, 1024,
+                                 issuer_id="issuer-1") is True
+    assert registry.document.put(sha, "annual.pdf", "pdf", 120,
+                                 1024) is False
+    doc = registry.document.get(sha)
+    assert doc["page_count"] == 120 and doc["bytes"] == 1024
+    assert doc["issuer_id"] == "issuer-1" and doc["format"] == "pdf"
+    assert len(registry.document.for_issuer("issuer-1")) == 1
+    assert registry.document.get("c" * 64) is None
+
+
+def test_manual_extraction_guards_category_and_quote(conn_and_registry):
+    """F4 (ADR-0011): категория — из трёх слов, цитата обязательна;
+    кандидат с verified=no сохраняется и виден, счётчики честные."""
+    conn, registry, paths = conn_and_registry
+    sha = "c" * 64
+    registry.document.put(sha, "report.txt", "txt", 3, 10)
+    with pytest.raises(ValueError, match="словаря"):
+        registry.manual_extraction.add(
+            sha, 1, "bogus", "m", "1", "t", "FY", "q", True, "model", "v1")
+    with pytest.raises(ValueError, match="цитата"):
+        registry.manual_extraction.add(
+            sha, 1, "financial", "m", "1", "t", "FY", "", True, "model",
+            "v1")
+    registry.manual_extraction.add(
+        sha, 2, "physical", "fleet_size", "42", "ships", "FY2025",
+        "the fleet comprised 42 ships", False, "model-x", "prompt.v1")
+    rows = registry.manual_extraction.for_document(sha)
+    assert len(rows) == 1
+    # verified=0 сохранён и виден (ADR-0011 ③: не выбрасываем)
+    assert rows[0][9] == 0 and rows[0][3] == "physical"
+    counts = registry.manual_extraction.counts(sha)
+    assert counts == {"total": 1, "verified": 0, "unverified": 1}
+    assert registry.manual_extraction.for_document("d" * 64) == []
