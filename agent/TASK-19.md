@@ -455,7 +455,12 @@ unknown format.
 - New row `M8. Рынки KR, BR, AU и ручной импорт` — in progress.
 - M1–M5 and M7 marked reached, with the task number that closed each.
 
+- The section still opens with «Кода приложения пока нет» and lists five
+  ADRs. There are twelve ADRs and 361 tests. Rewrite that paragraph to
+  what is true.
+
 **Done when:** `grep -n 'UK' README.md` returns nothing;
+`grep -n 'Кода приложения пока нет' README.md` returns nothing;
 `bash agent/selfcheck.sh` still exits 0.
 
 ### F10. Hand the fan-out a clean head

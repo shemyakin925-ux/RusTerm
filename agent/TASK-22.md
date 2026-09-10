@@ -102,6 +102,10 @@ The tripwire refuses. This item makes the refusal legible.
 - **Still no FX provider.** Conversion is not in scope and adding a
   rates source is out of bounds (ADR-0010: a source is a registry row,
   and nobody authorised one).
+- **An `fx_rate` table already exists in the schema** and nothing fills
+  it. Do not create a second one, and do not start filling this one —
+  note in the report whether its shape would serve conversion when a
+  rates source is eventually authorised.
 
 **Done when:** `python3 -m rusterm.cli export` output carries a currency
 on every absolute measure, asserted by a test; a test asserts
