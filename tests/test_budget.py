@@ -161,12 +161,22 @@ def test_per_host_pools_do_not_share_legacy_budget():
 
 
 def test_seat_returns_config_error_value_not_import_error():
-    """F5: get_provider('dart') до появления модуля — значение
-    provider_not_implemented, не ImportError (место уже занято)."""
+    """F5 + B20: get_provider('dart') до появления модуля — значение
+    provider_not_implemented, не ImportError (место уже занято);
+    до RequestGate дело не доходит — ноль запросов счётом."""
     from rusterm.providers import get_provider
-    result = get_provider("dart", gate=_ua_gate())
+    gate = _ua_gate()
+    result = get_provider("dart", gate=gate)
     assert isinstance(result, ConfigError)
     assert result.reason == "provider_not_implemented:dart"
+    assert gate.calls_made == 0
+    assert gate.refused == 0
+    # то же для остальных мест: модулей нет — запросов нет
+    for name in ("cvm", "asx", "otcmarkets"):
+        outcome = get_provider(name, gate=gate)
+        assert isinstance(outcome, ConfigError), name
+        assert outcome.reason == f"provider_not_implemented:{name}"
+    assert gate.calls_made == 0
     # без гейта — прежняя дверь U5, тоже значением
     no_gate = get_provider("dart", gate=None)
     assert isinstance(no_gate, ConfigError)

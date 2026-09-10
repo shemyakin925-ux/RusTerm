@@ -23,9 +23,6 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
-- [ ] B19 — `rusterm markets --json` for machine consumption — accept:
-  `python3 -m rusterm.cli markets --json | python3 -m json.tool` parses,
-  test asserts every registry field present — size: S
 - [ ] B20 — a `Market` row whose provider module is absent must never
   reach `RequestGate` — accept: test asserts `ConfigError`, zero
   requests counted — size: S
@@ -65,6 +62,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
 ## Done
 
+- [x] B19 — `rusterm markets --json` — TASK-19 F11, verified 11.09 (json.tool parses; all registry fields asserted)
 - [x] B1 — invariant numbering contiguity guard — TASK-7, verified 08.09
 - [x] B2 — fixtures are synthetic, as a test — TASK-7, verified 08.09
 - [x] B3 — job-queue idempotency on a second run — TASK-7, verified 08.09
