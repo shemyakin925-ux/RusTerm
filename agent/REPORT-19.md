@@ -64,3 +64,9 @@ NOW: section 0, step 4
   rewiring belongs to the chat/integration night (scope note).
   Verify: test_llm_api 12 passed; guard+ops green with key unset and
   dummy-set (13+13); acceptance 13/13; dummy key absent from logs.
+- F7 (commit 5a85ccf): agent/selfcheck.sh; acceptance untouchable.
+  Verify: clean tree -> SELFCHECK OK, exit 0; deliberately removed
+  assert staged -> 'SELFCHECK FAIL (P1)', exit 1 (reverted);
+  deliberately broken test staged -> acceptance prints 11/2 and
+  'SELFCHECK FAIL (acceptance): exit status 2', exit 1 (reverted);
+  git ls-files agent/selfcheck.sh finds it. Tree clean after demos.
