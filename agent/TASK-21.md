@@ -39,7 +39,7 @@ is a claim until the branch is in the log.
 Merging is the coordinator's job (ADR-0012 §4). If you arrive and the
 branches are pushed but unmerged, **do not merge them yourself.** Write
 `LANES UNMERGED: <list>` in `## Blocked`, and spend the night on the
-items below that need only the foundation: H1, H6, H7, H8. They are
+items below that need only the foundation: H1, H7, H8, H9. They are
 placed to be worth a night on their own.
 
 ### 0.3. Every item below is conditional, and says on what
@@ -118,7 +118,42 @@ for every market that landed and is in the report; `golden_m2.json` and
 numbers must not move because a Korean tag was added); the full suite is
 green.
 
-### H3. End to end, per market, as a test
+### H3. Валютный стоп-кран: числа шести стран не смешиваются молча
+
+**Needs:** whichever of L1–L4 landed. `rusterm/core/peers.py`,
+`rusterm/core/industry/aggregate.py`, `rusterm/reasons.py`.
+
+Until tonight every issuer was in one currency and the question never
+arose. `Fact.currency` has existed since M1 and **nothing has ever read
+it** — `peers.py` does not mention jurisdiction, market or currency
+anywhere. The moment Korea, Brazil or Australia lands, a peer set can
+hold KRW beside USD, and the sector median of "revenue" becomes a
+number with no meaning that nothing in the program objects to.
+
+There is **no FX provider** and you are not to add one — that is a new
+source, and the decision authorising four markets did not authorise
+rates. So the rule is deterministic and refuses rather than converts:
+
+- **Ratio measures are currency-neutral** (margins, effective tax, ROE,
+  asset turnover, interest coverage) — they compare across markets and
+  nothing changes for them.
+- **Absolute measures are comparable only within one currency**
+  (revenue, EBITDA, NOPAT, FCF, equity). A peer set spanning more than
+  one currency yields `currency_mismatch` for those, with the currencies
+  listed in the reason.
+- `currency_mismatch` joins `rusterm/reasons.py` — this task is
+  sequential and is allowed to touch it.
+- A fact whose `currency` is empty where the measure needs one is
+  `missing_data`, not an assumed USD. **Never default a currency.**
+
+**Done when:** a test builds a peer set of a US and a Korean issuer and
+asserts every ratio measure computes while every absolute one returns
+`currency_mismatch` naming both currencies; a test asserts an existing
+single-currency US peer set produces **byte-identical** numbers to
+before (`golden_m2.json` unchanged); the sector aggregate carries the
+currency it is stated in.
+
+### H4. End to end, per market, as a test
 
 **Needs:** whichever of L1–L4 landed.
 
@@ -129,7 +164,7 @@ export carries the market code.
 **Done when:** `python3 -m pytest -k e2e -q` green; the report lists one
 line per market: `<code>: issuers N, measures M/10, export ok`.
 
-### H4. The refusal path is a first-class path
+### H5. The refusal path is a first-class path
 
 **Needs:** foundation; better with L3/L4/L6.
 
@@ -146,9 +181,9 @@ the unverified ones enter no formula.
 `source_kind='manual'` at the end; the refusal message contains the
 exact command string a user can copy.
 
-### H5. `doctor` learns the new shapes
+### H6. `doctor` learns the new shapes
 
-**Needs:** foundation; H4 for the manual half.
+**Needs:** foundation; H5 for the manual half.
 `rusterm/store/doctor.py`.
 
 - Documents on disk without a `document` row, and rows without a file —
@@ -161,7 +196,7 @@ exact command string a user can copy.
 on a deliberately damaged database, and reports clean on a healthy one;
 both asserted by tests.
 
-### H6. The guard that makes the recurring defect impossible
+### H7. The guard that makes the recurring defect impossible
 
 **Needs:** foundation (F7 built `selfcheck.sh`).
 
@@ -177,7 +212,7 @@ code went through `| tail`. F7 gave a tool; this makes it structural.
 **Done when:** both assertions pass; deliberately breaking either makes
 the test fail with a message naming which.
 
-### H7. Secrets, proven absent rather than assumed absent
+### H8. Secrets, proven absent rather than assumed absent
 
 **Needs:** foundation.
 
@@ -195,14 +230,14 @@ Four keys now exist: `RUSTERM_SEC_UA`, `RUSTERM_LLM_API_KEY`,
 **Done when:** all three pass; the report confirms the scan covered
 every tracked file, with the file count.
 
-### H8. Milestone M8, stated with its evidence
+### H9. Milestone M8, stated with its evidence
 
 **Needs:** everything above that landed.
 
 Append to the report, each claim with the command that proves it:
 
 - which of the six markets reach data, and by which provider;
-- the measure table per market;
+- the measure table per market, and the currency each is stated in;
 - the manual-import loop, with counts of records produced, verified and
   rejected;
 - which model the LLM path used and what the free models scored (L7);
@@ -214,9 +249,9 @@ Fold the per-lane `agent/state/*.json` into `agent/STATE.json`, and set
 **Done when:** `bash agent/selfcheck.sh` exits 0; every claim above has
 its command and its real output beside it in the report.
 
-### H9. Backlog
+### H10. Backlog
 
-`agent/BACKLOG.md`, top-down, only if H1–H8 are done before 09:30.
+`agent/BACKLOG.md`, top-down, only if H1–H9 are done before 09:30.
 
 ---
 
