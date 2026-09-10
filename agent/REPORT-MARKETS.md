@@ -1,4 +1,4 @@
-# REPORT-MARKETS — disclosure access probes: SG, AU, KR, NZ, BR, RU — session 2026-09-09
+# REPORT-MARKETS — disclosure access probes: SG, AU, KR, NZ, BR, RU, US-OTC — sessions 2026-09-09/10
 
 **Unnumbered on purpose.** Side research requested by the user in chat
 ("проверь всё то же самое для Сингапура, Австралии, Кореи, Новой Зеландии,
@@ -23,6 +23,7 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 | NZ | NZX announcements + MBIE registries | `nzx.com` 200; `/markets/NZSX/announcements` → 200, 665 KB, announcement ids embedded in `__NEXT_DATA__`; no public JSON API found; `api.business.govt.nz` → portal (official APIs, account required) | **partial** — site is server-rendered and crawlable; third-party NZXplorer API (free tier) exists; no official free filings API |
 | SG | SGX company announcements | `www.sgx.com` SPA 200; `api.sgx.com/announcements/v1.0/` → **403** to curl ×2; IAB Chromium: shell + `api2.sgx.com/content-api` load fine, but announcements widget stuck "Loading..." ~30 s, zero announcements-data requests fired | **unproven** — neither curl nor our embedded browser demonstrably fetches announcements; needs check from user's daily browser profile; paid fallbacks exist (Apify, SGX data products) |
 | RU | e-disclosure.ru (ЦРКИ) + MOEX ISS | `iss.moex.com/iss/securities/SBER.json` → 200 JSON (no auth); `e-disclosure.ru` → connection reset ×2 (also via HTTP/1.1); `disclosure.ru` → 200/302; `cbr.ru` → 200 | **restricted from this network** — ISS market/reference data works; filings portal appears foreign-IP-blocked (inference); official e-disclosure API gateway exists but is contract/paid |
+| US-OTC | OTC Markets Group (OTCQX/OTCQB/Pink) + EDGAR | `www.otcmarkets.com` 200; `backend.otcmarkets.com/otcapi/...` → 403 / soft-block HTML to curl, but **works in real Chromium**: market totals, OTCM quotes and the full Disclosure tab with document list rendered; endpoints captured (see section below) | **dual-channel** — SEC-reporting issuers (~882) via free EDGAR route; OTC-only issuers via paid official OTC Disclosure API or manual `ingest --file`; site scraping is outside ToS |
 
 ## EDGAR cross-route (interlisted foreign issuers)
 
@@ -30,7 +31,8 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 - AU: BHP→811809, RIO→863064. BR: VALE→917851, PBR→1119639. KR: KEP→887225. SG: GRAB→1855612.
 - **SE (Sea Limited) NOT found** by exact ticker in this snapshot — surprising for an NYSE issuer; verify via EDGAR FTS before relying on the file for ticker lookups.
 - NZ: no major issuer checked/expected (essentially no NZ large-caps file 20-F).
-- The 40-F machinery proven in REPORT-14 generalizes to 20-F/6-K for all these issuers; no extra probes run (same host, same UA policy).
+- **US-OTC reporters are in EDGAR**: OTC-tier tickers TLSS→1463208 and ADIL→1513525 found in `company_tickers.json`; INND/VNTH/NTDOY absent — non-reporting Pink issuers and unsponsored ADRs are exactly the OTC-portal-only gap (~932 "other" + foreign ordinaries per OTC Markets' own issuer split).
+- The 40-F machinery proven in REPORT-14 generalizes to 20-F/6-K/10-K for all these issuers; no extra probes run (same host, same UA policy).
 
 ## Market details
 
@@ -80,6 +82,26 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 - Reality check: issuer disclosures live on e-disclosure/disclosure.ru as PDFs; no free programmatic filings channel reachable from this network. Sanctions/ToS considerations for automating RU sources are a coordinator-level decision, out of scope here.
 - Contract mapping: if RU stays in scope, MOEX ISS can serve reference/quote data; filings require a RU-side network path or a paid gateway contract; otherwise exclude RU.
 
+### United States — OTC (OTC Markets Group) — addendum 2026-09-10, user follow-up
+- Two issuer populations, two channels:
+  1. **SEC-reporting OTC issuers** (OTC Markets counts ~882 SEC reporters among ~3,400 disclosure filers) — fully covered by the free EDGAR route already built: TLSS (CIK 1463208) and ADIL (1513525) confirmed present in `company_tickers.json`. Forms 10-K/10-Q (domestic) or 20-F (foreign ordinaries).
+  2. **OTC-only issuers** (OTCQX/OTCQB current-information filers, non-reporting Pink, foreign ordinaries like NTDOY-class ADRs that never register with SEC) — disclosures exist ONLY on otcmarkets.com (OTC Disclosure & News service); EDGAR has nothing for them.
+- Live probes, plain curl:
+  - `https://www.otcmarkets.com/` → 200 (SPA shell).
+  - `https://backend.otcmarkets.com/otcapi/stock/trade/quote/TLSS?symbol=TLSS` → HTTP 200 but body is a 2 KB HTML page titled "OTC Markets – Temporarily Unavailable" — a soft block disguised as 200.
+  - `https://backend.otcmarkets.com/otcapi/company/TLSS?symbol=TLSS` → HTTP 403, empty body.
+  - So plain-HTTP clients are fingerprint-blocked at the API edge (SEDAR+-pattern), not IP-blocked (same IP, real browser works).
+- Embedded Chromium (IAB) probe — **positive**:
+  - Site loads fully; `backend.otcmarkets.com/otcapi/market-data/market-totals` returned live numbers (12,250 securities); OTCM quote widget rendered real bid/ask.
+  - `/stock/OTCM/disclosure` rendered the full **FILINGS AND DISCLOSURE** table (Quarterly Report Q2 2026, Annual Report FY2025, Proxy…, status "Active").
+  - Endpoints captured from the page's XHR: `otcapi/company/{SYM}/financial-report?statusId=A&sortOn=releaseDate...` (OTC Disclosure & News list), `otcapi/company/sec-filings/{SYM}` (SEC filings mirror), `otcapi/insider-disclosure/{otc|external}/{SYM}` (insider reports), `otcapi/company/profile/full/{SYM}`, `otcapi/company/profile/{SYM}/badges`.
+  - `/stock/TLSS/summary` → SPA 404: TLSS no longer trading (unverified reason); ticker remained in EDGAR — a reminder that OTC-tier symbols churn fast.
+- Official/licensed route: **OTC Disclosure API** (launched 2025-09; near-real-time disclosure updates, query by Symbol/CompID/CUSIP and filing type; commercial, also resold via Edgar Online). Market data licensing separately (Security Data File, non-display fees ~$1.5–2.5k/month). Academic access via WRDS.
+- ToS: scraping otcmarkets.com is outside their Terms of Service; the licensed API is the sanctioned path. GitHub ecosystem is thin and mostly confirms the endpoint set (`oyekamal/otcmarkets-api-scraper` — uses `otcmarkets.com/research/stock-screener/api` for the symbol universe + official EDGAR APIs for filings, last successful run 2026-02; `kwhitehall/otcmarketsScraper` ★1 Java).
+- Contract mapping: `DisclosuresProvider` for US-OTC = EDGAR route for the SEC-reporting subset (nothing new to build). OTC-only subset: same tier as SEDAR+/SG — manual `ingest --file`, or the paid OTC Disclosure API if the project ever needs automated non-reporter coverage. The screener API (`/research/stock-screener/api`) is a one-request universe list with tier/caveat-emptor flags, but it is the same ToS-restricted surface.
+
+
+
 ## GitHub tooling digest (live/maintained only)
 
 | Repo | ★ | Market | Notes |
@@ -89,6 +111,7 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 | phoemur/fundamentus | 238 | BR | BOVESPA fundamentals (site) |
 | robertoecf/OpenFinData | 9 | BR | open infra over CVM/B3 public data, upd 2026-09 |
 | itisaevalex/australia-scraper | 1 | AU | reverse-engineered ASX endpoints + PDF resolution, upd 2026-09 |
+| oyekamal/otcmarkets-api-scraper | 1 | US-OTC | screener API universe + official EDGAR for filings, ran OK 2026-02 |
 | WLM1ke/apimoex | 138 | RU | MOEX ISS client |
 | moexalgo/moexalgo | 150 | RU | MOEX official lib |
 | (NZ, SG) | — | NZ/SG | no maintained keyless tooling found; NZ has NZXplorer (mambaventures) as SaaS+MCP |
@@ -101,6 +124,7 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 - CVM RAD timeout and e-disclosure resets are single-IP, 1–2 attempts each; geo-blocking is inference, not verified from a RU endpoint.
 - NZXplorer claims (iXBRL financials, 64k announcements) taken from its own site/docs — no request made.
 - XBRL statements: KR/BR structured-ness asserted from official docs + dataset shapes, not from parsing an actual XBRL artifact.
+- US-OTC: TLSS SPA-404 reason unverified (delisting assumed, not checked); only the disclosure LIST was verified in-browser — the actual document/PDF download behind it was not followed; issuer split (~882 SEC reporters / 1,421 international / 932 other) is OTC Markets' own marketing figure; the quote-endpoint soft-block page (200 + HTML) was not saved byte-for-byte.
 
 ## Questions for the coordinator
 1. Market priority order for the next milestones? Suggested by effort/legality: KR (official API, needs free key — approve registering one) → BR (CVM bulk datasets) → AU (ASX endpoints, ToS review) → NZ (crawler) → SG/RU (manual import only until a working channel is proven).
@@ -108,6 +132,7 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 3. RU: in scope at all? If yes — who provides a RU-side network path or gateway contract; sanctions/ToS review first.
 4. Same open item as CA: user-profile browser check for SGX announcements (and whether `ingest --file` doctrine extends to SG/NZ defaults).
 5. Approve formalizing per-market channel doctrine in README §7 / threat-model-sources once priorities are set.
+6. US-OTC: accept "EDGAR route for SEC-reporting OTC issuers + manual ingest --file for OTC-only filers" as doctrine? The paid OTC Disclosure API (2025-09) is the only sanctioned automated path for non-reporters — out of scope until there's a need.
 
 ## Request budget spent (honesty)
 - SG: sgx.com ×2 curl + ~8 browser page/XHR loads (all OK); api.sgx.com ×2 (403); api.sgx.com.sg ×1 NXDOMAIN.
@@ -117,11 +142,12 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 - BR: dados.cvm ×3 (200); rad.cvm ×1 (timeout); b3 COTAHIST ×1 (200, partial download aborted).
 - RU: iss.moex ×1 (200); e-disclosure ×2 (reset); disclosure.ru ×2 (200/302); cbr.ru ×1 (200).
 - SEC: ×1 (tickers.json, 200). GitHub API: ~14 unauthenticated search/list calls. Other: 0.
+- US-OTC (2026-09-10): otcmarkets.com ×1 curl (200); backend.otcmarkets.com ×2 curl (200-softblock, 403); IAB browser session ×3 pages (~15 otcapi XHRs, all OK). EDGAR tickers.json reused from same session — no new SEC request.
 - App LLM calls: 0. Network requests by the app itself: 0 (manual curl/browser only).
 
 ## HANDOFF
 Status:         DONE (probe scope) — SG stays unproven by design of the evidence
-Items done:     6 markets probed live (curl, +1 browser session), official/API/scraper channels mapped, EDGAR cross-route checked, GitHub + vendor landscape researched; unnumbered report as instructed
+Items done:     7 markets probed live (curl, +2 browser sessions: SGX, OTC Markets), official/API/scraper channels mapped, EDGAR cross-route checked, GitHub + vendor landscape researched; unnumbered report as instructed; US-OTC addendum on user follow-up
 Items not done: no code, no key registrations (KR/BR/NZ keys exist but require accounts), no RU-side network test, no NZXplorer/ASX-PDF live runs
 Tests:          not run (no code change)
 Pushed:         commit on agent/night-2 only; STATE.json untouched (TASK-14 chain intact)
