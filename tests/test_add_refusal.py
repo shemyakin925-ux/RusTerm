@@ -127,3 +127,27 @@ def test_manual_import_advice_is_copy_paste_runnable(app_root, monkeypatch,
     # парсер команду принял (не SystemExit); место честно отказывает
     assert code == 1
     assert "ТЗ-20" in capsys.readouterr().err
+
+
+def test_import_dry_run_writes_nothing_database_unchanged(app_root,
+                                                          monkeypatch,
+                                                          capsys):
+    """B21: import --dry-run извлекает и проверяет, но не пишет ничего;
+    база байт в байт та же."""
+    import hashlib
+
+    root, paths = app_root
+    report = tmp_report = None
+    source = paths.root / "annual.txt"
+    source.write_text("fleet of 42 ships", encoding="utf-8")
+
+    def db_sha() -> str:
+        return hashlib.sha256(paths.db_path.read_bytes()).hexdigest()
+
+    before = db_sha()
+    code = cli.main(["--root", str(root), "import", str(source),
+                     "--issuer", "FAKE", "--market", "US",
+                     "--dry-run"])
+    capsys.readouterr()
+    assert code == 1  # место ① отказывает: format_unsupported
+    assert db_sha() == before

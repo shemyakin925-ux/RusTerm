@@ -1072,11 +1072,27 @@ def cmd_markets(args) -> int:
 
 
 def cmd_import(args) -> int:
-    """Место конвейера ручного импорта (ADR-0011 ①-③, BACKLOG B26):
+    """Место конвейера ручного импорта (ADR-0011 ①-③, BACKLOG B26/B21):
     команда существует, чтобы совет `rusterm add` был копируемым
-    дословно, и честно отвечает, что конвейер ещё не подключён, —
-    реализацию привозят полосы ТЗ-20 L5/L6. Ничего не читает и не
-    пишет."""
+    дословно. --dry-run — каркас B21: ступень ① (extract_text)
+    вызывается по каждому файлу, исход печатается значением, НИЧЕГО не
+    пишется — ни в базу, ни в store. Полную реализацию привозят полосы
+    ТЗ-20 L5/L6."""
+    from rusterm.manual import extract_text
+    from rusterm.providers.base import ProviderError
+    if args.dry_run:
+        exit_code = 0
+        for path in args.path:
+            outcome = extract_text(path)
+            if isinstance(outcome, ProviderError):
+                print(f"{path}: {outcome.reason}")
+                exit_code = 1
+            else:
+                print(f"{path}: извлечено (dry-run: ничего не записано)")
+        if exit_code == 0:
+            print("dry-run: записей нет — проверка прошла бы после "
+                  "подключения конвейера (ТЗ-20 L5/L6)")
+        return exit_code
     print("ручной импорт: конвейер ещё не подключён (поставят полосы "
           "ТЗ-20 L5/L6); файл не принят", file=sys.stderr)
     return 1
@@ -1190,6 +1206,8 @@ def main(argv: list[str] | None = None) -> int:
     p_imp.add_argument("path", nargs="+", help="файлы отчётов")
     p_imp.add_argument("--issuer", required=True)
     p_imp.add_argument("--market", default=None)
+    p_imp.add_argument("--dry-run", dest="dry_run", action="store_true",
+                       help="извлечь и проверить, ничего не записывая")
     p_mkt = sub.add_parser("markets",
                            help="реестр рынков: коды, провайдеры, доступ")
     p_mkt.add_argument("--json", action="store_true")

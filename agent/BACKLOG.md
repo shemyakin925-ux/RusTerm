@@ -23,8 +23,6 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
-- [ ] B21 — `import --dry-run`: extract and verify, write nothing —
-  accept: test asserts database sha256 unchanged — size: S
 - [ ] B22 — document formats table in README from the code, not by hand
   — accept: test asserts every format `extract.py` handles is listed —
   size: S
@@ -44,6 +42,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
 ## Done
 
+- [x] B21 — import --dry-run writes nothing — TASK-19 F11, verified 11.09 (database sha256 unchanged; extraction attempts on the F8 seat, pipeline lands with L5/L6)
 - [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
@@ -79,6 +78,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [x] B17 — `resolve()` duplicate-ticker behaviour pinned (last feed row
   wins) — TASK-12 Y7, verified 09.09
 - [x] B18 — `tools/README.md` added — TASK-12 Y7, verified 09.09
+- [x] B21 — import --dry-run writes nothing — TASK-19 F11, verified 11.09 (database sha256 unchanged; extraction attempts on the F8 seat, pipeline lands with L5/L6)
 - [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
@@ -88,6 +88,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [x] B19 — `logs/app.log` rotation: the test strengthened to the accept
   criterion (exactly two files, newest holds the last line) — TASK-12 Y7,
   verified 09.09
+- [x] B21 — import --dry-run writes nothing — TASK-19 F11, verified 11.09 (database sha256 unchanged; extraction attempts on the F8 seat, pipeline lands with L5/L6)
 - [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
@@ -100,16 +101,19 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   under a different source — TASK-14 A8, verified 09.09
 - [x] B22 — the 1100-day rule named once (`_STALE_LOOKBACK_DAYS`),
   prose refers to the name — TASK-14 A8, verified 09.09
+- [x] B21 — import --dry-run writes nothing — TASK-19 F11, verified 11.09 (database sha256 unchanged; extraction attempts on the F8 seat, pipeline lands with L5/L6)
 - [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
 - [x] B23 — `trim_companyfacts` byte-stability on a recorded payload,
   sha256 of two runs — TASK-14 A8, verified 09.09
+- [x] B21 — import --dry-run writes nothing — TASK-19 F11, verified 11.09 (database sha256 unchanged; extraction attempts on the F8 seat, pipeline lands with L5/L6)
 - [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — `audit.jsonl` capped and rolled over like `app.log` (same
   constants, imported) — TASK-14 A8, verified 09.09
+- [x] B21 — import --dry-run writes nothing — TASK-19 F11, verified 11.09 (database sha256 unchanged; extraction attempts on the F8 seat, pipeline lands with L5/L6)
 - [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
