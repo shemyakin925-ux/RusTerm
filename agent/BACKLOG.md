@@ -28,9 +28,6 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [ ] B22 — document formats table in README from the code, not by hand
   — accept: test asserts every format `extract.py` handles is listed —
   size: S
-- [ ] B24 — per-host request counters surface in `doctor` — accept:
-  test asserts each host's used/ceiling printed after a fake run —
-  size: S
 - [ ] B26 — `manual_import_required` message is asserted to contain a
   command a user can copy verbatim — accept: test runs the printed
   string through the CLI parser — size: S
@@ -53,6 +50,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
 ## Done
 
+- [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
 - [x] B23 — verify near-miss bucket — TASK-19 F11, verified 11.09 (verify_status: thousands/apostrophe mismatches land near_miss)
 - [x] B20 — provider seat without module never reaches RequestGate — TASK-19 F11, verified 11.09 (ConfigError + calls_made == 0)
@@ -85,12 +83,14 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [x] B17 — `resolve()` duplicate-ticker behaviour pinned (last feed row
   wins) — TASK-12 Y7, verified 09.09
 - [x] B18 — `tools/README.md` added — TASK-12 Y7, verified 09.09
+- [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
 - [x] B23 — verify near-miss bucket — TASK-19 F11, verified 11.09 (verify_status: thousands/apostrophe mismatches land near_miss)
 - [x] B20 — provider seat without module never reaches RequestGate — TASK-19 F11, verified 11.09 (ConfigError + calls_made == 0)
 - [x] B19 — `logs/app.log` rotation: the test strengthened to the accept
   criterion (exactly two files, newest holds the last line) — TASK-12 Y7,
   verified 09.09
+- [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
 - [x] B23 — verify near-miss bucket — TASK-19 F11, verified 11.09 (verify_status: thousands/apostrophe mismatches land near_miss)
 - [x] B20 — `refresh --json` request totals pinned to the sum of
@@ -100,10 +100,12 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   under a different source — TASK-14 A8, verified 09.09
 - [x] B22 — the 1100-day rule named once (`_STALE_LOOKBACK_DAYS`),
   prose refers to the name — TASK-14 A8, verified 09.09
+- [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
 - [x] B23 — `trim_companyfacts` byte-stability on a recorded payload,
   sha256 of two runs — TASK-14 A8, verified 09.09
 - [x] B24 — `audit.jsonl` capped and rolled over like `app.log` (same
   constants, imported) — TASK-14 A8, verified 09.09
+- [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — `status --json` reports `schema_version_observed` beside
   `schema_version_expected` — TASK-14 A8, verified 09.09

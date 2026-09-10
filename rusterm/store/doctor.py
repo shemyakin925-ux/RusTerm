@@ -138,9 +138,21 @@ def doctor_report(paths: AppPaths, conn) -> dict:
 
         ]
 
+    # счётчики запросов по хостам (BACKLOG B24): последние пробы
+    # provider_used_<хост>; потолки добавляет CLI из реестра провайдеров
+    request_budget: dict = {}
+    if db_ready:
+        rows = conn.execute(
+            """SELECT name, provider, value FROM metric_sample
+               WHERE name LIKE 'provider_used_%'
+               ORDER BY ts""").fetchall()
+        for name, provider, value in rows:
+            host = name[len("provider_used_"):]
+            request_budget[host] = int(value)
     return {
         "ok": not problems,
         "problems": problems,
+        "request_budget": request_budget,
         "schema_version": applied,
         "manifest_entries": manifest_entries,
         "env": env_info,

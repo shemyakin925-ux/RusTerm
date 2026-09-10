@@ -112,3 +112,53 @@ def test_c4_doctor_names_state_orphans_and_dropped_index(capsys):
         assert "idx_measure_snapshot" in named
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── BACKLOG B24: счётчики по хостам видны в doctor ─────────────────────
+
+def test_doctor_shows_per_host_used_and_ceiling_after_fake_run(capsys):
+    """B24: после подставного прогона (RequestGate с двумя HostLimit)
+    doctor печатает для каждого хоста used и ceiling рядом."""
+    import json as _json
+    from rusterm import cli as cli_module
+    from rusterm.core.metrics import record_host_usage
+    from rusterm.providers.budget import (
+        BudgetExceeded, HostLimit, NetworkGate, RequestGate)
+    from rusterm.store.repos import RepoRegistry
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        assert cli_module.main(["--root", tmpdir, "init"]) == 0
+        capsys.readouterr()
+        paths = AppPaths.from_root(tmpdir)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        repos = RepoRegistry(conn, paths)
+
+        gate = RequestGate(gate=NetworkGate(
+            environ={"RUSTERM_SEC_UA": "Synthetic Test b24.invalid"}))
+        dart = HostLimit("opendart.fss.or.kr", per_second=1000.0,
+                         nightly_max=3)
+        sec = HostLimit("data.sec.gov", per_second=1000.0, nightly_max=5)
+        send = lambda headers: "ok"
+        assert gate.request(send, limit=dart) == "ok"
+        assert gate.request(send, limit=dart) == "ok"
+        assert gate.request(send, limit=dart) == "ok"
+        assert isinstance(gate.request(send, limit=dart), BudgetExceeded)
+        assert gate.request(send, limit=sec) == "ok"
+
+        written = record_host_usage(repos.metrics, gate)
+        assert written == 2  # оба пула тронуты
+        conn.close()
+
+        assert cli_module.main(["--root", tmpdir, "doctor"]) == 0
+        report = _json.loads(capsys.readouterr().out)
+        budget = report["request_budget"]
+        # used — из проб прогона; ceiling — штатный из объявлений
+        # реестра (5000/хост), а не сессионный лимит подставного прогона
+        assert budget["opendart.fss.or.kr"]["used"] == 3
+        assert budget["opendart.fss.or.kr"]["ceiling"] == 5000
+        assert budget["data.sec.gov"]["used"] == 1
+        assert budget["data.sec.gov"]["ceiling"] == 5000
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)

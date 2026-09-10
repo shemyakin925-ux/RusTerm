@@ -104,3 +104,18 @@ class SystemMetrics:
             self._repo.record_sample(ts, name, provider, float(value))
             written += 1
         return written
+
+
+def record_host_usage(repo, gate, ts: Optional[float] = None) -> int:
+    """Счётчики RequestGate по хостам — в metric_sample (BACKLOG B24).
+    Имя пробы provider_used_<хост>, колонка provider = хост; пишутся
+    только тронутые пулы. Возвращает число записанных проб."""
+    ts = time.time() if ts is None else ts
+    written = 0
+    for host, usage in sorted(gate.host_usage().items()):
+        if usage["used"] == 0 and usage["refused"] == 0:
+            continue
+        repo.record_sample(ts, f"provider_used_{host}", host,
+                           float(usage["used"]))
+        written += 1
+    return written

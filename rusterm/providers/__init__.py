@@ -125,9 +125,16 @@ def host_limit(name: str) -> HostLimit | None:
     return _HOST_LIMITS.get(name)
 
 
+def all_host_limits() -> dict[str, HostLimit]:
+    """Все объявления: имя провайдера -> HostLimit (BACKLOG B24 —
+    потолок хоста для doctor и status)."""
+    return dict(_HOST_LIMITS)
+
+
 __all__ = [
     "DisclosuresProvider", "SyntheticDisclosuresProvider",
     "MarketDataProvider", "SyntheticMarketProvider",
     "UnknownProvider", "ProviderError", "ConfigError", "HostLimit",
     "RequestGate", "register", "get_provider", "available", "host_limit",
+    "all_host_limits",
 ]

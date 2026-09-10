@@ -128,31 +128,40 @@ class RequestGate:
         self.limiter = limiter or RateLimiter()
         self._made = 0
         self.config_refusals = 0
-        self._host_pools: dict[str, tuple[Budget, RateLimiter]] = {}
+        self._host_pools: dict[str, tuple[Budget, RateLimiter, HostLimit]] = {}
 
     def _pool_for(self, limit: HostLimit) -> tuple[Budget, RateLimiter]:
         key = limit.host.lower()
         pool = self._host_pools.get(key)
         if pool is None:
             pool = (Budget(max_requests=limit.nightly_max),
-                    RateLimiter(per_second=limit.per_second))
+                    RateLimiter(per_second=limit.per_second), limit)
             self._host_pools[key] = pool
         return pool
 
     @property
     def calls_made(self) -> int:
-        per_host = sum(b.used for b, _ in self._host_pools.values())
+        per_host = sum(b.used for b, _, _ in self._host_pools.values())
         return self._made + per_host
 
     @property
     def refused(self) -> int:
-        per_host = sum(b.refused for b, _ in self._host_pools.values())
+        per_host = sum(b.refused for b, _, _ in self._host_pools.values())
         return self.budget.refused + self.config_refusals + per_host
 
     @property
     def rate_limited(self) -> int:
         return self.limiter.rate_limited + sum(
-            rl.rate_limited for _, rl in self._host_pools.values())
+            rl.rate_limited for _, rl, _ in self._host_pools.values())
+
+    def host_usage(self) -> dict[str, dict]:
+        """Счётчики по хостам (BACKLOG B24): used/отказы/потолок/темп
+        каждого тронутого пула. Незатронутые хосты не показываются."""
+        return {host: {"used": b.used, "refused": b.refused,
+                       "rate_limited": rl.rate_limited,
+                       "ceiling": limit.nightly_max,
+                       "per_second": limit.per_second}
+                for host, (b, rl, limit) in self._host_pools.items()}
 
     def request(self, send: Callable[[dict[str, str]], T],
                 limit: HostLimit | None = None) -> T | ConfigError | BudgetExceeded:
@@ -168,7 +177,7 @@ class RequestGate:
         if limit is None:
             budget, limiter = self.budget, self.limiter
         else:
-            budget, limiter = self._pool_for(limit)
+            budget, limiter, _declared = self._pool_for(limit)
         exceeded = budget.charge()
         if exceeded is not None:
             return exceeded

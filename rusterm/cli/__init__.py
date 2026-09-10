@@ -812,6 +812,19 @@ def cmd_add(args) -> int:
 def cmd_doctor(args) -> int:
     paths, conn = _open(args.root)
     report = doctor_report(paths, conn)
+    # B24: к счётчикам хостов из базы добавляются потолки из объявлений
+    # реестра — used/ceiling видны рядом, без ручного свода
+    from rusterm.providers import all_host_limits
+    host_to_limit = {limit.host.lower(): limit
+                     for limit in all_host_limits().values()}
+    report["request_budget"] = {
+        host: {"used": used,
+               "ceiling": host_to_limit[host.lower()].nightly_max,
+               "per_second": host_to_limit[host.lower()].per_second}
+        if host.lower() in host_to_limit else {"used": used,
+                                               "ceiling": None,
+                                               "per_second": None}
+        for host, used in report.get("request_budget", {}).items()}
     print(json.dumps(report, ensure_ascii=False, indent=2))
     conn.close()
     return 0 if report["ok"] else 1
