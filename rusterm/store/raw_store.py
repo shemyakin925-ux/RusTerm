@@ -18,6 +18,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -244,3 +245,61 @@ def put_with_manifest(
     obj = put_object(paths.raw_store, data, **kwargs)
     append_manifest_line(paths.raw_manifests, obj)
     return obj
+
+
+def prune_raw_store(paths: AppPaths, conn,
+                    keep_extra: set[str] | None = None) -> dict:
+    """Чистка сырьевого хранилища (BACKLOG B28): хранилище растёт
+    вечно, чистка удаляет ТОЛЬКО объекты, на которые не ссылается ни
+    факт (fact.source_ref), ни импортированный документ
+    (document.sha256), ни sha256 из keep_extra вызывающего.
+
+    Оба направления:
+      - строка raw_object без ссылок — удаляется вместе со всеми
+        вариантами файла (none/.zst/.gz);
+      - файл в store без строки в базе — осиротевшие байты, удаляется.
+
+    Манифест append-only и не переписывается: удалённый объект
+    перестаёт существовать на диске, и восстановление индекса его
+    больше не находит — это честный исход чистки, а не дрейф.
+    SQL здесь, в слое хранилища (проверка 7). Возвращает свод.
+    """
+    keep: set[str] = set(keep_extra or ())
+    for sha, in conn.execute("SELECT sha256 FROM document"):
+        keep.add(sha)
+    for sha, in conn.execute("SELECT DISTINCT source_ref FROM fact"):
+        keep.add(sha)
+
+    rows = {sha for (sha,) in conn.execute("SELECT sha256 FROM raw_object")}
+    removed_objects = 0
+    for sha in sorted(rows - keep):
+        target = object_path(paths.raw_store, sha)
+        for p in (target,
+                  target.with_suffix(target.suffix + ZSTD_EXTENSION),
+                  target.with_suffix(target.suffix + GZIP_EXTENSION)):
+            if p.exists():
+                p.unlink()
+        conn.execute("DELETE FROM raw_object WHERE sha256=?", (sha,))
+        removed_objects += 1
+
+    remaining = {sha for (sha,) in
+                 conn.execute("SELECT sha256 FROM raw_object")} | keep
+    removed_files = 0
+    if paths.raw_store.is_dir():
+        for dirpath, _dirs, files in os.walk(paths.raw_store):
+            for fname in files:
+                base = fname
+                for ext in (ZSTD_EXTENSION, GZIP_EXTENSION):
+                    if base.endswith(ext):
+                        base = base[: -len(ext)]
+                        break
+                if len(base) != 64:
+                    continue
+                if base in remaining:
+                    continue
+                (Path(dirpath) / fname).unlink()
+                removed_files += 1
+
+    return {"removed_objects": removed_objects,
+            "removed_files": removed_files,
+            "kept_objects": len(rows) - removed_objects}
