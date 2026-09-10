@@ -76,3 +76,9 @@ NOW: section 0, step 4
   tokenizing; string law, no rounding); extract_text is an honest
   seat refusing with format_unsupported value until lane L5.
   Verify: 12 tests passed; selfcheck exit 0.
+- F9 (commit 49a2cf0): README section 15 tells
+  the truth (app works, 13/13, 402+2 tests, 13 ADRs, milestones
+  M0-M7 reached with closing task numbers, M8 in progress); all 11
+  UK mentions removed repo-wide per user decision section 0.2.5.
+  Verify: grep UK README empty; grep 'Кода приложения' empty;
+  selfcheck exit 0.
