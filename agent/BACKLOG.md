@@ -23,9 +23,6 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
-- [ ] B20 — a `Market` row whose provider module is absent must never
-  reach `RequestGate` — accept: test asserts `ConfigError`, zero
-  requests counted — size: S
 - [ ] B21 — `import --dry-run`: extract and verify, write nothing —
   accept: test asserts database sha256 unchanged — size: S
 - [ ] B22 — document formats table in README from the code, not by hand
@@ -62,6 +59,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
 ## Done
 
+- [x] B20 — provider seat without module never reaches RequestGate — TASK-19 F11, verified 11.09 (ConfigError + calls_made == 0)
 - [x] B19 — `rusterm markets --json` — TASK-19 F11, verified 11.09 (json.tool parses; all registry fields asserted)
 - [x] B1 — invariant numbering contiguity guard — TASK-7, verified 08.09
 - [x] B2 — fixtures are synthetic, as a test — TASK-7, verified 08.09
@@ -91,6 +89,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [x] B17 — `resolve()` duplicate-ticker behaviour pinned (last feed row
   wins) — TASK-12 Y7, verified 09.09
 - [x] B18 — `tools/README.md` added — TASK-12 Y7, verified 09.09
+- [x] B20 — provider seat without module never reaches RequestGate — TASK-19 F11, verified 11.09 (ConfigError + calls_made == 0)
 - [x] B19 — `logs/app.log` rotation: the test strengthened to the accept
   criterion (exactly two files, newest holds the last line) — TASK-12 Y7,
   verified 09.09
