@@ -104,3 +104,34 @@ def test_no_market_literals_in_core_or_normalize():
          "rusterm/formulas.py", "rusterm/core/", "rusterm/normalize/"],
         capture_output=True, text=True)
     assert result.returncode == 1, result.stdout
+
+
+def test_markets_command_json_carries_every_registry_field():
+    """BACKLOG B19: `markets --json` — машиночитаемый реестр; каждая
+    строка несёт все поля Market, и коды совпадают с кортежем."""
+    import json
+    import os
+    import tempfile
+    env = {**{k: v for k, v in __import__("os").environ.items()
+              if k != "RUSTERM_ENV_FILE"},
+           "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests"}
+    root = tempfile.mkdtemp()
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "rusterm.cli", "--root", root,
+             "markets", "--json"],
+            capture_output=True, text=True, env=env)
+        assert r.returncode == 0, r.stderr
+        payload = json.loads(r.stdout)
+        codes = [row["code"] for row in payload["markets"]]
+        assert codes == ["US", "CA", "OTC", "KR", "BR", "AU"]
+        fields = {"code", "jurisdiction", "venue_kind", "provider",
+                  "identifier", "default_taxonomy", "access"}
+        for row in payload["markets"]:
+            assert fields <= set(row), row
+        by_code = {row["code"]: row for row in payload["markets"]}
+        assert by_code["KR"]["provider"] == "dart"
+        assert by_code["AU"]["access"] == "partial"
+    finally:
+        import shutil
+        shutil.rmtree(root, ignore_errors=True)

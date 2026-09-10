@@ -1037,6 +1037,27 @@ def cmd_budget(args) -> int:
     return 0
 
 
+def cmd_markets(args) -> int:
+    """Реестр рынков как данные (BACKLOG B19): одна команда показывает
+    строки таблицы MARKETS — коды, юрисдикции, провайдеров, уровни
+    доступа; --json для машинного потребления."""
+    from rusterm.markets import MARKETS
+    rows = [{"code": m.code, "jurisdiction": m.jurisdiction,
+             "venue_kind": m.venue_kind, "provider": m.provider,
+             "identifier": m.identifier,
+             "default_taxonomy": m.default_taxonomy,
+             "access": m.access} for m in MARKETS]
+    if args.json:
+        print(json.dumps({"markets": rows}, ensure_ascii=False))
+        return 0
+    for row in rows:
+        print(f"{row['code']}\t{row['jurisdiction']}\t"
+              f"{row['venue_kind']}\t{row['provider']}\t"
+              f"{row['identifier']}\t{row['default_taxonomy']}\t"
+              f"{row['access']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     from rusterm import env as env_module
     env_module.load_env()  # RUSTERM_* из ~/.rusterm.env, если не в окружении
@@ -1140,6 +1161,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ops.add_argument("--confirm", action="store_true",
                        help="применить показанное (без флага — dry-run)")
     p_ops.add_argument("--json", action="store_true")
+    p_mkt = sub.add_parser("markets",
+                           help="реестр рынков: коды, провайдеры, доступ")
+    p_mkt.add_argument("--json", action="store_true")
     p_ind = sub.add_parser(
         "industry", help="агрегат по сектору на дату (M7)")
     p_ind.add_argument("--sector", required=True)
@@ -1157,6 +1181,7 @@ def main(argv: list[str] | None = None) -> int:
         "refresh": cmd_refresh,
         "ops": cmd_ops,
         "industry": cmd_industry,
+        "markets": cmd_markets,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "
