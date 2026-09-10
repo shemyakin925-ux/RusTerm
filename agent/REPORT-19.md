@@ -82,3 +82,8 @@ NOW: section 0, step 4
   UK mentions removed repo-wide per user decision section 0.2.5.
   Verify: grep UK README empty; grep 'Кода приложения' empty;
   selfcheck exit 0.
+- F10 (commit aa333bb): agent/state/.gitkeep created; foundation
+  tagged n3-foundation at aa333bb and pushed. Verify: git tag
+  --list prints it; git push origin n3-foundation succeeded;
+  fresh 'git checkout -b probe n3-foundation && bash
+  agent/selfcheck.sh' -> SELFCHECK OK exit 0; probe branch deleted.
