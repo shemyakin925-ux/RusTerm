@@ -70,3 +70,9 @@ NOW: section 0, step 4
   deliberately broken test staged -> acceptance prints 11/2 and
   'SELFCHECK FAIL (acceptance): exit status 2', exit 1 (reverted);
   git ls-files agent/selfcheck.sh finds it. Tree clean after demos.
+- F8 (commit f07bdd0): rusterm/manual package;
+  verify fully implemented (verbatim quote on its page + value
+  numeral as a quote token; thousands merged text-wide before
+  tokenizing; string law, no rounding); extract_text is an honest
+  seat refusing with format_unsupported value until lane L5.
+  Verify: 12 tests passed; selfcheck exit 0.
