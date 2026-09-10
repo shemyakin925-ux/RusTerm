@@ -41,3 +41,19 @@ NOW: section 0, step 4
   cli/edgar/providers/venue_filings 54 passed, acceptance 13/13.
   Scope note: offline add (--cik/--name) has no provider to ask —
   unchanged; per-market add flows belong to TASK-20 lanes.
+- F4 (commit bf15ff0): migration 40 + two
+  repos; version pins 39->40; drift tests now drop the top version
+  row too (MAX() ignores gaps); b25 strengthened to a REAL v39 db
+  via monkeypatched _SCHEMA_VERSION at init instead of deleting
+  schema_version rows (migration 40 ALTER is not re-playable on a
+  vandalized db - status exits 2; real users never see that state).
+  Verify: test_db 12, test_repos 39, test_cli 34 - all passed;
+  acceptance STATUS=0 13/13.
+- F5 (commit e74924d): HostLimit + per-host
+  pools in RequestGate; registry holds host declarations and lazy
+  seats (dart/cvm/asx/otcmarkets/llm-api) with build(gate) contract;
+  network provider without declaration refused (U5 hinge widened).
+  Live probe 4/12 requests: dart 200 60B auth-missing JSON; cvm 200
+  zip HEAD; asx 200 376B JSON; otcmarkets 200 407B JSON - all match
+  REPORT-MARKETS; OTC universe now 12,794 vs 12,867 recorded (drift,
+  finding only). Verify: 39 tests passed; acceptance 13/13.
