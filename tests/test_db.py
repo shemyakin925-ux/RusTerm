@@ -96,7 +96,7 @@ def test_writer_transaction_basic():
         with writer_transaction(conn) as c2:
             c2.execute(
                 "INSERT INTO issuer(issuer_id, name, jurisdiction, reporting_standard, reporting_currency) VALUES (?, ?, ?, ?, ?)",
-                ("test-issuer-2", "Test Corp 2", "UK", "ifrs", "GBP"),
+                ("test-issuer-2", "Test Corp 2", "GB", "ifrs", "GBP"),
             )
         row2 = conn.execute("SELECT count(*) FROM issuer").fetchone()[0]
         assert row2 == 2
