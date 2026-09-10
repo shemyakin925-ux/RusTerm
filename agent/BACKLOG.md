@@ -41,12 +41,10 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [ ] B30 — a user guide separate from README (README is a specification,
   not instructions) — accept: a new file, every command in it actually
   run and its output pasted — size: M
-- [ ] B31 — ADR numbers are claimed by tasks (0013 TASK-20 L10, 0015
-  TASK-24 N10, 0016 TASK-26 Q11); a test asserts no two ADR files share
-  a number — accept: test fails on a deliberate duplicate — size: S
 
 ## Done
 
+- [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
@@ -81,6 +79,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [x] B17 — `resolve()` duplicate-ticker behaviour pinned (last feed row
   wins) — TASK-12 Y7, verified 09.09
 - [x] B18 — `tools/README.md` added — TASK-12 Y7, verified 09.09
+- [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
@@ -89,6 +88,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [x] B19 — `logs/app.log` rotation: the test strengthened to the accept
   criterion (exactly two files, newest holds the last line) — TASK-12 Y7,
   verified 09.09
+- [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
@@ -100,14 +100,17 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   under a different source — TASK-14 A8, verified 09.09
 - [x] B22 — the 1100-day rule named once (`_STALE_LOOKBACK_DAYS`),
   prose refers to the name — TASK-14 A8, verified 09.09
+- [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — payload size guard as a test — TASK-19 F11, verified 11.09 (256 KB per file under tests/data/, offender named)
 - [x] B23 — `trim_companyfacts` byte-stability on a recorded payload,
   sha256 of two runs — TASK-14 A8, verified 09.09
+- [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — `audit.jsonl` capped and rolled over like `app.log` (same
   constants, imported) — TASK-14 A8, verified 09.09
+- [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)
 - [x] B26 — manual_import_required advice copy-paste runnable — TASK-19 F11, verified 11.09 (printed string parsed by the CLI parser; import command registered as an honest seat for L5/L6)
 - [x] B24 — per-host counters in doctor — TASK-19 F11, verified 11.09 (gate.host_usage -> provider_used_<host> samples; doctor prints used + registered ceiling per host)
 - [x] B25 — `status --json` reports `schema_version_observed` beside
