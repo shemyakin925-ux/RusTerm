@@ -732,3 +732,53 @@ def test_b15_null_reason_outside_vocabulary_rejected():
                 "denominator_zero", "negative_denominator",
                 "jurisdiction_rate"} <= set(NULL_REASONS)
         conn.close()
+
+
+# ── TASK-19 F2. Шесть причин рынков вне EDGAR и ручного импорта ─────────
+def test_f2_new_reasons_in_dictionary_and_guard_still_rejects():
+    """Каждая новая строка проходит is_known_reason; причина вне словаря
+    по-прежнему отклоняется сторожем SnapshotRepo (оба писателя)."""
+    from rusterm.reasons import NULL_REASONS, is_known_reason
+    from rusterm.store.repos import (
+        Instrument, InstrumentRepo, Issuer, SnapshotRepo,
+    )
+    new_reasons = ("manual_import_required",   # ADR-0010 §3
+                   "manual_unverified",        # ADR-0011 ③
+                   "format_unsupported",
+                   "no_text_layer",
+                   "unknown_issuer",
+                   "source_unreachable")
+    assert set(new_reasons) <= set(NULL_REASONS)
+    for reason in new_reasons:
+        assert is_known_reason(reason), reason
+
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = AppPaths.from_root(os.path.join(tmp, "app"))
+        ensure_app_dir(paths)
+        conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                               isolation_level=None)
+        apply_migrations(conn)
+        InstrumentRepo(conn).upsert_issuer(Issuer(
+            "i1", "N", "US", None, None, "us_gaap", "USD"))
+        InstrumentRepo(conn).upsert_instrument(Instrument(
+            "ins1", "i1", None, "common", "active", None))
+        snapshots = SnapshotRepo(conn)
+        snapshots.create_snapshot("s1", "ins1", 1, "2024-01-01",
+                                  None, "none", "ready")
+        base = dict(measure_id="m-f2", snapshot_id="s1", scope="issuer",
+                    scope_ref="i1", concept="net_margin", value=None,
+                    unit="ratio", period_start="2024-01-01",
+                    period_end="2024-12-31", formula_id="net_margin",
+                    method_version="v1", null_reason="manual_unverified",
+                    peer_set_version=None)
+        # новая причина пишется — это значение, а не исключение
+        snapshots.insert_measure(**base)
+        with pytest.raises(ValueError, match="словаря"):
+            snapshots.insert_measure(
+                **dict(base, measure_id="m-f2-bad",
+                       null_reason="i_made_this_up"))
+        n = conn.execute(
+            "SELECT COUNT(*) FROM measure WHERE null_reason='i_made_this_up'"
+        ).fetchone()[0]
+        assert n == 0, "причина вне словаря попала в базу"
+        conn.close()

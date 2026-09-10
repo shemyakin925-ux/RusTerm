@@ -18,6 +18,13 @@ NULL_REASONS: frozenset[str] = frozenset({
     "jurisdiction_rate",     # ставка налога вне допустимой юрисдикционной полосы
     "peer_set_too_small",    # вкладчиков меньше AGGREGATE_MIN_PEERS (I6, TASK-17 E1)
     "no_sec_filings",        # эмитент не подаёт XBRL в SEC (404; TASK-18 G5)
+    # TASK-19 F2: причины рынков вне EDGAR и ручного импорта
+    "manual_import_required",  # эмитент на рынке есть, раскрытия машинно недоступны (ADR-0010 §3)
+    "manual_unverified",     # факт из ручного импорта не прошёл детерминированный контроль (ADR-0011 ③)
+    "format_unsupported",    # формат файла требует библиотеки, которой нет в окружении
+    "no_text_layer",         # скан без текстового слоя; OCR в проекте нет
+    "unknown_issuer",        # рынок не знает этого идентификатора
+    "source_unreachable",    # хост провайдера отказал или не ответил (403/429/timeout)
 })
 
 
