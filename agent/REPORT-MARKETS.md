@@ -23,7 +23,7 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 | NZ | NZX announcements + MBIE registries | `nzx.com` 200; `/markets/NZSX/announcements` → 200, 665 KB, announcement ids embedded in `__NEXT_DATA__`; no public JSON API found; `api.business.govt.nz` → portal (official APIs, account required) | **partial** — site is server-rendered and crawlable; third-party NZXplorer API (free tier) exists; no official free filings API |
 | SG | SGX company announcements | `www.sgx.com` SPA 200; `api.sgx.com/announcements/v1.0/` → **403** to curl ×2; IAB Chromium: shell + `api2.sgx.com/content-api` load fine, but announcements widget stuck "Loading..." ~30 s, zero announcements-data requests fired | **unproven** — neither curl nor our embedded browser demonstrably fetches announcements; needs check from user's daily browser profile; paid fallbacks exist (Apify, SGX data products) |
 | RU | e-disclosure.ru (ЦРКИ) + MOEX ISS | `iss.moex.com/iss/securities/SBER.json` → 200 JSON (no auth); `e-disclosure.ru` → connection reset ×2 (also via HTTP/1.1); `disclosure.ru` → 200/302; `cbr.ru` → 200 | **restricted from this network** — ISS market/reference data works; filings portal appears foreign-IP-blocked (inference); official e-disclosure API gateway exists but is contract/paid |
-| US-OTC | OTC Markets Group (OTCQX/OTCQB/Pink) + EDGAR | `www.otcmarkets.com` 200; `backend.otcmarkets.com/otcapi/...` → 403 / soft-block HTML to curl, but **works in real Chromium**: market totals, OTCM quotes and the full Disclosure tab with document list rendered; endpoints captured (see section below) | **dual-channel** — SEC-reporting issuers (~882) via free EDGAR route; OTC-only issuers via paid official OTC Disclosure API or manual `ingest --file`; site scraping is outside ToS |
+| US-OTC | OTC Markets Group (OTCQX/OTCQB/Pink) + EDGAR | curl **with full browser header set**: `otcapi/market-data/active` 200 JSON (12,867 records) and `company/{SYM}/financial-report` 200 JSON (disclosure list + metadata); `profile/full` and document `/content` routes stay soft-blocked; everything renders in real Chromium | **partial free channel** — SEC-reporters (~882) via EDGAR; OTC-only: index+metadata free via otcapi (browser-shaped headers, ToS-gray), document bytes need browser-tier client or the paid OTC Disclosure API |
 
 ## EDGAR cross-route (interlisted foreign issuers)
 
@@ -90,15 +90,21 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
   - `https://www.otcmarkets.com/` → 200 (SPA shell).
   - `https://backend.otcmarkets.com/otcapi/stock/trade/quote/TLSS?symbol=TLSS` → HTTP 200 but body is a 2 KB HTML page titled "OTC Markets – Temporarily Unavailable" — a soft block disguised as 200.
   - `https://backend.otcmarkets.com/otcapi/company/TLSS?symbol=TLSS` → HTTP 403, empty body.
-  - So plain-HTTP clients are fingerprint-blocked at the API edge (SEDAR+-pattern), not IP-blocked (same IP, real browser works).
+  - First read was "fingerprint-blocked, SEDAR+-pattern" — but the GitHub-led re-probe below shows the block is header- and endpoint-selective, not absolute.
 - Embedded Chromium (IAB) probe — **positive**:
   - Site loads fully; `backend.otcmarkets.com/otcapi/market-data/market-totals` returned live numbers (12,250 securities); OTCM quote widget rendered real bid/ask.
   - `/stock/OTCM/disclosure` rendered the full **FILINGS AND DISCLOSURE** table (Quarterly Report Q2 2026, Annual Report FY2025, Proxy…, status "Active").
   - Endpoints captured from the page's XHR: `otcapi/company/{SYM}/financial-report?statusId=A&sortOn=releaseDate...` (OTC Disclosure & News list), `otcapi/company/sec-filings/{SYM}` (SEC filings mirror), `otcapi/insider-disclosure/{otc|external}/{SYM}` (insider reports), `otcapi/company/profile/full/{SYM}`, `otcapi/company/profile/{SYM}/badges`.
   - `/stock/TLSS/summary` → SPA 404: TLSS no longer trading (unverified reason); ticker remained in EDGAR — a reminder that OTC-tier symbols churn fast.
+- **GitHub-led re-probe, 2026-09-10 — plain curl CAN pass, selectively.** Used the community header set from `roihala/stocker` `REQUIRED_HEADERS` (Origin/Referer `https://www.otcmarkets.com`, `sec-ch-ua`, `Sec-Fetch-*: cors/same-site`, Chrome UA, JSON Accept):
+  - `otcapi/market-data/active/current?tierGroup=ALL&page=1&pageSize=50` → **200 JSON**, `"totalRecords":12867`, `"pages":258` — full tradable universe with tier/volume/pctChange fields.
+  - `otcapi/company/OTCM/financial-report?symbol=OTCM&statusId=A&pageSize=2` → **200 JSON**, `"totalRecords":132` — the OTC Disclosure & News list with full per-document metadata: id, name ("Quarterly Report - Second Quarter 2026"), reportType, releaseDate, periodDate, tierCode "QX", isCaveatEmptor, edgarSECFiling flag. That is `poll_index` + `list_documents` of the provider contract, free.
+  - `otcapi/company/profile/full/OTCM` → still soft-block HTML even with headers (endpoint-specific gating).
+  - Document bytes: `otcapi/company/financial-report/{id}/content` AND `www.otcmarkets.com/file/company/financial-report/{id}/content` → both return the 2 KB soft-block HTML for our client. `fetch_document` therefore needs a browser-tier client (IAB renders the docs) or the paid OTC Disclosure API. Free tier of this channel = index + metadata only.
+  - Community corroboration: `chiefsmurph/otc-playground` README — "Node's fetch is blocked (403/412), so scan.js shells out to curl", pageSize now capped at 50 (server-side, records volume-sorted); document URL pattern `financial-report/{id}/content` confirmed by `roihala/stocker` code and multiple independent datasets; a 2026-08 run log shows the `www.otcmarkets.com/file/...` variant in active use.
 - Official/licensed route: **OTC Disclosure API** (launched 2025-09; near-real-time disclosure updates, query by Symbol/CompID/CUSIP and filing type; commercial, also resold via Edgar Online). Market data licensing separately (Security Data File, non-display fees ~$1.5–2.5k/month). Academic access via WRDS.
 - ToS: scraping otcmarkets.com is outside their Terms of Service; the licensed API is the sanctioned path. GitHub ecosystem is thin and mostly confirms the endpoint set (`oyekamal/otcmarkets-api-scraper` — uses `otcmarkets.com/research/stock-screener/api` for the symbol universe + official EDGAR APIs for filings, last successful run 2026-02; `kwhitehall/otcmarketsScraper` ★1 Java).
-- Contract mapping: `DisclosuresProvider` for US-OTC = EDGAR route for the SEC-reporting subset (nothing new to build). OTC-only subset: same tier as SEDAR+/SG — manual `ingest --file`, or the paid OTC Disclosure API if the project ever needs automated non-reporter coverage. The screener API (`/research/stock-screener/api`) is a one-request universe list with tier/caveat-emptor flags, but it is the same ToS-restricted surface.
+- Contract mapping: `DisclosuresProvider` for US-OTC = EDGAR route for the SEC-reporting subset (nothing new to build). OTC-only subset: `poll_index`/`list_documents` implementable free over otcapi with browser-shaped headers (ToS-gray — coordinator call); `fetch_document` needs a browser-tier client (IAB-proven render) or the paid OTC Disclosure API; manual `ingest --file` unchanged. The screener API (`/research/stock-screener/api`) is a one-request universe list with tier/caveat-emptor flags, same ToS-restricted surface.
 
 
 
@@ -112,6 +118,8 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 | robertoecf/OpenFinData | 9 | BR | open infra over CVM/B3 public data, upd 2026-09 |
 | itisaevalex/australia-scraper | 1 | AU | reverse-engineered ASX endpoints + PDF resolution, upd 2026-09 |
 | oyekamal/otcmarkets-api-scraper | 1 | US-OTC | screener API universe + official EDGAR for filings, ran OK 2026-02 |
+| chiefsmurph/otc-playground | 0 | US-OTC | scan.js shells out to curl — "Node fetch blocked 403/412, curl works, pageSize≤50" |
+| roihala/stocker | 0 | US-OTC | full working header set for backend.otcmarkets.com + all endpoint patterns |
 | WLM1ke/apimoex | 138 | RU | MOEX ISS client |
 | moexalgo/moexalgo | 150 | RU | MOEX official lib |
 | (NZ, SG) | — | NZ/SG | no maintained keyless tooling found; NZ has NZXplorer (mambaventures) as SaaS+MCP |
@@ -124,7 +132,7 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 - CVM RAD timeout and e-disclosure resets are single-IP, 1–2 attempts each; geo-blocking is inference, not verified from a RU endpoint.
 - NZXplorer claims (iXBRL financials, 64k announcements) taken from its own site/docs — no request made.
 - XBRL statements: KR/BR structured-ness asserted from official docs + dataset shapes, not from parsing an actual XBRL artifact.
-- US-OTC: TLSS SPA-404 reason unverified (delisting assumed, not checked); only the disclosure LIST was verified in-browser — the actual document/PDF download behind it was not followed; issuer split (~882 SEC reporters / 1,421 international / 932 other) is OTC Markets' own marketing figure; the quote-endpoint soft-block page (200 + HTML) was not saved byte-for-byte.
+- US-OTC: TLSS SPA-404 reason unverified (delisting assumed, not checked); issuer split (~882 SEC reporters / 1,421 international / 932 other) is OTC Markets' own marketing figure. The passing/blocked endpoint split under browser headers is one session's snapshot — edge rules drift (chiefsmurph documents Node-fetch→403/412 vs curl-OK; that asymmetry may move). Document PDF bytes never obtained outside the browser (both `/content` URL variants soft-blocked) — community URL patterns partly rest on 2018–2020 data points.
 
 ## Questions for the coordinator
 1. Market priority order for the next milestones? Suggested by effort/legality: KR (official API, needs free key — approve registering one) → BR (CVM bulk datasets) → AU (ASX endpoints, ToS review) → NZ (crawler) → SG/RU (manual import only until a working channel is proven).
@@ -132,7 +140,7 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 3. RU: in scope at all? If yes — who provides a RU-side network path or gateway contract; sanctions/ToS review first.
 4. Same open item as CA: user-profile browser check for SGX announcements (and whether `ingest --file` doctrine extends to SG/NZ defaults).
 5. Approve formalizing per-market channel doctrine in README §7 / threat-model-sources once priorities are set.
-6. US-OTC: accept "EDGAR route for SEC-reporting OTC issuers + manual ingest --file for OTC-only filers" as doctrine? The paid OTC Disclosure API (2025-09) is the only sanctioned automated path for non-reporters — out of scope until there's a need.
+6. US-OTC: accept "EDGAR route for SEC-reporting OTC issuers + otcapi index/metadata with browser-shaped headers for OTC-only filers (ToS-gray) + browser-tier or paid OTC Disclosure API for document bytes"? Or keep OTC-only fully manual until there's a real need?
 
 ## Request budget spent (honesty)
 - SG: sgx.com ×2 curl + ~8 browser page/XHR loads (all OK); api.sgx.com ×2 (403); api.sgx.com.sg ×1 NXDOMAIN.
@@ -142,7 +150,7 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
 - BR: dados.cvm ×3 (200); rad.cvm ×1 (timeout); b3 COTAHIST ×1 (200, partial download aborted).
 - RU: iss.moex ×1 (200); e-disclosure ×2 (reset); disclosure.ru ×2 (200/302); cbr.ru ×1 (200).
 - SEC: ×1 (tickers.json, 200). GitHub API: ~14 unauthenticated search/list calls. Other: 0.
-- US-OTC (2026-09-10): otcmarkets.com ×1 curl (200); backend.otcmarkets.com ×2 curl (200-softblock, 403); IAB browser session ×3 pages (~15 otcapi XHRs, all OK). EDGAR tickers.json reused from same session — no new SEC request.
+- US-OTC (2026-09-10): otcmarkets.com ×1 curl (200); backend.otcmarkets.com ×2 curl first pass (200-softblock, 403); header-set re-probe ×5 (active 200, financial-report 200 ×2, profile soft-block, doc/content ×2 soft-block); IAB browser session ×3 pages (~15 otcapi XHRs, all OK). EDGAR tickers.json reused from same session — no new SEC request. GitHub code search via gh CLI: 3 queries.
 - App LLM calls: 0. Network requests by the app itself: 0 (manual curl/browser only).
 
 ## HANDOFF
