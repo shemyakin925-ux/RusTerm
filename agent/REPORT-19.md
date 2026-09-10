@@ -57,3 +57,10 @@ NOW: section 0, step 4
   zip HEAD; asx 200 376B JSON; otcmarkets 200 407B JSON - all match
   REPORT-MARKETS; OTC universe now 12,794 vs 12,867 recorded (drift,
   finding only). Verify: 39 tests passed; acceptance 13/13.
+- F6 (commit e4fa0c2): llm_api.py client seat
+  (env-only config, ConfigError values, gate-gated per host,
+  build(gate) seat contract) + core/llm.make_intent_client selector
+  (key -> API client, no key -> RuleClient). cmd_ops call-site
+  rewiring belongs to the chat/integration night (scope note).
+  Verify: test_llm_api 12 passed; guard+ops green with key unset and
+  dummy-set (13+13); acceptance 13/13; dummy key absent from logs.
