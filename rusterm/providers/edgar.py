@@ -270,6 +270,13 @@ class EdgarProvider:
         self._venues = venues
         return venues
 
+    def can_auto_ingest(self, identifier: str) -> bool:
+        """ADR-0010 §3 через TASK-19 F3: каждый эмитент EDGAR забирается
+        автоматически (companyfacts открыт всем); поведение EDGAR не
+        меняется. Идентификатор не проверяется — неизвестный тикер
+        отсеивается resolve() раньше этого вопроса."""
+        return True
+
     def fetch_companyfacts(self) -> dict | ConfigError | NotModified \
             | ProviderError:
         """Все XBRL-концепты эмитента одним запросом. HTTP 404 — не

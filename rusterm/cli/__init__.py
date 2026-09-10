@@ -708,6 +708,7 @@ def cmd_add(args) -> int:
 
     from rusterm.providers.base import ProviderError as _PE
     from rusterm.providers.budget import ConfigError, NetworkGate, RequestGate
+    from rusterm.providers import UnknownProvider
     cik, name = args.cik, args.name
     provider = None
     if cik is None or name is None:
@@ -726,10 +727,14 @@ def cmd_add(args) -> int:
             conn.close()
             return 1
         # гейт обязателен: реестр возвращает ConfigError-значение,
-        # а не провайдера, если гейт не передан (TASK-10 W0)
-        provider = get_provider("edgar", gate=RequestGate())
-        if isinstance(provider, ConfigError):
-            print(f"сетевой провайдер недоступен: {provider.reason}",
+        # а не провайдера, если гейт не передан (TASK-10 W0).
+        # Провайдер — по строке реестра рынка (ADR-0010 §1), а не
+        # захардкоженный edgar: у KR/BR/AU он свой (TASK-19 F3).
+        provider = get_provider(market_row.provider, gate=RequestGate())
+        if isinstance(provider, (ConfigError, UnknownProvider)):
+            reason = (provider.reason if isinstance(provider, ConfigError)
+                      else f"provider_not_implemented:{provider.name}")
+            print(f"провайдер рынка {args.market} недоступен: {reason}",
                   file=sys.stderr)
             conn.close()
             return 1
@@ -747,6 +752,33 @@ def cmd_add(args) -> int:
         print(f"инструмент {instrument_id} уже существует")
         conn.close()
         return 0
+
+    # TASK-19 F3 (ADR-0010 §3): провайдер рынка отвечает «забирается ли
+    # эмитент автоматически» ДО создания. Пустых эмитентов программа не
+    # делает молча; предложение ручного импорта — единственный совет
+    # действия в программе.
+    if provider is not None:
+        answer = provider.can_auto_ingest(args.ticker.upper())
+        if isinstance(answer, _PE):
+            if answer.reason.split(":", 1)[0] == "unknown_issuer":
+                print(f"рынок {args.market} не знает тикер "
+                      f"{args.ticker.upper()!r} (unknown_issuer)",
+                      file=sys.stderr)
+            else:
+                print(f"провайдер {market_row.provider} не ответил о "
+                      f"доступности эмитента: {answer.reason}",
+                      file=sys.stderr)
+            conn.close()
+            return 1
+        if answer is not True:
+            print(f"{args.ticker.upper()} на {args.market}: раскрытия "
+                  f"эмитента недоступны машинно (manual_import_required); "
+                  f"эмитент не создан")
+            print(f"добавьте отчёты вручную: rusterm import <файл> "
+                  f"--issuer {args.ticker.upper()} "
+                  f"--market {args.market}")
+            conn.close()
+            return 0
 
     # TASK-18 G2: площадка — из собственного файла SEC, а не догадка
     # вызывающего; тикера нет в файле — venue unknown, без исключения

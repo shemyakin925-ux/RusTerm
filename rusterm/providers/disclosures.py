@@ -88,6 +88,16 @@ class DisclosuresProvider(Protocol):
         """Сырой документ; идемпотентно — тот же документ, тот же sha256."""
         ...
 
+    def can_auto_ingest(self, identifier: str) -> bool | ProviderError:
+        """Забирается ли раскрытие эмитента автоматически (ADR-0010 §3).
+
+        True — обычный сбор; False — эмитент рынку известен, но раскрытия
+        машинно недоступны (исход manual_import_required, эмитент не
+        создаётся); ProviderError — ответ рынка значением, в том числе
+        unknown_issuer (идентификатор рынку неизвестен).
+        """
+        ...
+
 
 class SyntheticDisclosuresProvider:
     """Фейковый провайдер раскрытий на синтетических фикстурах
@@ -108,6 +118,10 @@ class SyntheticDisclosuresProvider:
             )
             for r in self._data.get("records", [])
         ]
+
+    def can_auto_ingest(self, identifier: str) -> bool:
+        # ADR-0010 §3: синтетический источник отвечает за весь индекс
+        return True
 
     def poll_index(self, cursor: str) -> IndexPoll | ProviderError:
         # Курсоры сортируются лексикографически: "0001" < "0002".
