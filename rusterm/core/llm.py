@@ -46,6 +46,26 @@ class LlmClient(Protocol):
         ...
 
 
+
+def make_intent_client(environ=None):
+    """Выбор клиента классификации по ключу модели (TASK-19 F6; ответ
+    на вопрос 1 REPORT-16, ruling §0.1): RUSTERM_LLM_API_KEY задан —
+    API-клиент (ADR-0011 ②), не задан или пуст — детерминированный
+    RuleClient. Оба отвечают по контракту complete(prompt); ошибки API
+    приходят значениями. HTTP при этом остаётся в rusterm/providers/
+    (проверка 8) — здесь только выбор, без импорта транспорта.
+
+    environ — точка инъекции тестов; реальный вызов читает os.environ.
+    """
+    import os
+    env = os.environ if environ is None else environ
+    if env.get("RUSTERM_LLM_API_KEY"):
+        from rusterm.providers.llm_api import LlmApiClient
+        return LlmApiClient.from_env(environ=env)
+    from rusterm.core.intent import RuleClient
+    return RuleClient()
+
+
 class LlmSummarizer:
     """Сборка LLM-summary: подстановка из снапшота + браковка целиком."""
 
