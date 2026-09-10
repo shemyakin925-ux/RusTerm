@@ -118,3 +118,81 @@ def test_request_gate_passes_ua_charges_budget_and_counts():
     # подставной sleeper время не двигает: третья задержка не нужна —
     # третий вызов отклонён бюджетом до лимитера
     assert rg.rate_limited == 1
+
+
+# ── TASK-19 F5: бюджет и темп по хостам ────────────────────────────────
+
+from rusterm.providers.budget import HostLimit
+
+_A = HostLimit(host="host-a.example", per_second=1000.0, nightly_max=2)
+_B = HostLimit(host="host-b.example", per_second=1000.0, nightly_max=2)
+
+
+def _ua_gate() -> RequestGate:
+    return RequestGate(gate=NetworkGate(
+        environ={"RUSTERM_SEC_UA": "Synthetic Test f5.invalid"}))
+
+
+def test_two_hosts_exhaust_independently():
+    """F5: хост A у своего потолка (2) не запирает хост B — пулы
+    раздельные, счётчики по хостам."""
+    gate = _ua_gate()
+    send = lambda headers: "ok"
+    assert gate.request(send, limit=_A) == "ok"
+    assert gate.request(send, limit=_A) == "ok"
+    assert isinstance(gate.request(send, limit=_A), BudgetExceeded)
+    # чужой хост проходит: SECовский потолок не перетекает на соседа
+    assert gate.request(send, limit=_B) == "ok"
+    assert gate.calls_made == 3
+    assert gate.refused == 1
+
+
+def test_per_host_pools_do_not_share_legacy_budget():
+    """F5: запросы по HostLimit не трогают легаси-пул и наоборот —
+    5/с SEC не наследуется чужим хостом и не съедается им."""
+    gate = _ua_gate()
+    send = lambda headers: "ok"
+    legacy = HostLimit(host="data.sec.gov", per_second=5.0,
+                       nightly_max=5000)
+    assert gate.request(send) == "ok"           # легаси-пул (edgar)
+    assert gate.request(send, limit=_A) == "ok"  # свой пул по хосту
+    assert gate.budget.used == 1                 # легаси потратил один
+    assert gate.calls_made == 2
+
+
+def test_seat_returns_config_error_value_not_import_error():
+    """F5: get_provider('dart') до появления модуля — значение
+    provider_not_implemented, не ImportError (место уже занято)."""
+    from rusterm.providers import get_provider
+    result = get_provider("dart", gate=_ua_gate())
+    assert isinstance(result, ConfigError)
+    assert result.reason == "provider_not_implemented:dart"
+    # без гейта — прежняя дверь U5, тоже значением
+    no_gate = get_provider("dart", gate=None)
+    assert isinstance(no_gate, ConfigError)
+    assert no_gate.reason == "network_provider_requires_gate:dart"
+
+
+def test_available_lists_all_eight_names():
+    """F5: пять сетевых мест (edgar, dart, cvm, asx, otcmarkets) +
+    llm-api + две синтетики — ровно восемь имён."""
+    from rusterm.providers import available
+    names = available()
+    assert len(names) == 8
+    for expected in ("edgar", "dart", "cvm", "asx", "otcmarkets",
+                     "llm-api", "synthetic-market",
+                     "synthetic-disclosures"):
+        assert expected in names, expected
+
+
+def test_every_network_provider_declares_host_limit():
+    """F5: у каждого сетевого провайдера есть HostLimit; темпы — из
+    замеров REPORT-MARKETS (SEC 5/с, DART 2/с, CVM/ASX/OTC 1/с)."""
+    from rusterm.providers import _HOST_LIMITS, _NETWORK_PROVIDERS
+    assert set(_HOST_LIMITS) == set(_NETWORK_PROVIDERS)
+    rates = {"edgar": 5.0, "dart": 2.0, "cvm": 1.0, "asx": 1.0,
+             "otcmarkets": 1.0, "llm-api": 1.0}
+    for name, limit in _HOST_LIMITS.items():
+        assert limit.host, name
+        assert limit.per_second == rates[name], name
+        assert limit.nightly_max > 0, name

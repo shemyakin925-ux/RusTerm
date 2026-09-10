@@ -36,6 +36,17 @@ class ConfigError:
     reason: str
 
 
+@dataclass(frozen=True)
+class HostLimit:
+    """Объявление сетевого провайдера (TASK-19 F5): какой хост, каким
+    темпом и с каким ночным потолком. Реестр не выдаёт сетевого
+    провайдера без объявления — та же дверь, что U5, петля шире; темпы
+    взяты из живых замеров agent/REPORT-MARKETS.md."""
+    host: str
+    per_second: float
+    nightly_max: int
+
+
 class RateLimiter:
     """Держит не более per_second запросов в секунду.
 
@@ -100,7 +111,13 @@ class NetworkGate:
 class RequestGate:
     """Единая дверь сетевого провайдера: UA-гейт -> бюджет -> темп.
 
-    Счётчики для metric_sample (T12): сделано, отказано, задержано.
+    Бюджет и темп ведутся ПО ХОСТУ (TASK-19 F5): 5/с SEC не перетекает
+    на opendart.fss.or.kr и наоборот. Пул по хосту создаётся лениво из
+    HostLimit провайдера; request(send) без limit — прежний единый пул
+    (edgar, 5/с, 5000/ночь), его поведение не менялось.
+
+    Счётчики для metric_sample (T12): сделано, отказано, задержано —
+    суммарно по всем пулам.
     """
 
     def __init__(self, budget: Budget | None = None,
@@ -111,28 +128,51 @@ class RequestGate:
         self.limiter = limiter or RateLimiter()
         self._made = 0
         self.config_refusals = 0
+        self._host_pools: dict[str, tuple[Budget, RateLimiter]] = {}
+
+    def _pool_for(self, limit: HostLimit) -> tuple[Budget, RateLimiter]:
+        key = limit.host.lower()
+        pool = self._host_pools.get(key)
+        if pool is None:
+            pool = (Budget(max_requests=limit.nightly_max),
+                    RateLimiter(per_second=limit.per_second))
+            self._host_pools[key] = pool
+        return pool
 
     @property
     def calls_made(self) -> int:
-        return self._made
+        per_host = sum(b.used for b, _ in self._host_pools.values())
+        return self._made + per_host
 
     @property
     def refused(self) -> int:
-        return self.budget.refused + self.config_refusals
+        per_host = sum(b.refused for b, _ in self._host_pools.values())
+        return self.budget.refused + self.config_refusals + per_host
 
     @property
     def rate_limited(self) -> int:
-        return self.limiter.rate_limited
+        return self.limiter.rate_limited + sum(
+            rl.rate_limited for _, rl in self._host_pools.values())
 
-    def request(self, send: Callable[[dict[str, str]], T]) -> T | ConfigError | BudgetExceeded:
-        """Один сетевой вызов: send получает заголовки с User-Agent."""
+    def request(self, send: Callable[[dict[str, str]], T],
+                limit: HostLimit | None = None) -> T | ConfigError | BudgetExceeded:
+        """Один сетевой вызов: send получает заголовки с User-Agent.
+
+        limit задан — пул по хосту из объявления провайдера; None —
+        прежний единый пул (edgar).
+        """
         headers = self.gate.headers()
         if isinstance(headers, ConfigError):
             self.config_refusals += 1
             return headers
-        exceeded = self.budget.charge()
+        if limit is None:
+            budget, limiter = self.budget, self.limiter
+        else:
+            budget, limiter = self._pool_for(limit)
+        exceeded = budget.charge()
         if exceeded is not None:
             return exceeded
-        self.limiter.acquire()
-        self._made += 1
+        limiter.acquire()
+        if limit is None:
+            self._made += 1
         return send(headers)
