@@ -50,6 +50,18 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   period coexist without either overwriting the other — accept: test
   asserts both rows present and the provider one wins the measure —
   size: M
+- [ ] B28 — raw store retention: it grows forever and nothing prunes it
+  — accept: test asserts a retention pass removes only objects no fact
+  or document references, in both directions — size: M
+- [ ] B29 — scale pass with six markets and prices together (M4 measured
+  500 US instruments with no price path) — accept: the M4 budget still
+  holds, report states seconds per issuer — size: L
+- [ ] B30 — a user guide separate from README (README is a specification,
+  not instructions) — accept: a new file, every command in it actually
+  run and its output pasted — size: M
+- [ ] B31 — ADR numbers are claimed by tasks (0013 TASK-20 L10, 0015
+  TASK-24 N10, 0016 TASK-26 Q11); a test asserts no two ADR files share
+  a number — accept: test fails on a deliberate duplicate — size: S
 
 ## Done
 
