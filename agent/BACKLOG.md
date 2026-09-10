@@ -19,7 +19,37 @@ it by hand.
 
 ## Queue
 
-(empty)
+Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
+Every item is small, pre-approved, and independent of the M8 lanes.
+A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
+
+- [ ] B19 — `rusterm markets --json` for machine consumption — accept:
+  `python3 -m rusterm.cli markets --json | python3 -m json.tool` parses,
+  test asserts every registry field present — size: S
+- [ ] B20 — a `Market` row whose provider module is absent must never
+  reach `RequestGate` — accept: test asserts `ConfigError`, zero
+  requests counted — size: S
+- [ ] B21 — `import --dry-run`: extract and verify, write nothing —
+  accept: test asserts database sha256 unchanged — size: S
+- [ ] B22 — document formats table in README from the code, not by hand
+  — accept: test asserts every format `extract.py` handles is listed —
+  size: S
+- [ ] B23 — `verify` counts near-misses (quote present, number
+  reformatted) separately from outright failures — accept: test with a
+  thousands-separator mismatch lands in the near-miss bucket — size: M
+- [ ] B24 — per-host request counters surface in `doctor` — accept:
+  test asserts each host's used/ceiling printed after a fake run —
+  size: S
+- [ ] B25 — golden payload size guard as a test, not a report line —
+  accept: test fails when any `tests/data/<provider>/` exceeds 256 KB —
+  size: S
+- [ ] B26 — `manual_import_required` message is asserted to contain a
+  command a user can copy verbatim — accept: test runs the printed
+  string through the CLI parser — size: S
+- [ ] B27 — a manual fact and a provider fact for the same concept and
+  period coexist without either overwriting the other — accept: test
+  asserts both rows present and the provider one wins the measure —
+  size: M
 
 ## Done
 

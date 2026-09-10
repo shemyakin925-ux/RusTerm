@@ -1,264 +1,177 @@
-# ТЗ на ночную реализацию ядра EquityLab
+# TASK.md — charter for the executor (ZCode). Not a night task
 
-Исполнитель: агент Hermes на модели minimax-m3, работает из контейнера
-автономно. Порядок работы задан в `agent/SKILL.md` — прочитай его первым.
+Rewritten 10.09.2026 on the user's instruction. The night task is always
+a numbered file, `agent/TASK-<N>.md`. This file says what kind of
+executor you are, what the project is, and which rules outlive any
+single night. A numbered task outranks this file where they disagree.
 
-Заказчик спит. Вопросов задавать некому, останавливаться нельзя,
-решения принимаешь сам по правилам `SKILL.md` §2.
-
----
-
-## 1. Что строим
-
-**Ядро и командный интерфейс** приложения по спецификации в `docs/`.
-Это вехи M1 и частично M2 из README §15.
-
-Строим:
-
-- хранилище сырья и базу данных,
-- модель факта с локатором и происхождением,
-- интерфейсы провайдеров и работающий провайдер на фикстурах,
-- конвейер сбора со всеми узлами и ветками ошибок,
-- движок формул из `docs/data-dictionary.md`,
-- peer set с версиями и статусами,
-- двухпроходную сборку снапшота,
-- экспорт и CLI,
-- тесты, включая инвариантные.
-
-**Не строим этой ночью, даже если останется время:**
-
-- интерфейс на Qt — ни строки, ни файла;
-- LLM-слой, чат, массовые операции;
-- Industry View;
-- провайдеров UK и CA;
-- отраслевые метрики сверх Maritime/Tanker.
-
-Всё, что не в списке «строим», — вне области. Расширять область
-самостоятельно запрещено: незаконченная ширина хуже законченной глубины.
+The previous version of this file was written for a weaker executor
+in a container and is superseded in full.
 
 ---
 
-## 2. Область работы
+## 1. Who you are
 
-- Ветка `agent/night-1` от `main`. В `main` не коммитить.
-- Пиши в: `rusterm/`, `tests/`, `fixtures/`, `agent/`, `pyproject.toml`.
-- Не трогай: `README.md`, `docs/*` — кроме добавления **новых** ADR
-  в `docs/adr/` и своих файлов в `agent/`.
-- Файлы держи короткими, до ~300 строк. Модуль, который перестал
-  помещаться в голову, разбей.
+You are **an agent of the same class as the coordinator**: you read and
+write files, run commands, use git, and **you have the internet**. You
+research a source before writing a provider against it. You verify your
+own claims by running them.
 
----
+Three things follow, and they are the point of this rewrite:
 
-## 3. Стек и зависимости
+1. **No task tells you how to use a shell.** Instructions of the form
+   "run this, then run that" exist only where the *order* matters, not
+   because you need the hand held.
+2. **A source you have not probed is not a source.** Before a provider,
+   a live probe and its recorded response. `agent/REPORT-MARKETS.md` is
+   the shape: exact request, exact status, exact size, verdict.
+3. **You are trusted with judgement and audited on evidence.** You may
+   pick libraries, shapes and names. You may not report a check you did
+   not run — that is the one thing the coordinator cannot recover from.
 
-Python 3.12. Порядок предпочтения: стандартная библиотека → разрешённый
-пакет → ничего.
+You run up to 50 processes in parallel. How that maps onto branches is
+**ADR-0012**, and it is binding: schema first and alone, then lanes with
+disjoint file zones, then integration.
 
-| Назначение | Разрешено |
-|---|---|
-| Тесты | `pytest` |
-| База | `sqlite3` из стандартной библиотеки |
-| Сжатие | `zstandard`, при недоступности — `gzip` из стандартной библиотеки, с ADR |
-| HTTP | `httpx` либо `requests` — **только** внутри `rusterm/providers/` |
-| Всё остальное | стандартная библиотека |
+## 2. What the project is
 
-Запрещены: любой ORM, `alembic`, `pandas`, `numpy`, асинхронные фреймворки,
-всё, чего нет в таблице. Миграции пишутся своим кодом — их немного,
-и зависимость дороже.
+**EquityLab / RusTerm** — a local terminal application for equity
+analysis. It collects issuer disclosures, normalises them into facts
+with provenance, computes measures by an explicit dictionary, and shows
+snapshots, peer sets and sector aggregates. No cloud, no service, no
+account. The database is SQLite, the store is on disk, the interface is
+`curses` (ADR-0009); Qt is forbidden by acceptance check 6.
 
-Если `pip install` недоступен из-за сети — работай на стандартной
-библиотеке, напиши ADR о вынужденной замене, продолжай.
+Reached and green as of the night of 09→10.09.2026: M1 skeleton, M2 US
+market, M3 whole snapshot, M4 watchlist and 500 instruments, M5 LLM
+layer with a deterministic stand-in, M6 Canada plus the OTC venue,
+M7 sector aggregate. Acceptance 13 of 13, 361 tests.
 
----
+## 3. What is being built now
 
-## 4. Инварианты: тесты-надзиратели
+**M8 — markets beyond EDGAR, and a second way in.**
 
-Это скелет архитектуры. Каждый инвариант — отдельный тест в
-`tests/test_invariants.py`. Они пишутся **первыми**, до кода, и должны
-падать, пока код не написан.
-
-| № | Инвариант | Проверка |
+| # | Thing | Why |
 |---|---|---|
-| I1 | Факт без `locator` не сохраняется | попытка записи падает |
-| I2 | Факт неизменяем | в репозитории нет пути, меняющего `value`; исправление создаёт новый факт и проставляет `superseded_by` |
-| I3 | `basis` определяется правилом периода | таблица случаев: отчёт за период → `as_reported`; сравнительная колонка позднего отчёта → `restated` |
-| I4 | `measure` без lineage не пишется, кроме `value IS NULL` с пустыми входами | обе ветки |
-| I5 | Перцентиль без `peer_set_version` не пишется | попытка падает |
-| I6 | Меньше 5 пиров — нет перцентиля; меньше 8 в отраслевом наборе — нет агрегатов | границы 4/5 и 7/8 |
-| I7 | Повторный сбор того же документа не создаёт ни нового объекта в store, ни новых фактов | двойной прогон конвейера |
-| I8 | `rusterm/core/` не импортирует Qt | обход дерева импортов |
-| I9 | Парсеры не ходят в сеть | в `rusterm/parsers/` нет импортов HTTP-библиотек |
-| I10 | Провайдеры не пишут в базу | в `rusterm/providers/` нет импортов `rusterm.store.db` |
-| I11 | Миграция не пересоздаёт базу | база с данными переживает миграцию, `schema_version` растёт |
-| I12 | `resolve(locator) == value` | на всех фикстурах |
-| I13 | `facts_only` не удаляет неразобранное | документ со статусом `needs_verification` остаётся |
-| I14 | В базу пишет один поток | запись из другого потока отвергается |
-| I15 | Знаменатель ≤ 0 даёт `null` с причиной | не исключение и не отрицательный мультипликатор |
+| 1 | Markets **KR, BR, AU**; deepening of **US-OTC** | user's decision, channels measured in `agent/REPORT-MARKETS.md` |
+| 2 | **Only auto-downloadable issuers are added.** Anything else is refused by name and pointed at manual import | user's decision, ADR-0010 §3 |
+| 3 | **Manual document import**: any format, not only PDF | user's decision, ADR-0011 |
+| 4 | **The model is reached over an API. One option, no second** | user's decision, ADR-0011 ② |
 
-Тест из этого списка, помеченный `xfail`, — законный итог по правилу трёх
-попыток. Удалённый или ослабленный — брак всей ночной работы.
+## 4. What is not being built. Read this before you widen anything
 
----
+- **Qt.** Not a line, not a file. Acceptance check 6.
+- **The United Kingdom.** Dropped by the user on 10.09.2026 — no
+  Companies House, no NSM, no UK issuer, no UK row. Where the old text
+  said "providers UK and CA", **only the UK half is dropped**: Canada is
+  built, green, and carries the `ifrs-full` dictionary that Korea,
+  Brazil and Australia all stand on.
+- **A local model.** LM Studio, Ollama, llama.cpp, a bundled weight file
+  — none of it. The API is the only path (ADR-0011 ②).
+- **OCR.** A scan without a text layer is answered `no_text_layer`.
+- **Industry metrics beyond Maritime/Tanker.**
+- **Scraping around a block.** 403 and 429 are a stop. Never rotate a
+  User-Agent to defeat a refusal, never proxy, never mirror.
 
-## 5. Инкременты
+Anything not in §3 is out of scope. Widening scope on your own is
+forbidden: unfinished width is worse than finished depth.
 
-Порядок обязателен: каждый следующий опирается на предыдущий. Инкремент
-закрыт, когда его тесты зелёные и он закоммичен.
+## 5. Rules that outlive the night
 
-**И0. Каркас.** Ветка, `pyproject.toml`, пакет `rusterm/`, `tests/`,
-`agent/STATE.json`, `agent/REPORT.md`, запуск `pytest` на пустом наборе.
-*Готово:* `pytest -q` отрабатывает без ошибок сбора.
+### 5.1. Evidence
 
-**И1. Конфигурация и каталог данных.** Структура `<app-data>` из ADR-0003,
-создание при первом запуске, `config.toml`, пути. Ключи и секреты
-не хранятся.
-*Готово:* каталог создаётся идемпотентно, повторный запуск не ломает
-существующий.
+- A claim without the command's real output is not a claim.
+  "Not run" is an acceptable report. "Works" without output is not.
+- **Never pipe a command whose exit code you care about into `tail`.**
+  This defect shipped a red acceptance three nights running (TASK-15
+  Disputed, TASK-17 question 1). Redirect to a file, check the status,
+  then look at the file.
+- Acceptance is ground truth about your work and outranks your report.
 
-**И2. Хранилище сырья.** Content-addressed store `raw/store/<2>/<sha256>`,
-сжатие свыше 64 КБ, манифест JSONL только на добавление, восстановление
-индекса из манифеста.
-*Готово:* I7 в части store; повторная запись того же байтового содержимого
-не создаёт второго объекта.
+### 5.2. Things that are never done
 
-**И3. База.** Схема по `docs/data-model.md` целиком, миграции вперёд,
-`schema_version`, WAL, единственный поток-писатель.
-*Готово:* I11, I14.
+- An `assert` is never deleted. An obsolete one is **replaced by a
+  stronger one**, and the report says how it is stricter.
+- An applied migration is never edited. New number, `_SCHEMA_VERSION`
+  read from the file, never assumed.
+- `agent/acceptance.sh` is never edited. It is compared to `origin/main`
+  by check 12, which exists because editing it was tried.
+- `docs/` is never edited. **New ADRs in `docs/adr/` are the one
+  permitted change** — that is how architecture moves here.
+- Green code is extended, never refactored, unless a task item names the
+  file and the defect.
 
-**И4. Репозитории.** По `docs/module-contracts.md` §5. Единственный слой
-с SQL.
-*Готово:* I2; вне `rusterm/store/` нет ни одной строки SQL — проверяется
-тестом.
+### 5.3. Architecture borders, enforced by acceptance
 
-**И5. Факт и локатор.** Модель `Fact`, шесть видов локатора с полем `schema`,
-валидация, правило `basis`, `resolve(locator)`.
-*Готово:* I1, I3, I12.
+| Border | Check |
+|---|---|
+| SQL only inside `rusterm/store/` | 7 |
+| HTTP only inside `rusterm/providers/` | 8 |
+| A provider never imports the store (I10) | 9 |
+| No Qt anywhere | 6 |
+| Nothing left outside git | 13 |
 
-**И6. Провайдеры.** Протоколы `MarketDataProvider` и `DisclosuresProvider`
-по `module-contracts.md`, реестр, фейковый провайдер на фикстурах из
-`fixtures/` — **явно помеченных синтетическими**.
-*Готово:* I10; фейковый провайдер отдаёт `poll_index` и документы.
+The LLM client is HTTP, so it lives in `rusterm/providers/`. This is not
+negotiable by convenience.
 
-**И7. Парсер.** Разбор синтетического XBRL-подобного JSON в факты
-с локаторами `kind=xbrl` и `kind=table`.
-*Готово:* I9, I12 на фикстурах.
+### 5.4. Secrets
 
-**И8. Конвейер сбора.** Все девять узлов процесса 1 из `docs/processes.md`,
-очередь заданий с ключом идемпотентности, ветки E1-E5, каскад устаревания.
-*Готово:* I7 полностью, I13; двойной прогон не создаёт дублей; сбой на узле
-не оставляет полусостояния.
+Keys come from the environment and from nowhere else:
+`RUSTERM_SEC_UA`, `RUSTERM_LLM_API_KEY`, `RUSTERM_DART_KEY`. A missing
+key is a `ConfigError` **value** and the offline path — never a crash,
+never a hardcoded default, never an invented contact. A key never enters
+git, a report, a log line, a test fixture or a commit message.
 
-**И9. Формулы.** Движок из `docs/data-dictionary.md`: концепты, формулы v1,
-`method_version`, TTM, правила `null`. Golden-file на синтетике —
-с эталоном, выписанным до кода.
-*Готово:* I15; golden-file зелёный.
+### 5.5. Network
 
-**И10. Peer set.** Модель, версии, происхождение, статусы `verified` /
-`unverified`, пороги 5 и 8, дрейф.
-*Готово:* I5, I6.
+Rate limit and budget are per host, declared by the provider, enforced
+by `RequestGate`. A network provider cannot be obtained without a gate
+(TASK-8 U5) and that hole is not reopened for any new source. Tests
+never reach the network: every market has a trimmed recorded payload
+under `tests/data/`, and a golden test resolves each value back to it.
+`fixtures/` stays synthetic.
 
-**И11. Снапшот.** Двухпроходная сборка по `processes.md` P2, три вида
-diff, `coverage`, `latest_measure`.
-*Готово:* I4; пир без свежих данных исключается с пометкой, а не берётся
-устаревшим.
+### 5.6. Stack
 
-**И12. Экспорт.** CSV и JSON из готовых величин, без пересчёта.
-*Готово:* экспорт совпадает с содержимым снапшота побайтово по значениям.
+Python 3.12 must run it; 3.14 is what is installed. Preference order:
+standard library → an allowed package → nothing. Allowed: `pytest`,
+`sqlite3`, `zstandard` with a `gzip` fallback, `httpx` or `requests`
+inside providers only. A document-format library (PDF, DOCX, XLSX) is
+allowed inside `rusterm/manual/` and must degrade to
+`format_unsupported` as a value when absent. Forbidden: any ORM,
+`alembic`, `pandas`, `numpy`, async frameworks.
 
-**И13. CLI.** `init`, `ingest`, `snapshot`, `export`, `verify`, `doctor`.
-`doctor` проверяет целостность: манифест против store, `schema_version`,
-осиротевшие ссылки.
-*Готово:* каждая команда отрабатывает на синтетических данных,
-вывод приложен к отчёту.
+## 6. Autonomy and the shift
 
-**И14. Инвариантный прогон.** Все тесты из §4 собраны и зелёные либо
-явно `xfail` с причиной.
-*Готово:* `pytest -q` целиком, вывод в отчёт.
+You work 00:00–10:00 Danang (UTC+7) with nobody to ask. Every task is
+written so that no item requires a decision from the user; where a fork
+exists, the task closes it with a deterministic rule.
 
-**И15. Только если есть сеть.** Провайдер SEC EDGAR: `poll_index`
-по индексу изменений, `companyfacts`, три эмитента. Замерить фактический
-лимит и объём, записать в ADR.
-*Готово:* реальные данные собраны и помечены реальными; при отсутствии
-сети — инкремент пропущен с записью в отчёт.
+- No new item after 09:30. Finish the current one to a commit and a push.
+- The report ends with a `HANDOFF` section.
+- Stuck means: the same failure after **three different hypotheses**,
+  not three retries of one. Then `xfail(strict=True)` with a reason,
+  report all three, next item.
+- A passing test starts failing → stop, `git checkout -- <file>`.
 
----
+## 7. Where things live
 
-## 6. Работа с сетью
+| Path | What |
+|---|---|
+| `agent/TASK-<N>.md` | the night's task; `Status: READY` means take it |
+| `agent/REPORT-<N>[-<lane>].md` | your journal, append-only |
+| `agent/state/<lane>.json` | your state per lane (ADR-0012) |
+| `agent/BACKLOG.md` | pre-approved small items for idle time |
+| `agent/acceptance.sh` | the 13 checks. Read-only |
+| `agent/REPORT-MARKETS.md` | measured channel probes for KR/BR/AU/OTC/NZ/SG/RU |
+| `docs/adr/` | architecture. The only writable part of `docs/` |
 
-Сеть нужна только в И15 и, возможно, для установки `pytest` и `zstandard`.
-Всё остальное строится офлайн на фикстурах.
+## 8. Precedence when sources disagree
 
-- Сеть недоступна — не жди её, иди по инкрементам дальше
-  (`SKILL.md` §5).
-- Реальные данные никогда не подменяются синтетическими под видом
-  настоящих. Фикстура помечена в имени файла и в отчёте.
-- Никаких обходов блокировок, прокси, зеркал и кешей поисковиков.
+The user in chat → the numbered task → this file → `docs/` → existing
+code → your judgement.
 
----
-
-## 6a. Бюджет запросов
-
-**1000 запросов в сутки, не более 20 в минуту** — это дневная норма
-бесплатных моделей аккаунта, общая на все модели одного сервиса.
-Восемь часов работы делят её примерно на два запроса в минуту.
-Шестнадцать инкрементов — значит порядка шестидесяти запросов
-на инкремент, включая тесты и отладку. Хватает, но не с запасом.
-
-Правила расходования:
-
-- Один вызов — один законченный шаг цикла, не одна строка кода.
-- Файл читается целиком и однократно; перечитывать прочитанное
-  в этой сессии запрещено.
-- Результат команды берётся из её вывода, а не проверяется вторым
-  вызовом.
-- Неудачные попытки тоже тратят квоту. Отсюда правило трёх попыток
-  из `SKILL.md` §4 — оно про экономию не меньше, чем про зацикливание.
-- Считай израсходованное и записывай в `STATE.json` поле `"requests"`.
-  Дошло до 800 — переходи в режим экономии: доводи текущий инкремент
-  до коммита и закрывай ночь отчётом, а не начинай новый.
-
-Квота одного сервиса не расходует квоту другого: исчерпав дневную норму
-у одного провайдера, переходи к следующему в цепочке. Исчерпанный
-провайдер уходит в остывание до конца суток, а не проверяется каждым
-запросом.
-
-**Платные модели.** На счету есть деньги, поэтому переключение на платную
-модель тратит их молча и быстро. Правило: работать только на моделях
-без оплаты за токен. Если в цепочке оказалась платная модель и переключение
-на неё произошло — зафиксируй это в `STATE.json` и в отчёте отдельной
-строкой, чтобы утром было видно, куда ушли средства.
-
-Модель и провайдер, на которых сделан каждый инкремент, фиксируются
-в `STATE.json` и в отчёте. После смены модели — полный прогон тестов
-до написания нового кода.
-
----
-
-## 7. Критерии приёмки
-
-Утром проверяется следующее, в этом порядке:
-
-1. `git log` на ветке `agent/night-1` — осмысленная последовательность
-   коммитов, история не переписана.
-2. `pytest -q` — зелёный либо с явными `xfail` и причинами.
-3. Инварианты §4 — все пятнадцать присутствуют как тесты.
-4. `agent/REPORT.md` — заполнен по ходу, с фактическими выводами команд.
-5. Раздел «Чему верить нельзя» — присутствует и честен.
-6. `grep` по репозиторию: ни одного `TODO`, `pass  #`, `NotImplementedError`
-   в рабочем пути.
-7. `docs/` — не изменён, кроме новых ADR.
-8. Ни одной строки Qt.
-
-Работа, прошедшая пункты 1-8 частично, полезна. Работа, где зелёные тесты
-получены ослаблением проверок, бесполезна целиком — и это будет видно
-по диффу.
-
----
-
-## 8. Что оставить утром
-
-- Ветка `agent/night-1` с историей работы.
-- `agent/REPORT.md` — что сделано, что проверено, чему верить нельзя.
-- `agent/STATE.json` — на каком шаге остановился.
-- Новые ADR по принятым самостоятельно решениям, со статусом
-  «принято агентом, требует подтверждения».
+A conflict between the numbered task and `docs/` is a coordination bug:
+implement per the task, and quote **both** sides in `Disputed`. The
+coordinator rules on every `Disputed` item explicitly in the next task —
+you are sometimes right, and that is what the section is for.

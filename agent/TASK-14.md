@@ -1,6 +1,8 @@
 # TASK-14 — the pass that has to survive five hundred
 
-- **Status: READY** — this is the task. Start here.
+- **Status: ACCEPTED** — coordinator re-ran acceptance and the suite on
+  `agent/night-2` on 10.09.2026: 13/13, 361 passed, 2 skipped, 0 xfailed.
+  Rulings on every `Disputed` item are in `agent/TASK-19.md` §0.1.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-14A.md` — **not** `REPORT-14.md`, which is
   already taken by your SEDAR+ access probe (commit `8677934`). Two

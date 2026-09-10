@@ -1,7 +1,8 @@
 # TASK-17 — M7: агрегат по сектору, который воспроизводится на дату
 
-- **Status: READY** — take it when `agent/TASK-16.md` is finished and
-  handed over, or when its items are exhausted before 09:30.
+- **Status: ACCEPTED** — coordinator re-ran acceptance and the suite on
+  `agent/night-2` on 10.09.2026: 13/13, 361 passed, 2 skipped, 0 xfailed.
+  Rulings on every `Disputed` item are in `agent/TASK-19.md` §0.1.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-17.md`
 - **Next in queue:** `agent/TASK-18.md` (Canada and the OTC venue,
