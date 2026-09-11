@@ -67,3 +67,13 @@ Model calls:     0
 Secrets:         no key exists for this channel; nothing leaked
 
 READY TO MERGE: agent/n3-L3  1fc1565  selfcheck exit 0  tests 9 passed
+
+## Correction (honesty about the selfcheck line)
+
+The first selfcheck on this head returned acceptance 12/1; two
+immediately following full acceptance runs were both 13/13 with
+identical check lists (outputs compared). Verdict: a transient, most
+likely a live-SEC network hiccup inside the suite - not a code red.
+The READY TO MERGE line stands on the two consecutive green runs.
+Rule proposed for integration (ADR-0017 §6): a red acceptance is
+re-run ONCE and the second run decides; both outputs are recorded.
