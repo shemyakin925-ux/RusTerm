@@ -52,3 +52,12 @@ Model calls:     0
 Secrets:         no key in git, report or log
 
 READY TO MERGE: agent/n3-L10  9b4d977  selfcheck exit 0  tests suite-green
+
+## Correction (zone exit, forced by the guard)
+
+tests/test_docs_truth.py refuses a new ADR unless README names it -
+the guard's own docstring declares that workflow. README §15's ADR
+enumeration gained "(0013)" (one line). Zone exit: README.md,
+dictated by the guard; selfcheck on the final head: exit 0, 13/13.
+
+READY TO MERGE: agent/n3-L10  9af89da  selfcheck exit 0  tests suite-green
