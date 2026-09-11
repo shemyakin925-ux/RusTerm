@@ -299,6 +299,7 @@ class FactRepo:
         "period_end", "period_type", "value", "unit", "currency", "basis",
         "origin", "source_ref", "locator", "parser_version", "status",
         "superseded_by", "canonical_concept", "concept_map_version",
+        "source_kind",
     )
 
     def get_fact(self, fact_id: str) -> Optional[dict]:
