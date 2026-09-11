@@ -10,8 +10,8 @@ import uuid
 
 import pytest
 
-from rusterm.core.export import snapshot_to_csv, snapshot_to_json, \
-    snapshot_to_md
+from rusterm.core.export import attach_provenance, snapshot_to_csv, \
+    snapshot_to_json, snapshot_to_md
 from rusterm.core.snapshot import SnapshotBuilder
 from rusterm.store.db import apply_migrations
 from rusterm.store.paths import AppPaths, ensure_app_dir
@@ -322,3 +322,96 @@ def test_export_md_nulls_as_footnotes_numbers_with_periods():
     finally:
         import shutil
         shutil.rmtree(tmpdir)
+
+
+# ── ТЗ-20 L9: провенанс переживает выгрузку ────────────────────────────
+
+def _measure(concept="net_margin", value="0.1", mid="m1"):
+    return {"measure_id": mid, "scope": "issuer", "scope_ref": "i1",
+            "concept": concept, "value": value, "unit": "ratio",
+            "period_start": "2024-01-01", "period_end": "2024-12-31",
+            "formula_id": "net_margin", "method_version": "v1",
+            "null_reason": None, "peer_set_version": None}
+
+
+def _provider_fact():
+    return {"fact_id": "f-p", "source_kind": "provider",
+            "concept": "revenue", "source_ref": "a" * 64,
+            "locator": '{"kind": "xbrl"}', "status": "ok"}
+
+
+def _manual_fact(page=3, sha=None):
+    sha = sha or ("b" * 64)
+    return {"fact_id": "f-m", "source_kind": "manual",
+            "concept": "fleet_size", "source_ref": sha,
+            "locator": json.dumps(
+                {"locator": f"sha256:{sha}#page={page}"}),
+            "status": "ok"}
+
+
+def test_provider_and_manual_measures_are_distinguishable():
+    rows = attach_provenance(
+        [_measure(mid="mp"), _measure(concept="fleet_ratio", mid="mm")],
+        {"mp": [_provider_fact()], "mm": [_manual_fact(page=3)]})
+    by_id = {r["measure_id"]: r for r in rows}
+    assert by_id["mp"]["provenance"]["source_kind"] == "provider"
+    manual = by_id["mm"]["provenance"]
+    assert manual["source_kind"] == "manual"
+    entry = manual["facts"][0]
+    assert entry["document"] == "b" * 64  # хэш документа
+    assert entry["page"] == 3             # страница
+
+
+def test_round_trip_through_json_finds_hash_and_page():
+    rows = attach_provenance([_measure(mid="mm")],
+                             {"mm": [_manual_fact(page=7,
+                                                  sha="c" * 64)]})
+    text = snapshot_to_json({"snapshot_id": "s", "version": 1,
+                             "as_of": "2024-12-31"}, rows,
+                            provenance=None)
+    payload = json.loads(text)
+    prov = payload["measures"][0]["provenance"]
+    assert prov["facts"][0]["document"] == "c" * 64
+    assert prov["facts"][0]["page"] == 7
+    # потребитель отвечает на вопрос по тексту экспорта, без базы:
+    # это файл пользователя, не регулятор
+    assert prov["source_kind"] == "manual"
+
+
+def test_json_without_provenance_is_unchanged():
+    """Существующие вызовы: без provenance ключ 'provenance' не
+    появляется, все прежние поля на месте."""
+    measures = [_measure()]
+    text_before = snapshot_to_json({"snapshot_id": "s"}, measures)
+    payload = json.loads(text_before)
+    assert "provenance" not in payload["measures"][0]
+    for key in ("measure_id", "scope", "scope_ref", "concept", "value",
+                "unit", "period_start", "period_end", "formula_id",
+                "method_version", "null_reason", "peer_set_version"):
+        assert key in payload["measures"][0]
+
+
+def test_existing_csv_and_md_formats_untouched():
+    """Порядок и имена полей CSV/MD не меняются (добавление — только в
+    JSON через отдельный параметр). Строка меры — кортеж из
+    get_measures, как в реальном вызове."""
+    row = ("m1", "issuer", "i1", "net_margin", "0.1", "ratio",
+           "2024-01-01", "2024-12-31", "net_margin", "v1", None, None)
+    csv_text = snapshot_to_csv([row])
+    assert csv_text.splitlines()[1] == (
+        "scope,scope_ref,concept,value,unit,period_start,period_end,"
+        "method_version,null_reason")
+    md_text = snapshot_to_md([row])
+    assert "| concept | value | unit | period_start | period_end |" \
+        in md_text
+
+
+def test_unverified_manual_fact_is_visible_as_manual():
+    """manual + статус suspect: провенанс по-прежнему manual (факт
+    виден), недоверие — отдельное поле status, не исчезновение."""
+    fact = _manual_fact()
+    fact["status"] = "suspect"
+    rows = attach_provenance([_measure(mid="mm")], {"mm": [fact]})
+    prov = rows[0]["provenance"]
+    assert prov["source_kind"] == "manual"
+    assert prov["facts"][0]["status"] == "suspect"
