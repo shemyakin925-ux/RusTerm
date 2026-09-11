@@ -1072,30 +1072,69 @@ def cmd_markets(args) -> int:
 
 
 def cmd_import(args) -> int:
-    """Место конвейера ручного импорта (ADR-0011 ①-③, BACKLOG B26/B21):
-    команда существует, чтобы совет `rusterm add` был копируемым
-    дословно. --dry-run — каркас B21: ступень ① (extract_text)
-    вызывается по каждому файлу, исход печатается значением, НИЧЕГО не
-    пишется — ни в базу, ни в store. Полную реализацию привозят полосы
-    ТЗ-20 L5/L6."""
-    from rusterm.manual import extract_text
+    """Ручной импорт (ADR-0011 ①-③, ТЗ-20 L6): файл -> страницы ->
+    записи (модель по API) -> детерминированный контроль -> факты.
+
+    --dry-run — только ступень ①: исход печатается, ничего не пишется
+    (B21). Ключа модели нет — команда останавливается после ① с
+    внятным сообщением, ничего не записывая (ADR-0011 ②). Эмитент
+    должен существовать: импорт не создаёт эмитентов (ADR-0011)."""
+    from rusterm.manual.pipeline import import_document
     from rusterm.providers.base import ProviderError
-    if args.dry_run:
-        exit_code = 0
-        for path in args.path:
-            outcome = extract_text(path)
-            if isinstance(outcome, ProviderError):
-                print(f"{path}: {outcome.reason}")
-                exit_code = 1
-            else:
-                print(f"{path}: извлечено (dry-run: ничего не записано)")
-        if exit_code == 0:
-            print("dry-run: записей нет — проверка прошла бы после "
-                  "подключения конвейера (ТЗ-20 L5/L6)")
-        return exit_code
-    print("ручной импорт: конвейер ещё не подключён (поставят полосы "
-          "ТЗ-20 L5/L6); файл не принят", file=sys.stderr)
-    return 1
+    from rusterm.providers.budget import ConfigError, RequestGate
+    from rusterm.providers.llm_api import LlmApiClient
+
+    paths, conn = _open(args.root)
+    if current_schema_version(conn) is None:
+        print("база не создана; выполните rusterm init", file=sys.stderr)
+        conn.close()
+        return 1
+    repos = RepoRegistry(conn, paths)
+    instrument_id = (f"{args.market}-{args.issuer.upper()}"
+                     if args.market else args.issuer.upper())
+    instrument = repos.instrument.get_instrument(instrument_id)
+    if instrument is None:
+        print(f"инструмент {instrument_id!r} не найден; импорт не создаёт "
+              f"эмитентов — сначала rusterm add (ТЗ-20 L6)",
+              file=sys.stderr)
+        conn.close()
+        return 1
+
+    client = LlmApiClient.from_env(gate=RequestGate())
+    exit_code = 0
+    for path in args.path:
+        outcome = import_document(conn, paths, path, instrument.issuer_id,
+                                  client, dry_run=args.dry_run)
+        if isinstance(outcome, ProviderError):
+            print(f"{path}: {outcome.reason} (ТЗ-20 L6)", file=sys.stderr)
+            exit_code = 1
+            continue
+        if isinstance(outcome, ConfigError):
+            print(f"{path}: файл прочитан (ступень ①), но ключ "
+                  f"RUSTERM_LLM_API_KEY не задан — ступень ② не "
+                  f"выполняется, ничего не записано ({outcome.reason}; "
+                  f"ТЗ-20 L6)", file=sys.stderr)
+            exit_code = 1
+            continue
+        if args.dry_run:
+            print(f"{path}: извлечено, sha {outcome.document_sha[:12]}… "
+                  f"(dry-run: ничего не записано)")
+            continue
+        if outcome.replay:
+            print(f"{path}: уже импортирован ({outcome.document_sha[:12]}…), "
+                  f"строки не дублировались; записей в документе: "
+                  f"{outcome.records_total} "
+                  f"(подтверждено {outcome.records_verified})")
+            continue
+        print(f"{path}: записей от модели: {outcome.records_total}; "
+              f"отброшено без цитаты: {outcome.dropped_no_quote}, "
+              f"с чужой категорией: {outcome.dropped_bad_category}; "
+              f"подтверждено контролем: {outcome.records_verified}; "
+              f"не подтверждено (manual_unverified, в меры не идут): "
+              f"{outcome.records_unverified}; фактов записано: "
+              f"{outcome.facts_stored}")
+    conn.close()
+    return exit_code
 
 
 def main(argv: list[str] | None = None) -> int:
