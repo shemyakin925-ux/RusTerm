@@ -1,6 +1,9 @@
 # TASK-19 — Фаза 0: фундамент M8. Схема, реестры и причины — до разветвления
 
-- **Status: READY** — this is the task. Start here.
+- **Status: ACCEPTED** — accepted by the coordinator 11.09.2026;
+  journal `agent/ACCEPTANCE-19.txt`, rulings on the three "Disputed"
+  points at the head of `agent/BACKLOG.md`, remaining debts in
+  `agent/TASK-27.md`. Nothing here is open.
 - **Branch:** `agent/night-3` (branch it from the head of `agent/night-2`)
 - **Report:** `agent/REPORT-19.md`
 - **Blocks everything.** `agent/TASK-20.md` is a **parallel** task and

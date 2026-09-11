@@ -17,22 +17,50 @@ the `- [x]` line. Deleting only a bullet's first line leaves orphaned
 prose in the queue — that happened on 09.09 and the coordinator repaired
 it by hand.
 
+## Coordinator rulings — TASK-19 (read once, then obey)
+
+Accepted 11.09.2026, journal `agent/ACCEPTANCE-19.txt`. The three
+"Disputed" points of `agent/REPORT-19.md` are settled here.
+
+| # | Executor's point | Ruling |
+|---|---|---|
+| 1 | P1 in `selfcheck.sh` narrowed to `*.py` | **Upheld.** The guard is about code; `assert` inside Russian backlog prose is not a removed assertion. `acceptance.sh` stays protected by acceptance check 12, a separate mechanism. Do not re-widen. |
+| 2 | `llm-api` counted as the eighth name in `available()` | **Upheld.** 5 network seats + 2 synthetic + `llm-api` with its own `HostLimit`. Leave it registered. |
+| 3 | `near_miss` shares the `manual_unverified` outcome with `failed` | **Upheld for now.** One bucket until the measure side selects on `source_kind` (TASK-20 L6); the split is `agent/TASK-27.md` N4, not a lane decision. |
+
+Noted, no action required: the honest incident note on commit `51795c9`
+(selfcheck ran red, `;` instead of `&&`, the commit landed anyway). The
+red was the rewritten-seat-test false positive, not a weakened
+assertion — checked line by line by the coordinator. The correction
+(`&&` always) is the right one.
+
 ## Queue
 
 Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
-- [ ] B22 — document formats table in README from the code, not by hand
-  — accept: test asserts every format `extract.py` handles is listed —
-  size: S
-- [ ] B27 — a manual fact and a provider fact for the same concept and
-  period coexist without either overwriting the other — accept: test
-  asserts both rows present and the provider one wins the measure —
-  size: M
-- [ ] B29 — scale pass with six markets and prices together (M4 measured
-  500 US instruments with no price path) — accept: the M4 budget still
-  holds, report states seconds per issuer — size: L
+- [ ] B32 — README's test count stops being a hand-written number that
+  rots inside one shift (it said "402 пройдено, 2 пропущено" while the
+  same night ended at 411) — accept: either the number is generated, or
+  the sentence names no number and a test asserts no bare test count
+  survives in README.md — size: S
+- [ ] B33 — `agent/selfcheck.sh` stops hard-coding "пройдено 13": read
+  the expected count from `acceptance.sh` itself, so a fourteenth check
+  does not make selfcheck lie — accept: add a check to a scratch copy of
+  acceptance.sh, selfcheck still passes on green and still fails on red
+  — size: S
+- [ ] B34 — the OTC universe drift (12,794 live vs 12,867 in
+  `agent/REPORT-MARKETS.md`) gets a written tolerance instead of a
+  finding repeated every night — accept: REPORT-MARKETS states the
+  tolerance band and the date of the last live count — size: S
+
+- [→] B22, B27, B29 — **promoted to `agent/TASK-27.md`** (items N2,
+  N3, N5) on 11.09.2026. Each was deferred in TASK-19 for a stated
+  reason — `extract.py` absent, measure-side `source_kind` selection
+  absent, six-market providers absent — and each reason is gone by the
+  night TASK-27 is taken. Do not take them from here: they are a
+  night's work now, not idle-time work.
 
 ## Done
 
