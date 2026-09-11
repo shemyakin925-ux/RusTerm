@@ -143,3 +143,130 @@ def test_build_without_key_is_config_error():
     result = build(_gate())
     assert isinstance(result, ConfigError)
     assert result.reason == "llm_key_unset"
+
+
+# ── ТЗ-20 L7: ретраи, таймауты, ключ нигде ─────────────────────────────
+
+class _Sleeper:
+    def __init__(self):
+        self.calls: list[float] = []
+
+    def __call__(self, seconds: float):
+        self.calls.append(seconds)
+
+
+def _retry_client(transport, nightly_max: int = 5000):
+    sleeper = _Sleeper()
+    client = _client(transport, nightly_max=nightly_max)
+    client.sleeper = sleeper
+    return client, sleeper
+
+
+def test_429_retried_once_then_success():
+    """429 -> бэкофф -> повтор (2-я попытка) -> 200: текст возвращён,
+    обе попытки посчитаны гейтом, бэкофф ровно один."""
+    seen: list[int] = []
+
+    def transport(url, headers, payload):
+        if not seen:
+            seen.append(429)
+            return 429, b"", {}
+        seen.append(200)
+        return 200, json.dumps(
+            {"choices": [{"message": {"content": "ok"}}]}).encode(), {}
+
+    client, sleeper = _retry_client(transport)
+    assert client.complete("x") == "ok"
+    assert len(seen) == 2
+    assert client.gate.calls_made == 2  # каждая попытка — реальный запрос
+    assert sleeper.calls == [client.backoff]
+
+
+def test_two_5xx_give_up_as_value_after_two_attempts():
+    def transport(url, headers, payload):
+        return 503, b"", {}
+
+    client, sleeper = _retry_client(transport)
+    result = client.complete("x")
+    assert isinstance(result, ConfigError)
+    assert result.reason == "llm_http_503"
+    assert client.gate.calls_made == 2
+    assert len(sleeper.calls) == 1
+
+
+def test_4xx_is_not_retried():
+    attempts = []
+
+    def transport(url, headers, payload):
+        attempts.append(1)
+        return 400, b"bad request", {}
+
+    client, sleeper = _retry_client(transport)
+    result = client.complete("x")
+    assert isinstance(result, ConfigError)
+    assert result.reason == "llm_http_400"
+    assert len(attempts) == 1  # 4xx — не повторяется
+    assert sleeper.calls == []
+
+
+def test_timeout_maps_to_value_and_is_retried_once():
+    import socket
+
+    attempts = []
+
+    def transport(url, headers, payload):
+        attempts.append(1)
+        raise socket.timeout("read timed out")
+
+    client, _ = _retry_client(transport)
+    result = client.complete("x")
+    assert isinstance(result, ConfigError)
+    assert result.reason.startswith("llm_timeout:")
+    assert len(attempts) == 2
+
+
+def test_default_transport_carries_explicit_timeout(monkeypatch):
+    """Живой транспорт передаёт READ_TIMEOUT в urlopen явно: и
+    соединение, и чтение ограничены одним и тем же числом (urllib
+    семантика), и оно не бесконечность."""
+    captured = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["timeout"] = timeout
+        raise RuntimeError("stop before network")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    try:
+        from rusterm.providers import llm_api
+        llm_api._default_transport("https://llm.invalid/v1/x", {}, b"{}")
+    except RuntimeError:
+        pass
+    assert captured["timeout"] == llm_api.READ_TIMEOUT
+    assert 0 < llm_api.READ_TIMEOUT < 3600
+
+
+def test_key_absent_from_every_artifact(caplog):
+    """Ключ не появляется ни в тексте ответа, ни в значениях ошибок,
+    ни в журналах — ни при успехе, ни при ретрае, ни при отказе."""
+    import logging
+
+    with caplog.at_level(logging.DEBUG, logger="rusterm"):
+        good = _client(_ok_transport()).complete("ok")
+        retried = _retry_client(
+            lambda u, h, p: (503, b"", {}))[0].complete("retry")
+        bad = _client(lambda u, h, p: (200, b"garbage", {})).complete("bad")
+    assert good == "{\"intent\": null}"
+    assert isinstance(retried, ConfigError)
+    assert isinstance(bad, ConfigError)
+    assert DUMMY_KEY not in caplog.text
+    assert DUMMY_KEY not in good
+    assert DUMMY_KEY not in retried.reason
+    assert DUMMY_KEY not in bad.reason
+
+
+def test_production_model_not_pinned_to_paid():
+    """Дефолт базы — OpenRouter (free-совместимый), платный дефолт не
+    зашит: модель приходит только из окружения."""
+    from rusterm.providers import llm_api
+    assert llm_api.DEFAULT_BASE_URL == "https://openrouter.ai/api/v1"
+    assert "glm" not in llm_api.DEFAULT_BASE_URL

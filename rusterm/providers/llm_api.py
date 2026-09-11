@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Mapping
 
 from .base import ProviderError
@@ -32,13 +34,23 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
 _PROVIDER_NAME = "llm-api"
 
+# Таймауты (ТЗ-20 L7): urllib применяет один socket-таймаут и к
+# соединению, и к каждому блокирующему чтению — ОБА ограничены этим
+# числом, явно и тестированно. Отдельного connect-таймаута в urllib
+# не существует; здесь это документировано, а не скрыто.
+READ_TIMEOUT = 60
+# Ретраи (N3/N4): 429 и 5xx повторяются ОДИН раз с бэкоффом — два
+# попытки, дальше отказ значением. Бюджет считает каждую попытку.
+RETRY_ATTEMPTS = 2
+RETRY_BACKOFF_SECONDS = 2.0
+
 
 def _default_transport(url: str, headers: dict, payload: bytes) -> tuple:
-    """Живой транспорт: (статус, тело, заголовки)."""
+    """Живой транспорт: (статус, тело, заголовки); таймаут явный."""
     request = urllib.request.Request(url, data=payload,
                                      headers=dict(headers), method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=60) as resp:
+        with urllib.request.urlopen(request, timeout=READ_TIMEOUT) as resp:
             return resp.status, resp.read(), dict(resp.headers)
     except urllib.error.HTTPError as e:
         return e.code, e.read(), dict(e.headers or {})
@@ -59,6 +71,9 @@ class LlmApiClient:
     limit: HostLimit
     gate: RequestGate | None = None
     transport: Callable[[str, dict, bytes], tuple] = _default_transport
+    sleeper: Callable[[float], None] = time.sleep
+    attempts: int = RETRY_ATTEMPTS
+    backoff: float = RETRY_BACKOFF_SECONDS
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None,
@@ -97,13 +112,34 @@ class LlmApiClient:
             return self.transport(self.base_url + "/chat/completions",
                                   merged, payload)
 
-        result = self.gate.request(send, limit=self.limit)
-        if isinstance(result, (ConfigError, BudgetExceeded)):
-            return result
-        status, body, _headers = result
-        if status != 200:
-            # статус без тела: тело чужого ответа может что угодно нести
+        last: ConfigError | BudgetExceeded | None = None
+        for attempt in range(max(1, self.attempts)):
+            if attempt:
+                self.sleeper(self.backoff)
+            try:
+                result = self.gate.request(send, limit=self.limit)
+            except (socket.timeout, TimeoutError, OSError) as e:
+                last = ConfigError(reason=f"llm_timeout:{type(e).__name__}")
+                continue
+            if isinstance(result, (ConfigError, BudgetExceeded)):
+                return result  # дверь/бюджет: не ретраится, это не сеть
+            status, body, _headers = result
+            if status == 200:
+                return self._parse(body)
+            if status in (429, 500, 502, 503, 504):
+                last = ConfigError(reason=f"llm_http_{status}")
+                continue  # повтор с бэкоффом, вторая попытка — последняя
             return ConfigError(reason=f"llm_http_{status}")
+        return last or ConfigError(reason="llm_http_unknown")
+
+    def _parse(self, body: bytes) -> str | ConfigError:
+        parsed = self._decode(body)
+        if isinstance(parsed, ConfigError):
+            return parsed
+        return parsed
+
+    @staticmethod
+    def _decode(body: bytes) -> str | ConfigError:
         try:
             parsed = json.loads(body.decode("utf-8"))
             text = parsed["choices"][0]["message"]["content"]
