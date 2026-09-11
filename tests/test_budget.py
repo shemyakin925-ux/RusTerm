@@ -15,6 +15,7 @@ from rusterm.providers.budget import (
     RateLimiter,
     RequestGate,
 )
+from rusterm.providers import UnknownProvider
 
 
 class FakeClock:
@@ -160,23 +161,34 @@ def test_per_host_pools_do_not_share_legacy_budget():
     assert gate.calls_made == 2
 
 
-def test_seat_returns_config_error_value_not_import_error():
-    """F5 + B20: get_provider('dart') до появления модуля — значение
-    provider_not_implemented, не ImportError (место уже занято);
-    до RequestGate дело не доходит — ноль запросов счётом."""
+def test_seat_lifecycle_absent_module_or_built_provider_zero_requests():
+    """F5 + B20, lifecycle-форма (замена; строго сильнее пина эпохи
+    пустых мест): для КАЖДОГО сетевого имени место ведёт себя честно —
+    модуля нет: ConfigError provider_not_implemented (не ImportError);
+    модуль есть: провайдер или ConfigError-значение от его build;
+    в ОБОИХ случаях get_provider не делает ни одного запроса.
+    Написан полосой L1: место dart заполнилось, прежний пин
+    'provider_not_implemented:dart' опровергнут самим фактом L1."""
+    import importlib
     from rusterm.providers import get_provider
     gate = _ua_gate()
-    result = get_provider("dart", gate=gate)
-    assert isinstance(result, ConfigError)
-    assert result.reason == "provider_not_implemented:dart"
-    assert gate.calls_made == 0
-    assert gate.refused == 0
-    # то же для остальных мест: модулей нет — запросов нет
-    for name in ("cvm", "asx", "otcmarkets"):
+    for name in ("dart", "cvm", "asx", "otcmarkets"):
+        try:
+            importlib.import_module(f"rusterm.providers.{name}")
+            absent = False
+        except ModuleNotFoundError as e:
+            if e.name in (name, f"rusterm.providers.{name}"):
+                absent = True
+            else:
+                raise
         outcome = get_provider(name, gate=gate)
-        assert isinstance(outcome, ConfigError), name
-        assert outcome.reason == f"provider_not_implemented:{name}"
-    assert gate.calls_made == 0
+        if absent:
+            assert isinstance(outcome, ConfigError), name
+            assert outcome.reason == f"provider_not_implemented:{name}"
+        else:
+            assert not isinstance(outcome, UnknownProvider), name
+        assert gate.calls_made == 0, name
+        assert gate.refused == 0, name
     # без гейта — прежняя дверь U5, тоже значением
     no_gate = get_provider("dart", gate=None)
     assert isinstance(no_gate, ConfigError)
