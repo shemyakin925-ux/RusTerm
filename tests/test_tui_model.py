@@ -305,3 +305,137 @@ def test_c5_source_panel_lists_stale_excluded_fact_with_marker():
         conn.close()
     finally:
         shutil.rmtree(tmpdir)
+
+
+# ── ТЗ-20 L8: рынок в списке, source_kind в карточке ───────────────────
+
+def _seed_manual_fact(repos, sha_ref: str, status: str = "ok"):
+    fact_id = str(uuid.uuid4())
+    repos.fact.insert_fact(
+        fact_id=fact_id, issuer_id="i1", listing_id=None,
+        concept="fleet_size", period_start="2025-01-01",
+        period_end="2025-12-31", period_type="duration",
+        value="42", unit="ships", currency=None, basis="as_reported",
+        origin="manual", source_ref=sha_ref,
+        locator={"locator": f"sha256:{sha_ref}#page=3"},
+        parser_version="manual:fake-model:records.v1",
+        status=status, source_kind="manual")
+    return fact_id
+
+
+def test_list_row_carries_market_code_from_registry():
+    tmpdir, conn, repos = _registry()
+    try:
+        rows = model.list_rows(repos, "w1")
+        # ins1 не начинается с кода рынка — честное «—»
+        assert rows[0]["market"] == "—"
+        repos.instrument.upsert_instrument(Instrument(
+            "US-FLT", "i1", None, "common", "active", None))
+        wl = repos.watchlist
+        vid = wl.new_version("wv2", "w1", 2, "edit", None)
+        wl.copy_members("wv1", "wv2")
+        wl.add_member("wv2", "US-FLT", None)
+        rows = model.list_rows(repos, "w1")
+        by_id = {r["instrument_id"]: r for r in rows}
+        assert by_id["US-FLT"]["market"] == "US"
+    finally:
+        conn.close()
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_render_list_shows_market_column():
+    lines = model.render_list([
+        {"market": "US", "ticker": "FLT", "instrument_id": "US-FLT",
+         "as_of": "2024-12-31",
+         "coverage_cells": ["ready"] + ["-"] * 7,
+         "peer_status": None, "market_code": "US"}])
+    assert lines[0].startswith("US  ")
+
+
+def test_card_distinguishes_manual_from_provider_and_marks_unverified():
+    """Done-when L8: строка модели для manual-непроверенного факта
+    отличается от provider-факта в поле, на котором ключается
+    отрисовщик; curses для тестов не нужен."""
+    tmpdir, conn, repos = _registry()
+    try:
+        _seed_snapshot_with_measures(repos)
+        obj = repos.raw.put(b'{"manual": "doc"}', provider="manual-import",
+                            block="manual")
+        manual_fact = _seed_manual_fact(repos, obj.sha256, status="ok")
+        manual_bad = _seed_manual_fact(repos, obj.sha256, status="suspect")
+        repos.snapshot.create_snapshot("s2", "ins1", 2, "2025-12-31",
+                                       None, "none", "ready")
+        repos.snapshot.add_block("s2", "fundamentals", "ready", None)
+        prov_fact = str(uuid.uuid4())
+        prov_obj = repos.raw.put(b'{"provider": "doc"}',
+                                 provider="synthetic",
+                                 block="fundamentals")
+        repos.fact.insert_fact(
+            fact_id=prov_fact, issuer_id="i1", listing_id=None,
+            concept="revenue", period_start="2025-01-01",
+            period_end="2025-12-31", period_type="duration",
+            value="1000", unit="USD", currency=None,
+            basis="as_reported", origin="extracted",
+            source_ref=prov_obj.sha256,
+            locator={"kind": "xbrl"},
+            parser_version="synthetic.v1",
+            canonical_concept="revenue")
+        repos.snapshot.insert_measure_with_lineage(
+            dict(measure_id="m-prov", snapshot_id="s2", scope="issuer",
+                 scope_ref="i1", concept="revenue_growth", value="0.1",
+                 unit="ratio", period_start="2025-01-01",
+                 period_end="2025-12-31", formula_id="x",
+                 method_version="v1", null_reason=None,
+                 peer_set_version=None),
+            [{"fact_id": prov_fact, "peer_measure_id": None,
+              "role": "input"}])
+        repos.snapshot.insert_measure_with_lineage(
+            dict(measure_id="m-manual", snapshot_id="s2", scope="issuer",
+                 scope_ref="i1", concept="fleet_ratio", value="0.5",
+                 unit="ratio", period_start="2025-01-01",
+                 period_end="2025-12-31", formula_id="x",
+                 method_version="v1", null_reason=None,
+                 peer_set_version=None),
+            [{"fact_id": manual_fact, "peer_measure_id": None,
+              "role": "input"}])
+        repos.snapshot.insert_measure_with_lineage(
+            dict(measure_id="m-manual-bad", snapshot_id="s2",
+                 scope="issuer", scope_ref="i1", concept="fleet_bad",
+                 value="0.9", unit="ratio", period_start="2025-01-01",
+                 period_end="2025-12-31", formula_id="x",
+                 method_version="v1", null_reason=None,
+                 peer_set_version=None),
+            [{"fact_id": manual_bad, "peer_measure_id": None,
+              "role": "input"}])
+        card = model.card_rows(repos, "ins1")
+        by_measure = {m["measure_id"]: m for m in card["measures"]}
+        provider_measure = by_measure["m-prov"]
+        manual_measure = by_measure["m-manual"]
+        manual_bad_measure = by_measure["m-manual-bad"]
+        # provider и manual различимы в поле модели
+        assert provider_measure["source_kind"] == "provider"
+        assert manual_measure["source_kind"] == "manual"
+        assert manual_measure["unverified"] is False
+        # непроверенное manual помечено отдельно
+        assert manual_bad_measure["unverified"] is True
+        lines = model.render_card(card)
+        manual_line = [line for line in lines
+                       if line.strip().startswith("fleet_ratio")][0]
+        bad_line = [line for line in lines
+                    if line.strip().startswith("fleet_bad")][0]
+        assert "[manual]" in manual_line
+        assert "[manual · НЕ проверено]" in bad_line
+        # панель источника manual-факта: файл и страница вместо URL
+        panel = model.source_panel(repos,
+                                   dict(by_measure["m-manual"],
+                                        issuer_id="i1"))
+        kinds = {s["kind"] for s in panel["sources"]}
+        assert "manual" in kinds
+        labels = [s.get("locator_label") for s in panel["sources"]
+                  if s["kind"] == "manual"]
+        assert labels and labels[0] == "файл, страница 3"
+    finally:
+        conn.close()
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
