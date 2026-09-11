@@ -1,0 +1,22 @@
+{
+  "source": "synthetic",
+  "note": "Синтетический индекс раскрытий для poll_index (И6). Все данные выдуманы.",
+  "records": [
+    {
+      "cursor": "0001",
+      "issuer_id": "issuer-demo",
+      "doc_type": "10-K",
+      "period": "2023-FY",
+      "url": "synthetic://report-10k",
+      "published_at": "2024-02-15"
+    },
+    {
+      "cursor": "0002",
+      "issuer_id": "issuer-demo",
+      "doc_type": "INSIDER",
+      "period": "2024-05",
+      "url": "synthetic://insider-form4",
+      "published_at": "2024-05-02"
+    }
+  ]
+}

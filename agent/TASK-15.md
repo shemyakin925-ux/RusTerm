@@ -1,7 +1,8 @@
 # TASK-15 — what the user can check for himself
 
-- **Status: READY** — take this only when `agent/TASK-14.md` is finished
-  and handed over, or when its items are exhausted before 09:30.
+- **Status: ACCEPTED** — coordinator re-ran acceptance and the suite on
+  `agent/night-2` on 10.09.2026: 13/13, 361 passed, 2 skipped, 0 xfailed.
+  Rulings on every `Disputed` item are in `agent/TASK-19.md` §0.1.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-15.md`
 - **Next in queue:** `agent/TASK-16.md` (M5), `agent/TASK-17.md` (M7),

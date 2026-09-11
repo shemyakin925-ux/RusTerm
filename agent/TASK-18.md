@@ -1,7 +1,8 @@
 # TASK-18 — Канада и OTC: рынок становится величиной, а не строкой
 
-- **Status: READY** — take it when `agent/TASK-17.md` is finished and
-  handed over, or when its items are exhausted before 09:30.
+- **Status: ACCEPTED** — coordinator re-ran acceptance and the suite on
+  `agent/night-2` on 10.09.2026: 13/13, 361 passed, 2 skipped, 0 xfailed.
+  Rulings on every `Disputed` item are in `agent/TASK-19.md` §0.1.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-18.md`
 - **Depends on nothing in TASK-14…17.**
@@ -65,6 +66,23 @@ feed before writing this; every line below is measured, not assumed:
 | `NGGTF` (OTC) | `ifrs-full`, 420 tags, to 2026-03-31 — an OTC-traded issuer with full XBRL |
 | `CPTP`, `HWKE` (OTC) | `us-gaap`, current — ordinary US OTC filers |
 | `TRUFF` (OTC, Canadian) | **HTTP 404 — no `companyfacts` at all** |
+
+**Your own SEDAR+ probe is accepted as evidence and closes the question.**
+`agent/REPORT-14.md` (commit `8677934`) measured all four access channels
+instead of arguing about them: the EDGAR route works end to end (8
+requests); SEDAR+ over a plain HTTP client returns **403 at the Radware
+edge**, document URLs included (4 requests); SEDAR+ through an embedded
+Chromium with real JS gets the same hard 403 with no challenge served (2
+page loads); a semi-manual file import stays possible but needs the
+user's own browser. That is the reason this task uses EDGAR and does not
+reopen the source question — it is measured, not assumed. It also names
+the honest limit: **TSX-only issuers are outside reach entirely** —
+Constellation Software is not in EDGAR at all — and that is a coverage
+gap to state, never to paper over.
+
+Interlisted Canadian issuers your probe resolved through the SEC ticker
+map, usable as candidates: SHOP `1594805`, ENB `895728`, TD `947263`,
+RY `1000275`, BAM `1937926`, CNQ `1017413`, TRI `1075124`.
 
 Two facts follow, and they shape the night:
 
@@ -449,7 +467,11 @@ that carry any taxonomy with a current period:
 
 - **CA (IFRS):** Royal Bank `1000275`, Bank of Montreal `927971`,
   Canadian Natural `1017413`, then — only if one of those fails —
-  Enbridge `895728`, Suncor `311337`
+  Toronto-Dominion `947263`, Enbridge `895728`, Thomson Reuters
+  `1075124`. A candidate that turns out to file `us-gaap` is not a
+  failure — it is simply served by the existing map; say so and take
+  the next one, because these three payloads exist to exercise the
+  IFRS dictionary.
 - **OTC:** `CPTP` Capital Properties `21175`, `HWKE` Hawkeye Digital,
   `NGGTF` National Grid `1004315`
 
@@ -606,6 +628,8 @@ Out of scope tonight, no exceptions for spare time:
   every vendor are outside the decision that authorised Canada and OTC
 - the **UK** — dropped by the user's decision
 - chasing an issuer that files nothing with the SEC to another source
+- TSX-only issuers (Constellation Software and its like) — out of
+  reach by measurement, not by omission; name the gap, do not close it
 - ADR ratios, per-share measures, EPS, market capitalisation for non-US
   issuers
 - summing two tags into one concept; any composite concept

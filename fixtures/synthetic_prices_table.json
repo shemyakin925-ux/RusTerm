@@ -1,0 +1,26 @@
+{
+  "source": "synthetic",
+  "note": "Синтетическая таблица котировок для тестов табличного парсера (И7). Все данные выдуманы.",
+  "doc_kind": "table",
+  "period_end": "2024-05-21",
+  "tables": [
+    {
+      "table_name": "prices",
+      "unit": "USD",
+      "rows": [
+        {
+          "cells": [
+            {"concept": "price_close", "value": "100.0"},
+            {"concept": "price_adj", "value": "99.5"}
+          ]
+        },
+        {
+          "cells": [
+            {"concept": "price_close", "value": "99.0"},
+            {"concept": "", "value": "неразобранная ячейка"}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 # TASK-16 — M5: ни одна массовая операция не идёт без подтверждения
 
-- **Status: READY** — take it when `agent/TASK-15.md` is finished and
-  handed over, or when its items are exhausted before 09:30.
+- **Status: ACCEPTED** — coordinator re-ran acceptance and the suite on
+  `agent/night-2` on 10.09.2026: 13/13, 361 passed, 2 skipped, 0 xfailed.
+  Rulings on every `Disputed` item are in `agent/TASK-19.md` §0.1.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
 - **Report:** `agent/REPORT-16.md`
 - **Next in queue:** `agent/TASK-17.md` (M7), then `agent/TASK-18.md`

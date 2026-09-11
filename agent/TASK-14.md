@@ -1,8 +1,12 @@
 # TASK-14 — the pass that has to survive five hundred
 
-- **Status: READY** — this is the task. Start here.
+- **Status: ACCEPTED** — coordinator re-ran acceptance and the suite on
+  `agent/night-2` on 10.09.2026: 13/13, 361 passed, 2 skipped, 0 xfailed.
+  Rulings on every `Disputed` item are in `agent/TASK-19.md` §0.1.
 - **Branch:** `agent/night-2` (continue on it; do not open a new branch)
-- **Report:** `agent/REPORT-14.md`
+- **Report:** `agent/REPORT-14A.md` — **not** `REPORT-14.md`, which is
+  already taken by your SEDAR+ access probe (commit `8677934`). Two
+  different pieces of work must not share a report file.
 - **Supersedes:** TASK-12 (**ACCEPTED**, Y1–Y9) and TASK-13
   (**ACCEPTED**, Z1–Z6; M4 partial by your own honest reading). Both
   verified on a clean detached checkout at `b90ac14`. Do not reopen them.
@@ -168,7 +172,7 @@ difficulty. The rules below are one counter-measure per failure.
 5. SELFCHECK  the four commands in §1.3. All must be clean.
 6. COMMIT   immediately, before moving to the next item.
 7. PUSH     immediately (§1.8).
-8. RECORD   one line in agent/REPORT-14.md: command + its output (§1.7).
+8. RECORD   one line in agent/REPORT-14A.md: command + its output (§1.7).
 ```
 
 Steps 6 and 7 do not get deferred. One item, one commit, one push bounds
@@ -232,13 +236,13 @@ it was verified, with the command's real output.
 
 ### 1.7. Bookkeeping
 
-`agent/REPORT-14.md` is **append-only and verified after every write.**
+`agent/REPORT-14A.md` is **append-only and verified after every write.**
 
 - **R1.** Never open the report with a truncating mode. Append only:
-  `printf '%s\n' "…" >> agent/REPORT-14.md`, or a quoted heredoc with
+  `printf '%s\n' "…" >> agent/REPORT-14A.md`, or a quoted heredoc with
   `>>`. Never `>`, never `open(p, "w")` on it.
 - **R2.** After every append, run
-  `wc -c agent/REPORT-14.md && tail -3 agent/REPORT-14.md` and look at the
+  `wc -c agent/REPORT-14A.md && tail -3 agent/REPORT-14A.md` and look at the
   output. A zero-byte or shrinking report is an incident to fix at once,
   before the next item.
 - **R3.** Chain commands with `&&`, never with `;`. A `;` after a red
@@ -257,7 +261,7 @@ shape; it reads whatever `agent/STATE.json` names, so it follows you.
 `agent/STATE.json`, same commit as the work:
 
 ```json
-{"task": "agent/TASK-14.md", "report": "agent/REPORT-14.md",
+{"task": "agent/TASK-14.md", "report": "agent/REPORT-14A.md",
  "item": "A1", "step": "4", "status": "working",
  "last_commit": "<sha>", "requests": 0, "net_requests": 0,
  "llm_calls": 0, "model": "<your model id>",
@@ -272,7 +276,7 @@ git push origin agent/night-2
 
 Push fails for lack of rights or for lack of network — do not retry in a
 loop. Write `PUSH UNAVAILABLE` as the **first line** of
-`agent/REPORT-14.md`, keep committing locally, and at the end produce
+`agent/REPORT-14A.md`, keep committing locally, and at the end produce
 `git bundle create ../RusTerm-handoff.bundle --all` (outside the repo, so
 check 13 stays green). Say so in `## HANDOFF`.
 
@@ -533,7 +537,7 @@ report file; never write into a previous task's report.
 ## 3. Night end — you run the final acceptance yourself
 
 ```bash
-git add agent/ACCEPTANCE-12.txt agent/REPORT-14.md agent/STATE.json
+git add agent/ACCEPTANCE-12.txt agent/REPORT-14A.md agent/STATE.json
 bash agent/acceptance.sh 2>&1 | tee agent/ACCEPTANCE-12.txt
 git add agent/ACCEPTANCE-12.txt
 git commit -m "Финальная приёмка ночи: журнал, отчёт, состояние"

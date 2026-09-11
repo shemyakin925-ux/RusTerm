@@ -1,0 +1,42 @@
+{
+  "source": "synthetic",
+  "note": "Синтетический XBRL-подобный документ для тестов парсера (И7). Все данные выдуманы.",
+  "doc_kind": "xbrl",
+  "form_type": "10-K",
+  "filed_at": "2024-02-15",
+  "period_end": "2023-12-31",
+  "facts": {
+    "us-gaap_RevenueFromContract": {
+      "concept": "revenue",
+      "value": "100000",
+      "unit": "USD",
+      "period_start": "2023-01-01",
+      "period_end": "2023-12-31",
+      "period_type": "duration"
+    },
+    "us-gaap_Assets": {
+      "concept": "total_assets",
+      "value": "500000",
+      "unit": "USD",
+      "period_start": "2023-12-31",
+      "period_end": "2023-12-31",
+      "period_type": "instant"
+    },
+    "us-gaap_RevenuePrevYear": {
+      "concept": "revenue",
+      "value": "90000",
+      "unit": "USD",
+      "period_start": "2022-01-01",
+      "period_end": "2022-12-31",
+      "period_type": "duration"
+    },
+    "us-gaap_BrokenEntry": {
+      "concept": "",
+      "value": "",
+      "unit": "USD",
+      "period_start": "",
+      "period_end": "",
+      "period_type": "duration"
+    }
+  }
+}

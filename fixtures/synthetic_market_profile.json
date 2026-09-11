@@ -1,0 +1,32 @@
+{
+  "source": "synthetic",
+  "note": "Синтетическая фикстура для тестов провайдеров (И6). Все данные выдуманы.",
+  "market": "US",
+  "instruments": {
+    "DEMO": {
+      "instrument_id": "US-DEMO-A",
+      "issuer_id": "issuer-demo",
+      "class": "common",
+      "listings": [
+        {"listing_id": "listing-demo-1", "exchange": "NYSE", "currency": "USD", "is_primary": true}
+      ]
+    }
+  },
+  "ambiguous": {
+    "DUAL": ["US-DUAL-A", "US-DUAL-B"]
+  },
+  "profiles": {
+    "US-DEMO-A": {
+      "issuer_id": "issuer-demo",
+      "name": "Demo Corp (synthetic)",
+      "industry": "tankers",
+      "reporting_currency": "USD"
+    }
+  },
+  "prices": {
+    "listing-demo-1": [
+      {"date": "2024-05-20", "close": 100.0, "adjusted": 99.5},
+      {"date": "2024-05-21", "close": 99.0, "adjusted": 98.5}
+    ]
+  }
+}
