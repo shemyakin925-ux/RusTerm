@@ -261,26 +261,46 @@ point works.
 `pip install -e .` followed by `rusterm markets`; a test asserts the
 console-script entry point resolves to a callable.
 
-### J9. Что на `main`
+### J9. Что на `main` — **переписан 11.09.2026, прежняя предпосылка мертва**
 
-**Needs:** nothing. Report only — **do not merge.**
+**Needs:** nothing. Report only — **do not merge and do not push to
+`main`.**
 
-`origin/main` contains no `rusterm/` at all: every line of this project
-lives on agent branches. Releasing into `main` is the coordinator's
-decision and the user's call, not yours. **ADR-0017 devolved the merging
-of lane branches to the executor — it did not devolve the release into
-`main`, and nothing below changes that.**
+This item used to say «`origin/main` contains no `rusterm/` at all» and
+asked you to gather evidence for a release decision. **That release
+happened on 11.09.2026**: the user merged the agent branches into
+`main`, which now carries the whole application — `rusterm/`, `tests/`,
+`docs/`, `agent/`. Gathering evidence for a decision already taken would
+waste the night, so the item is now about the consequence instead.
 
-Produce the evidence that decision needs:
+Releasing into `main` remains the coordinator's decision and the user's
+call, not yours. **ADR-0017 devolved the merging of lane branches to the
+executor — it did not devolve the release into `main`.**
 
-- `git diff --stat origin/main...HEAD` — the size of the merge;
-- which files exist on `main` and would be overwritten;
-- whether `agent/acceptance.sh` on `main` still matches (check 12 is
-  built on that assumption);
-- what a user who cloned `main` today would get.
+Two acceptance checks read `origin/main` and their baseline just moved:
 
-**Done when:** all four are in the report with their command output, and
-**no merge or push to `main` was attempted.**
+- **check 12** compares `agent/acceptance.sh` to `origin/main` byte for
+  byte — it was equal at the moment of the merge, and this item confirms
+  it still is;
+- **check 10** allows `docs/` to differ from `origin/main` only by
+  **added** ADRs — before the merge every ADR read as new, now none do.
+
+Report, with command output:
+
+- `git diff --stat origin/main...HEAD` — what your branch adds on top of
+  the released `main`;
+- `git diff origin/main -- agent/acceptance.sh` — must be empty; if it
+  is not, **stop and write it in `Blocked`**: check 12 is the mechanism
+  that keeps the executor from editing its own acceptance;
+- `git diff --name-status origin/main HEAD -- docs/` — every line must
+  be `A docs/adr/…`; anything else is the same kind of finding;
+- what a user who clones `main` today actually gets: `pip install -e .`
+  from a fresh clone of `main`, then `rusterm markets` — the real
+  terminal output, since J8 made this an installable program.
+
+**Done when:** all four are in the report with their output, the two
+diffs are as described or named in `Blocked`, and **no merge or push to
+`main` was attempted.**
 
 ### J10. Backlog
 
