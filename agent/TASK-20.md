@@ -98,8 +98,11 @@ Finish with a push and this exact line at the end of your report:
 READY TO MERGE: agent/n3-<lane>  <sha>  selfcheck exit 0  tests <N> passed
 ```
 
-The coordinator merges. A conflict is then seen by a person instead of
-being resolved alone at 4 a.m.
+You still do **not** merge your own lane. The integration night
+(`agent/TASK-21.md` §0.2) merges every lane, in one process, by the
+deterministic rule of **ADR-0017** — which replaced the
+coordinator-only rule of ADR-0012 §4. Your line above is what admits
+your lane to that merge.
 
 ### 1.6. Network budget, per lane
 

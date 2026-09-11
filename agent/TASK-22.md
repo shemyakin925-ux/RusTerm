@@ -266,8 +266,10 @@ console-script entry point resolves to a callable.
 **Needs:** nothing. Report only — **do not merge.**
 
 `origin/main` contains no `rusterm/` at all: every line of this project
-lives on agent branches. Merging is the coordinator's decision and the
-user's call, not yours (ADR-0012 §4).
+lives on agent branches. Releasing into `main` is the coordinator's
+decision and the user's call, not yours. **ADR-0017 devolved the merging
+of lane branches to the executor — it did not devolve the release into
+`main`, and nothing below changes that.**
 
 Produce the evidence that decision needs:
 

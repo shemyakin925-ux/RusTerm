@@ -3,9 +3,9 @@
 - **Status: READY** — take it when the lanes of `agent/TASK-20.md` are
   pushed, or when 09:30 of that night has passed and some of them are
   not. It is written to work with **whatever subset actually merged**.
-- **Branch:** `agent/night-3` (the foundation branch; the coordinator
-  merges the lane branches into it — see §0.2 for what to do if that
-  has not happened yet)
+- **Branch:** `agent/night-3` (the foundation branch; **you merge the
+  lane branches into it yourself** by the rule in §0.2 — ADR-0017
+  replaced the coordinator-only rule of ADR-0012 §4)
 - **Report:** `agent/REPORT-21.md`
 - **Goal of the night, in one sentence:** the pieces ten processes built
   separately become one program — a user picks any of six markets, gets
@@ -34,13 +34,63 @@ python3 -c "import rusterm.providers as p; print(p.available())"
 It is the ground truth about what exists; a lane's HANDOFF saying `DONE`
 is a claim until the branch is in the log.
 
-### 0.2. If the lanes are not merged yet
+### 0.2. Merging the lanes. This is item zero of the night
 
-Merging is the coordinator's job (ADR-0012 §4). If you arrive and the
-branches are pushed but unmerged, **do not merge them yourself.** Write
-`LANES UNMERGED: <list>` in `## Blocked`, and spend the night on the
-items below that need only the foundation: H1, H7, H8, H9. They are
-placed to be worth a night on their own.
+**ADR-0017 replaced ADR-0012 §4.** You merge the lanes yourself, by the
+rule below, before anything else in this task. The rule is
+deterministic: nothing here asks you to choose.
+
+```bash
+git checkout agent/night-3 && git pull
+git branch -r | grep 'origin/agent/n3-' | sort   # what actually exists
+```
+
+For each lane branch, **in ascending order L1, L2, … L10** — not by
+readiness, not by size:
+
+1. **Admit it by a run, not by its report.** `git checkout <lane> &&
+   bash agent/selfcheck.sh`. Exit 0 admits it. A "ready to merge" line
+   in `agent/REPORT-20-*.md` is a claim, not proof: a lane whose own
+   branch is not green goes to `Blocked` and is not merged.
+2. **Refuse a lane that touched the schema.** `git diff --name-only
+   agent/night-3...<lane> -- rusterm/store/db.py` non-empty → `Blocked`
+   with the sha, no merge, whatever else it did. Lanes are forbidden the
+   schema (ADR-0012 §1); two migrations on one number cost more than one
+   lost lane.
+3. **Merge it:** `git checkout agent/night-3 && git merge --no-ff <lane>`.
+4. **A conflict outside `agent/` is never resolved.** `git merge
+   --abort`, the lane goes to `Blocked` naming the conflicting file, move
+   to the next lane. Zones do not overlap, so such a conflict means a
+   zone was violated — that is for the coordinator to see, not for you
+   to settle at 04:00.
+
+   **One named exception, decided in advance.** In
+   `rusterm/cli/__init__.py`, the `import` subcommand block conflicts
+   between the placeholder seat landed by TASK-19 B21/B26 and the real
+   implementation of L5/L6. **The lane's version wins that block** — the
+   seat was declared a placeholder in its own commit and exists to be
+   replaced. Take the lane side, merge, continue. Any other hunk of that
+   file, or the same block conflicting with any other lane, falls back
+   to the rule above: abort and `Blocked`.
+5. **A conflict inside `agent/` takes both sides.** Reports, `BACKLOG.md`,
+   `agent/state/*.json` have no single right version. Union, delete
+   nothing.
+6. **Acceptance after every lane.** `bash agent/selfcheck.sh` — exit 0
+   and continue; red → `git reset --hard <sha before this lane>`, the
+   lane goes to `Blocked`, the remaining lanes continue. **One lane is
+   rolled back, never the night.**
+7. **Write `agent/MERGE-3.md`** as you go, one row per lane: lane, branch,
+   sha, acceptance on its own branch, merge outcome, conflicting files,
+   acceptance after the merge. That table is what the coordinator reads
+   instead of re-doing the merge.
+
+**Done when:** `agent/MERGE-3.md` has a row for every branch matching
+`origin/agent/n3-*`, `bash agent/selfcheck.sh` on `agent/night-3` exits
+0, and `git push -u origin agent/night-3` succeeded. Only then start H1.
+
+A lane that ends in `Blocked` is **not** a failure of this night — it is
+a finding with an address. Items below that depended on it become `n/a`
+per §0.3.
 
 ### 0.3. Every item below is conditional, and says on what
 

@@ -28,6 +28,16 @@ Accepted 11.09.2026, journal `agent/ACCEPTANCE-19.txt`. The three
 | 2 | `llm-api` counted as the eighth name in `available()` | **Upheld.** 5 network seats + 2 synthetic + `llm-api` with its own `HostLimit`. Leave it registered. |
 | 3 | `near_miss` shares the `manual_unverified` outcome with `failed` | **Upheld for now.** One bucket until the measure side selects on `source_kind` (TASK-20 L6); the split is `agent/TASK-27.md` N4, not a lane decision. |
 
+Two questions from the REPORT-19 HANDOFF are answered here as well.
+**Q1, merge ordering:** settled by **ADR-0017** — the integration night
+merges the lanes itself, head-before-lanes, and the one predicted
+conflict (the `import` block in `rusterm/cli/__init__.py`) is
+pre-decided in favour of the lane. **Q2, `nightly_max` ownership:**
+confirmed — the 5000/host default is the project-wide fallback, and a
+lane overrides it inside its own provider module with a measured
+ceiling. A lane that does not measure one leaves the default and says so
+in its report.
+
 Noted, no action required: the honest incident note on commit `51795c9`
 (selfcheck ran red, `;` instead of `&&`, the commit landed anyway). The
 red was the rewritten-seat-test false positive, not a weakened
