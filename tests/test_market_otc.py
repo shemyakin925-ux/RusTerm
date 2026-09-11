@@ -38,13 +38,18 @@ def _provider(responses: dict[str, object]):
 def test_financial_report_recorded_body_parses():
     """Золотая привязка: настоящие байты OTCM (выкачка 11.09)."""
     body = json.loads(_recorded("financial_report_OTCM.json"))
-    assert str(body["symbol"]).upper() == "OTCM"
+    # настоящий файл: records[0] — Quarterly Report OTC Markets Group
+    first = body["records"][0]
+    assert first["companyName"] == "OTC Markets Group Inc."
+    assert first["reportType"] == "Quarterly Report"
     provider = _provider({
         "financial-report": _recorded("financial_report_OTCM.json")})
     docs = provider.list_documents("OTCM")
     assert docs.documents
     assert docs.documents[0].url.startswith("otcdoc:")
     assert docs.documents[0].issuer_id == "OTCM"
+    assert docs.documents[0].doc_type == "Quarterly Report"
+    assert docs.documents[0].url == "otcdoc:583210"
 
 
 def test_can_auto_ingest_true_when_metadata_reachable():

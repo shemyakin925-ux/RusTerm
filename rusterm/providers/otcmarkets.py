@@ -126,7 +126,9 @@ class OtcMarketsProvider:
                                BudgetExceeded)):
             return answer
         records = []
-        for row in answer.get("results", []) or []:
+        # источник: ключ records (не results); totalRecords 12 837 на
+        # 11.09 против 12 867 в замере 10.09 — вселенная дрейфует
+        for row in answer.get("records", []) or []:
             symbol = str(row.get("symbol", "")).upper()
             if symbol:
                 records.append(IndexRecord(
@@ -149,12 +151,13 @@ class OtcMarketsProvider:
                                BudgetExceeded)):
             return answer
         docs = []
-        for row in answer.get("results", []) or []:
+        # источник: ключ records; документ — id (число); даты — epoch ms
+        for row in answer.get("records", []) or []:
             meta = DocumentMeta(
                 issuer_id=symbol,
                 doc_type=str(row.get("reportType", "")),
                 period=str(row.get("periodDate", "")),
-                url=f"otcdoc:{row.get('documentId', '')}",
+                url=f"otcdoc:{row.get('id', '')}",
                 published_at=str(row.get("releaseDate", "")),
             )
             if doc_type is not None and meta.doc_type != doc_type:
