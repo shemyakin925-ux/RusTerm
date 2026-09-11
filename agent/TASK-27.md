@@ -113,12 +113,19 @@ at the call site, so a configured key changes nothing the user can see.
   output for the three existing ops fixtures.
 - With a key: the API client, exercised through the fake transport of
   `tests/test_llm_api.py` — no live call in the test.
-- A **guard test** asserts that `grep -rn "RuleClient(" rusterm/` finds
-  it in `rusterm/core/llm.py` only.
+- **The guard already exists** — `tests/test_single_door.py`, written by
+  the coordinator 11.09.2026. It holds the debt visible: while
+  `make_intent_client` is listed in its `PENDING`, the tests assert the
+  bypass is still there. **Wiring the door means deleting that PENDING
+  line**, and the rule flips to forbidding any direct construction of
+  `RuleClient` / `LlmApiClient` outside `rusterm/core/llm.py`. Do not
+  add an exception to the guard: the line comes out, it does not grow.
 - The key value never reaches stdout, stderr, a log line or a report.
 
-**Done when:** `python3 -m pytest tests/test_llm_wiring.py
-tests/test_llm_api.py -q` green; the guard test red when `RuleClient()`
+**Done when:** the `PENDING` line for `make_intent_client` is gone from
+`tests/test_single_door.py` and `python3 -m pytest
+tests/test_single_door.py tests/test_llm_wiring.py tests/test_llm_api.py
+-q` is green; the guard test red when `RuleClient()`
 is put back into `cmd_ops` (show that red output in the report, then
 revert); `RUSTERM_LLM_API_KEY=dummy rusterm ops "..."` takes the API
 path and `grep -c dummy` over every produced artefact is 0.
@@ -189,12 +196,10 @@ match `rusterm budget --json` for the night.
 
 ### N6. Репозиторий перестаёт врать о себе числами
 
-**Zone:** `README.md`, `agent/selfcheck.sh`, `agent/REPORT-MARKETS.md`,
-`tests/test_docs_truth.py`. Closes backlog **B32, B33, B34** — if the
-executor already took them on an idle evening, say so and skip.
-
-- README states no hand-typed count of tests, ADRs or formats; a guard
-  test fails on any bare count in §15.
+**Zone:** `agent/selfcheck.sh`, `agent/REPORT-MARKETS.md`.
+Closes backlog **B33 and B34**. **B32 is already done** — the
+coordinator wrote `tests/test_docs_truth.py` and cleaned §15 on
+11.09.2026; do not redo it, and do not weaken that guard.
 - `agent/selfcheck.sh` reads the expected number of acceptance checks
   from `acceptance.sh` instead of hard-coding «пройдено 13». Adding a
   fourteenth check to a **scratch copy** must not make selfcheck lie.
@@ -204,9 +209,9 @@ executor already took them on an idle evening, say so and skip.
   universe count and the date of the last live count (the 12,794 vs
   12,867 drift stops being re-reported as a finding every night).
 
-**Done when:** `python3 -m pytest tests/test_docs_truth.py -q` green;
-`bash agent/selfcheck.sh` exit 0 on a clean tree and exit 1 on a
-deliberately broken test (show both, revert).
+**Done when:** `python3 -m pytest tests/test_docs_truth.py -q` still
+green (you did not weaken it); `bash agent/selfcheck.sh` exit 0 on a
+clean tree and exit 1 on a deliberately broken test (show both, revert).
 
 ### N7. Backlog
 

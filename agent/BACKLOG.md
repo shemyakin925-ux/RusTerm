@@ -44,17 +44,29 @@ red was the rewritten-seat-test false positive, not a weakened
 assertion — checked line by line by the coordinator. The correction
 (`&&` always) is the right one.
 
+## Guards the coordinator added 11.09.2026. Do not weaken them
+
+Two guard tests were written by the coordinator, not by a lane. **P1
+covers them: not one assertion in either file is deleted or loosened.**
+A guard that becomes inconvenient is a `Disputed` entry, never an edit.
+
+| File | What it forbids | How it is satisfied |
+|---|---|---|
+| `tests/test_docs_truth.py` | a hand-typed number about the repository in README («402 пройдено», «тринадцати ADR») | say no number, or derive it; every file in `docs/adr/` must be named in README §15 — so a new ADR forces a roadmap update |
+| `tests/test_single_door.py` | a door built and then bypassed — the TASK-19 F6 defect, where `make_intent_client` was written, tested and called by nothing while `cmd_ops` constructed `RuleClient()` directly | while the door is listed in `PENDING`, the debt stays visible and addressed to a task item; **wiring it means deleting that line**, and the rule flips to forbidding any direct construction |
+
+The second guard is deliberately narrow. A blanket "every public
+function must have a caller" rule was measured on this repository and
+fires 109 times out of 170 — it would flag the twenty industry
+functions and every formula reached from a registry by name. A guard
+that is red by default teaches people to ignore it.
+
 ## Queue
 
 Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
-- [ ] B32 — README's test count stops being a hand-written number that
-  rots inside one shift (it said "402 пройдено, 2 пропущено" while the
-  same night ended at 411) — accept: either the number is generated, or
-  the sentence names no number and a test asserts no bare test count
-  survives in README.md — size: S
 - [ ] B33 — `agent/selfcheck.sh` stops hard-coding "пройдено 13": read
   the expected count from `acceptance.sh` itself, so a fourteenth check
   does not make selfcheck lie — accept: add a check to a scratch copy of
@@ -73,6 +85,8 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   night's work now, not idle-time work.
 
 ## Done
+
+- [x] B32 — README states no hand-typed count of itself — done by the coordinator 11.09.2026, not by an idle evening: guard `tests/test_docs_truth.py` (bans «N пройдено», «N тестов», «N ADR», and requires every file in docs/adr/ to be named in §15), README §15 cleaned of «402 пройдено» and «тринадцати ADR». Both tests were shown red before the fix.
 
 - [x] B21 — import --dry-run writes nothing — TASK-19 F11, verified 11.09 (database sha256 unchanged; extraction attempts on the F8 seat, pipeline lands with L5/L6)
 - [x] B31 — ADR number uniqueness guard — TASK-19 F11, verified 11.09 (deliberate 0011 duplicate ran red, removed, green)

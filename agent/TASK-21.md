@@ -113,6 +113,10 @@ selfcheck, the stuck rule, the stop rule, commit format, R1–R4
 bookkeeping, push, the 09:30 line, network rules N2–N7, money and quota.
 Read it there. Two additions:
 
+- **P1 also covers `tests/test_docs_truth.py` and
+  `tests/test_single_door.py`** — two guards the coordinator added on
+  11.09.2026 (see the head of `agent/BACKLOG.md`). Not one assertion
+  there is deleted or loosened; an inconvenient guard is `Disputed`.
 - **The zone rule is over.** This task is the one that is allowed to
   touch shared files — `rusterm/normalize/concepts.py`,
   `rusterm/core/snapshot.py`, `rusterm/store/doctor.py`. That is why it

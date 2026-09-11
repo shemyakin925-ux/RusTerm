@@ -52,6 +52,10 @@ the five prohibitions, the stuck rule, the stop rule, the commit format,
 the network rules N2–N7, money and quota. Read that section; it is not
 repeated here. What follows is only what parallelism changes.
 
+- **P1 also covers `tests/test_docs_truth.py` and
+  `tests/test_single_door.py`** — two guards the coordinator added on
+  11.09.2026 (see the head of `agent/BACKLOG.md`). Not one assertion
+  there is deleted or loosened; an inconvenient guard is `Disputed`.
 ### 1.1. Your zone is the list in your lane. It is not advice
 
 Each lane below has a **Zone**: the exact paths it may create or modify.
