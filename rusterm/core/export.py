@@ -2,37 +2,106 @@
 
 Экспорт не пересчитывает: берёт measure из базы как есть. Число в экспорте
 обязано совпадать с числом на экране — оба читают одну запись.
+
+ТЗ-20 L9: провенанс переживает выгрузку. attach_provenance добавляет
+каждой мере блок provenance (source_kind; у ручного факта — хэш
+документа и страница), а snapshot_to_json принимает его опциональным
+параметром: существующие вызовы и их вывод не меняются ни именем, ни
+порядком. Потребитель ответа на вопрос «это подано регулятору или
+достано из PDF моделью?» не открывает базу — только текст экспорта.
 """
 from __future__ import annotations
 
 import csv
 import io
 import json
+import re
 from typing import Optional
 
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
 
 MeasureRow = dict  # поля из SnapshotRepo.get_measures
 
+_PAGE_RE = re.compile(r"#page=(\d+)")
+
+
+def attach_provenance(measures: list[MeasureRow],
+                      lineage: dict[str, list[dict]]) -> list[MeasureRow]:
+    """Добавить каждой мере блок provenance по её входным фактам.
+
+    lineage: measure_id -> список фактов в виде dict от FactRepo.get_fact.
+    Провенанс честен о пределах: он показывает, КУДА число пришло
+    (регулятор или файл пользователя), и у ручного факта — хэш
+    документа и страницу; правильность колонки он не доказывает.
+    """
+    enriched: list[MeasureRow] = []
+    for m in measures:
+        row = dict(m)
+        facts = lineage.get(m.get("measure_id"), [])
+        entries = []
+        for f in facts:
+            kind = f.get("source_kind") or "provider"
+            entry = {"kind": kind, "fact_id": f.get("fact_id"),
+                     "concept": f.get("concept"),
+                     "status": f.get("status")}
+            if kind == "manual":
+                sha = f.get("source_ref")
+                locator = f.get("locator")
+                if isinstance(locator, str):
+                    try:
+                        locator = json.loads(locator)
+                    except ValueError:
+                        locator = {"locator": locator}
+                raw = (locator or {}).get("locator", "")
+                page = _PAGE_RE.search(raw)
+                entry["document"] = sha
+                entry["page"] = int(page.group(1)) if page else None
+                entry["locator"] = raw
+            else:
+                entry["source_ref"] = f.get("source_ref")
+            entries.append(entry)
+        kinds = {e["kind"] for e in entries}
+        if not entries:
+            provenance = None
+        else:
+            provenance = {
+                "source_kind": "manual" if "manual" in kinds
+                else "provider",
+                "facts": entries,
+            }
+        row["provenance"] = provenance
+        enriched.append(row)
+    return enriched
+
 
 def _rows_to_dicts(measures: list) -> list[MeasureRow]:
-    return [
-        {"measure_id": m[0], "scope": m[1], "scope_ref": m[2],
-         "concept": m[3], "value": m[4], "unit": m[5],
-         "period_start": m[6], "period_end": m[7], "formula_id": m[8],
-         "method_version": m[9], "null_reason": m[10],
-         "peer_set_version": m[11]}
-        for m in measures
-    ]
+    out: list[MeasureRow] = []
+    for m in measures:
+        if isinstance(m, dict):  # уже словарь (напр. с provenance)
+            out.append(dict(m))
+            continue
+        out.append(
+            {"measure_id": m[0], "scope": m[1], "scope_ref": m[2],
+             "concept": m[3], "value": m[4], "unit": m[5],
+             "period_start": m[6], "period_end": m[7], "formula_id": m[8],
+             "method_version": m[9], "null_reason": m[10],
+             "peer_set_version": m[11]})
+    return out
 
 
-def snapshot_to_json(snapshot: dict, measures: list) -> str:
+def snapshot_to_json(snapshot: dict, measures: list,
+                     provenance: dict[str, list[dict]] | None = None) -> str:
     """JSON снапшота: мета + меры с null-причинами, без досчётов.
-    Файл переживает базу — несёт версию карты, его породившую (X4)."""
+    Файл переживает базу — несёт версию карты, его породившую (X4).
+    provenance (ТЗ-20 L9) — необязателен: передан — каждая мера несёт
+    блок провенанса; не передан — вывод байт-в-байт прежний."""
+    rows = _rows_to_dicts(measures)
+    if provenance is not None:
+        rows = attach_provenance(rows, provenance)
     payload = {
         "snapshot": snapshot,
         "concept_map_version": CONCEPT_MAP_VERSION,
-        "measures": _rows_to_dicts(measures),
+        "measures": rows,
     }
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
 
