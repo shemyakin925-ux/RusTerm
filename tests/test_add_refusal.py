@@ -137,7 +137,18 @@ def test_import_dry_run_writes_nothing_database_unchanged(app_root,
     import hashlib
 
     root, paths = app_root
-    report = tmp_report = None
+    # L6: импорт не создаёт эмитентов — инструмент должен существовать.
+    # База сидируется ОТКРЫТИЕМ ПРИЛОЖЕНИЯ (open_connection): WAL уже
+    # включён, и sha файла до/после import --dry-run сравним честно
+    from rusterm.store.db import open_connection
+    from rusterm.store.repos import Instrument, InstrumentRepo, Issuer
+    conn = open_connection(paths)
+    repo = InstrumentRepo(conn)
+    repo.upsert_issuer(Issuer("cik-0", "Fake Co", "US", None, None,
+                              "us_gaap", "USD"))
+    repo.upsert_instrument(Instrument("US-FAKE", "cik-0", None, "common",
+                                      "active", None))
+    conn.close()
     source = paths.root / "annual.txt"
     source.write_text("fleet of 42 ships", encoding="utf-8")
 
@@ -149,5 +160,7 @@ def test_import_dry_run_writes_nothing_database_unchanged(app_root,
                      "--issuer", "FAKE", "--market", "US",
                      "--dry-run"])
     capsys.readouterr()
-    assert code == 1  # место ① отказывает: format_unsupported
+    # L6 заменил заглушку: txt извлекается, dry-run успешен —
+    # и по-прежнему ничего не пишет
+    assert code == 0
     assert db_sha() == before

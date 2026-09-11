@@ -274,20 +274,24 @@ class FactRepo:
                     status: str = "ok",
                     superseded_by: Optional[str] = None,
                     canonical_concept: Optional[str] = None,
-                    concept_map_version: Optional[str] = None) -> None:
+                    concept_map_version: Optional[str] = None,
+                    source_kind: str = "provider") -> None:
+        """source_kind (миграция 40, ADR-0011): 'provider' | 'manual'.
+        Параметр добавлен полосой L6 (ТЗ-20); дефолт сохраняет смысл
+        всех прежних вызовов — машинные факты неразличимы как раньше."""
         with writer_transaction(self.conn) as c:
             c.execute(
                 """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
                   period_start, period_end, period_type, value, unit, currency,
                   basis, origin, source_ref, locator, parser_version,
                   status, superseded_by, ingested_at,
-                  canonical_concept, concept_map_version)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                  canonical_concept, concept_map_version, source_kind)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (fact_id, issuer_id, listing_id, concept,
                  period_start, period_end, period_type, value, unit, currency,
                  basis, origin, source_ref, json.dumps(locator, ensure_ascii=False),
                  parser_version, status, superseded_by, time.time(),
-                 canonical_concept, concept_map_version),
+                 canonical_concept, concept_map_version, source_kind),
             )
 
     _FACT_COLUMNS = (
