@@ -243,6 +243,11 @@ def doctor_report(paths: AppPaths, conn) -> dict:
                 "issuers": issuers, "facts": facts,
                 "last_collection": last}
 
+    # ТЗ-22 J4: возраст последней резервной копии; копий не было —
+    # это отчёт, а не провал (пустая база не требует копии)
+    from .backup import last_backup_info
+    last_backup = last_backup_info(paths)
+
     return {
         "ok": not problems,
         "problems": problems,
@@ -256,4 +261,5 @@ def doctor_report(paths: AppPaths, conn) -> dict:
         "manual_facts_missing_document": manual_facts_missing_document,
         "registry_gaps": registry,
         "market_coverage": market_coverage,
+        "last_backup": last_backup,
     }

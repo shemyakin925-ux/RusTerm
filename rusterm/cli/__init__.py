@@ -844,6 +844,37 @@ def cmd_doctor(args) -> int:
     return 0 if report["ok"] else 1
 
 
+def cmd_backup(args) -> int:
+    """Резервная копия (ТЗ-22 J4): база, манифесты и объекты raw-хранилища
+    в один zip с MANIFEST.json (sha256 на члена, версия схемы)."""
+    from rusterm.store.backup import BackupError, create_backup
+    paths, conn = _open(args.root)
+    conn.close()
+    try:
+        summary = create_backup(paths, args.archive)
+    except BackupError as e:
+        print(f"backup: {e.reason}", file=sys.stderr)
+        return 1
+    print(f"backup: {summary.archive}; членов: {summary.members}; "
+          f"байт: {summary.bytes_total}; схема {summary.schema_version}")
+    return 0
+
+
+def cmd_restore(args) -> int:
+    """Восстановление (ТЗ-22 J4): отказ при схеме новее кода, при
+    несовпавшем хеше члена; непустой каталог — только с --force."""
+    from rusterm.store.backup import BackupError, restore_backup
+    target = AppPaths.from_root(args.root)
+    try:
+        result = restore_backup(args.archive, target, force=args.force)
+    except BackupError as e:
+        print(f"restore: {e.reason}", file=sys.stderr)
+        return 1
+    print(f"restore: {result['restored']} членов в {result['target']}; "
+          f"схема {result['schema_version']}")
+    return 0
+
+
 def _scrub_url(url: str) -> str:
     from rusterm.store.repos import scrub_secret_url
     return scrub_secret_url(url)
@@ -1240,6 +1271,14 @@ def main(argv: list[str] | None = None) -> int:
     p_ver.add_argument("--document", default="",
                        help="ссылка на документ (секреты из URL стираются)")
     sub.add_parser("doctor", help="самопроверка базы и store")
+    p_bak = sub.add_parser("backup",
+                           help="резервная копия каталога данных (ТЗ-22 J4)")
+    p_bak.add_argument("archive", help="путь zip-архива")
+    p_res = sub.add_parser("restore",
+                           help="развернуть резервную копию (ТЗ-22 J4)")
+    p_res.add_argument("archive", help="путь zip-архива")
+    p_res.add_argument("--force", action="store_true",
+                       help="разрешить запись в непустой каталог")
     p_st = sub.add_parser("status", help="что у меня есть: база, снапшоты, покрытие, сеть")
     p_st.add_argument("--json", action="store_true")
 
@@ -1322,6 +1361,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "init": cmd_init, "ingest": cmd_ingest, "snapshot": cmd_snapshot,
         "export": cmd_export, "verify": cmd_verify, "doctor": cmd_doctor,
+        "backup": cmd_backup, "restore": cmd_restore,
         "demo": cmd_demo,
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
