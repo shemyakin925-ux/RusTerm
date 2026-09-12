@@ -46,7 +46,10 @@ ownership, корпоративные действия, отраслевые м�
 ```bash
 git clone https://github.com/shemyakin925-ux/RusTerm.git
 cd RusTerm
-python3 -m pip install -e .
+python3 -m pip install -e .                     # команда `rusterm` появится в PATH
+# опционально: библиотеки форматов ручного импорта (PDF/DOCX/XLSX);
+# без них ручной импорт честно отвечает format_unsupported значением
+python3 -m pip install -e ".[documents]"
 rusterm init                                    # каталог данных + миграции БД
 rusterm demo                                    # синтетический демо-инструмент US-CLI-DEMO
 rusterm ingest --instrument US-CLI-DEMO         # сбор: 2 документа, 6 фактов

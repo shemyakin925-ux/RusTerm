@@ -12,6 +12,9 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8", "zstandard>=0.22"]
+# ТЗ-22 J8: библиотеки форматов ручного импорта — опциональны; их
+# отсутствие даёт format_unsupported значением, а не поломку (ADR-0011 ①)
+documents = ["pypdf>=4", "python-docx>=1", "openpyxl>=3"]
 
 [project.scripts]
 rusterm = "rusterm.cli:main"
