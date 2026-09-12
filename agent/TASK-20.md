@@ -1,9 +1,17 @@
 # TASK-20 — Фаза 1: десять полос параллельно. Рынки, ручной импорт, модель по API
 
-- **Status: READY** — take it **only** when `agent/TASK-19.md` is done
-  and the tag `n3-foundation` exists and is green. Not before: every
-  lane below assumes the migration, the registry rows, the reasons and
-  the provider seats are already there.
+- **Status: ACCEPTED** — closed by the coordinator 12.09.2026, journal
+  `agent/ACCEPTANCE-21.txt`. All ten lanes existed, all ten merged into
+  `agent/night-3` under ADR-0017 (journal `agent/MERGE-3.md`); the lane
+  reports are `agent/REPORT-20-L1..L10.md` and `REPORT-20-000.md`.
+  Verified, not taken on report: acceptance 13/13 exit 0, full suite
+  529 tests / 0 failures / 3 skipped, `agent/acceptance.sh` byte-equal
+  to `origin/main`, goldens untouched. Do not re-open; the leftovers
+  are named as items in TASK-22 and TASK-27.
+- *(original entry condition, kept for the record)* take it **only**
+  when `agent/TASK-19.md` is done and the tag `n3-foundation` exists
+  and is green. Not before: every lane below assumes the migration, the
+  registry rows, the reasons and the provider seats are already there.
 - **Branch:** one per lane, `agent/n3-<lane>`, cut **from the tag**
   `n3-foundation` — never from another lane.
 - **Report:** one per lane, `agent/REPORT-20-<lane>.md`.

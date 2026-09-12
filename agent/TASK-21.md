@@ -1,8 +1,19 @@
 # TASK-21 — Фаза 2: сведение полос, сквозные пути и веха M8
 
-- **Status: READY** — take it when the lanes of `agent/TASK-20.md` are
-  pushed, or when 09:30 of that night has passed and some of them are
-  not. It is written to work with **whatever subset actually merged**.
+- **Status: ACCEPTED** — closed by the coordinator 12.09.2026, journal
+  `agent/ACCEPTANCE-21.txt`, report `agent/REPORT-21.md`. Every claim in
+  the HANDOFF was re-run, not read: acceptance 13/13 exit 0, suite
+  529 tests / 0 failures / 3 skipped (the executor's 526+3), schema 40
+  unchanged, `agent/acceptance.sh` byte-equal to `origin/main`,
+  `docs/` clean with exactly one added ADR (0013), goldens untouched,
+  `rusterm markets` six rows exit 0. Every removed assertion checked
+  line by line — replacements are strictly stronger, nothing weakened.
+  The single Disputed point and the three HANDOFF questions are ruled
+  on in `agent/BACKLOG.md`, section «Coordinator rulings — TASK-21».
+- *(original entry condition, kept for the record)* take it when the
+  lanes of `agent/TASK-20.md` are pushed, or when 09:30 of that night
+  has passed and some of them are not. It is written to work with
+  **whatever subset actually merged**.
 - **Branch:** `agent/night-3` (the foundation branch; **you merge the
   lane branches into it yourself** by the rule in §0.2 — ADR-0017
   replaced the coordinator-only rule of ADR-0012 §4)

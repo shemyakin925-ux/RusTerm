@@ -85,11 +85,61 @@ TASK-20 were folded in by TASK-21 H9).
 
 ## 2. The work, in priority order
 
+### J1.0. Precondition, added by the coordinator 12.09.2026 — read before J1
+
+**H3 landed** (TASK-21 accepted, `agent/ACCEPTANCE-21.txt`); the branch
+you cut from already has the tripwire. But J1 as written could not have
+been satisfied, and the reason was measured, not guessed:
+
+```
+grep -n "\"currency\"" rusterm/parsers/__init__.py
+  86:  "currency": None,
+  155: "currency": None,
+  263: "currency": None,
+```
+
+**No parser writes `fact.currency`. Every fact in the repository is
+blank.** So "every exported absolute number carries its currency" has
+nothing to carry: the currency string lives in `fact.unit` (the
+companyfacts units key), and the H3 firewall, though armed and tested,
+has never seen a currency in real data. This is the executor's own
+honest finding in `REPORT-21.md` §H9, confirmed by the coordinator.
+
+**Therefore J1 starts here, and this part is done first:**
+
+- The EDGAR parser records the currency it already has: the
+  companyfacts `units` key is the currency for money concepts
+  (`USD`, `CAD`, …). Write it to `fact.currency`. `unit` keeps its
+  present meaning and value — this adds a field, it does not move one.
+- A unit that is not a currency (`shares`, `pure`, `USD/shares`) leaves
+  `fact.currency` `None` — that is correct, not missing.
+- `manual/pipeline.py` writes `currency=None` deliberately (a human
+  typed the number, the currency was not parsed). It stays `None` and
+  the snapshot marks it unverified, as today.
+- **The blank rule from the TASK-21 ruling lands with this change and
+  only with it:** once a provider records currency, a blank on a money
+  fact from that provider is `missing_data`, and a peer set mixing
+  blanks with a stated currency is `currency_mismatch` — not silently
+  "that one currency". Before this commit, blanks stay legitimate.
+- `golden_m2.json` / `golden_m6_ca.json` **may move in this commit and
+  in no other.** Quote the before/after diff in the report and say
+  which field changed. If they do not move, say that too.
+
+**Done when:** a test asserts a fact ingested from a recorded EDGAR
+payload has `currency == "USD"` (and the CA one `"CAD"`), and that a
+`shares` fact has `currency is None`; `SELECT DISTINCT currency FROM
+fact` over a fresh ingest no longer returns `[None]` — paste the real
+output; the goldens are either unchanged or their diff is in the report.
+
+**If this cannot be done by 03:00, stop it and write J1.0 in `Blocked`
+with what you found** — then do J1's display half over `fact.unit` as
+today and say plainly in the report that the currency shown is derived
+from the unit key, not recorded. A named half-measure beats a silent
+one. Everything from J3 down does not depend on this.
+
 ### J1. Валюта доезжает до пользователя, а не только до стоп-крана
 
-**Needs:** TASK-21 H3 (the tripwire). If H3 did not land, **do H3 first
-from its own text** and say so in the report — a silent cross-currency
-median is the worst defect this project can ship.
+**Needs:** J1.0 above (this night) and TASK-21 H3 (landed, accepted).
 
 The tripwire refuses. This item makes the refusal legible.
 

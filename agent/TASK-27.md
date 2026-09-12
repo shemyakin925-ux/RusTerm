@@ -8,8 +8,8 @@
   deferred earlier **for a stated reason**, and every one of those
   reasons is gone by the time this task is taken.
 - **Depends on** TASK-20 L5/L6 (manual import pipeline) for N2 and N3,
-  and on TASK-20 L7 (the hardened API client) for N1. Nothing here
-  depends on TASK-24, 25 or 26.
+  on TASK-20 L7 (the hardened API client) for N1, and on TASK-20 L2/L3
+  plus TASK-22 J1.0 for N7. Nothing here depends on TASK-24, 25 or 26.
 - **Goal of the night, in one sentence:** three things the executor
   honestly refused to fake (B22, B27, B29) get built now that their
   prerequisites exist, the LLM client stops being a seat nobody sits in,
@@ -213,7 +213,59 @@ coordinator wrote `tests/test_docs_truth.py` and cleaned §15 on
 green (you did not weaken it); `bash agent/selfcheck.sh` exit 0 on a
 clean tree and exit 1 on a deliberately broken test (show both, revert).
 
-### N7. Backlog
+### N7. BR и AU перестают быть рынками, куда можно добавить эмитента и нельзя собрать данные
+
+**Added by the coordinator 12.09.2026**, answering question 2 of the
+`REPORT-21.md` HANDOFF. The executor asked whether this was TASK-23/24
+territory; it was not — neither task carries the item. The hole is
+closed here, in the night whose whole subject is debts whose
+preconditions have arrived. Preconditions: the `cvm` and `asx`
+providers landed and are tested on recorded payloads (TASK-20 L2/L3,
+TASK-21 H4).
+
+**Zone:** `rusterm/cli/__init__.py` (the `ingest --source` door only),
+`rusterm/normalize/concepts.py`, `tests/test_market_br.py`,
+`tests/test_market_au.py`.
+
+Measured state at acceptance of TASK-21: `ingest` speaks `edgar` and
+`synthetic` and nothing else. A BR or AU issuer can be added and then
+has no channel — `markets` calls the provider `implemented`, which is
+true of the module and false of the user's path.
+
+- **BR, the real half.** `ingest --source cvm` collects a DFP slice
+  through the landed provider. The native columns are mapped to
+  `ifrs-full` **against the recorded payload that proves each one** —
+  `CD_CONTA` / `DS_CONTA` / `VL_CONTA` / `ESCALA_MOEDA` are named in
+  the L10 gap list, and `tests/data/cvm/dfp_2024_dre_slice.csv` is the
+  payload. The standing H2 rule holds: a tag enters `concepts.py` only
+  with the payload that proves it, never because a mapping table
+  elsewhere suggests it. A column you cannot prove stays unmapped and
+  is **named in the report**.
+- **`ESCALA_MOEDA` is a scale, not a currency** (`MIL` means the value
+  is in thousands). Applying it is part of the mapping; leaving it
+  unapplied silently is the defect this bullet exists to prevent.
+  Currency goes to `fact.currency` per TASK-22 J1.0 — `BRL` here.
+- **AU, the honest half.** ADR-0010 §5 records that ASX has no
+  fundamentals contract. `ingest --source asx` therefore collects
+  **announcements and header metadata only** and says so: the issuer
+  gets documents, not facts, and the refusal for facts is the existing
+  named one, not an empty success. Do **not** invent a fundamentals
+  channel, and do **not** scrape a PDF here — that path is manual
+  import, which already exists.
+- `markets` stops calling a market `implemented` on the strength of the
+  module alone: the column distinguishes a provider that exists from a
+  channel the user can actually run.
+
+**Done when:** `ingest --source cvm` on the recorded BR payload produces
+a non-zero number of `ifrs-full` facts for the AMBEV slice and the
+measure count in the report moves off `0/10` (say the new number,
+whatever it is — 2/10 honestly mapped beats 10/10 guessed);
+`ingest --source asx` produces documents and a named refusal for facts,
+asserted by a test; `python3 -m rusterm.cli markets` output is pasted
+before and after; every unmapped BR column is listed by name in the
+report.
+
+### N8. Backlog
 
 Take items from `agent/BACKLOG.md` top-down until 10:00. Each pulled
 item gets its verify line in the report.
