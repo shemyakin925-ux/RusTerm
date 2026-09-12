@@ -10,6 +10,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
 import subprocess
 
 from rusterm.normalize.concepts import (
@@ -92,15 +95,19 @@ def test_us_gaap_map_is_byte_identical_to_task_start():
     assert namespace["CONCEPT_MAP_VERSION"] == CONCEPT_MAP_VERSION
 
 
-def test_formulas_py_is_byte_identical_to_task_start():
-    """G4: формулы не тронуты этой ночью. origin/main не содержит
-    rusterm/formulas.py вовсе (дерево main устарело — см. Disputed
-    REPORT-18), поэтому эталон — голова старта TASK-18 (23737a7)."""
-    old_src = subprocess.run(
-        ["git", "show", "23737a7:rusterm/formulas.py"],
-        capture_output=True, text=True, check=True).stdout
-    current = open("rusterm/formulas.py", encoding="utf-8").read()
-    assert old_src == current, "formulas.py изменился в этой ночи"
+def test_formulas_py_matches_era_baseline():
+    """G4 (обновлён ТЗ-24 N1): формулы заморожены от эры к эре.
+    Эталон прежней эры (23737a7) умер вместе с границей TASK-18: N1
+    прямо требует реализовать hhi в formulas.py. Базовая линия —
+    sha256 файла в tests/data/formulas_baseline.sha256; обновляется
+    ТОЛЬКО коммитом своей задачи с учётом в отчёте."""
+    baseline = (ROOT / "tests" / "data"
+                / "formulas_baseline.sha256").read_text().strip()
+    current = hashlib.sha256(
+        open("rusterm/formulas.py", "rb").read()).hexdigest()
+    assert current == baseline, (
+        "formulas.py изменился вне задачи своей эры — обновите "
+        "baseline тем же коммитом и учтите замену в отчёте")
 
 
 def test_g4_payload_taxonomy_us_gaap_wins_and_ifrs_parses():

@@ -338,6 +338,29 @@ def cagr(v_start: Optional[float], v_end: Optional[float], n: Optional[float]) -
 
 # ── Котировки (data-dictionary.md §3 «Котировки», v1) ──────────────────
 
+def hhi(shares: List[Optional[float]]) -> Tuple[Optional[float], Optional[NullReason]]:
+    """Индекс Герфиндаля–Хиршмана по ДОЛЯМ целого (конвенция дробей).
+
+    hhi = sum(share_i ** 2); единица — "index", диапазон 0..1
+    (1 = монополия). Процентная конвенция 0..10000 сознательно не
+    используется — чтобы не плодить вторую единицу измерения.
+
+    Доли обязаны суммироваться в целое (1.0 с допуском 1e-6):
+    суммы, не сходящиеся в целое, дают причину missing_data:
+    shares_sum:<фактическая сумма>, а не молчаливую перенормировку —
+    перенормировка спрятала бы дубли или пропуск участника.
+    Пустой набор — missing_data: shares_empty; один участник с долей 1
+    — валидный монопольный случай, hhi = 1.0.
+    """
+    values = [s for s in shares if s is not None]
+    if not values:
+        return None, "missing_data: shares_empty"
+    total = sum(float(v) for v in values)
+    if abs(total - 1.0) > 1e-6:
+        return None, f"missing_data: shares_sum:{round(total, 9)}"
+    return sum(float(v) ** 2 for v in values), None
+
+
 def split_factor(k: float) -> float:
     """Коэффициент корректировки сплита: f = 1 / k (сплит 1:k)."""
     return 1.0 / k
@@ -563,6 +586,10 @@ def calculate_measure(
     elif concept == "ev_ebitda":
         value, null_reason = ev_to_ebitda(
             kwargs.get("ev"), kwargs.get("ebitda_ttm"))
+
+    elif concept == "hhi":
+        value, null_reason = hhi(kwargs.get("shares") or [])
+        kwargs["unit"] = measure_unit("hhi")  # "index" — дроби (N1)
 
     elif concept == "div_yield":
         value, null_reason = dividend_yield(

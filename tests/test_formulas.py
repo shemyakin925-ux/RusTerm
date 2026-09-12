@@ -274,3 +274,28 @@ def test_cagr_function_value_on_doubling_series():
     # от убытка и в убыток рост не определён (причины — из formulas.py)
     assert cagr(-5.0, 200.0, 4) == (None, "negative_denominator")
     assert cagr(100.0, -50.0, 4) == (None, "negative_denominator")
+
+
+# ── ТЗ-24 N1: hhi — доля квадратов, конвенция дробей ───────────────────
+
+def test_hhi_known_set_hand_computed():
+    from rusterm.formulas import hhi
+    # 0.25 + 0.09 + 0.04 = 0.38
+    assert hhi([0.5, 0.3, 0.2]) == (0.38, None)
+    m = calculate_measure("hhi", shares=[0.5, 0.3, 0.2])
+    assert m.value == 0.38 and m.unit == "index"
+
+
+def test_hhi_shares_not_summing_to_whole_is_a_reason():
+    from rusterm.formulas import hhi
+    value, reason = hhi([0.5, 0.3])          # сумма 0.8
+    assert value is None
+    assert reason.startswith("missing_data: shares_sum:0.8")
+    # молчаливой перенормировки нет: 0.25+0.09 не возвращается числом
+
+
+def test_hhi_empty_and_single_member_defined():
+    from rusterm.formulas import hhi
+    assert hhi([]) == (None, "missing_data: shares_empty")
+    assert hhi([1.0]) == (1.0, None)         # монополия — валидный край
+    assert hhi([None, 1.0]) == (1.0, None)   # None-доли не участники
