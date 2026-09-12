@@ -1,5 +1,0 @@
-{"lane": "L2", "branch": "agent/n3-L2", "task": "agent/TASK-20.md",
- "report": "agent/REPORT-20-L2.md", "item": "HANDOFF", "step": "8",
- "status": "awaiting_review", "last_commit": "e966839", "requests": 6,
- "net_requests": 6, "llm_calls": 0, "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-11T23:20:00Z"}
