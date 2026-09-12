@@ -23,7 +23,8 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass, field
 
-from rusterm.core.peers import AGGREGATE_MIN_PEERS
+from rusterm.core.peers import (AGGREGATE_MIN_PEERS, currency_bound,
+                                currency_guard)
 
 METHOD_VERSION = "industry.v1"
 
@@ -41,6 +42,9 @@ class AggregateMeasure:
     n: int = 0
     null_reason: str | None = None
     method_version: str = METHOD_VERSION
+    # валюта, в которой заявлены квартили; None — мера безразмерна
+    # (ratio) или набор легаси-легаси без записанной валюты (ТЗ-21 H3)
+    currency: str | None = None
     # причины, по которым участники не внесли вклад: причина -> счётчик
     reason_counts: dict = field(default_factory=dict)
 
@@ -96,6 +100,7 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
     no_snapshot = sum(1 for sid in members.values() if sid is None)
     for concept in concepts:
         values: list[tuple[str, float | None]] = []
+        measure_ids: list[str] = []
         for iid in sorted(members):
             sid = members[iid]
             if sid is None:
@@ -106,8 +111,30 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                  if m[3] == concept), None)
             value = None if row is None or row[4] is None \
                 else float(row[4])
+            if row is not None:
+                measure_ids.append(row[0])
             values.append((iid, value))
+        # ТЗ-21 H3: агрегат несёт валюту, в которой заявлен; смешение
+        # валют абсолютной меры — currency_mismatch с перечнем
+        currencies: set[str] = set()
+        for mid in measure_ids:
+            currencies |= repos.snapshot.currencies_for_measure(mid)
+        guard = currency_guard(concept, currencies)
+        if guard is not None:
+            aggregates.append(AggregateMeasure(
+                concept=concept, p25=None, median=None, p75=None,
+                n=len([v for _, v in values if v is not None]),
+                null_reason=guard))
+            continue
         agg = sector_aggregate(concept, values, verified=verified)
+        # одновалютный абсолютный агрегат заявляет свою валюту
+        present = sorted(c.strip().upper() for c in currencies if c)
+        if currency_bound(concept) and len(present) == 1:
+            agg = AggregateMeasure(
+                concept=agg.concept, p25=agg.p25, median=agg.median,
+                p75=agg.p75, n=agg.n, null_reason=agg.null_reason,
+                method_version=agg.method_version, currency=present[0],
+                reason_counts=agg.reason_counts)
         if no_snapshot:
             reason_counts = dict(agg.reason_counts)
             reason_counts["no_snapshot_at_date"] = no_snapshot

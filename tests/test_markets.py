@@ -11,6 +11,8 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import importlib
+
 from rusterm.markets import MARKET_CODES, MARKETS, get_market, \
     venue_in_market
 
@@ -135,3 +137,57 @@ def test_markets_command_json_carries_every_registry_field():
     finally:
         import shutil
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_markets_consolidated_provider_status_and_issuers(tmp_path,
+                                                          monkeypatch):
+    """ТЗ-21 H1: markets печатает статус провайдера и число эмитентов;
+    модуль-пустышка печатается ровно provider_not_implemented; код
+    всегда 0; конвейерный вывод без ANSI."""
+    import json
+    import os
+
+    env = {**{k: v for k, v in os.environ.items()
+              if k not in ("RUSTERM_ENV_FILE",)},
+           "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+           "TERM": "xterm"}
+    root = str(tmp_path)
+    # схема нужна, чтобы счётчик эмитентов был честным нулём
+    subprocess.run([sys.executable, "-m", "rusterm.cli", "--root", root,
+                    "init"], capture_output=True, text=True, env=env)
+    r = subprocess.run(
+        [sys.executable, "-m", "rusterm.cli", "--root", root,
+         "markets", "--json"], capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    assert "\x1b[" not in r.stdout  # B11: пайп без ANSI
+    payload = json.loads(r.stdout)
+    by_code = {row["code"]: row for row in payload["markets"]}
+    assert len(payload["markets"]) == 6
+    assert by_code["KR"]["provider_status"] == "implemented"
+    assert by_code["KR"]["issuers"] == "0"
+
+    # модуль отсутствует: подмена importlib на отказ для cvm
+    real_import = importlib.import_module
+
+    def fake_import(name, *a, **kw):
+        if name == "rusterm.providers.cvm":
+            raise ModuleNotFoundError("cvm", name="cvm")
+        return real_import(name, *a, **kw)
+
+    script = (
+        "import importlib, json, sys\n"
+        "real = importlib.import_module\n"
+        "def fake(name, *a, **kw):\n"
+        "    if name == 'rusterm.providers.cvm':\n"
+        "        raise ModuleNotFoundError('cvm', name='cvm')\n"
+        "    return real(name, *a, **kw)\n"
+        "importlib.import_module = fake\n"
+        "sys.argv = ['rusterm', '--root', %r, 'markets']\n"
+        "from rusterm.cli import main\n"
+        "code = main(['--root', %r, 'markets'])\n"
+        "assert code == 0, code\n" % (root, root))
+    r2 = subprocess.run([sys.executable, "-c", script],
+                        capture_output=True, text=True, env=env)
+    assert r2.returncode == 0, r2.stderr
+    assert "provider_not_implemented" in r2.stdout
+    assert "\x1b[" not in r2.stdout

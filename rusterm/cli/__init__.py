@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import sys
 import uuid
@@ -1050,16 +1051,47 @@ def cmd_budget(args) -> int:
     return 0
 
 
+def _provider_status(provider: str) -> str:
+    """Реализован ли модуль провайдера: importlib внутри вызова —
+    та же дверь, что у мест (ТЗ-19 F5). Нет модуля — дословно
+    provider_not_implemented, а не пустота (ТЗ-21 H1)."""
+    try:
+        importlib.import_module(f"rusterm.providers.{provider}")
+    except ModuleNotFoundError as e:
+        if e.name in (provider, f"rusterm.providers.{provider}"):
+            return "provider_not_implemented"
+        raise
+    return "implemented"
+
+
+def _issuer_count(conn, paths) -> str:
+    """Эмитентов в локальной базе; схемы нет — честное «—». Сам
+    запрос живёт в репозитории (приёмка, пункт 7: SQL только в слое
+    хранилища)."""
+    try:
+        return str(RepoRegistry(conn, paths).instrument.issuer_count())
+    except Exception:
+        return "—"
+
+
 def cmd_markets(args) -> int:
-    """Реестр рынков как данные (BACKLOG B19): одна команда показывает
-    строки таблицы MARKETS — коды, юрисдикции, провайдеров, уровни
-    доступа; --json для машинного потребления."""
+    """Реестр рынков как данные (BACKLOG B19; ТЗ-21 H1): коды,
+    юрисдикции, провайдеры, уровни доступа, реализован ли провайдер и
+    сколько эмитентов в локальной базе; --json для машинного
+    потребления. Ответ на вопрос «достанет ли программа корейские
+    данные?» — без чтения исходников."""
     from rusterm.markets import MARKETS
-    rows = [{"code": m.code, "jurisdiction": m.jurisdiction,
-             "venue_kind": m.venue_kind, "provider": m.provider,
-             "identifier": m.identifier,
-             "default_taxonomy": m.default_taxonomy,
-             "access": m.access} for m in MARKETS]
+    paths, conn = _open(args.root)
+    rows = []
+    for m in MARKETS:
+        rows.append({"code": m.code, "jurisdiction": m.jurisdiction,
+                     "venue_kind": m.venue_kind, "provider": m.provider,
+                     "identifier": m.identifier,
+                     "default_taxonomy": m.default_taxonomy,
+                     "access": m.access,
+                     "provider_status": _provider_status(m.provider),
+                     "issuers": _issuer_count(conn, paths)})
+    conn.close()
     if args.json:
         print(json.dumps({"markets": rows}, ensure_ascii=False))
         return 0
@@ -1067,7 +1099,8 @@ def cmd_markets(args) -> int:
         print(f"{row['code']}\t{row['jurisdiction']}\t"
               f"{row['venue_kind']}\t{row['provider']}\t"
               f"{row['identifier']}\t{row['default_taxonomy']}\t"
-              f"{row['access']}")
+              f"{row['access']}\t{row['provider_status']}\t"
+              f"{row['issuers']}")
     return 0
 
 

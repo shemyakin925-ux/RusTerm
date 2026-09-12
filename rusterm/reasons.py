@@ -25,6 +25,7 @@ NULL_REASONS: frozenset[str] = frozenset({
     "no_text_layer",         # скан без текстового слоя; OCR в проекте нет
     "unknown_issuer",        # рынок не знает этого идентификатора
     "source_unreachable",    # хост провайдера отказал или не ответил (403/429/timeout)
+    "currency_mismatch",     # абсолютная мера в наборе с разными валютами (ТЗ-21 H3); продолжение: валюты через ': '
 })
 
 

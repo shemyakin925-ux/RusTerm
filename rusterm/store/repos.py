@@ -105,6 +105,12 @@ class InstrumentRepo:
         ).fetchone()
         return Instrument(*row) if row else None
 
+    def issuer_count(self) -> int:
+        """Эмитентов в локальной базе (ТЗ-21 H1: markets показывает
+        счётчик; SQL живёт в слое хранилища — приёмка, пункт 7)."""
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM issuer").fetchone()[0]
+
     def upsert_listing(self, listing: Listing) -> None:
         with writer_transaction(self.conn) as c:
             c.execute(
@@ -510,6 +516,15 @@ class SnapshotRepo:
                  value, unit, period_start, period_end,
                  formula_id, method_version, null_reason, peer_set_version),
             )
+
+    def currencies_for_measure(self, measure_id: str) -> set[str]:
+        """Валюты входных фактов меры (ТЗ-21 H3): через lineage; пустые
+        не отбрасываются — решает вызывающий страж."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT f.currency FROM measure_lineage l
+               JOIN fact f ON f.fact_id = l.fact_id
+               WHERE l.measure_id = ?""", (measure_id,)).fetchall()
+        return {r[0] for r in rows if r[0]}
 
     def add_lineage(self, measure_id: str, fact_id: Optional[str],
                     peer_measure_id: Optional[str], role: str) -> None:

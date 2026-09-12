@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from uuid import uuid4
 
-from rusterm.core.peers import evaluate, percentile_share
+from rusterm.core.peers import currency_guard, evaluate, percentile_share
 from rusterm.formulas import calculate_measure, measure_unit
 from rusterm.normalize.concepts import priority_rank, strip_taxonomy
 
@@ -290,6 +290,32 @@ class SnapshotBuilder:
                 measure_ids.setdefault(concept, []).append(mid)
             for concept, values in by_concept.items():
                 own = computed.get(concept)
+                # ТЗ-21 H3: валютный стоп-кран — абсолютные меры в
+                # наборе с разными валютами получают currency_mismatch
+                # с перечнем валют; ratio/count не трогаются
+                currencies: set[str] = set()
+                for mid in measure_ids.get(concept, []):
+                    currencies |= self._snapshots.currencies_for_measure(mid)
+                own_mid = measure_row_ids.get(concept)
+                if own_mid:
+                    currencies |= self._snapshots.currencies_for_measure(own_mid)
+                guard = currency_guard(concept, currencies)
+                if guard:
+                    lineage = [{"fact_id": None, "peer_measure_id": mid,
+                                "role": "peer"}
+                               for mid in measure_ids[concept]]
+                    self._snapshots.insert_measure_with_lineage(
+                        dict(measure_id=str(uuid4()),
+                             snapshot_id=snapshot_id,
+                             scope="issuer", scope_ref=issuer_id,
+                             concept="percentile", value=None,
+                             unit="ratio", period_start="",
+                             period_end=as_of, formula_id="percentile",
+                             method_version="v1", null_reason=guard,
+                             peer_set_version=peer_set_version),
+                        lineage)
+                    result.percentiles += 1
+                    continue
                 share = percentile_share(values, own) if own is not None else None
                 if share is None:
                     continue  # порог 5: перцентили не считаются

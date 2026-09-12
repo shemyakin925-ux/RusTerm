@@ -72,3 +72,41 @@ def percentile_share(peer_values: list[float], own_value: float) -> float | None
 def aggregate_ready(peer_count: int) -> bool:
     """Отраслевые агрегаты считаются только от восьми пиров и больше."""
     return peer_count >= AGGREGATE_MIN_PEERS
+
+
+# Валютно-связанные виды мер (formulas.MEASURE_UNIT_KINDS): смешение
+# валют портит сравнение; ratio, count и index нейтральны.
+_CURRENCY_BOUND_KINDS = frozenset({"money", "per_share"})
+
+
+def currency_bound(concept: str) -> bool:
+    """Абсолютна ли мера, то есть сравнима только внутри одной валюты.
+
+    money и per_share из карты единиц — да. Концепта нет в карте —
+    это вход as-reported (revenue, total_equity и прочие денежные
+    факты карты V0): он тоже валютно-связан. Входных концептов вне
+    денег карта V0 не знает, так что «неизвестен» здесь означает
+    «денежный», а не «неизвестно» (ТЗ-21 H3).
+    """
+    from rusterm.formulas import MEASURE_UNIT_KINDS
+    return MEASURE_UNIT_KINDS.get(concept) in _CURRENCY_BOUND_KINDS \
+        or concept not in MEASURE_UNIT_KINDS
+
+
+def currency_guard(concept: str, currencies: set[str]) -> str | None:
+    """Валютный стоп-кран (ТЗ-21 H3): причина для меры или None.
+
+    Две и более различных НЕПУСТЫХ валют у входов абсолютной меры —
+    currency_mismatch с перечнем валют в продолжении (тот же стиль,
+    что missing_data у X3). Пустая валюта не считается ни одной
+    стороной смешения и никогда не подменяется USD. Ratio и count
+    нейтральны. Легаси-наборы, где валюта не записана вовсе, не
+    меняют поведения (см. Disputed отчёта ТЗ-21).
+    """
+    if not currency_bound(concept):
+        return None
+    present = sorted({c.strip().upper() for c in currencies
+                      if c and c.strip()})
+    if len(present) > 1:
+        return "currency_mismatch: " + ", ".join(present)
+    return None
