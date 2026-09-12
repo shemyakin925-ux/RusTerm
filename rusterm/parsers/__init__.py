@@ -11,6 +11,7 @@ core.Fact — обязанность конвейера, не парсера.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -19,6 +20,17 @@ from typing import Protocol
 from rusterm.core.fact import determine_basis
 
 PARSER_VERSION = "synthetic.v1"
+
+# ТЗ-22 J1.0: ключ units в companyfacts — валюта для денежных
+# концептов (USD, CAD, KRW); shares, pure и USD/shares валютой не
+# являются. Правило детерминировано формой ключа: ровно три заглавные
+# буквы.
+_ISO_CURRENCY = re.compile(r"^[A-Z]{3}$")
+
+
+def currency_of_unit(unit_key: str) -> str | None:
+    """Валюта из ключа units или None — ключ валютой не был."""
+    return unit_key if _ISO_CURRENCY.match(unit_key or "") else None
 
 # doc_type из индекса раскрытий -> метаданные, по которым парсер решает,
 # не читая тела (processes.md: can_parse решает по типу и источнику).
@@ -260,7 +272,9 @@ class CompanyFactsParser:
                             "concept": concept,
                             "value": str(value),
                             "unit": unit_kind,
-                            "currency": None,
+                            # ТЗ-22 J1.0: ключ units и есть валюта для
+                            # денежных концептов; shares/pure — не валюта
+                            "currency": currency_of_unit(unit_kind),
                             "period_start": start,
                             "period_end": end,
                             "period_type": ("duration"

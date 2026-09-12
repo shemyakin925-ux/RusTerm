@@ -31,4 +31,31 @@ Pushed:          with this commit
 Questions for the coordinator:
 1. (none yet)
 
-NOW: J1.0, step 1
+### J1.0 — EDGAR parser records currency (DONE, coordinator's precondition)
+
+- `rusterm/parsers/__init__.py`: new `currency_of_unit()` — a units key
+  of exactly three capital letters (`USD`, `CAD`, `KRW`) is recorded to
+  `fact.currency`; `shares`, `pure`, `USD/shares` are not currencies and
+  stay `None`. Only `CompanyFactsParser` is touched; the synthetic
+  parsers and `manual/pipeline.py` keep `None` deliberately.
+- **The blank rule lands with this commit**: `currencies_for_measure`
+  now returns blanks as empty strings, and `currency_guard` treats a
+  recorded currency mixed with blanks as `currency_mismatch: (blank), X`
+  — never "that one currency". All-blank (legacy) sets behave exactly as
+  before. The TASK-21 Disputed trade-off is closed.
+- Real output, fresh ingest of the recorded AAPL+RY payloads:
+  ```
+  SELECT DISTINCT currency FROM fact:
+    None     <- shares / USD/shares facts (correct, not missing)
+    CAD
+    USD
+  ```
+- Goldens: UNCHANGED — `tests/test_m2_golden.py` and the m6-ca golden
+  test pass in the suite; they resolve values by locator, and the
+  parser change adds a field without touching any value.
+- Tests: `tests/test_j1_currency.py`, 5 passed. Full suite:
+  531 passed, 3 skipped, exit 0.
+
+## Blocked
+
+- none

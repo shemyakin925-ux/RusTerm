@@ -94,19 +94,24 @@ def currency_bound(concept: str) -> bool:
 
 
 def currency_guard(concept: str, currencies: set[str]) -> str | None:
-    """Валютный стоп-кран (ТЗ-21 H3): причина для меры или None.
+    """Валютный стоп-кран (ТЗ-21 H3; пустоты по правилу ТЗ-22 J1.0):
+    причина для меры или None.
 
     Две и более различных НЕПУСТЫХ валют у входов абсолютной меры —
     currency_mismatch с перечнем валют в продолжении (тот же стиль,
-    что missing_data у X3). Пустая валюта не считается ни одной
-    стороной смешения и никогда не подменяется USD. Ratio и count
-    нейтральны. Легаси-наборы, где валюта не записана вовсе, не
-    меняют поведения (см. Disputed отчёта ТЗ-21).
+    что missing_data у X3). С того коммита, где провайдеры начали
+    записывать валюту (J1.0), пустая валюта — сторона смешения:
+    набор из записанной валюты и пустот — currency_mismatch, а не
+    молчаливое «та одна валюта»; набор из одних пустот (легаси) ведёт
+    себя как раньше и никогда не подменяется USD. Ratio и count
+    нейтральны.
     """
     if not currency_bound(concept):
         return None
     present = sorted({c.strip().upper() for c in currencies
                       if c and c.strip()})
-    if len(present) > 1:
-        return "currency_mismatch: " + ", ".join(present)
+    blanks = any(not (c and c.strip()) for c in currencies)
+    if len(present) > 1 or (present and blanks):
+        return "currency_mismatch: " + ", ".join(
+            sorted(present + (["(blank)"] if blanks else [])))
     return None

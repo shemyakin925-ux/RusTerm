@@ -518,13 +518,14 @@ class SnapshotRepo:
             )
 
     def currencies_for_measure(self, measure_id: str) -> set[str]:
-        """Валюты входных фактов меры (ТЗ-21 H3): через lineage; пустые
-        не отбрасываются — решает вызывающий страж."""
+        """Валюты входных фактов меры (ТЗ-21 H3): через lineage. С ТЗ-22
+        J1.0 пустая валюта приходит пустой строкой, а не отбрасывается:
+        решает страж (смешение записанной валюты с пустотой — отказ)."""
         rows = self.conn.execute(
             """SELECT DISTINCT f.currency FROM measure_lineage l
                JOIN fact f ON f.fact_id = l.fact_id
                WHERE l.measure_id = ?""", (measure_id,)).fetchall()
-        return {r[0] for r in rows if r[0]}
+        return {(r[0] or "") for r in rows}
 
     def add_lineage(self, measure_id: str, fact_id: Optional[str],
                     peer_measure_id: Optional[str], role: str) -> None:
