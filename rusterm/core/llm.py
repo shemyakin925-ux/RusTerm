@@ -61,7 +61,12 @@ def make_intent_client(environ=None):
     env = os.environ if environ is None else environ
     if env.get("RUSTERM_LLM_API_KEY"):
         from rusterm.providers.llm_api import LlmApiClient
-        return LlmApiClient.from_env(environ=env)
+        client = LlmApiClient.from_env(environ=env)
+        # ошибка сборки API-клиента (нет контакта SEC_UA и пр.) —
+        # не ошибка команды: дверь падает на правило, работая офлайн.
+        # ConfigError — значение-датаclass, не исключение.
+        if hasattr(client, "complete"):
+            return client
     from rusterm.core.intent import RuleClient
     return RuleClient()
 

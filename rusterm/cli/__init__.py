@@ -503,21 +503,27 @@ def cmd_verify(args) -> int:
     return 0
 
 
+from rusterm.core.llm import make_intent_client  # noqa: E402
+
+
 def cmd_ops(args) -> int:
     """Массовая операция под подтверждением (TASK-16 D7/D8,
     docs/watchlist-and-llm.md §2–3): без --confirm — dry-run с пометкой
     по каждой позиции и без единой записи; с --confirm — применение
     одной транзакцией. Аудит: строка на исход (applied / refused /
     clarification); dry-run строк не пишет (D4). Ключ модели tonight
-    нет — детерминированный RuleClient из core/intent."""
-    from rusterm.core.intent import Clarification, RuleClient, classify
+    есть — API-клиент, нет — детерминированный RuleClient; выбор
+    только через make_intent_client (ТЗ-27 N1, единственная дверь)."""
+    from rusterm.core.intent import Clarification, classify
+    make_intent_client = globals().get("make_intent_client")
     from rusterm.core.ops import Refused, apply, prepare
 
     paths, conn = _open(args.root)
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
 
-    decision = classify(RuleClient(), args.request)
+    import os as _os
+    decision = classify(make_intent_client(_os.environ), args.request)
     outcome, rows, version = "clarification", [], None
     intent_name = getattr(decision, "name", None)
     as_of = args_as_of_default()
