@@ -914,6 +914,53 @@ def cmd_restore(args) -> int:
     return 0
 
 
+def cmd_chat(args) -> int:
+    """Чат с цитатами (ТЗ-26 Q1): вопрос -> read-only инструменты ->
+    ответ, где каждое число доказуемо. Чат никогда не пишет.
+    Без RUSTERM_LLM_API_KEY — внятное сообщение и код 1, не падение."""
+    from rusterm.core.chat import ChatSession
+    from rusterm.providers.budget import ConfigError, RequestGate
+    client = get_provider("llm-api", gate=RequestGate())
+    if isinstance(client, ConfigError):
+        print(f"chat: модель недоступна: {client.reason}; задайте "
+              f"RUSTERM_LLM_API_KEY", file=sys.stderr)
+        return 1
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+
+    class _Adapter:
+        """LlmApiClient -> протокол chat(prompt, history)."""
+
+        def chat(self, prompt, history):
+            raw = client.complete(prompt)
+            if isinstance(raw, ConfigError):
+                return {"text": None,
+                        "tool_calls": [],
+                        "error": raw.reason}
+            return {"text": str(raw), "tool_calls": []}
+
+    session = ChatSession(repos, _Adapter(),
+                          max_total=args.max_calls)
+    print("чат: пустая строка — выход; модель отвечает только "
+          "цитированными числами")
+    while True:
+        try:
+            question = input("вопрос> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not question:
+            break
+        result = session.ask(question)
+        if result["rejected"]:
+            print(f"[отказ: {result['reason']}]")
+        else:
+            print(result["answer"])
+    print(f"вызовов модели/инструментов за сессию: {session.calls_made}")
+    conn.close()
+    return 0
+
+
 def _scrub_url(url: str) -> str:
     from rusterm.store.repos import scrub_secret_url
     return scrub_secret_url(url)
@@ -1387,6 +1434,8 @@ def main(argv: list[str] | None = None) -> int:
     p_imp.add_argument("--market", default=None)
     p_imp.add_argument("--dry-run", dest="dry_run", action="store_true",
                        help="извлечь и проверить, ничего не записывая")
+    sub.add_parser("chat",
+                   help="чат с цитатами (ТЗ-26 Q1); нужен ключ модели")
     p_mkt = sub.add_parser("markets",
                            help="реестр рынков: коды, провайдеры, доступ")
     p_mkt.add_argument("--json", action="store_true")
@@ -1401,6 +1450,7 @@ def main(argv: list[str] | None = None) -> int:
         "init": cmd_init, "ingest": cmd_ingest, "snapshot": cmd_snapshot,
         "export": cmd_export, "verify": cmd_verify, "doctor": cmd_doctor,
         "backup": cmd_backup, "restore": cmd_restore,
+        "chat": cmd_chat,
         "demo": cmd_demo,
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
