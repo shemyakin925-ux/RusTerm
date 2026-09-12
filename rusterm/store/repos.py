@@ -684,6 +684,54 @@ class PeerSetRepo:
             "SELECT 1 FROM peer_set WHERE peer_set_id=?",
             (peer_set_id,)).fetchone() is not None
 
+    def composition(self, peer_set_version_id: str) -> dict:
+        """Состав набора: рынки и валюты участников (ТЗ-22 J2).
+
+        Информация, не фильтр: пороги I6 не меняются. Рынок — код
+        префикса instrument_id, известный реестру; валюта —
+        записанная валюта фактов участников. scope называет набор
+        single-market или mixed; колонка origin остаётся словарём
+        происхождения (manual/catalog/...) — она решает
+        верифицированность, и переименование её сломало бы.
+        """
+        from rusterm.markets import get_market
+        members = [r[0] for r in self.conn.execute(
+            """SELECT instrument_id FROM peer_set_member
+               WHERE peer_set_version_id=? AND excluded_stale=0""",
+            (peer_set_version_id,)).fetchall()]
+        markets = sorted({m.split("-", 1)[0] for m in members
+                          if get_market(m.split("-", 1)[0])})
+        currencies = sorted({r[0] for r in self.conn.execute(
+            """SELECT DISTINCT f.currency
+               FROM peer_set_member m
+               JOIN instrument i ON i.instrument_id = m.instrument_id
+               JOIN fact f ON f.issuer_id = i.issuer_id
+               WHERE m.peer_set_version_id=?
+                 AND f.currency IS NOT NULL""",
+            (peer_set_version_id,)).fetchall()})
+        return {"markets": markets, "currencies": currencies,
+                "members": sorted(members),
+                "scope": "mixed" if len(markets) > 1
+                else "single-market"}
+
+    def latest_compositions(self) -> list[dict]:
+        """Состав по каждому набору на его старшую версию — для
+        `rusterm status` (ТЗ-22 J2)."""
+        out = []
+        for (ps_id,) in self.conn.execute(
+                "SELECT peer_set_id FROM peer_set ORDER BY peer_set_id"):
+            row = self.conn.execute(
+                """SELECT peer_set_version_id, version
+                   FROM peer_set_version WHERE peer_set_id=?
+                   ORDER BY version DESC LIMIT 1""",
+                (ps_id,)).fetchone()
+            if row is None:
+                continue
+            entry = {"peer_set_id": ps_id, "version": row[1]}
+            entry.update(self.composition(row[0]))
+            out.append(entry)
+        return out
+
     def version_at(self, peer_set_id: str, as_of: str) -> Optional[dict]:
         """Версия, чей интервал [valid_from, valid_to) покрывает дату
         (TASK-17 E2, §0.2 ruling 5). Два совпадения — дефект данных:

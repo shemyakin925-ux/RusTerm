@@ -38,12 +38,15 @@ def list_industry_instruments(repos, industry: str,
 
 
 def get_peer_set(repos, instrument_id: str) -> dict:
-    """Peer set инструмента с версией и origin (§2.4)."""
+    """Peer set инструмента с версией и origin (§2.4). ТЗ-22 J2:
+    ответ несёт состав набора — рынки, валюты, single-market/mixed."""
     peer_set = repos.peer_set.peer_set_for_instrument(instrument_id)
     if peer_set is None:
         return {"outcome": "not_found", "instrument_id": instrument_id}
     return {"outcome": "resolved", "instrument_id": instrument_id,
             "peer_set": peer_set,
+            "composition": repos.peer_set.composition(
+                peer_set["peer_set_version_id"]),
             "status": repos.peer_set.peer_status_for_instrument(
                 instrument_id)}
 

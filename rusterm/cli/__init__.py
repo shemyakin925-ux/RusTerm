@@ -647,6 +647,8 @@ def cmd_status(args) -> int:
         "concept_map_version": CONCEPT_MAP_VERSION,
         "concept_map_version_ifrs": CONCEPT_MAP_VERSION_IFRS,
         "market_codes": list(MARKET_CODES),
+        # ТЗ-22 J2: состав каждого набора — рынки, валюты, mixed/нет
+        "peer_sets": repos.peer_set.latest_compositions(),
         "budget": {
             "ceiling_per_night": 5000,
             "rate_per_second": 5,
@@ -664,6 +666,10 @@ def cmd_status(args) -> int:
         print(f"схема: найдена версия {observed}, обновлена до {applied}")
     print(f"схема: {('версия ' + str(applied)) if applied else 'нет базы (rusterm init)'}")
     print(f"инструментов: {payload['instruments']}; списков наблюдения: {payload['watchlists']}")
+    for p in payload["peer_sets"]:
+        print(f"peer set {p['peer_set_id']} v{p['version']}: {p['scope']}"
+              f"; рынки: {','.join(p['markets']) or '—'}"
+              f"; валюты: {','.join(p['currencies']) or '—'}")
     if payload["snapshots"]:
         print("последние снапшоты:")
         for s in payload["snapshots"]:
