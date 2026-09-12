@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional, List, Dict
 
 import sqlite3
+from datetime import date
 
 from rusterm.reasons import is_known_reason
 from rusterm.applog import APP_LOG_BACKUP_COUNT, APP_LOG_MAX_BYTES
@@ -1670,6 +1671,8 @@ class RepoRegistry:
         self.llm_summary = LlmSummaryRepo(conn)
         self.governance = GovernanceRepo(conn)
         self.issuer_state = IssuerStateRepo(conn)
+        self.price = PriceRepo(conn)
+        self.corp_action = CorporateActionRepo(conn)
         self.industry = IndustryRepo(conn)
         self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)
         self.document = DocumentRepo(conn)
@@ -1720,6 +1723,119 @@ class IndustryRepo:
                FROM industry_aggregate
                WHERE peer_set_version_id=? AND as_of=?
                ORDER BY concept""", (peer_set_version_id, as_of)).fetchall()
+
+
+class PriceRepo:
+    """Котировки (ТЗ-23 K1, ADR-0014): close и adjusted хранятся оба —
+    diff строится по close, вендорский adjusted служит сверкой нашей
+    корректировке (K3). Уникальность (инструмент, дата, источник):
+    повторный сбор того же дня — no-op (I7), INSERT OR IGNORE."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def put_rows(self, instrument_id: str, source: str,
+                 rows: list[dict]) -> int:
+        """rows: [{date, close?, adjusted?, currency?, volume?}].
+        Возвращает число РЕАЛЬНО вставленных дней (дубли не считаются)."""
+        inserted = 0
+        with writer_transaction(self.conn) as c:
+            for r in rows:
+                cur = c.execute(
+                    """INSERT OR IGNORE INTO price(instrument_id, date,
+                       source, close, adjusted, currency, volume,
+                       retrieved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (instrument_id, r["date"], source, r.get("close"),
+                     r.get("adjusted"), r.get("currency"),
+                     r.get("volume"), time.time()))
+                inserted += cur.rowcount
+        return inserted
+
+    def series(self, instrument_id: str,
+               source: str | None = None) -> list[dict]:
+        sql = """SELECT date, close, adjusted, currency, volume
+                 FROM price WHERE instrument_id=?"""
+        args: list = [instrument_id]
+        if source:
+            sql += " AND source=?"
+            args.append(source)
+        sql += " ORDER BY date"
+        return [dict(zip(("date", "close", "adjusted", "currency",
+                          "volume"), r))
+                for r in self.conn.execute(sql, args)]
+
+    def price_as_of(self, instrument_id: str, as_of: str) -> Optional[dict]:
+        """Последняя цена строкой не позже as_of. Переносить вчерашнюю
+        цену за сегодняшний день — работа вызывающего стража: здесь
+        только факт (дата, age в днях), а не разрешение."""
+        row = self.conn.execute(
+            """SELECT date, close, adjusted, currency FROM price
+               WHERE instrument_id=? AND date<=?
+               ORDER BY date DESC LIMIT 1""",
+            (instrument_id, as_of)).fetchone()
+        if row is None:
+            return None
+        return {"date": row[0], "close": row[1], "adjusted": row[2],
+                "currency": row[3],
+                "age_days": (date.fromisoformat(as_of)
+                             - date.fromisoformat(row[0])).days}
+
+    def latest_date(self, instrument_id: str) -> Optional[str]:
+        row = self.conn.execute(
+            """SELECT MAX(date) FROM price WHERE instrument_id=?""",
+            (instrument_id,)).fetchone()
+        return row[0] if row else None
+
+    def dates(self, instrument_id: str,
+              source: str | None = None) -> list[str]:
+        return [r["date"] for r in self.series(instrument_id, source)]
+
+    def count(self, instrument_id: str | None = None) -> int:
+        if instrument_id is None:
+            return self.conn.execute(
+                "SELECT COUNT(*) FROM price").fetchone()[0]
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM price WHERE instrument_id=?",
+            (instrument_id,)).fetchone()[0]
+
+
+class CorporateActionRepo:
+    """Корпоративные действия (ТЗ-23 K1): входы уже написанной и
+    протестированной price_adj (сплиты — factor, дивиденды — amount).
+    Уникальность (инструмент, ex_date, вид)."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def put(self, instrument_id: str, ex_date: str, kind: str,
+            factor: Optional[float] = None,
+            amount: Optional[float] = None, currency: Optional[str] = None,
+            source: str = "twelvedata") -> bool:
+        """True — записано; False — такое событие уже есть (I7)."""
+        with writer_transaction(self.conn) as c:
+            cur = c.execute(
+                """INSERT OR IGNORE INTO corporate_action(
+                   instrument_id, ex_date, kind, factor, amount,
+                   currency, source) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (instrument_id, ex_date, kind, factor, amount, currency,
+                 source))
+            return cur.rowcount > 0
+
+    def raw_events(self, instrument_id: str) -> list[dict]:
+        """События по возрастанию ex_date в сыром виде. Дивидендный
+        фактор (вход price_adj) здесь НЕ вычисляется: он требует close
+        на ex-date, которым репозиторий не владеет, — расчёт живёт в
+        вызывающем (K3), по сохранённому ряду цен."""
+        return self.all(instrument_id)
+
+    def all(self, instrument_id: str) -> list[dict]:
+        return [dict(zip(("instrument_id", "ex_date", "kind", "factor",
+                          "amount", "currency", "source"), r))
+                for r in self.conn.execute(
+                    """SELECT instrument_id, ex_date, kind, factor,
+                       amount, currency, source FROM corporate_action
+                       WHERE instrument_id=? ORDER BY ex_date""",
+                    (instrument_id,))]
 
 
 class DocumentRepo:

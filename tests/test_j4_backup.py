@@ -90,7 +90,7 @@ def test_round_trip_is_exact(tmp_path):
     src = _seed(tmp_path / "src")
     archive = tmp_path / "backup.zip"
     summary = create_backup(src, archive)
-    assert summary.members >= 3 and summary.schema_version == 40
+    assert summary.members >= 3 and summary.schema_version == 41
     target = AppPaths.from_root(tmp_path / "dst")
     result = restore_backup(archive, target)
     assert result["restored"] == summary.members

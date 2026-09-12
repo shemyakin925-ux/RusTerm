@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 40  # 32 таблицы + 33 (gzip) + 35 (governance) + 36 (canonical_concept) + 37 (issuer_ingest_state) + 38 (индексы) + 39 (industry_aggregate) + 40 (document, manual_extraction, fact.source_kind; TASK-19 F4)
+_SCHEMA_VERSION = 41  # 40 (TASK-19 F4) + 41: price и corporate_action — место котировок (ТЗ-23 K1, ADR-0014)
 
 
 def _checksum(text: str) -> str:
@@ -552,6 +552,44 @@ def _migrate_40_manual_import(conn: sqlite3.Connection) -> None:
 _CUSTOM_MIGRATIONS[40] = (_migrate_40_manual_import,
                           "ALTER TABLE fact ADD source_kind;"
                           + _DOCUMENT_DDL + ";" + _MANUAL_EXTRACTION_DDL)
+
+
+_PRICE_DDL = """CREATE TABLE IF NOT EXISTS price (
+        instrument_id TEXT NOT NULL REFERENCES instrument(instrument_id),
+        date TEXT NOT NULL,
+        source TEXT NOT NULL,
+        close REAL,
+        adjusted REAL,
+        currency TEXT,
+        volume REAL,
+        retrieved_at REAL NOT NULL,
+        PRIMARY KEY (instrument_id, date, source),
+        CHECK (close IS NOT NULL OR adjusted IS NOT NULL))"""
+
+_CORPORATE_ACTION_DDL = """CREATE TABLE IF NOT EXISTS corporate_action (
+        instrument_id TEXT NOT NULL REFERENCES instrument(instrument_id),
+        ex_date TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('split','dividend')),
+        factor REAL,
+        amount REAL,
+        currency TEXT,
+        source TEXT NOT NULL,
+        PRIMARY KEY (instrument_id, ex_date, kind),
+        CHECK ((kind = 'split' AND factor IS NOT NULL) OR
+               (kind = 'dividend' AND amount IS NOT NULL)))"""
+
+
+def _migrate_41_prices(conn: sqlite3.Connection) -> None:
+    """Котировки и корпоративные действия (ТЗ-23 K1, ADR-0014):
+    место для close/adjusted и событий корректировки. Уникальность
+    цены — (инструмент, дата, источник): повторный сбор того же дня
+    не плодит дублей и ничего не переписывает (I7)."""
+    conn.execute(_PRICE_DDL)
+    conn.execute(_CORPORATE_ACTION_DDL)
+
+
+_CUSTOM_MIGRATIONS[41] = (_migrate_41_prices,
+                          _PRICE_DDL + ";" + _CORPORATE_ACTION_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

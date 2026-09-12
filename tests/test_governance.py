@@ -151,7 +151,7 @@ def test_migration_35_creates_table_and_repo_appends_history():
                            isolation_level=None)
     try:
         apply_migrations(conn)
-        assert _SCHEMA_VERSION == 40
+        assert _SCHEMA_VERSION == 41
         repos = RepoRegistry(conn, paths)
         repos.instrument.upsert_issuer(Issuer(
             "i1", "N", "US", None, None, "us_gaap", "USD"))
