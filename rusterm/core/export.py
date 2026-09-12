@@ -90,14 +90,22 @@ def _rows_to_dicts(measures: list) -> list[MeasureRow]:
 
 
 def snapshot_to_json(snapshot: dict, measures: list,
-                     provenance: dict[str, list[dict]] | None = None) -> str:
+                     provenance: dict[str, list[dict]] | None = None,
+                     currencies: dict[str, str | None] | None = None) -> str:
     """JSON снапшота: мета + меры с null-причинами, без досчётов.
     Файл переживает базу — несёт версию карты, его породившую (X4).
     provenance (ТЗ-20 L9) — необязателен: передан — каждая мера несёт
-    блок провенанса; не передан — вывод байт-в-байт прежний."""
+    блок провенанса; не передан — вывод байт-в-байт прежний.
+    currencies (ТЗ-22 J1) — необязателен: measure_id -> записанная
+    валюта меры или строка отказа; каждая абсолютная мера несёт
+    валюту, в которой заявлена."""
     rows = _rows_to_dicts(measures)
     if provenance is not None:
         rows = attach_provenance(rows, provenance)
+    if currencies is not None:
+        for row in rows:
+            if row["measure_id"] in currencies:
+                row["currency"] = currencies[row["measure_id"]]
     payload = {
         "snapshot": snapshot,
         "concept_map_version": CONCEPT_MAP_VERSION,

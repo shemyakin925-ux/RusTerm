@@ -401,8 +401,15 @@ def cmd_export(args) -> int:
         return 1
     snapshot = repo.get_snapshot(snapshot_id)
     measures = repo.get_measures(snapshot_id)
+    if args.format == "json":
+        # ТЗ-22 J1: каждая абсолютная мера несёт валюту, в которой
+        # заявлена, или строку отказа с перечнем
+        currencies = {m[0]: repo.measure_currency(m[0], m[3])
+                      for m in measures}
+    else:
+        currencies = None
     text = (snapshot_to_csv(measures) if args.format == "csv"
-            else snapshot_to_json(snapshot, measures)
+            else snapshot_to_json(snapshot, measures, currencies=currencies)
             if args.format == "json" else snapshot_to_md(measures))
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
@@ -989,9 +996,22 @@ def cmd_coverage(args) -> int:
                 row["missing_concepts"] = [
                     c.strip() for c in row["reason"].split(":", 1)[1].split(",")
                     if c.strip()]
-        print(json.dumps({"target": target,
-                          "concept_map_version": CONCEPT_MAP_VERSION,
-                          "rows": rows}, ensure_ascii=False))
+        payload = {"target": target,
+                   "concept_map_version": CONCEPT_MAP_VERSION,
+                   "rows": rows}
+        # ТЗ-22 J1: currency_mismatch считается отдельно от missing_data —
+        # это разные проблемы, чинятся по-разному
+        if args.watchlist is None:
+            snapshot_id = repos.snapshot.latest_snapshot_id(instrument)
+            if snapshot_id:
+                counts: dict[str, int] = {}
+                for m in repos.snapshot.get_measures(snapshot_id):
+                    reason = (m[10] or "").split(":", 1)[0]
+                    if reason and m[4] is None:
+                        counts[reason] = counts.get(reason, 0) + 1
+                if counts:
+                    payload["measure_reason_counts"] = counts
+        print(json.dumps(payload, ensure_ascii=False))
         conn.close()
         return 0
     for row in rows:

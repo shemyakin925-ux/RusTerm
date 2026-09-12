@@ -527,6 +527,21 @@ class SnapshotRepo:
                WHERE l.measure_id = ?""", (measure_id,)).fetchall()
         return {(r[0] or "") for r in rows}
 
+    def measure_currency(self, measure_id: str, concept: str) -> Optional[str]:
+        """Валюта, в которой заявлена мера (ТЗ-22 J1): записанная
+        валюта входов для абсолютной меры; смешение — строка отказа с
+        перечнем; безразмерным мерам и легаси-наборам — None."""
+        from rusterm.core.peers import currency_bound, currency_guard
+        if not currency_bound(concept):
+            return None
+        currencies = self.currencies_for_measure(measure_id)
+        mismatch = currency_guard(concept, currencies)
+        if mismatch is not None:
+            return mismatch
+        present = sorted({c.strip().upper() for c in currencies
+                          if c and c.strip()})
+        return present[0] if len(present) == 1 else None
+
     def add_lineage(self, measure_id: str, fact_id: Optional[str],
                     peer_measure_id: Optional[str], role: str) -> None:
         with writer_transaction(self.conn) as c:

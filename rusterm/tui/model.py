@@ -98,6 +98,11 @@ def card_rows(repos, instrument_id: str) -> dict:
             "value": value if value is not None else NULL_MARK,
             "null_reason": null_reason if value is None else None,
             "unit": unit,
+            # ТЗ-22 J1: валюта, в которой заявлена абсолютная мера
+            # (или строка currency_mismatch с перечнем)
+            "currency": (repos.snapshot.measure_currency(measure_id,
+                                                         concept)
+                         if snapshot_id else None),
             "period": end,
             "method_version": method_version,
             # TASK-15 C5: панель источника ищет исключённое по эмитенту
@@ -218,6 +223,10 @@ def render_card(card: dict) -> list[str]:
              "Меры:"]
     for m in card["measures"]:
         line = f"  {m['concept']}: {m['value']} {m['unit']}"
+        # ТЗ-22 J1: абсолютное число несёт свою валюту; смешение
+        # рендерится отказом, а не числом
+        if m.get("currency"):
+            line += f" [{m['currency']}]"
         if m.get("source_kind") == "manual":
             # ручное число видно с первого взгляда; непроверенное —
             # с явной пометкой недоверия (ТЗ-20 L8)
