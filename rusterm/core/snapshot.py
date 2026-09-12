@@ -51,12 +51,24 @@ _CHAIN_MEASURES: dict[str, dict[str, str]] = {
 # cagr исключён решением координатора (TASK-10 §0.2.3): cagr(V, n) —
 # функция над именованным рядом, а не мера эмитента; функция остаётся
 # в formulas.py со своим unit-тестом.
+# ТЗ-23 K4: шесть мер получили входы (цена из таблицы price + факты)
+# и считаются в отдельном проходе; остальные ждут своих концептов.
 _UNMAPPED_FORMULAS: tuple[str, ...] = (
-    "invested_capital", "roic", "net_debt", "net_debt_ebitda",
-    "fcf_yield", "market_cap", "market_cap_total", "ev", "pe", "pb",
-    "ps", "ev_ebitda", "div_yield", "total_return", "drawdown",
-    "price_adj", "hhi",
+    "invested_capital", "net_debt", "net_debt_ebitda",
+    "fcf_yield", "pe", "ps",
+    "total_return", "drawdown", "price_adj", "hhi",
 )
+
+# Канонические входы оценочных мер, которых нет в карте V0 (ТЗ-23 K4).
+_VALUATION_INPUT_CONCEPTS: tuple[str, ...] = (
+    "shares_outstanding", "total_debt", "cash", "st_investments",
+    "minority_interest", "preferred_equity", "dps_ttm",
+    "invested_capital", "total_equity",
+)
+
+# ТЗ-23 K4: цена старше семи дней — поводок, а не число; перенос
+# вчерашней цены за сегодня запрещён задачей, устаревшая — тем более.
+_PRICE_STALE_DAYS = 7
 
 _BASE_MEASURES = _MEASURE_FORMULAS  # совместимость с существующими тестами
 
@@ -167,9 +179,13 @@ class BuildResult:
 class SnapshotBuilder:
     """Собирает и записывает новую версию снапшота по фактам из базы."""
 
-    def __init__(self, snapshot_repo, peer_set_repo, coverage_repo):
+    def __init__(self, snapshot_repo, peer_set_repo, coverage_repo,
+                 price_repo=None):
         self._snapshots = snapshot_repo
         self._peers = peer_set_repo
+        # ТЗ-23 K4: репозиторий цен; None — цены недоступны, меры
+        # получают честную причину missing_data: price_close
+        self._prices = price_repo
         # coverage_repo обязателен (TASK-8 U1): сборка без записи покрытия
         # делает блоки молча отсутствующими — забытый аргумент должен
         # падать громко, а не молчать.
@@ -272,6 +288,15 @@ class SnapshotBuilder:
                 [])
             written_measures.add(concept)
             result.measures += 1
+
+        # ── ТЗ-23 K4: проход 1b — оценочные меры ──
+        # цена последним ЗАКРЫТЫМ торговым днём не позже as_of; нет
+        # цены — missing_data: price_close; цена старше порога —
+        # причина, не число. Валюты числителя и знаменателя обязаны
+        # совпадать (K6), иначе currency_mismatch.
+        self._valuation_pass(snapshot_id, issuer_id, instrument_id,
+                             as_of, computed, written_measures,
+                             measure_row_ids, result)
 
         # ── Проход 2: перцентили по посчитанным величинам пиров ──
         if peer_set_version and peer_measures:
@@ -576,6 +601,241 @@ class SnapshotBuilder:
 
     def _next_version(self, instrument_id: str) -> int:
         return self._snapshots.max_version(instrument_id) + 1
+
+    def _latest_canonical(self, issuer_id: str) -> dict:
+        """Свежайшее значение по каждому каноническому входу оценочных
+        мер: concept -> (value, period_end, currency, fact_id).
+        Валюта и fact_id нужны K6 (проверка валют) и lineage."""
+        out: dict = {}
+        rows = self._snapshots.as_reported_facts(
+            issuer_id, _VALUATION_INPUT_CONCEPTS)
+        for concept, value, fact_id, _unit, _start, end, canonical in rows:
+            key = canonical or concept
+            if key not in _VALUATION_INPUT_CONCEPTS:
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            prev = out.get(key)
+            if prev is None or end > prev[1]:
+                currency = self._fact_currency_by_id(fact_id)
+                out[key] = (numeric, end, currency, fact_id)
+        return out
+
+    def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:
+        row = self._snapshots.conn.execute(
+            "SELECT currency FROM fact WHERE fact_id=?",
+            (fact_id,)).fetchone()
+        return row[0] if row else None
+
+    def _fact_lineage(self, fact_id: Optional[str]) -> list:
+        if not fact_id:
+            return []
+        return [{"fact_id": fact_id, "peer_measure_id": None,
+                 "role": "input"}]
+
+    def _valuation_pass(self, snapshot_id: str, issuer_id: str,
+                        instrument_id: str, as_of: str,
+                        computed: dict, written_measures: set,
+                        measure_row_ids: dict, result) -> None:
+        """ТЗ-23 K4: шесть мер §3 получают входы.
+
+        Цена — последняя закрытая строка таблицы price не позже as_of
+        (K1): нет цены — missing_data: price_close; цена старше порога
+        — причина, не число, и никакой перенос вчерашней цены за
+        сегодняшний день. Фундаментальные входы — факты по
+        каноническим концептам. K6: у ratio-мер числитель и
+        знаменатель обязаны быть в одной валюте — иначе
+        currency_mismatch, а не частное.
+        """
+        concepts = ("market_cap", "market_cap_total", "ev", "pb",
+                    "ev_ebitda", "div_yield", "roic")
+        price = (self._prices.price_as_of(instrument_id, as_of)
+                 if self._prices is not None else None)
+        if price is None:
+            price_reason = "missing_data: price_close"
+            price_value = None
+            price_currency = None
+        elif price["age_days"] > _PRICE_STALE_DAYS \
+                or price["close"] is None:
+            price_reason = \
+                f"missing_data: price_close_stale:{price['date']}"
+            price_value = None
+            price_currency = price["currency"]
+        else:
+            price_reason = None
+            price_value = price["close"]
+            price_currency = price["currency"]
+
+        inputs = self._latest_canonical(issuer_id)
+
+        def write(concept: str, value, reason, unit: str,
+                  lineage: list) -> str:
+            if concept in written_measures:
+                return ""
+            written_measures.add(concept)
+            measure_id = str(uuid4())
+            self._snapshots.insert_measure_with_lineage(
+                dict(measure_id=measure_id, snapshot_id=snapshot_id,
+                     scope="issuer", scope_ref=issuer_id, concept=concept,
+                     value=None if value is None else repr(value),
+                     unit=unit, period_start=as_of, period_end=as_of,
+                     formula_id=concept, method_version="v1",
+                     null_reason=reason, peer_set_version=None),
+                lineage)
+            result.measures += 1
+            return measure_id
+
+        def mismatch(pair: list) -> str:
+            a, b = sorted(pair)
+            return f"currency_mismatch: {a}, {b}"
+
+        if price_reason is not None:
+            for concept in concepts:
+                write(concept, None, price_reason, "", [])
+            return
+
+        # market_cap (класс) = price_close * shares_outstanding
+        shares = inputs.get("shares_outstanding")
+        shares_cur = shares[2] if shares else None
+        mcap_value = None
+        mcap_reason = None
+        if shares is None:
+            mcap_reason = "missing_data: shares_outstanding"
+        elif shares_cur and price_currency \
+                and shares_cur != price_currency:
+            mcap_reason = mismatch([shares_cur, price_currency])
+        else:
+            m = calculate_measure(
+                "market_cap", price_close=price_value,
+                shares_outstanding=shares[0])
+            mcap_value, mcap_reason = m.value, m.null_reason
+        write("market_cap", mcap_value, mcap_reason,
+              price_currency or "",
+              self._fact_lineage(shares[3] if shares else None))
+
+        # market_cap_total = сумма по классам; класс один, если только
+        # он раскрыт; неполная сумма запрещена формулой
+        total_value = None
+        total_reason = None
+        if mcap_value is None:
+            total_reason = (mcap_reason
+                            or "missing_data: shares_outstanding")
+        else:
+            m = calculate_measure("market_cap_total",
+                                  class_caps=[mcap_value])
+            total_value, total_reason = m.value, m.null_reason
+        write("market_cap_total", total_value, total_reason,
+              price_currency or "",
+              self._fact_lineage(shares[3] if shares else None))
+
+        # pb = market_cap_total / total_equity; валюты сторон совпадать
+        equity = inputs.get("total_equity")
+        equity_cur = equity[2] if equity else None
+        pb_value = None
+        pb_reason = None
+        if total_value is None:
+            pb_reason = "missing_data: market_cap_total"
+        elif equity is None:
+            pb_reason = "missing_data: total_equity"
+        elif equity_cur and price_currency \
+                and equity_cur != price_currency:
+            pb_reason = mismatch([equity_cur, price_currency])
+        else:
+            m = calculate_measure("pb", market_cap_total=total_value,
+                                  total_equity=equity[0])
+            pb_value, pb_reason = m.value, m.null_reason
+        write("pb", pb_value, pb_reason, "ratio",
+              self._fact_lineage(equity[3] if equity else None))
+
+        # ev = market_cap_total + долг - деньги + меньшинство + префы
+        debt = inputs.get("total_debt")
+        cash = inputs.get("cash")
+        stinv = inputs.get("st_investments")
+        minority = inputs.get("minority_interest")
+        ev_value = None
+        ev_reason = None
+        if total_value is None:
+            ev_reason = "missing_data: market_cap_total"
+        else:
+            missing = sorted(
+                name for name, v in (
+                    ("total_debt", debt), ("cash", cash),
+                    ("st_investments", stinv),
+                    ("minority_interest", minority)) if v is None)
+            if missing:
+                ev_reason = "missing_data: " + ", ".join(missing)
+            else:
+                m = calculate_measure(
+                    "ev", market_cap_total=total_value,
+                    total_debt=debt[0], cash=cash[0],
+                    st_investments=stinv[0],
+                    minority_interest=minority[0],
+                    preferred_equity=(inputs.get("preferred_equity")
+                                      or (0.0,))[0],
+                    preferred_is_separate_class=False)
+                ev_value, ev_reason = m.value, m.null_reason
+        ev_lineage = []
+        for c in ("total_debt", "cash", "st_investments",
+                  "minority_interest"):
+            if inputs.get(c):
+                ev_lineage += self._fact_lineage(inputs[c][3])
+        ev_mid = write("ev", ev_value, ev_reason, price_currency or "",
+                       ev_lineage)
+
+        # ev_ebitda = ev / ebitda — ratio: обе стороны уже в одной
+        # валюте (ev наследует валюту цены, ebitda — валюту фактов
+        # эмитента); разные валюты фактов отсечены стражем выше
+        ebitda_value = computed.get("ebitda")
+        ebitda_mid = measure_row_ids.get("ebitda")
+        if ev_reason is not None and ev_value is None:
+            write("ev_ebitda", None, "missing_data: ev", "ratio", [])
+        elif ebitda_value is None or not ebitda_mid:
+            write("ev_ebitda", None, "missing_data: ebitda", "ratio",
+                  [])
+        else:
+            m = calculate_measure("ev_ebitda", ev=ev_value,
+                                  ebitda_ttm=ebitda_value)
+            # I4: входы — МЕРЫ (ev и ebitda), lineage идёт по
+            # peer_measure_id на их строки
+            write("ev_ebitda", m.value, m.null_reason, "ratio",
+                  [{"fact_id": None, "peer_measure_id": ev_mid,
+                    "role": "input"},
+                   {"fact_id": None, "peer_measure_id": ebitda_mid,
+                    "role": "input"}])
+
+        # div_yield = dps_ttm / price_close — валюты обязаны совпасть
+        dps = inputs.get("dps_ttm")
+        dps_cur = dps[2] if dps else None
+        if dps is None:
+            write("div_yield", None, "missing_data: dps_ttm", "ratio",
+                  [])
+        elif dps_cur and price_currency and dps_cur != price_currency:
+            write("div_yield", None,
+                  mismatch([dps_cur, price_currency]), "ratio",
+                  self._fact_lineage(dps[3]))
+        else:
+            m = calculate_measure("div_yield", dps_ttm=dps[0],
+                                  price_close=price_value)
+            write("div_yield", m.value, m.null_reason, "ratio",
+                  self._fact_lineage(dps[3]))
+
+        # roic = nopat / avg(invested_capital) — оба входа в валюте
+        # отчётности; nopat посчитан из тех же фактов (K6: одна валюта)
+        ic = inputs.get("invested_capital")
+        nop = computed.get("nopat")
+        if nop is None:
+            write("roic", None, "missing_data: nopat", "ratio", [])
+        elif ic is None:
+            write("roic", None, "missing_data: invested_capital",
+                  "ratio", [])
+        else:
+            m = calculate_measure("roic", nopat=nop,
+                                  invested_capital_begin=ic[0],
+                                  invested_capital_end=ic[0])
+            write("roic", m.value, m.null_reason, "ratio",
+                  self._fact_lineage(ic[3]))
 
     def _diff(self, instrument_id, issuer_id, snapshot_id,
               peer_prev, peer_cur) -> SnapshotDiff:

@@ -291,7 +291,8 @@ def cmd_refresh(args) -> int:
         print(message, file=sys.stderr if args.json else sys.stdout)
 
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
-                              coverage_repo=repos.coverage)
+                              coverage_repo=repos.coverage,
+                              price_repo=repos.price)
     gate = RequestGate()
 
     def provider_factory(cik: int):
@@ -366,7 +367,8 @@ def cmd_snapshot(args) -> int:
         conn.close()
         return 1
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
-                              coverage_repo=repos.coverage)
+                              coverage_repo=repos.coverage,
+                              price_repo=repos.price)
     as_of = args.as_of or args_as_of_default()
     for instrument_id, issuer_id in targets:
         result = builder.build(instrument_id, issuer_id, as_of)
@@ -442,7 +444,8 @@ def cmd_verify(args) -> int:
     # исправленное число обязано доехать до производных мер (U2):
     # пересборка снапшотов инструментов, чей lineage ссылался на факт
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
-                              coverage_repo=repos.coverage)
+                              coverage_repo=repos.coverage,
+                              price_repo=repos.price)
     rebuilds = service.recompute(args.fact, builder)
     rebuilt = "; ".join(f"{r.snapshot_id} v{r.version}" for r in rebuilds) \
         or "нет мер с lineage на этот факт"

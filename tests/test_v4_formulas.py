@@ -118,7 +118,8 @@ def test_v4_every_s3_formula_present_with_value_or_fixed_reason():
             m = measures[name]
             if m[4] is not None:
                 continue
-            assert m[10] in FIXED_REASONS, (
+            assert m[10] in FIXED_REASONS or m[10].startswith(
+                "missing_data: price_close"), (
                 f"{name}: причина {m[10]!r} вне фиксированного набора")
         # ни одна не пропала молча: пустых причин нет
         for name, m in measures.items():

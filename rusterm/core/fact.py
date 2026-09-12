@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Optional, Literal
@@ -250,6 +251,18 @@ def fiscal_year(period_end: str, fiscal_year_end: str) -> Optional[str]:
         return None
     year = end.year if (end.month, end.day) <= fye else end.year + 1
     return f"FY{year}"
+
+
+_ISO_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+
+
+def currency_of_unit(unit_key: str) -> Optional[str]:
+    """Ключ units — валюта для денежных концептов (ТЗ-22 J1.0);
+    shares, pure, USD/shares валютой не являются. Единая копия
+    правила: парсеры и store импортируют отсюда."""
+    if unit_key and _ISO_CURRENCY_RE.match(unit_key):
+        return unit_key
+    return None
 
 
 def sha256_bytes(data: bytes) -> str:

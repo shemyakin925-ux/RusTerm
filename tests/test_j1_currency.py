@@ -198,14 +198,14 @@ def test_firewall_sees_blank_via_lineage():
               "role": "input"}])
     assert currency_bound("revenue")
     assert repos.snapshot.currencies_for_measure("m1") == {"USD"}
-    assert repos.snapshot.currencies_for_measure("m2") == {""}
+    # m2: факт без валюты даёт пустую строку, а unit меры несёт валюту
+    # (ТЗ-23 K4/K6: unit денежной меры — её валюта)
+    assert repos.snapshot.currencies_for_measure("m2") == {"", "USD"}
     # смешение записанной и пустой через lineage — отказ с перечнем
     mixed = repos.snapshot.currencies_for_measure("m1") | \
         repos.snapshot.currencies_for_measure("m2")
     assert currency_guard("revenue", mixed) == \
         "currency_mismatch: (blank), USD"
-    # а одни пустоты — прежнее поведение
-    assert currency_guard("revenue",
-                          repos.snapshot.currencies_for_measure("m2")) \
-        is None
+    # легаси «одни пустоты» (пустая валюта и у фактов, и в unit)
+    # покрыт юнит-тестом currency_guard выше: {"", ""} -> None
     conn.close()

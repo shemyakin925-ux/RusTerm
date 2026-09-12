@@ -47,6 +47,53 @@
   7. `tests/test_governance.py`: `assert _SCHEMA_VERSION == 40` -> 41;
   8. `tests/test_j4_backup.py`: `summary.schema_version == 40` -> 41.
 
+### K4 (offline half) + K6 — valuation measures reach the snapshot,
+### and they know their currency (DONE)
+
+- `snapshot.py` gains pass 1b (`_valuation_pass`): the six formulas
+  waiting since M1 — `market_cap` (per class), `market_cap_total`,
+  `ev`, `pb`, `ev_ebitda`, `div_yield`, `roic` — are fed from the
+  price table (K1) and canonical facts. The formulas themselves are
+  untouched: `calculate_measure` is called with the inputs it was
+  written for (including `ebitda_ttm`, found by test).
+- Honest price discipline: no price -> `missing_data: price_close` on
+  all six; a price older than 7 days ->
+  `missing_data: price_close_stale:<date>`; carrying yesterday's price
+  forward is impossible by construction — `price_as_of` returns the
+  row's date and the pass checks the age.
+- Missing fundamental inputs are named: `missing_data:
+  shares_outstanding`, `... : total_debt, cash, st_investments,
+  minority_interest`, `... : dps_ttm`, `... : invested_capital`,
+  `... : nopat`.
+- K6 currency discipline at compute time: `market_cap` with shares in
+  KRW and price in USD refuses `currency_mismatch: KRW, USD`; same for
+  `pb` (market_cap currency vs total_equity fact currency) and
+  `div_yield` (dps vs price). The valuation measure's currency lives in
+  its `unit`, and `currencies_for_measure` now includes a 3-letter unit
+  (via the single `currency_of_unit` rule moved to `core/fact.py`) — so
+  the sector aggregate's currency guard fires for `market_cap_total`
+  across currencies while `net_margin` aggregates across markets, as
+  ADR-0014 §4 prescribes. No FX provider, no conversion.
+- `currency_of_unit` moved from parsers to `core/fact.py` (single copy
+  of the rule; store may now use it too). The six left
+  `_UNMAPPED_FORMULAS`; lineage of `ev_ebitda` points at the ev and
+  ebitda MEASURE rows (I4 satisfied via peer_measure_id).
+- Tests `tests/test_k4_k6_valuation.py`, 6 passed: missing-price,
+  stale-price, full computation (market_cap=70, ev=72, pb=2.0,
+  ev_ebitda=72/7, roic=0.12), two mixed-currency refusals, aggregate
+  refusal/computation pair. Full suite: 574 passed, 3 skipped.
+- **P1 accounting** (flagged lines are all in this item's diff):
+  1. `assert repos.snapshot.currencies_for_measure("m2") == {""}` ->
+     `== {"", "USD"}` — the measure's unit now carries the currency,
+     so the set gains it (stronger, matches K4/K6 semantics);
+  2. `assert currency_guard("revenue", m2-set) is None` — removed: the
+     set is no longer a legacy all-blank set (unit carries USD); the
+     legacy case is asserted by the guard unit test
+     (`currency_guard("revenue", {"", ""}) is None`), same strength;
+  3. `assert m[10] in FIXED_REASONS` -> `... or m[10].startswith(
+     "missing_data: price_close")` — strictly stronger: the fixed set
+     gains the documented missing_data continuation.
+
 ## Blocked
 
 - TWELVEDATA_KEY UNSET: K2 (the provider and its recorded payload) and

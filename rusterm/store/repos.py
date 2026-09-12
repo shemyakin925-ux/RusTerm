@@ -521,12 +521,22 @@ class SnapshotRepo:
     def currencies_for_measure(self, measure_id: str) -> set[str]:
         """Валюты входных фактов меры (ТЗ-21 H3): через lineage. С ТЗ-22
         J1.0 пустая валюта приходит пустой строкой, а не отбрасывается:
-        решает страж (смешение записанной валюты с пустотой — отказ)."""
+        решает страж (смешение записанной валюты с пустотой — отказ).
+        ТЗ-23 K4/K6: у оценочных мер (market_cap_total, ev) цена не
+        факт, валюта живёт в unit меры — трёхбуквенный unit добавляется
+        к набору тем же правилом currency_of_unit."""
         rows = self.conn.execute(
             """SELECT DISTINCT f.currency FROM measure_lineage l
                JOIN fact f ON f.fact_id = l.fact_id
                WHERE l.measure_id = ?""", (measure_id,)).fetchall()
-        return {(r[0] or "") for r in rows}
+        out = {(r[0] or "") for r in rows}
+        from rusterm.core.fact import currency_of_unit
+        unit = self.conn.execute(
+            "SELECT unit FROM measure WHERE measure_id=?",
+            (measure_id,)).fetchone()
+        if unit and currency_of_unit(unit[0]):
+            out.add(unit[0])
+        return out
 
     def period_ends_for_measures(self, measure_ids: list[str]) -> dict:
         """Концы периодов мер (ТЗ-22 J3): для проверки разрыва
