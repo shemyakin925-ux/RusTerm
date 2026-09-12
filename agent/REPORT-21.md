@@ -70,6 +70,43 @@
   carries the variable NAME, never a value; doctor reports set/unset by
   name only.
 
+### H4 — end to end per landed market (DONE)
+
+- `tests/test_h4_markets_e2e.py`, 6 tests, all offline on recorded
+  payloads. Full paths (US/CA/OTC) run add → ingest --source edgar →
+  snapshot → export --format json through `cli.main` with the provider
+  class patched to a recorded transport; KR/BR/AU run the honest
+  refusal/partial paths through the real provider code (adapters only
+  for the EDGAR-centric resolve/venues, same as the L3 lane did).
+- Export carries the market code literally: `instrument_id` is
+  `<market>-<ticker>` (cmd_add) and the export JSON's
+  `snapshot.instrument_id` asserts equal.
+- `python3 -m pytest -k e2e -q` green; full suite after H4:
+  522 passed, 3 skipped, exit 0.
+
+### H2 — measure table per landed market (recomputed on recorded payloads)
+
+One issuer per market, snapshot v1, export json, the ten pass-1
+measures (formulas §3 V4). Real output of the recomputation run:
+
+| market | issuers | measures with value | the rest, named |
+|---|---|---|---|
+| US (AAPL, edgar) | 1 | 10/10 | — |
+| CA (RY, edgar, ifrs-full) | 1 | 3/10 | asset_turnover, net_margin, roe compute |
+| OTC (CPTP, edgar, us-gaap) | 1 | 3/10 | effective_tax, net_margin, roe compute |
+| KR | 0 | n/a | refusal `dart_key_unset` at add; no key, no payloads |
+| BR (AMBEV, cvm) | 1 | 0/10 | issuer created from the recorded cadastro slice; CLI has no cvm collection channel yet; native columns unmapped (H2 gap list) |
+| AU (BHP, asx) | 1 | 0/10 | issuer created from recorded header+announcements; no fundamentals contract (ADR-0010 §5) |
+
+- golden_m2.json / golden_m6_ca.json untouched — their tests run
+  inside the 522.
+- No tag added to `rusterm/normalize/concepts.py`: no lane recorded a
+  concrete missing ifrs-full tag against a concrete payload (rule H2).
+
+## Blocked
+
+- none
+
 ## H2 — taxonomy gaps (no code change; see the rule)
 
 - L10 gap list: BR native columns (CD_CONTA/DS_CONTA/VL_CONTA/
@@ -78,11 +115,8 @@
 - No lane recorded a concrete missing ifrs-full tag against a concrete
   recorded payload → per the H2 rule nothing is added to
   `rusterm/normalize/concepts.py`. A tag without a payload is guessing.
-- Measure table per landed market: appended after H4 lands.
-
-## Blocked
-
-- none
+- The recomputed measure table per landed market: see the H2 subsection
+  of Done below (appended with the H4 commit).
 
 ## What not to trust
 
@@ -106,20 +140,21 @@
 
 Status:          PARTIAL
 Lanes merged:    L1-L10, all ten branches existed and merged (agent/MERGE-3.md)
-Items done:      §0.1, §0.2, H1, H3, H5, H7, H8
-Items n/a:       H2 as a code change — no concrete ifrs-full tag with a payload; its measure table lands with H4
+Items done:      §0.1, §0.2, H1, H2 (table; no code change), H3, H4, H5, H7, H8
+Items n/a:       H2 as a code change — no concrete ifrs-full tag with a payload
 Acceptance:      first mid-shift run 10/13 — the report-sections guard (no HANDOFF yet) plus check 7 (H1 issuer-count SQL in the CLI; moved to InstrumentRepo.issuer_count); at this commit: Итог: пройдено 13, провалено 0, exit 0
-Tests:           516 passed, 3 skipped, 0 xfailed
+Tests:           522 passed, 3 skipped, 0 xfailed
 Schema:          unchanged
-Markets reached: per-market lines appended with H4
-Golden unchanged: golden_m2.json and golden_m6_ca.json untouched; their tests inside the 516
+Markets reached: US 10/10, CA 3/10, OTC 3/10, BR 0/10, AU 0/10, KR refusal — see the H2 table in Done
+Golden unchanged: golden_m2.json and golden_m6_ca.json untouched; their tests inside the 522
 Manual import:   records produced 1, verified 0, rejected 0 (tests/test_refusal_loop.py; manual fact stays unverified and out of formulas)
 Secrets scan:    298 tracked files scanned, 0 hits
-M8:              partial — H2 table, H4, H6, H9 pending
+M8:              partial — H6, H9 pending
 Network:         0 requests used by this session
 Model:           app llm_calls 0; GLM-5.3-Flash
 Pushed:          with this commit
 Questions for the coordinator:
 1. Disputed: blank-currency legacy sets — close now or keep the trade-off?
+2. BR/AU issuers are addable but the CLI has no collection channel for cvm/asx yet (ТЗ-23/24 territory) — confirm the sequencing.
 
-NOW: H4, step 1
+NOW: H6, step 1
