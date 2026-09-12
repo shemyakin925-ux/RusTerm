@@ -1,0 +1,30 @@
+# ТЗ-22 J5: приёмка на каждый push и pull request, матрица 3.12/3.14.
+# Секретов нет и не должно быть: сетевые тесты честно скипаются без
+# ключей (N7) — CI доказывает и это, не только зелёность.
+name: acceptance
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # проверки 10 и 12 сверяют docs/ и acceptance.sh с origin/main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+      - name: Acceptance
+        run: bash agent/acceptance.sh
