@@ -316,6 +316,15 @@ console-script entry point resolves to a callable.
 **Needs:** nothing. Report only — **do not merge and do not push to
 `main`.**
 
+**Baseline moved again on 12.09.2026.** The coordinator released
+`agent/night-3` into `main` (fast-forward `f7c2495 → 06e8efc`, 41
+commits) after accepting TASK-20/21, on the user's word. So the branch
+you cut from **is** `main` at the moment you start: expect
+`git diff --stat origin/main...HEAD` to be empty on your first commit
+and to grow only with your own work, and expect check 10 to report
+**0 new ADRs** until you add one. Both are the healthy state, not a
+finding.
+
 This item used to say «`origin/main` contains no `rusterm/` at all» and
 asked you to gather evidence for a release decision. **That release
 happened on 11.09.2026**: the user merged the agent branches into
