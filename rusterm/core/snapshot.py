@@ -180,12 +180,15 @@ class SnapshotBuilder:
     """Собирает и записывает новую версию снапшота по фактам из базы."""
 
     def __init__(self, snapshot_repo, peer_set_repo, coverage_repo,
-                 price_repo=None, industry=None):
+                 price_repo=None, industry=None, governance=None):
         self._snapshots = snapshot_repo
         self._peers = peer_set_repo
         # ТЗ-23 K4: репозиторий цен; None — цены недоступны, меры
         # получают честную причину missing_data: price_close
         self._prices = price_repo
+        # ТЗ-25 P1: резолвер governance (instrument_id, issuer_id) ->
+        # список Assessment (продюсер сам пишет через GovernanceRepo)
+        self._governance = governance
         # ТЗ-24 N2: резолвер отрасли (instrument_id, issuer_id) ->
         # {"sector", "reason", "metrics", "unmapped"}; None — блок
         # industry_metrics не строится (старые вызовы и тесты)
@@ -332,6 +335,10 @@ class SnapshotBuilder:
                 industry_entry = (status, reason)
                 self._snapshots.add_block(
                     snapshot_id, "industry_metrics", status, reason)
+
+        # ── ТЗ-25 P1: governance-оценки — пять строк на записи ──
+        if self._governance is not None:
+            self._governance(instrument_id, issuer_id)
 
         # ── Проход 2: перцентили по посчитанным величинам пиров ──
         if peer_set_version and peer_measures:

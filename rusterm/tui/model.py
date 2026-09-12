@@ -128,6 +128,8 @@ def card_rows(repos, instrument_id: str) -> dict:
         if latest is not None:
             governance.append({"indicator": indicator,
                                "color": latest["color"],
+                               "reason": latest["reason"],
+                               "lineage_ref": latest["lineage_ref"],
                                "method_version": latest["method_version"]})
         else:
             governance.append({"indicator": indicator, "color": "gray",

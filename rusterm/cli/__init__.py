@@ -291,11 +291,20 @@ def cmd_refresh(args) -> int:
         print(message, file=sys.stderr if args.json else sys.stdout)
 
     from rusterm.core.industry.inputs import industry_metrics_for
+    from rusterm.core.governance import (governance_inputs_from_records,
+                                         produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
                               industry=lambda iid, _issuer:
-                                  industry_metrics_for(repos, iid))
+                                  industry_metrics_for(repos, iid),
+                              governance=lambda iid, issuer:
+                                  produce_assessments(
+                                      repos.governance, iid,
+                                      args_as_of_default(),
+                                      governance_inputs_from_records(
+                                          repos.manual_extraction,
+                                          issuer)))
     gate = RequestGate()
 
     def provider_factory(cik: int):
@@ -370,11 +379,20 @@ def cmd_snapshot(args) -> int:
         conn.close()
         return 1
     from rusterm.core.industry.inputs import industry_metrics_for
+    from rusterm.core.governance import (governance_inputs_from_records,
+                                         produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
                               industry=lambda iid, _issuer:
-                                  industry_metrics_for(repos, iid))
+                                  industry_metrics_for(repos, iid),
+                              governance=lambda iid, issuer:
+                                  produce_assessments(
+                                      repos.governance, iid,
+                                      args_as_of_default(),
+                                      governance_inputs_from_records(
+                                          repos.manual_extraction,
+                                          issuer)))
     as_of = args.as_of or args_as_of_default()
     for instrument_id, issuer_id in targets:
         result = builder.build(instrument_id, issuer_id, as_of)
@@ -450,11 +468,20 @@ def cmd_verify(args) -> int:
     # исправленное число обязано доехать до производных мер (U2):
     # пересборка снапшотов инструментов, чей lineage ссылался на факт
     from rusterm.core.industry.inputs import industry_metrics_for
+    from rusterm.core.governance import (governance_inputs_from_records,
+                                         produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
                               industry=lambda iid, _issuer:
-                                  industry_metrics_for(repos, iid))
+                                  industry_metrics_for(repos, iid),
+                              governance=lambda iid, issuer:
+                                  produce_assessments(
+                                      repos.governance, iid,
+                                      args_as_of_default(),
+                                      governance_inputs_from_records(
+                                          repos.manual_extraction,
+                                          issuer)))
     rebuilds = service.recompute(args.fact, builder)
     rebuilt = "; ".join(f"{r.snapshot_id} v{r.version}" for r in rebuilds) \
         or "нет мер с lineage на этот факт"

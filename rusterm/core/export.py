@@ -91,7 +91,8 @@ def _rows_to_dicts(measures: list) -> list[MeasureRow]:
 
 def snapshot_to_json(snapshot: dict, measures: list,
                      provenance: dict[str, list[dict]] | None = None,
-                     currencies: dict[str, str | None] | None = None) -> str:
+                     currencies: dict[str, str | None] | None = None,
+                     governance: list[dict] | None = None) -> str:
     """JSON снапшота: мета + меры с null-причинами, без досчётов.
     Файл переживает базу — несёт версию карты, его породившую (X4).
     provenance (ТЗ-20 L9) — необязателен: передан — каждая мера несёт
@@ -111,6 +112,8 @@ def snapshot_to_json(snapshot: dict, measures: list,
         "concept_map_version": CONCEPT_MAP_VERSION,
         "measures": rows,
     }
+    if governance is not None:
+        payload["governance"] = governance
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
 
 

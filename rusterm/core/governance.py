@@ -180,3 +180,138 @@ def auditor(instrument_id: str, changes_in_5y, qualified_opinion,
                      f"disclosure_window_only_{tenure_years}y")
     return _assess(instrument_id, "auditor", as_of, lineage_ref,
                    color, reason)
+
+
+# ── ТЗ-25: продюсер оценок, причины серости, устаревание, override ──────
+
+# P2: серый перестаёт быть одним цветом на все причины. Каждая причина
+# называет, что пользователь может сделать.
+GREY_REASONS: dict[str, str] = {
+    "not_collected": "источник ещё не обойдён — запустите refresh или "
+                     "импорт прокси",
+    "source_has_no_disclosure": "в источнике такого раскрытия нет — "
+                                "сделать нечего",
+    "collected_unparsed": "документ собран, но не разобрался — "
+                          "повторите импорт",
+    "manual_unverified": "извлечение не прошло проверку цитаты — "
+                         "проверьте вручную через verify",
+    "stale": "оценка старше порога — нужен свежий документ",
+}
+
+# P9: порог устаревания. Числа в governance-thresholds.md нет; выведен
+# из годовой каденции прокси (12 месяцев + полгода люфт) — вынесено
+# координатору на подтверждение (REPORT-25.md).
+STALENESS_DAYS = 550
+
+# P1: продюсер — какой вход какую функцию кормит.
+_PRODUCER_SIGNATURES = {
+    "independent_directors": ("share",),
+    "ceo_chair": ("roles_separated", "lead_independent"),
+    "related_party": ("ratio", "approved_by_independents"),
+    "insider_net": ("net_ratio",),
+    "auditor": ("changes_in_5y", "qualified_opinion", "tenure_years"),
+}
+
+# P7: прокси-факты из ручного импорта (категория other) -> входы.
+GOVERNANCE_RECORD_MAP: dict[str, dict[str, str]] = {
+    "independent_directors": {"share": "independent_directors_share"},
+    "ceo_chair": {"roles_separated": "ceo_chair_roles_separated",
+                  "lead_independent": "ceo_chair_lead_independent"},
+    "related_party": {"ratio": "related_party_ratio"},
+    "auditor": {"changes_in_5y": "auditor_changes_in_5y",
+                "qualified_opinion": "auditor_qualified_opinion",
+                "tenure_years": "auditor_tenure_years"},
+}
+
+
+def governance_inputs_from_records(manual_repo, issuer_id: str) -> dict:
+    """Прокси-факты из manual_extraction (категория other, verified)
+    -> спецификации входов продюсера; lineage_ref несёт документ и
+    страницу дословной цитаты (P7). verified=no даёт серость
+    manual_unverified, никогда цвет."""
+    import re as _re
+    out: dict[str, dict] = {}
+    rows = manual_repo.for_issuer(issuer_id, category="other")
+    for row in rows:
+        (_rowid, sha, page, _cat, metric, value, _unit, _period,
+         quote, verified, _model, _pv) = row
+        norm = _re.sub(r"[\s\-]+", "_", (metric or "").strip().lower())
+        matched = None
+        for indicator, mapping in GOVERNANCE_RECORD_MAP.items():
+            key = next((k for k, v in mapping.items()
+                        if _re.sub(r"[\s\-]+", "_", (v or "").strip().lower())
+                        == norm), None)
+            if key is not None:
+                matched = (indicator, key)
+                break
+        if matched is None:
+            continue
+        indicator, key = matched
+        if True:
+            spec = out.setdefault(indicator, {
+                "inputs": {}, "lineage_ref": f"{sha}#page={page}",
+                "verified": True})
+            if not verified:
+                spec["verified"] = False
+            key = next((k for k, v in mapping.items() if v == metric),
+                       None)
+            if key:
+                low = (value or "").strip().lower()
+                parsed: object = value
+                if low in ("yes", "да", "true"):
+                    parsed = True
+                elif low in ("no", "нет", "false"):
+                    parsed = False
+                else:
+                    try:
+                        parsed = float(value)
+                    except (TypeError, ValueError):
+                        parsed = value
+                spec["inputs"][key] = parsed
+            if quote:
+                spec.setdefault("quote", quote)
+            spec.setdefault("page", page)
+    return out
+
+
+def produce_assessments(governance_repo, instrument_id: str, as_of: str,
+                        inputs: dict | None, now=None) -> list:
+    """P1: пять индикаторов с чем есть — пять строк в
+    governance_assessment. Нет входа — серый not_collected (на записи,
+    не молчание). P8: индикатор с override не пересобирается. P9:
+    нестарая цветная оценка старше STALENESS_DAYS становится серой
+    stale — прошлогодний прокси не описывает сегодняшний совет."""
+    from datetime import date as _date
+    inputs = inputs or {}
+    produced: list = []
+    for indicator in INDICATORS:
+        if governance_repo.has_override(instrument_id, indicator):
+            continue  # P8: ручная поправка сильнее пересборки
+        spec = inputs.get(indicator)
+        if spec is None:
+            a = _gray(instrument_id, indicator, as_of,
+                      "not-collected", "not_collected")
+            produced.append(a)
+            governance_repo.record(a)
+            continue
+        fn = globals()[indicator]
+        kwargs = dict(spec.get("inputs") or {})
+        for param in _PRODUCER_SIGNATURES[indicator]:
+            kwargs.setdefault(param, None)
+        a = fn(instrument_id, as_of=as_of,
+               lineage_ref=spec["lineage_ref"], **kwargs)
+        if a.color != "gray":
+            ref = now or _date.today()
+            if isinstance(ref, str):
+                ref = _date.fromisoformat(ref)
+            try:
+                age = (ref - _date.fromisoformat(as_of)).days
+            except (TypeError, ValueError):
+                age = 0
+            if age > STALENESS_DAYS:
+                a = _assess(instrument_id, indicator, as_of,
+                            spec["lineage_ref"], "gray",
+                            f"stale:assessed:{as_of}")
+        produced.append(a)
+        governance_repo.record(a)
+    return produced

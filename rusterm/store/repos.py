@@ -1576,10 +1576,21 @@ class GovernanceRepo:
         return [dict(zip(keys, r)) for r in rows]
 
     def latest(self, instrument_id: str, indicator: str) -> Optional[dict]:
-        """Последняя по времени оценка индикатора или None."""
+        """Последняя оценка индикатора. Override (lineage_ref с
+        префиксом override:) всегда старше сборки — ручная поправка
+        переживает пересчёт (ТЗ-25 P8)."""
         rows = [r for r in self.for_instrument(instrument_id)
                 if r["indicator"] == indicator]
-        return rows[-1] if rows else None
+        if not rows:
+            return None
+        overrides = [r for r in rows
+                     if r["lineage_ref"].startswith("override:")]
+        return overrides[-1] if overrides else rows[-1]
+
+    def has_override(self, instrument_id: str, indicator: str) -> bool:
+        return any(r["lineage_ref"].startswith("override:")
+                   for r in self.for_instrument(instrument_id)
+                   if r["indicator"] == indicator)
 
 
 class AuditRepo:
