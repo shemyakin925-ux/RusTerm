@@ -94,6 +94,26 @@
      "missing_data: price_close")` — strictly stronger: the fixed set
      gains the documented missing_data continuation.
 
+### K3 — our adjustment is our function, the vendor's is a cross-check
+### (DONE, offline)
+
+- `core/prices.py` (wiring only — no adjustment formula written):
+  `build_events()` turns `corporate_action` rows into dictionary
+  factors — split 1:k -> `split_factor(k)`, dividend D ->
+  `dividend_factor(D, close of the last trading day BEFORE ex-date)`;
+  without a price before the ex-date the event is not applied (a
+  missing datum is never invented into a coefficient).
+  `our_adjusted_series()` runs the existing, tested `price_adj` over
+  the stored closes and cross-checks the vendor's stored `adjusted`
+  per day, tolerance 0.1% (floor 0.01). A disagreement is returned as
+  a finding with BOTH numbers; nothing in storage is modified or
+  resolved by overwriting.
+- Tests `tests/test_k3_adjusted.py`, 4 passed: golden series with a
+  split (1:2) and a dividend matches expected values exactly
+  (49.0 / 49.0 / 50.0); a deliberate vendor mismatch (60.0 vs our
+  49.0) is reported with both numbers while close and the vendor
+  column stay untouched; agreement/disagreement counting (2 of 3).
+
 ## Blocked
 
 - TWELVEDATA_KEY UNSET: K2 (the provider and its recorded payload) and

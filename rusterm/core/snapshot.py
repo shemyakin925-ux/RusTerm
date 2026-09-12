@@ -624,10 +624,7 @@ class SnapshotBuilder:
         return out
 
     def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:
-        row = self._snapshots.conn.execute(
-            "SELECT currency FROM fact WHERE fact_id=?",
-            (fact_id,)).fetchone()
-        return row[0] if row else None
+        return self._snapshots.fact_currency(fact_id)
 
     def _fact_lineage(self, fact_id: Optional[str]) -> list:
         if not fact_id:

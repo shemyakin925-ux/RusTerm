@@ -538,6 +538,14 @@ class SnapshotRepo:
             out.add(unit[0])
         return out
 
+    def fact_currency(self, fact_id: str) -> Optional[str]:
+        """Записанная валюта факта (ТЗ-23 K4/K6): проверка валют
+        числителя и знаменателя оценочных мер."""
+        row = self.conn.execute(
+            "SELECT currency FROM fact WHERE fact_id=?", (fact_id,)
+        ).fetchone()
+        return row[0] if row else None
+
     def period_ends_for_measures(self, measure_ids: list[str]) -> dict:
         """Концы периодов мер (ТЗ-22 J3): для проверки разрыва
         календарей у пиров; без меры — записи нет."""
