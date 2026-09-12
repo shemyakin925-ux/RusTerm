@@ -47,13 +47,21 @@
 ## HANDOFF
 
 Status:          PARTIAL
-Items done:      §0, N1
-Items not done:  N2..N8 pending this night
-Acceptance:      STATUS=0 at branch cut and after N1
-Tests:           619 passed, 4 skipped
-Schema:          41 (unchanged so far)
-Pushed:          with this commit
+Items done:      §0, N1, N4, N6 (selfcheck half)
+Items not done:  N2, N3 — skipped, not faked (window closed after N4); N5 — blocked, needs the 40-request network budget; N7 — open, needs a whole night for the per-column proof loop and two ingest doors; N8 — n/a
+Acceptance:      Итог: пройдено 13, провалено 0 — Принято; SELFCHECK OK; selfcheck's expected count is now read from acceptance.sh (verified on a scratch 14-check copy)
+Tests:           621 passed, 4 skipped, 0 xfailed
+Guards:          test_llm_api / test_budget / test_invariants — all assertions intact (suite green)
+Wiring:          grep RuleClient( in rusterm/ — only behind the door in core/llm.py; the single-door guard forbids bypasses and is green
+Scale (N5):      not measured — 0 of 40 requests spent; no projection claimed
+Truth (N6):      selfcheck reads the expected count from acceptance.sh; scratch 14-check copy verified; docs-truth untouched
+Schema:          unchanged (41)
+Network:         0 requests used of the 40 budget
+Model:           app llm_calls 0 of 50; GLM-5.3-Flash
+Secrets:         artefacts grepped for the sentinel key — 0 hits (tests/test_llm_wiring.py)
+Pushed:          yes
 Questions for the coordinator:
-1. (none yet)
+1. STALENESS/governance thresholds aside — N7 (BR/AU channels) is the largest open hole: grant it a dedicated night with the H2 per-column proof loop, or split BR (real) from AU (announcement-only)?
+2. N5's scale pass needs the live budget — take it into the key-holding run?
 
-NOW: N4, step 1
+NOW: HANDOFF, step 3

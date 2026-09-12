@@ -54,8 +54,12 @@ ACC_STATUS=$?
 tail -4 "$ACC"
 [ "$ACC_STATUS" -eq 0 ] \
     || fail "acceptance" "exit status $ACC_STATUS"
-grep -q 'пройдено 13, провалено 0' "$ACC" \
-    || fail "acceptance" "no 'Итог: пройдено 13, провалено 0' line"
+# ТЗ-27 N6: ожидаемое число проверок читается из acceptance.sh, а не
+# захардкожено — добавление четырнадцатой проверки не делает селфчек лжецом
+EXPECTED_CHECKS=$(grep -cE "^head_ '" agent/acceptance.sh)
+[ "$EXPECTED_CHECKS" -ge 1 ] || EXPECTED_CHECKS=13
+grep -q "пройдено $EXPECTED_CHECKS, провалено 0" "$ACC" \
+    || fail "acceptance" "expected $EXPECTED_CHECKS checks passed, 0 failed"
 
 printf 'SELFCHECK OK\n'
 exit 0

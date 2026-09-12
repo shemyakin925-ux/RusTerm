@@ -1284,6 +1284,7 @@ def cmd_import(args) -> int:
 
     client = LlmApiClient.from_env(gate=RequestGate())
     exit_code = 0
+    near_miss_total = 0
     for path in args.path:
         outcome = import_document(conn, paths, path, instrument.issuer_id,
                                   client, dry_run=args.dry_run)
@@ -1291,6 +1292,9 @@ def cmd_import(args) -> int:
             print(f"{path}: {outcome.reason} (ТЗ-20 L6)", file=sys.stderr)
             exit_code = 1
             continue
+        if not isinstance(outcome, (ProviderError, ConfigError)) \
+                and getattr(outcome, "records_near_miss", 0):
+            near_miss_total += outcome.records_near_miss
         if isinstance(outcome, ConfigError):
             print(f"{path}: файл прочитан (ступень ①), но ключ "
                   f"RUSTERM_LLM_API_KEY не задан — ступень ② не "
@@ -1315,6 +1319,9 @@ def cmd_import(args) -> int:
               f"не подтверждено (manual_unverified, в меры не идут): "
               f"{outcome.records_unverified}; фактов записано: "
               f"{outcome.facts_stored}")
+    if near_miss_total:
+        print(f"near-miss записей: {near_miss_total} "
+              f"(manual_near_miss — в меры не попадают)")
     conn.close()
     return exit_code
 

@@ -30,7 +30,7 @@ from ..providers.budget import BudgetExceeded, ConfigError
 from ..providers.llm_api import LlmApiClient
 from ..store.repos import (DocumentRepo, FactRepo, ManualExtractionRepo,
                            RawRepo)
-from . import verify
+from . import NEAR_MISS, VERIFIED, verify_status
 from .extract import extract_text
 from .records import PROMPT_VERSION, build_prompt, parse_records, \
     period_bounds
@@ -50,6 +50,7 @@ class ImportOutcome:
     facts_stored: int
     model: str
     prompt_version: str
+    records_near_miss: int = 0
 
 
 def import_document(conn, paths, file_path, issuer_id: str,
@@ -70,7 +71,8 @@ def import_document(conn, paths, file_path, issuer_id: str,
             document_sha=extracted.sha256, filename=extracted.filename,
             replay=False, records_total=0, dropped_no_quote=0,
             dropped_bad_category=0, dropped_bad_shape=0,
-            records_verified=0, records_unverified=0, facts_stored=0,
+            records_verified=0, records_unverified=0,
+            records_near_miss=0, facts_stored=0,
             model="dry-run", prompt_version="dry-run")
     if isinstance(client, ProviderError) or isinstance(client, ConfigError):
         # ① выполнено; ② без ключа не выполняется, ничего не пишем
@@ -89,6 +91,7 @@ def import_document(conn, paths, file_path, issuer_id: str,
             dropped_bad_shape=0,
             records_verified=counts["verified"],
             records_unverified=counts["unverified"],
+            records_near_miss=0,
             facts_stored=0, model=client.model,
             prompt_version=PROMPT_VERSION)
 
@@ -112,8 +115,12 @@ def import_document(conn, paths, file_path, issuer_id: str,
     extractions = ManualExtractionRepo(conn)
     facts = FactRepo(conn)
     verified_count = unverified_count = facts_stored = 0
+    near_miss_count = 0
     for record in parsed.records:
-        ok = verify(record, extracted)
+        status = verify_status(record, extracted)
+        ok = status == VERIFIED
+        if status == NEAR_MISS:
+            near_miss_count += 1
         extractions.add(
             document_sha256=extracted.sha256, page_no=record.page_no,
             category=record.category, metric=record.metric,
