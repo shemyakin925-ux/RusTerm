@@ -141,18 +141,53 @@
   day; 30-day simulation (16 pass days, 48 instruments) — requests per
   day in the single digits, ceiling 800 untouched:
   ```
-  day  0: 11    day  2: 3     day  4: 12    day  6: 3
-  day  8: 13    day 10: 13    day 12: 5     day 14: 13
-  day 16: 15    day 18: 6     day 20: 13    day 22: 8
-  day 24: 11    day 26: 9     day 28: 10
+  day  0:  9    day  2:  9    day  4:  9    day  6:  9
+  day  8:  9    day 10: 48    day 12:  9    day 14:  9
+  day 16: 48    day 18: 48    day 20: 48    day 22: 48
+  day 24: 48    day 26: 48    day 28: 48
+  (день 0-8: добиваются 8 неполных + 1 полный в сроке; с дня 10 все
+  48 инструментов в цикле опроса раз в 10 дней; максимум 48 << 800)
   ```
 - Threshold honesty: the vendor trading calendar is not known offline;
   the gap/grace rules are named approximations in the module
   docstring, tightened when K2's recorded payloads arrive.
 
+### K8 — milestone M9, stated with its evidence (offline state)
+
+- Instruments with prices / history depth: **no vendor collection
+  happened** (key unset, 0 of the 200-request budget spent). Price rows
+  exist only as test fixtures; the storage, wiring and cadence are
+  proven by 20 new tests (K1: 5, K3: 4, K4/K6: 6, K5: 6 - one fixture
+  shared).
+- Measure table including the six valuation measures (recorded AAPL +
+  RY payloads, snapshot v1, no price rows — the honest offline state):
+  ```
+  US-AAPL: market_cap/market_cap_total/ev/pb/ev_ebitda/div_yield/roic
+           -> value=None reason=missing_data: price_close   (all 7)
+  CA-RY:   the same, reason=missing_data: price_close        (all 7)
+  fundamentals unchanged: US-AAPL 10 measures with value, CA-RY 3
+  ```
+- Our adjusted series vs vendor's: with no vendor payloads the counts
+  come from the deterministic tests — the golden split+dividend series
+  matches expected exactly (3 of 3 days agree once the vendor column
+  carries the same values); a deliberate 60.0-vs-49.0 mismatch is
+  reported with both numbers and changes nothing in storage.
+- 30-day cadence simulation (48 instruments, passes every 2 days,
+  budget 800/day): requests per day 9..48, maximum **48** — the free
+  tier is sufficient, as ADR-0014 §2 predicted.
+- M9 does **not** cover, named honestly: no vendor collection (key
+  unset — K2/K7 blocked); no recorded Twelve Data payload or its golden
+  resolution; adjusted-cross-check on real vendor data; price-aware
+  percentiles in peer sets (valuation measures are issuer-scope rows,
+  not yet peers' inputs); dividends whose factor needs the ex-date
+  close of a day not in the store are skipped, not invented.
+
 ## Blocked
 
-- TWELVEDATA_KEY UNSET: K2 (the provider and its recorded payload) and
+- TWELVEDATA_KEY UNSET: K2 (provider + recorded payload + golden price
+  resolution), K7 (vendor-degradation proof on the real provider) and
+  the vendor-facing half of K4 wait for the key. Everything else is
+  delivered and green.: K2 (the provider and its recorded payload) and
   K7 (vendor-degradation test) wait for the key; K4's vendor-facing
   half (real collected price rows) waits too.
 
@@ -167,14 +202,25 @@
 
 ## HANDOFF
 
-Status:          PARTIAL
-Items done:      §0
-Items not done:  K1..K8 pending
-Acceptance:      STATUS=0 at branch cut
-Tests:           not counted yet this shift
-Schema:          40 (unchanged so far)
-Pushed:          with this commit
+Status:          PARTIAL (offline branch per §0: TWELVEDATA_KEY UNSET)
+Items done:      §0, K1, K3, K4 (offline half), K5, K6, K8
+Items not done:  K2, K7 and the vendor half of K4 — BLOCKED on RUSTERM_TWELVEDATA_KEY; K9 — the 09:30 condition not met, the queue continues with TASK-24
+Acceptance:      Итог: пройдено 13, провалено 0 — Принято; SELFCHECK OK at every green commit; K1's commit carried the documented schema-history pin updates (see §K1 P1 accounting)
+Tests:           583 passed, 3 skipped, 0 xfailed
+Schema:          _SCHEMA_VERSION 40 -> 41, migration 41 (price, corporate_action)
+Goldens:         golden_m2.json and golden_m6_ca.json unchanged; both golden tests inside the 583
+Prices:          zero vendor rows (key unset); fixtures only; PriceRepo/CorporateActionRepo proven: I7 no-duplicate re-collection, price_as_of with age
+Adjusted:        our series vs vendor — proven on deterministic fixtures (3/3 agree on the golden series; the deliberate mismatch reports both numbers); real counts await K2
+Valuation:       the six measures reach the snapshot; offline they honestly read missing_data: price_close; fundamentals untouched (US-AAPL still 10 with value)
+Cadence:         30-day simulation — 9..48 requests/day, max 48, all under 800; backfill takes the budget first; interrupted pass resumes without duplicates
+Degradation:     structural: fundamentals never read the price path; K7's provider-failure test waits for K2
+Two providers:   unmet by decision (ADR-0014 §3) — the threat-model requirement stays consciously violated with one vendor, stated here as required
+Network:         0 requests used of the 200 budget
+Model:           app llm_calls 0; GLM-5.3-Flash
+Pushed:          yes, every work commit pushed to origin/agent/night-5 as it landed
 Questions for the coordinator:
-1. (none yet)
+1. The completion grace (14 days) and the poll interval (10 days) are deliberately aligned — confirm this reading of ADR-0014 §2 (a missed pass must flip an instrument into backfill, not leave it "complete but stale").
+2. The dividend correction factor needs the close of the day before ex-date; events without it are skipped, never invented — confirm.
+3. K2/K7 will consume the remaining night once the key exists — separate handover or fold into TASK-24's night?
 
-NOW: K1, step 1
+NOW: K8, step 3
