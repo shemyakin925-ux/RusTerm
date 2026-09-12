@@ -804,8 +804,8 @@ def cmd_add(args) -> int:
 
     issuer_id = f"cik-{cik}"
     instruments.upsert_issuer(Issuer(
-        issuer_id, name, market_row.jurisdiction, str(cik), None,
-        "us_gaap", "USD"))
+        issuer_id, name, market_row.jurisdiction, str(cik),
+        args.fye, "us_gaap", "USD"))
     instruments.upsert_instrument(Instrument(
         instrument_id, issuer_id, None, args.class_, "active", None))
     listing_id = f"{instrument_id}-listing"
@@ -1213,6 +1213,9 @@ def main(argv: list[str] | None = None) -> int:
                        default="synthetic")
     sub.add_parser("demo", help="создать синтетический демо-инструмент")
     p_add = sub.add_parser("add", help="добавить настоящую компанию")
+    p_add.add_argument("--fye", default=None,
+                       help="конец финансового года эмитента, MM-DD "
+                            "(например 06-30 для австралийского июня)")
     p_add.add_argument("--ticker", required=True)
     p_add.add_argument("--market", required=True)
     p_add.add_argument("--cik", type=int, default=None)

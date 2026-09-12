@@ -230,6 +230,28 @@ def determine_basis(
     return "as_reported"
 
 
+def fiscal_year(period_end: str, fiscal_year_end: str) -> Optional[str]:
+    """Фискальный год периода по календарю эмитента (ТЗ-22 J3).
+
+    fiscal_year_end — "MM-DD". Период принадлежит фискальному году,
+    который ЗАКАНЧИВАЕТСЯ следующим его (fye) концом на дату period_end
+    или позже. Декабрьский филяр (12-31) получает привычный календарный
+    год; июньский (06-30): период, кончившийся 2024-01-31, — FY2024,
+    кончившийся 2024-12-31 — уже FY2025. Календарь не задан — метки
+    нет: не догадка (None).
+    """
+    try:
+        end = date.fromisoformat(period_end)
+        month, day = fiscal_year_end.split("-")
+        fye = (int(month), int(day))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    if not 1 <= fye[0] <= 12 or not 1 <= fye[1] <= 31:
+        return None
+    year = end.year if (end.month, end.day) <= fye else end.year + 1
+    return f"FY{year}"
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 

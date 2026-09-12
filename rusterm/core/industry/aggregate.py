@@ -22,11 +22,16 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass, field
+from datetime import date
 
 from rusterm.core.peers import (AGGREGATE_MIN_PEERS, currency_bound,
                                 currency_guard)
 
 METHOD_VERSION = "industry.v1"
+
+# ТЗ-22 J3: порог разрыва концов периодов участников — тот же, что в
+# перцентильной сборке; причина существующая — period_mismatch.
+_PERIOD_GAP_DAYS = 100
 
 _VERIFIED_ORIGINS = ("manual", "catalog")
 
@@ -101,6 +106,7 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
     for concept in concepts:
         values: list[tuple[str, float | None]] = []
         measure_ids: list[str] = []
+        period_ends: dict[str, str] = {}
         for iid in sorted(members):
             sid = members[iid]
             if sid is None:
@@ -113,6 +119,8 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                 else float(row[4])
             if row is not None:
                 measure_ids.append(row[0])
+                if row[7]:
+                    period_ends[row[0]] = row[7]
             values.append((iid, value))
         # ТЗ-21 H3: агрегат несёт валюту, в которой заявлен; смешение
         # валют абсолютной меры — currency_mismatch с перечнем
@@ -125,6 +133,18 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                 concept=concept, p25=None, median=None, p75=None,
                 n=len([v for _, v in values if v is not None]),
                 null_reason=guard))
+            continue
+        # ТЗ-22 J3: участники на разных календарях вносят свои последние
+        # закрытые периоды; разрыв больше порога — отказ по имени
+        ends = sorted(period_ends.values())
+        if len(ends) >= 2 and (
+                date.fromisoformat(ends[-1])
+                - date.fromisoformat(ends[0])).days > _PERIOD_GAP_DAYS:
+            aggregates.append(AggregateMeasure(
+                concept=concept,
+                n=len([v for _, v in values if v is not None]),
+                null_reason="period_mismatch",
+                reason_counts={}))
             continue
         agg = sector_aggregate(concept, values, verified=verified)
         # одновалютный абсолютный агрегат заявляет свою валюту

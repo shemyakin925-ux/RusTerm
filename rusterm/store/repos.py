@@ -527,6 +527,18 @@ class SnapshotRepo:
                WHERE l.measure_id = ?""", (measure_id,)).fetchall()
         return {(r[0] or "") for r in rows}
 
+    def period_ends_for_measures(self, measure_ids: list[str]) -> dict:
+        """Концы периодов мер (ТЗ-22 J3): для проверки разрыва
+        календарей у пиров; без меры — записи нет."""
+        out: dict[str, str] = {}
+        for mid in measure_ids:
+            row = self.conn.execute(
+                "SELECT period_end FROM measure WHERE measure_id=?",
+                (mid,)).fetchone()
+            if row and row[0]:
+                out[mid] = row[0]
+        return out
+
     def measure_currency(self, measure_id: str, concept: str) -> Optional[str]:
         """Валюта, в которой заявлена мера (ТЗ-22 J1): записанная
         валюта входов для абсолютной меры; смешение — строка отказа с

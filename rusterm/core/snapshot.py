@@ -72,6 +72,11 @@ base_concepts: tuple[str, ...] = tuple(sorted(
 # Правило давности (TASK-12 Y2): три года плюс люфт на сдвиг фингода.
 _STALE_LOOKBACK_DAYS = 1100
 
+# ТЗ-22 J3: сравнивать величины пиров с разрывом концов периодов больше
+# ста дней нельзя честно — ноябрь против июня. Порог примерно в квартал
+# с люфтом; причина — существующая period_mismatch, новой нет.
+_PERIOD_GAP_DAYS = 100
+
 
 def _eligible_input(period_end: str, anchor_date: date) -> bool:
     """Входной факт годен, пока его конец отстаёт от anchor не более
@@ -195,7 +200,7 @@ class SnapshotBuilder:
 
         # ── Проход 1: формулы §3, чьи входы в карте V0 ──
         inputs, lineage_by_concept, input_reasons, periods, input_units = \
-            self._issuer_inputs(issuer_id)
+            self._issuer_inputs(issuer_id, as_of=as_of)
         computed: dict[str, float] = {}
         formula_groups: list[tuple[dict, bool]] = [
             (_MEASURE_FORMULAS, False),
@@ -316,6 +321,32 @@ class SnapshotBuilder:
                         lineage)
                     result.percentiles += 1
                     continue
+                # ТЗ-22 J3: у пиров на разных календарях свои последние
+                # закрытые периоды; разрыв больше порога — честный отказ
+                ends = sorted(e for e in
+                              self._snapshots.period_ends_for_measures(
+                                  measure_ids[concept]).values()
+                              if e)
+                if len(ends) >= 2 and (
+                        date.fromisoformat(ends[-1])
+                        - date.fromisoformat(ends[0])).days \
+                        > _PERIOD_GAP_DAYS:
+                    lineage = [{"fact_id": None, "peer_measure_id": mid,
+                                "role": "peer"}
+                               for mid in measure_ids[concept]]
+                    self._snapshots.insert_measure_with_lineage(
+                        dict(measure_id=str(uuid4()),
+                             snapshot_id=snapshot_id,
+                             scope="issuer", scope_ref=issuer_id,
+                             concept="percentile", value=None,
+                             unit="ratio", period_start="",
+                             period_end=as_of, formula_id="percentile",
+                             method_version="v1",
+                             null_reason="period_mismatch",
+                             peer_set_version=peer_set_version),
+                        lineage)
+                    result.percentiles += 1
+                    continue
                 share = percentile_share(values, own) if own is not None else None
                 if share is None:
                     continue  # порог 5: перцентили не считаются
@@ -353,7 +384,8 @@ class SnapshotBuilder:
                                   source_errors=source_errors)
         return result
 
-    def _issuer_inputs(self, issuer_id: str) -> tuple[dict, dict, dict,
+    def _issuer_inputs(self, issuer_id: str,
+                       as_of: Optional[str] = None) -> tuple[dict, dict, dict,
                                                        dict, dict]:
         """Входы всех формул §3 по каноническим концептам (TASK-9 V0/V4).
 
@@ -372,6 +404,11 @@ class SnapshotBuilder:
             issuer_id, tuple(sorted(base_concepts)))
         by_concept: dict[str, list] = {}
         for _concept, value, fact_id, unit, start, end, canonical in rows:
+            # ТЗ-22 J3: на дату as_of период, кончившийся позже, ещё не
+            # закрыт — такой факт в входы не годится, чей календарь ни
+            # был. as_of не задан — фильтра нет (старое поведение).
+            if as_of and end > as_of:
+                continue
             key = canonical or _concept
             if key not in base_concepts:
                 continue
