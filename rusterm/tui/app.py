@@ -35,6 +35,12 @@ def _list_screen(stdscr, repos, watchlist_id):
             cursor = max(cursor - 1, 0)
         elif key in (curses.KEY_ENTER, 10, 13) and rows:
             return rows[cursor]["instrument_id"]
+        elif key == ord("o") and rows:
+            # ТЗ-22 J7: третий экран — отрасль выбранного инструмента
+            peer = repos.peer_set.peer_set_for_instrument(
+                rows[cursor]["instrument_id"])
+            if peer:
+                _industry_screen(stdscr, repos, peer["peer_set_id"])
         # r и прочие клавиши — просто перерисовать из базы заново
 
 
@@ -69,6 +75,22 @@ def _card_screen(stdscr, repos, instrument_id):
             show_sources = not show_sources
         if key == curses.KEY_DOWN:
             highlighted += 1
+
+
+def _industry_screen(stdscr, repos, sector):
+    while True:
+        screen = model.industry_rows(repos, sector)
+        lines = model.render_industry(screen)
+        stdscr.clear()
+        stdscr.addstr(0, 0, "Отрасль (Esc — назад, q — выход)")
+        for i, line in enumerate(lines):
+            stdscr.addstr(i + 2, 0, line)
+        stdscr.refresh()
+        key = stdscr.getch()
+        if key in (ord("q"), ord("Q")):
+            return "quit"
+        if key == ESC_KEY:
+            return None
 
 
 def run(root: str, watchlist_id: str | None = None) -> int:

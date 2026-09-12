@@ -15,10 +15,17 @@ import json
 import re
 from typing import Optional
 
+from rusterm.core.industry.aggregate import build_sector_aggregates
 from rusterm.core.snapshot import measure_inputs, stale_exclusions
 from rusterm.markets import get_market
 
 NULL_MARK = "—"
+
+# Меры экрана «Отрасль» (ТЗ-22 J7): четыре ratio-меры M7 + абсолютный
+# revenue — на нём видна валюта (J1) и отказ при смешении.
+_SECTOR_MEASURES: tuple[str, ...] = ("asset_turnover", "net_margin",
+                                     "operating_margin", "revenue",
+                                     "roe")
 
 
 def _market_of(instrument_id: str) -> str:
@@ -199,6 +206,57 @@ def source_panel(repos, measure: dict) -> dict:
         "sources": sources,
         "stale": stale,
     }
+
+
+def industry_rows(repos, sector: str, as_of: Optional[str] = None) -> dict:
+    """Экран «Отрасль» (ТЗ-22 J7): квартили по мерам сектора, валюта,
+    в которой заявлена мера (J1), кто вложился. Чистая функция:
+    только чтение репозиториев; curses красит render_industry."""
+    as_of = as_of or _today()
+    version = repos.peer_set.version_at(sector, as_of)
+    if version is None:
+        return {"sector": sector, "as_of": as_of, "version": None,
+                "verified": None, "members": [], "rows": []}
+    built = build_sector_aggregates(repos, sector, as_of, _SECTOR_MEASURES)
+    members = repos.peer_set.member_snapshots_at(
+        version["peer_set_version_id"], as_of)
+    contributing = sorted(iid for iid, sid in members.items() if sid)
+    rows = [{
+        "concept": a.concept, "n": a.n,
+        "p25": a.p25, "median": a.median, "p75": a.p75,
+        "currency": a.currency, "null_reason": a.null_reason,
+        "reason_counts": a.reason_counts,
+    } for a in built["aggregates"]]
+    return {"sector": sector, "as_of": as_of,
+            "version": version["version"],
+            "peer_set_version_id": version["peer_set_version_id"],
+            "verified": built["verified"],
+            "members": contributing, "rows": rows}
+
+
+def render_industry(screen: dict) -> list[str]:
+    """Строки экрана «Отрасль» (чистая функция). Смешение валют и
+    нехватка участников рендерятся отказом по имени, не числом."""
+    if screen["version"] is None:
+        return [f"Сектор {screen['sector']}: нет версии на "
+                f"{screen['as_of']}"]
+    lines = [f"Сектор {screen['sector']} — версия {screen['version']} "
+             f"на {screen['as_of']}"
+             + ("" if screen["verified"] else " [набор не подтверждён]"),
+             f"внесли: {', '.join(screen['members']) or '—'}"]
+    for r in screen["rows"]:
+        if r["null_reason"]:
+            counts = ", ".join(f"{k}={v}" for k, v
+                               in sorted(r["reason_counts"].items()))
+            suffix = f" ({counts})" if counts else ""
+            lines.append(f"  {r['concept']}: {r['null_reason']} "
+                         f"n={r['n']}{suffix}")
+        else:
+            currency = f" {r['currency']}" if r["currency"] else ""
+            lines.append(f"  {r['concept']}: {r['p25']} / "
+                         f"{r['median']} / {r['p75']} n={r['n']}"
+                         f"{currency}")
+    return lines
 
 
 def render_list(rows: list[dict]) -> list[str]:
