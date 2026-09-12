@@ -43,7 +43,9 @@ def _registry():
     repos.instrument.add_ticker_history(
         "l1", "TEST", "2020-01-01", None, None, None)
     peers = PeerSetRepo(conn)
-    peers.create_peer_set("ps1", "industry", "tankers")
+    # ТЗ-22 J6: инструмент разрешает сектор по id peer set — как и
+    # cmd_industry; раньше ответ был захардкоженной пустотой
+    peers.create_peer_set("tankers", "industry", "tankers")
     peers.add_version("psv1", "ps1", 1, "2024-01-01", None,
                       "manual", "v1", True, None, None)
     peers.add_member("psv1", "ins1", None)

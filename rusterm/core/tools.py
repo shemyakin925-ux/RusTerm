@@ -6,12 +6,8 @@ get_peer_set, get_snapshot_block. Никакой записи — каждое �
 """
 from __future__ import annotations
 
+import datetime
 from typing import Callable
-
-# Источника отрасли в схеме нет (TASK-8 U12.4, см. watchlist_io):
-# инструмент честно отвечает пустым списком с причиной, не выдумывает
-# отрасль из других полей.
-NO_INDUSTRY_SOURCE = "industry_source_absent_in_schema"
 
 
 def resolve_ticker(repos, ticker: str, market: str,
@@ -31,10 +27,32 @@ def resolve_ticker(repos, ticker: str, market: str,
 
 def list_industry_instruments(repos, industry: str,
                               filters: dict | None = None) -> dict:
-    """Список инструментов отрасли. Источника отрасли в схеме нет —
-    ответ пустой с причиной (I-coverage стиль: пробел показывается)."""
-    return {"outcome": "resolved", "industry": industry,
-            "instrument_ids": [], "note": NO_INDUSTRY_SOURCE}
+    """Список инструментов отрасли (ТЗ-22 J6): источник — peer set
+    сектора, построенный M7 (rusterm industry). Ответ несёт версию
+    набора и as_of, к которому разрешён состав; состав берётся
+    member_snapshots_at — только те, у кого есть снапшот на дату.
+    Read-only: только чтения репозиториев.
+
+    Неизвестный сектор — not_found; известный, но без версии на дату —
+    resolved с пустым списком и note no_version_at_date (пробел
+    показывается, не прячется)."""
+    as_of = (filters or {}).get("as_of") or         datetime.date.today().isoformat()
+    if not repos.peer_set.exists(industry):
+        return {"outcome": "not_found", "industry": industry,
+                "as_of": as_of, "instrument_ids": []}
+    version = repos.peer_set.version_at(industry, as_of)
+    if version is None:
+        return {"outcome": "resolved", "industry": industry,
+                "as_of": as_of, "peer_set_version_id": None,
+                "version": None, "instrument_ids": [],
+                "note": "no_version_at_date"}
+    members = repos.peer_set.member_snapshots_at(
+        version["peer_set_version_id"], as_of)
+    return {"outcome": "resolved", "industry": industry, "as_of": as_of,
+            "peer_set_version_id": version["peer_set_version_id"],
+            "version": version["version"],
+            "instrument_ids": sorted(members),
+            "snapshots": members}
 
 
 def get_peer_set(repos, instrument_id: str) -> dict:
