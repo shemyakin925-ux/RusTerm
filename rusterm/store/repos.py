@@ -1119,6 +1119,17 @@ class JobRepo:
                 "UPDATE job SET status='done', finished_at=? WHERE job_id=?",
                 (time.time(), job_id))
 
+    def last_poll_date(self, instrument_id: str,
+                       block: str = "prices") -> Optional[str]:
+        """Дата последнего успешного обхода (ТЗ-23 K5): MAX(target_date)
+        по закрытым заданиям обхода. Строка, а не timestamp: каденция
+        живёт в днях и дружит с фальшивыми часами тестов."""
+        row = self.conn.execute(
+            """SELECT MAX(target_date) FROM job
+               WHERE instrument_id=? AND block=? AND status='done'""",
+            (instrument_id, block)).fetchone()
+        return row[0] if row else None
+
     def fail(self, job_id: str, error: str, retry: bool,
              not_before: Optional[float] = None) -> None:
         """Провал попытки: retry -> снова в очередь с паузой, иначе dead-letter."""
@@ -1807,6 +1818,11 @@ class PriceRepo:
     def dates(self, instrument_id: str,
               source: str | None = None) -> list[str]:
         return [r["date"] for r in self.series(instrument_id, source)]
+
+    def instruments_with_history(self) -> list[str]:
+        """Инструменты, у которых есть хотя бы одна цена (ТЗ-23 K5)."""
+        return [r[0] for r in self.conn.execute(
+            "SELECT DISTINCT instrument_id FROM price ORDER BY instrument_id")]
 
     def count(self, instrument_id: str | None = None) -> int:
         if instrument_id is None:

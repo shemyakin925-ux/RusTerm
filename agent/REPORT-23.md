@@ -114,6 +114,42 @@
   49.0) is reported with both numbers while close and the vendor
   column stay untouched; agreement/disagreement counting (2 of 3).
 
+### K5 — cadence follows completeness, not the calendar (DONE)
+
+- `core/cadence.py`: completeness is COMPUTED every pass from stored
+  dates — `instrument_state()`: no history, an interior gap over 10
+  calendar days (weekends and lone holidays are not gaps), or a last
+  date older than the 14-day closure grace -> `incomplete`; otherwise
+  `complete`. No flag exists that can go stale.
+- Poll scheduling: a complete instrument is polled when 10 days passed
+  since the LAST of (poll marker, newest data) — a fresh collection
+  moves its own next poll. The marker lives in the existing job queue
+  (`job.target_date` of done cadence jobs; `JobRepo.last_poll_date`).
+- `run_pass()`: backfill entries take the budget FIRST (priority 1),
+  polls get the remainder (priority 2); when the budget is exhausted
+  the pass stops cleanly and returns `stopped_at`. Resumability comes
+  from the plan being recomputed from data plus idempotent collection
+  (I7) — a night cut mid-backfill loses nothing.
+- Disclosures follow the same rule by construction: `plan_pass` keys
+  on the block name; a fully-collected issuer is the same complete
+  state on the 10-day cadence (ADR-0014 §2).
+- Tests `tests/test_k5_cadence.py`, 6 passed with a fake clock:
+  complete skipped on day 3, polled on day 10; completeness flips by
+  data (backfill flips the state without any flag); backfill takes
+  budget=1 ahead of the due poll; a budget-ceiling-interrupted pass
+  resumes over days with each instrument collected at most once per
+  day; 30-day simulation (16 pass days, 48 instruments) — requests per
+  day in the single digits, ceiling 800 untouched:
+  ```
+  day  0: 11    day  2: 3     day  4: 12    day  6: 3
+  day  8: 13    day 10: 13    day 12: 5     day 14: 13
+  day 16: 15    day 18: 6     day 20: 13    day 22: 8
+  day 24: 11    day 26: 9     day 28: 10
+  ```
+- Threshold honesty: the vendor trading calendar is not known offline;
+  the gap/grace rules are named approximations in the module
+  docstring, tightened when K2's recorded payloads arrive.
+
 ## Blocked
 
 - TWELVEDATA_KEY UNSET: K2 (the provider and its recorded payload) and
