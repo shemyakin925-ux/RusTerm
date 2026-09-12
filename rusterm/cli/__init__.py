@@ -290,9 +290,12 @@ def cmd_refresh(args) -> int:
                    " участников нет")
         print(message, file=sys.stderr if args.json else sys.stdout)
 
+    from rusterm.core.industry.inputs import industry_metrics_for
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
-                              price_repo=repos.price)
+                              price_repo=repos.price,
+                              industry=lambda iid, _issuer:
+                                  industry_metrics_for(repos, iid))
     gate = RequestGate()
 
     def provider_factory(cik: int):
@@ -366,9 +369,12 @@ def cmd_snapshot(args) -> int:
     if targets is None:
         conn.close()
         return 1
+    from rusterm.core.industry.inputs import industry_metrics_for
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
-                              price_repo=repos.price)
+                              price_repo=repos.price,
+                              industry=lambda iid, _issuer:
+                                  industry_metrics_for(repos, iid))
     as_of = args.as_of or args_as_of_default()
     for instrument_id, issuer_id in targets:
         result = builder.build(instrument_id, issuer_id, as_of)
@@ -443,9 +449,12 @@ def cmd_verify(args) -> int:
         return 1
     # исправленное число обязано доехать до производных мер (U2):
     # пересборка снапшотов инструментов, чей lineage ссылался на факт
+    from rusterm.core.industry.inputs import industry_metrics_for
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
-                              price_repo=repos.price)
+                              price_repo=repos.price,
+                              industry=lambda iid, _issuer:
+                                  industry_metrics_for(repos, iid))
     rebuilds = service.recompute(args.fact, builder)
     rebuilt = "; ".join(f"{r.snapshot_id} v{r.version}" for r in rebuilds) \
         or "нет мер с lineage на этот факт"

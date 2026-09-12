@@ -208,6 +208,63 @@ def source_panel(repos, measure: dict) -> dict:
     }
 
 
+def industry_metric_rows(repos, sector: str,
+                         as_of: Optional[str] = None) -> list[dict]:
+    """ТЗ-24 N8: физические метрики сектора рядом с финансовым
+    агрегатом. Серая метрика показывает недостающий вход; источник
+    manual помечен полем source — рендер различает его."""
+    from rusterm.core.industry.inputs import (compute_sector_metrics,
+                                              collect_physical_inputs)
+    module = None
+    from rusterm.core.industry import module_for_sector
+    module = module_for_sector(sector)
+    if module is None:
+        return []
+    version = repos.peer_set.version_at(sector, as_of or _today())
+    if version is None:
+        return []
+    rows: dict[str, dict] = {}
+    members = repos.peer_set.member_snapshots_at(
+        version["peer_set_version_id"], as_of or _today())
+    for iid in members:
+        instrument = repos.instrument.get_instrument(iid)
+        if instrument is None:
+            continue
+        si = collect_physical_inputs(repos.manual_extraction,
+                                     instrument.issuer_id, sector)
+        for m in compute_sector_metrics(module, sector, si):
+            row = rows.setdefault(m["concept"], {
+                "concept": m["concept"], "unit": m["unit"],
+                "method_version": m["method_version"],
+                "values": [], "grey_reason": None, "source": None})
+            if m["value"] is not None:
+                row["values"].append(m["value"])
+                if m.get("source") == "manual":
+                    row["source"] = "manual"
+            elif row["grey_reason"] is None and m["reason"]:
+                row["grey_reason"] = m["reason"]
+    return sorted(rows.values(), key=lambda r: r["concept"])
+
+
+def render_industry_metric_rows(rows: list[dict]) -> list[str]:
+    """Строки физических метрик: серые показывают недостающий вход,
+    manual-источник виден рендеру (N8)."""
+    lines = []
+    for r in rows:
+        if r["values"]:
+            value = f"{sorted(r['values'])[len(r['values']) // 2]:g}"
+            mark = " [manual]" if r["source"] == "manual" else ""
+            lines.append(f"  {r['concept']}: {value} {r['unit']}"
+                         f" n={len(r['values'])}{mark}"
+                         f" ({r['method_version']})")
+        else:
+            reason = r["grey_reason"] or "no_data"
+            mark = " [manual]" if r["source"] == "manual" else ""
+            lines.append(f"  {r['concept']}: — ({reason}){mark}"
+                         f" ({r['method_version']})")
+    return lines
+
+
 def industry_rows(repos, sector: str, as_of: Optional[str] = None) -> dict:
     """Экран «Отрасль» (ТЗ-22 J7): квартили по мерам сектора, валюта,
     в которой заявлена мера (J1), кто вложился. Чистая функция:

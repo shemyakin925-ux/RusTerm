@@ -87,11 +87,28 @@ def get_snapshot_block(repos, instrument_id: str, block: str) -> dict:
             "measures": measures}
 
 
+def get_industry_metrics(repos, instrument_id: str) -> dict:
+    """Операционные метрики отрасли инструмента (ТЗ-24 N9): значения,
+    единицы, причины и method_version; источник manual помечен.
+    Только чтение: расчёт на-месте из записей, ничего не пишется."""
+    from rusterm.core.industry.inputs import industry_metrics_for
+    report = industry_metrics_for(repos, instrument_id)
+    if report["sector"] is None:
+        return {"outcome": "resolved", "instrument_id": instrument_id,
+                "sector": None, "reason": report["reason"],
+                "metrics": []}
+    return {"outcome": "resolved", "instrument_id": instrument_id,
+            "sector": report["sector"], "reason": report["reason"],
+            "metrics": report["metrics"],
+            "unmapped": report["unmapped"]}
+
+
 # Реестр — явное отображение имя -> вызываемое. Набор имён закреплён
-# тестом РОВНО: пятый инструмент не пройдёт suite (TASK-16 D2).
+# тестом: с ТЗ-24 N9 их ПЯТЬ (добавлен get_industry_metrics).
 TOOLS: dict[str, Callable] = {
     "resolve_ticker": resolve_ticker,
     "list_industry_instruments": list_industry_instruments,
     "get_peer_set": get_peer_set,
     "get_snapshot_block": get_snapshot_block,
+    "get_industry_metrics": get_industry_metrics,
 }

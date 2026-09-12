@@ -172,3 +172,55 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
             "as_of": as_of,
             "members": members,
             "aggregates": aggregates}
+
+
+def sector_concentration(repos, sector: str, as_of: str,
+                         concept: str = "revenue") -> dict:
+    """Концентрация сектора (ТЗ-24 N7): hhi по долям выручки участников
+    на дату — та же машина версий, что у M7: peer set и снапшоты
+    выбираются ПО ДАТЕ, поэтому новый сбор не переписывает прошлое.
+
+    Валютная дисциплина H3: доли суммы, смешивающей воны и доллары,
+    бессмысленны — смешанный сектор даёт currency_mismatch, никакого
+    пересчёта курсов (ADR-0014 §4). Возвращаемое несёт валюту, в
+    которой считало, число участников и отказ по имени.
+    """
+    from rusterm.formulas import hhi
+    version = repos.peer_set.version_at(sector, as_of)
+    if version is None:
+        return {"value": None, "reason": "no_version_at_date",
+                "currency": None, "n": 0, "members": []}
+    members = repos.peer_set.member_snapshots_at(
+        version["peer_set_version_id"], as_of)
+    values: list[tuple[str, float]] = []
+    currencies: set[str] = set()
+    for iid in sorted(members):
+        sid = members[iid]
+        if sid is None:
+            continue
+        row = next((m for m in repos.snapshot.get_measures(sid)
+                    if m[3] == concept), None)
+        if row is None or row[4] is None:
+            continue
+        try:
+            values.append((iid, float(row[4])))
+        except (TypeError, ValueError):
+            continue
+        if row[5]:
+            currencies.add(row[5].strip().upper())
+    if not values:
+        return {"value": None, "reason": "no_contributors",
+                "currency": None, "n": 0,
+                "members": sorted(members)}
+    if len(currencies) > 1:
+        pair = sorted(currencies)
+        return {"value": None,
+                "reason": f"currency_mismatch: {pair[0]}, {pair[1]}",
+                "currency": None, "n": len(values),
+                "members": [iid for iid, _ in values]}
+    total = sum(v for _, v in values)
+    shares = [v / total for _, v in values]
+    value, reason = hhi(shares)
+    currency = next(iter(currencies)) if len(currencies) == 1 else None
+    return {"value": value, "reason": reason, "currency": currency,
+            "n": len(values), "members": [iid for iid, _ in values]}

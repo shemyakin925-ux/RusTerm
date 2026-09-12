@@ -1963,6 +1963,23 @@ class ManualExtractionRepo:
                FROM manual_extraction WHERE document_sha256=?
                ORDER BY page_no, rowid""", (document_sha256,)).fetchall()
 
+    def for_issuer(self, issuer_id: str,
+                   category: str | None = None) -> list:
+        """Записи эмитента через его документы (ТЗ-24 N3): физические
+        метрики приходят из годовых отчётов, привязанных к эмитенту."""
+        sql = """SELECT m.rowid, m.document_sha256, m.page_no, m.category,
+               m.metric, m.value, m.unit, m.period, m.quote, m.verified,
+               m.model, m.prompt_version
+               FROM manual_extraction m
+               JOIN document d ON d.sha256 = m.document_sha256
+               WHERE d.issuer_id=?"""
+        args: list = [issuer_id]
+        if category:
+            sql += " AND m.category=?"
+            args.append(category)
+        sql += " ORDER BY m.page_no, m.rowid"
+        return self.conn.execute(sql, args).fetchall()
+
     def counts(self, document_sha256: str) -> dict:
         """Сколько кандидатов всего/подтверждено: карточка источника
         обязана показывать, сколько кандидатов не прошло контроль."""

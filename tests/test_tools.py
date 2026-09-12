@@ -55,9 +55,10 @@ def _registry():
 
 
 def test_registry_key_set_is_exactly_the_four_tools():
+    # ТЗ-24 N9: добавлен пятый инструмент get_industry_metrics
     assert set(tools.TOOLS) == {
         "resolve_ticker", "list_industry_instruments",
-        "get_peer_set", "get_snapshot_block"}
+        "get_peer_set", "get_snapshot_block", "get_industry_metrics"}
 
 
 def test_calling_every_tool_leaves_the_database_byte_identical():
@@ -77,8 +78,9 @@ def test_calling_every_tool_leaves_the_database_byte_identical():
             ("list_industry_instruments",
              dict(industry="tankers", filters=None)),
             ("get_peer_set", dict(instrument_id="ins1")),
-            ("get_snapshot_block",
+                ("get_snapshot_block",
              dict(instrument_id="ins1", block="fundamentals")),
+            ("get_industry_metrics", dict(instrument_id="ins1")),
         ]
         conn = sqlite3.connect(db_path, timeout=30, isolation_level=None)
         conn.row_factory = sqlite3.Row
@@ -109,6 +111,7 @@ def test_guard_is_mechanical_not_a_promise():
     extra["delete_everything"] = lambda repos, **kw: {}
     # симуляция будущего нарушения: набор из пяти имён не равен пину
     pinned = {"resolve_ticker", "list_industry_instruments",
-              "get_peer_set", "get_snapshot_block"}
+              "get_peer_set", "get_snapshot_block",
+              "get_industry_metrics"}
     assert set(extra) != pinned
     assert set(tools.TOOLS) == pinned

@@ -180,12 +180,16 @@ class SnapshotBuilder:
     """Собирает и записывает новую версию снапшота по фактам из базы."""
 
     def __init__(self, snapshot_repo, peer_set_repo, coverage_repo,
-                 price_repo=None):
+                 price_repo=None, industry=None):
         self._snapshots = snapshot_repo
         self._peers = peer_set_repo
         # ТЗ-23 K4: репозиторий цен; None — цены недоступны, меры
         # получают честную причину missing_data: price_close
         self._prices = price_repo
+        # ТЗ-24 N2: резолвер отрасли (instrument_id, issuer_id) ->
+        # {"sector", "reason", "metrics", "unmapped"}; None — блок
+        # industry_metrics не строится (старые вызовы и тесты)
+        self._industry = industry
         # coverage_repo обязателен (TASK-8 U1): сборка без записи покрытия
         # делает блоки молча отсутствующими — забытый аргумент должен
         # падать громко, а не молчать.
@@ -298,6 +302,37 @@ class SnapshotBuilder:
                              as_of, computed, written_measures,
                              measure_row_ids, result)
 
+        # ── ТЗ-24 N2: блок industry_metrics из секторного модуля ──
+        industry_entry = None
+        if self._industry is not None:
+            report = self._industry(instrument_id, issuer_id)
+            if report["sector"] is None:
+                industry_entry = ("missing", "industry_no_sector")
+                self._snapshots.add_block(
+                    snapshot_id, "industry_metrics", "missing",
+                    "industry_no_sector")
+            elif report["reason"]:
+                industry_entry = ("missing", report["reason"])
+                self._snapshots.add_block(
+                    snapshot_id, "industry_metrics", "missing",
+                    report["reason"])
+            else:
+                metrics = report["metrics"]
+                computed = sum(1 for m in metrics
+                               if m["value"] is not None)
+                grey = [f"{m['concept']} ({m['reason']})"
+                        for m in metrics if m["value"] is None]
+                method = (metrics[0]["method_version"] if metrics
+                          else "unknown")
+                status = "ready" if computed else "missing"
+                reason = (f"computed {computed}/{len(metrics)} "
+                          f"method {method}")
+                if grey:
+                    reason += "; grey: " + "; ".join(grey[:8])
+                industry_entry = (status, reason)
+                self._snapshots.add_block(
+                    snapshot_id, "industry_metrics", status, reason)
+
         # ── Проход 2: перцентили по посчитанным величинам пиров ──
         if peer_set_version and peer_measures:
             fresh = [pm for pm in peer_measures if pm[4]]
@@ -405,6 +440,8 @@ class SnapshotBuilder:
                 ("ready", None) if peer_set_version
                 else ("missing", "peer_set_not_confirmed")),
         }
+        if industry_entry is not None:
+            known["industry_metrics"] = industry_entry
         self._coverage.ensure_all(instrument_id, known,
                                   source_errors=source_errors)
         return result
