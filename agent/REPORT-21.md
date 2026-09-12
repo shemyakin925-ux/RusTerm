@@ -157,4 +157,25 @@ Questions for the coordinator:
 1. Disputed: blank-currency legacy sets — close now or keep the trade-off?
 2. BR/AU issuers are addable but the CLI has no collection channel for cvm/asx yet (ТЗ-23/24 territory) — confirm the sequencing.
 
-NOW: H6, step 1
+### H6 — doctor learns the new shapes (DONE)
+
+- `rusterm/store/doctor.py` (SQL stays in the store layer) now checks:
+  1. documents in both directions — a `document` row whose body file
+     is missing from the raw store, and an imported file
+     (raw provider='manual-import') without a `document` row;
+  2. facts with source_kind='manual' whose document does not exist;
+  3. MARKETS registry rows whose provider module is absent (same
+     importlib door as H1; a gap names code:provider);
+  4. per-market coverage — issuers, facts, last successful collection
+     (issuer_ingest_state MAX(updated_at)) keyed by the instrument_id
+     market-code prefix, so OTC does not double-count US.
+- Report payload gains additive keys: documents,
+  manual_facts_missing_document, registry_gaps, market_coverage.
+- `tests/test_h6_doctor.py`, 4 tests: healthy db → ok, exit 0; damaged
+  db (all four shapes deliberately inflicted) → every problem named,
+  CLI exit 1 with all four phrases in the printed json.
+- Full suite after H6: 526 passed, 3 skipped, exit 0.
+
+## Blocked
+
+- none

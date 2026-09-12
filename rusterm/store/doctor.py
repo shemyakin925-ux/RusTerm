@@ -13,6 +13,14 @@ from .paths import AppPaths
 from .raw_store import iter_manifest_entries, object_path
 
 
+def _raw_file_exists(raw_store, sha: str) -> bool:
+    """Файл объекта лежит в raw-хранилище (любая форма сжатия)."""
+    import os as _os
+    return any(_os.path.exists(_os.path.join(str(raw_store), sha[:2],
+                                             sha + ext))
+               for ext in ("", ".gz", ".zst"))
+
+
 def doctor_report(paths: AppPaths, conn) -> dict:
     """Вернуть отчёт doctor: список проблем и счётчики проверенного."""
     problems: list[str] = []
@@ -141,6 +149,11 @@ def doctor_report(paths: AppPaths, conn) -> dict:
     # счётчики запросов по хостам (BACKLOG B24): последние пробы
     # provider_used_<хост>; потолки добавляет CLI из реестра провайдеров
     request_budget: dict = {}
+    documents: dict = {"rows": 0, "rows_without_file": 0,
+                       "imported_files_without_row": 0}
+    manual_facts_missing_document = 0
+    registry: list = []
+    market_coverage: dict = {}
     if db_ready:
         rows = conn.execute(
             """SELECT name, provider, value FROM metric_sample
@@ -149,6 +162,87 @@ def doctor_report(paths: AppPaths, conn) -> dict:
         for name, provider, value in rows:
             host = name[len("provider_used_"):]
             request_budget[host] = int(value)
+
+        # ── ТЗ-21 H6: документы в обе стороны ──
+        # строка document без файла на диске
+        for (sha,) in conn.execute("SELECT sha256 FROM document"):
+            documents["rows"] += 1
+            if not _raw_file_exists(paths.raw_store, sha):
+                documents["rows_without_file"] += 1
+        if documents["rows_without_file"]:
+            problems.append(
+                "документов в базе без файла в raw-хранилище: "
+                f"{documents['rows_without_file']}")
+        # импортированный файл (raw provider='manual-import') без
+        # строки document
+        documents["imported_files_without_row"] = conn.execute(
+            """SELECT COUNT(*) FROM raw_object ro
+               WHERE ro.provider = 'manual-import' AND NOT EXISTS (
+                     SELECT 1 FROM document d
+                     WHERE d.sha256 = ro.sha256)""").fetchone()[0]
+        if documents["imported_files_without_row"]:
+            problems.append(
+                "импортированных файлов без строки document: "
+                f"{documents['imported_files_without_row']}")
+
+        # ── ТЗ-21 H6: ручной факт без документа-источника ──
+        manual_facts_missing_document = conn.execute(
+            """SELECT COUNT(*) FROM fact f
+               WHERE f.source_kind = 'manual' AND NOT EXISTS (
+                     SELECT 1 FROM document d
+                     WHERE d.sha256 = f.source_ref)""").fetchone()[0]
+        if manual_facts_missing_document:
+            problems.append(
+                "ручных фактов без документа-источника: "
+                f"{manual_facts_missing_document}")
+
+        # ── ТЗ-21 H6: строки реестра с отсутствующим модулем ──
+        import importlib
+        from ..markets import MARKETS
+        for m in MARKETS:
+            try:
+                importlib.import_module(
+                    f"rusterm.providers.{m.provider}")
+                status = "implemented"
+            except ModuleNotFoundError as e:
+                if e.name in (m.provider,
+                              f"rusterm.providers.{m.provider}"):
+                    status = "provider_not_implemented"
+                    registry.append({"code": m.code,
+                                     "provider": m.provider,
+                                     "status": status})
+                else:
+                    raise
+        if registry:
+            problems.append(
+                "рынков с нереализованным провайдером: "
+                + ", ".join(f"{r['code']}:{r['provider']}"
+                            for r in registry))
+
+        # ── ТЗ-21 H6: покрытие по рынкам ──
+        # рынок определяется префиксом instrument_id "<код>-<тикер>"
+        # (cmd_add); переопределённый --instrument_id попадает в «—».
+        for m in MARKETS:
+            prefix = f"{m.code}-%"
+            issuers = conn.execute(
+                """SELECT COUNT(DISTINCT i.issuer_id) FROM issuer i
+                   JOIN instrument ins ON ins.issuer_id = i.issuer_id
+                   WHERE ins.instrument_id LIKE ?""",
+                (prefix,)).fetchone()[0]
+            facts = conn.execute(
+                """SELECT COUNT(*) FROM fact f
+                   JOIN instrument ins ON ins.issuer_id = f.issuer_id
+                   WHERE ins.instrument_id LIKE ?""",
+                (prefix,)).fetchone()[0]
+            last = conn.execute(
+                """SELECT MAX(s.updated_at) FROM issuer_ingest_state s
+                   JOIN instrument ins ON ins.issuer_id = s.issuer_id
+                   WHERE ins.instrument_id LIKE ?""",
+                (prefix,)).fetchone()[0]
+            market_coverage[m.code] = {
+                "issuers": issuers, "facts": facts,
+                "last_collection": last}
+
     return {
         "ok": not problems,
         "problems": problems,
@@ -158,4 +252,8 @@ def doctor_report(paths: AppPaths, conn) -> dict:
         "env": env_info,
         "unmapped_concepts": {"count": unmapped_count,
                               "top": unmapped_top},
+        "documents": documents,
+        "manual_facts_missing_document": manual_facts_missing_document,
+        "registry_gaps": registry,
+        "market_coverage": market_coverage,
     }
