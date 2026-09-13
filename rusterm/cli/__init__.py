@@ -955,8 +955,11 @@ def cmd_chat(args) -> int:
     from rusterm.providers.budget import ConfigError, RequestGate
     client = get_provider("llm-api", gate=RequestGate())
     if isinstance(client, ConfigError):
+        # ТЗ-28 R5: отказ называет бесплатный тариф и не предлагает
+        # платного плана — платного в проекте нет (ADR-0018).
         print(f"chat: модель недоступна: {client.reason}; задайте "
-              f"RUSTERM_LLM_API_KEY", file=sys.stderr)
+              f"RUSTERM_LLM_API_KEY (ключ бесплатный — регистрация на "
+              f"openrouter.ai без карты, ADR-0018)", file=sys.stderr)
         return 1
     paths, conn = _open(args.root)
     apply_migrations(conn)

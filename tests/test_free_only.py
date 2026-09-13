@@ -205,3 +205,42 @@ def test_every_host_literal_belongs_to_a_declared_channel():
             if _registrable(host) not in declared:
                 offenders.append(f"{path.name}:{lineno}: {host}")
     assert not offenders, "хосты мимо реестра: " + "; ".join(offenders)
+
+
+def test_guide_names_every_channel_key_env_and_costs_nothing():
+    """ТЗ-28 R5: GUIDE.md несёт таблицу ключей — каждое env-имя,
+    которым открывается канал из реестра, названо, стоимость названа
+    бесплатной; отказ команды без ключа называет бесплатный тариф."""
+    import rusterm
+    guide = (Path(rusterm.__file__).parent.parent / "GUIDE.md").read_text(
+        encoding="utf-8")
+    for name in sorted(set(providers._CHANNEL_KEY_ENV.values())):
+        assert name in guide, name
+    assert "бесплатно" in guide, "таблица стоимости не называет цену"
+
+
+def test_chat_refusal_names_the_free_tier(tmp_path, capsys):
+    """ТЗ-28 R5: без ключа chat отвечает отказом, который называет
+    бесплатный тариф и не предлагает платного."""
+    import os
+
+    import rusterm.cli as cli
+
+    saved = {n: os.environ.get(n)
+             for n in ("RUSTERM_LLM_API_KEY", "RUSTERM_ENV_FILE")}
+    os.environ["RUSTERM_LLM_API_KEY"] = ""
+    os.environ["RUSTERM_ENV_FILE"] = "/nonexistent/rusterm.env-for-tests"
+    try:
+        code = cli.main(["--root", str(tmp_path / "app"), "chat"])
+        err = capsys.readouterr().err
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    assert code == 1
+    assert "бесплатн" in err, err
+    # «платный» — подстрока «бесплатного»; вычтя бесплатность,
+    # требуем, чтобы предложения платного плана в остатке не было
+    assert "платн" not in err.replace("бесплатн", ""), err

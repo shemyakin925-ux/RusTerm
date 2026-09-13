@@ -207,3 +207,22 @@ Questions for the coordinator:
   llm_api.py {openrouter.ai: openrouter.ai};
   otcmarkets.py {backend.otcmarkets.com, www.otcmarkets.com:
   otcmarkets.com}.
+
+### R5 — nowhere is the user offered a paid plan (DONE)
+
+- `GUIDE.md` §0: the env block now names all four channel keys; a cost
+  table added (env variable | where issued | what it unlocks | cost =
+  бесплатно | documented free ceiling where the vendor publishes one —
+  SEC: ≤10 req/s declaration, program keeps 5/s; Twelve Data: 8/min and
+  800/day; DART and OpenRouter: no published single number, named as
+  the project placeholder). The ADR-0018 card-is-payment rule is
+  stated in one sentence.
+- `cmd_chat` refusal now names the free tier, verbatim (real run,
+  key-less, `RUSTERM_ENV_FILE` pointed nowhere, EXIT=1):
+  `chat: модель недоступна: llm_key_unset; задайте RUSTERM_LLM_API_KEY (ключ бесплатный — регистрация на openrouter.ai без карты, ADR-0018)`
+- Tests: `test_guide_names_every_channel_key_env_and_costs_nothing`
+  (every name in the registry's key-env set appears in GUIDE.md;
+  «бесплатно» named); `test_chat_refusal_names_the_free_tier`
+  (refusal names «бесплатн», and after removing that word no «платн»
+  remains — the paid-plan check is substring-safe). test_free_only:
+  10 passed; full default run EXIT=0.
