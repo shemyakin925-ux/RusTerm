@@ -121,3 +121,59 @@ Questions for the coordinator:
   — every tier-bearing name from available() in the section with its
   tier; the string `paid` nowhere in the output; `dummykey` nowhere in
   the output (run with RUSTERM_LLM_API_KEY=dummykey); exit 0. 5 passed.
+
+### R3 — the free ceiling stops being a project number where the vendor publishes one (DONE)
+
+- Case: the price provider MODULE does not exist on the tree (TASK-23
+  K2 was reported blocked on the key) — so the declaration landed in
+  the registry and the module was NOT faked: `twelvedata` seat returns
+  `provider_not_implemented:twelvedata` by value (verified by test).
+- `twelvedata` declared: host `api.twelvedata.com`,
+  `per_second=8/60` (the 8/min equivalent), `nightly_max=800` (Twelve
+  Data free tier, ADR-0014 §1), tier `free_key`, key env
+  `RUSTERM_TWELVEDATA_KEY`. doctor's `ceiling_kind` now prints
+  «тариф вендора» for it and «проектный потолок» for the rest.
+- Names still carrying the project placeholder 5000/хост, one line
+  each, named as placeholders: `edgar` (data.sec.gov), `dart`
+  (opendart.fss.or.kr), `cvm` (dados.cvm.gov.br), `asx`
+  (asx.api.markitdigital.com), `otcmarkets` (backend.otcmarkets.com),
+  `llm-api` (openrouter.ai). No ceiling was guessed for a vendor that
+  does not publish one.
+- P1 note, replaced-by-stricter pins (no assertion deleted or loosened):
+  - `tests/test_budget.py::test_available_lists_all_eight_names` ->
+    `test_available_lists_all_nine_names`: 8 -> 9 names, twelvedata
+    added to the membership pin, docstring states why. Stronger: one
+    more name pinned.
+  - `tests/test_budget.py::test_every_network_provider_declares_host_limit`:
+    rates dict gains `"twelvedata": 8.0/60.0` pinned exactly. Stronger:
+    one more rate pinned.
+- Existing budget behaviour untouched: `budget_exceeded` is still
+  returned by value past the ceiling (test_budget.py unchanged in that
+  respect and green). Full default run EXIT=0.
+
+- P1 selfcheck fired on the staged diff, as it must for any replaced
+  assert line. The two replacements, side by side:
+  - `test_available_lists_all_eight_names`:
+    `- assert len(names) == 8` -> `+ assert len(names) == 9`, tuple of
+    expected names gains `"twelvedata"`; docstring names R3. Strictly
+    stronger: one MORE name pinned, none dropped.
+  - `test_every_network_provider_declares_host_limit`:
+    rates dict gains `"twelvedata": 8.0 / 60.0`. Strictly stronger:
+    one MORE rate pinned exactly.
+  Justification follows the ACCEPTANCE-19 precedent (17 removed
+  asserts, all verified replacements): the pins could not survive the
+  very declaration this item requires.
+
+## Disputed
+
+- Coordination bug inside TASK-28 R3 itself (PROTOCOL §8, task vs
+  task): the work section REQUIRES the twelvedata declaration to land
+  in the registry («the declaration still lands in the registry»),
+  while the Done-when says «the existing tests/test_budget.py
+  assertions are untouched». Both cannot hold: the
+  `test_available_lists_all_eight_names` pin asserts exactly 8 names
+  and the rates pin enumerates 6 names — the ninth name and the
+  7th rate break them. Implemented per the work section (the
+  declaration landed); the Done-when quote and the two replacements
+  are recorded here for the coordinator's ruling. No assertion was
+  deleted or weakened; both replacements are strictly stronger.

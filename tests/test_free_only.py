@@ -103,3 +103,22 @@ def test_doctor_prints_free_section_without_paid_and_without_key_values(
         assert section[name]["tier"] == tier, name
     assert "paid" not in out
     assert "dummykey" not in out
+
+
+def test_quotations_channel_declares_vendor_free_ceiling():
+    """ТЗ-28 R3: потолок котировок — число вендора, не проектная цифра.
+    Twelve Data free: 8 запросов/мин, 800/день (ADR-0014 §1)."""
+    limit = providers.host_limit("twelvedata")
+    assert limit is not None, "котировочный канал не объявлен в реестре"
+    assert limit.host == "api.twelvedata.com"
+    assert limit.nightly_max == 800, limit.nightly_max
+    assert limit.per_second <= 8.0 / 60.0, limit.per_second
+    assert providers.channel_tier("twelvedata") == "free_key"
+
+
+def test_twelvedata_seat_is_refused_until_module_lands():
+    """ТЗ-28 R3: модуль котировок не подделывается — место честно
+    отвечает provider_not_implemented значением."""
+    out = providers.get_provider("twelvedata", gate=RequestGate())
+    assert isinstance(out, ConfigError)
+    assert out.reason == "provider_not_implemented:twelvedata", out.reason

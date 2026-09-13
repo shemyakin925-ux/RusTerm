@@ -34,6 +34,9 @@ _FACTORIES: dict[str, Callable[[], object]] = {
 # 5000/хост до замера настоящих потолков: полоса TASK-20, строя модуль
 # источника, уточняет число у себя. Реестр не выдаёт сетевого
 # провайдера без объявления — та же дверь, что U5 (TASK-8), петля шире.
+# Исключение из проектной цифры (ТЗ-28 R3): котировки Twelve Data —
+# вендор публикует свой бесплатный потолок 8 запросов/мин, 800/день
+# (ADR-0014 §1); темп — эквивалент 8/мин, дневной потолок 800.
 _HOST_LIMITS: dict[str, HostLimit] = {
     "edgar": HostLimit(host="data.sec.gov", per_second=5.0,
                        nightly_max=5000),
@@ -47,6 +50,9 @@ _HOST_LIMITS: dict[str, HostLimit] = {
                             nightly_max=5000),
     "llm-api": HostLimit(host="openrouter.ai", per_second=1.0,
                          nightly_max=5000),
+    "twelvedata": HostLimit(host="api.twelvedata.com",
+                            per_second=8.0 / 60.0,
+                            nightly_max=800),
 }
 
 # Тариф внешнего канала (ADR-0018, ТЗ-28 R1): закрытый набор.
@@ -63,6 +69,7 @@ _CHANNEL_TIERS: dict[str, str] = {
     "asx": "open",            # без ключа (котировки объявлений)
     "otcmarkets": "open",     # без ключа
     "llm-api": "free_key",    # ключ OpenRouter по регистрации
+    "twelvedata": "free_key",  # ключ по регистрации, бесплатный тариф
 }
 
 # Какое env-имя открывает канал (ТЗ-28 R2, doctor печатает да/нет):
@@ -71,6 +78,7 @@ _CHANNEL_KEY_ENV: dict[str, str] = {
     "edgar": "RUSTERM_SEC_UA",
     "dart": "RUSTERM_DART_KEY",
     "llm-api": "RUSTERM_LLM_API_KEY",
+    "twelvedata": "RUSTERM_TWELVEDATA_KEY",
 }
 
 # Сетевые провайдеры: выдаются только с RequestGate (TASK-8 U5 —
@@ -85,6 +93,10 @@ _NETWORK_PROVIDERS: dict[str, Callable[[RequestGate], object]] = {
     "asx": lambda gate: _seat_provider("asx", gate),
     "otcmarkets": lambda gate: _seat_provider("otcmarkets", gate),
     "llm-api": lambda gate: _seat_provider("llm_api", gate),
+    # ТЗ-28 R3: объявление в реестре landит раньше модуля (TASK-23 K2
+    # ждал ключа); модуль не подделывается — место возвращает
+    # provider_not_implemented, пока TASK-30 не принесёт twelvedata.py.
+    "twelvedata": lambda gate: _seat_provider("twelvedata", gate),
 }
 
 

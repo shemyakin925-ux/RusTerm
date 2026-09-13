@@ -195,15 +195,17 @@ def test_seat_lifecycle_absent_module_or_built_provider_zero_requests():
     assert no_gate.reason == "network_provider_requires_gate:dart"
 
 
-def test_available_lists_all_eight_names():
+def test_available_lists_all_nine_names():
     """F5: пять сетевых мест (edgar, dart, cvm, asx, otcmarkets) +
-    llm-api + две синтетики — ровно восемь имён."""
+    llm-api + две синтетики + котировочное место twelvedata (ТЗ-28 R3:
+    объявление в реестре landит раньше модуля) — ровно девять имён.
+    Пин стал сильнее прежних восьми: добавлено имя, не убавлено."""
     from rusterm.providers import available
     names = available()
-    assert len(names) == 8
+    assert len(names) == 9
     for expected in ("edgar", "dart", "cvm", "asx", "otcmarkets",
                      "llm-api", "synthetic-market",
-                     "synthetic-disclosures"):
+                     "synthetic-disclosures", "twelvedata"):
         assert expected in names, expected
 
 
@@ -213,7 +215,8 @@ def test_every_network_provider_declares_host_limit():
     from rusterm.providers import _HOST_LIMITS, _NETWORK_PROVIDERS
     assert set(_HOST_LIMITS) == set(_NETWORK_PROVIDERS)
     rates = {"edgar": 5.0, "dart": 2.0, "cvm": 1.0, "asx": 1.0,
-             "otcmarkets": 1.0, "llm-api": 1.0}
+             "otcmarkets": 1.0, "llm-api": 1.0,
+             "twelvedata": 8.0 / 60.0}  # ТЗ-28 R3: 8/мин из ADR-0014
     for name, limit in _HOST_LIMITS.items():
         assert limit.host, name
         assert limit.per_second == rates[name], name
