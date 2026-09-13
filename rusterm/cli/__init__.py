@@ -162,6 +162,17 @@ def cmd_ingest(args) -> int:
     if targets is None:
         conn.close()
         return 1
+    if args.source == "twelvedata":
+        # Котировки (ТЗ-30 B2): сбор никогда не дефолт — только по
+        # явному --source, как edgar.
+        exit_code = 0
+        for instrument_id, issuer_id in targets:
+            code = _ingest_twelvedata_prices(repos, instrument_id,
+                                             args_as_of_default())
+            if code != 0:
+                exit_code = code
+        conn.close()
+        return exit_code
     if args.source == "edgar":
         # Реальный сбор никогда не является дефолтом (TASK-7 T14).
         exit_code = 0
@@ -184,6 +195,63 @@ def cmd_ingest(args) -> int:
               f"{result.needs_verification}; suspect (E5): {result.suspects}; "
               f"неотображённых концептов: {result.unmapped_concepts}")
     conn.close()
+    return 0
+
+
+def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
+                              start: str | None = None,
+                              provider=None) -> int:
+    """Котировочный сбор (ТЗ-30 B2, ТЗ-23 K2, ADR-0014): один запрос
+    /time_series, payload в raw-хранилище, строки в price. Повторный
+    сбор того же диапазона находит payload по каноническому URL без
+    ключа (raw_object.url) и тратит ноль запросов (ADR-0003); дубли
+    дат не пишутся (I7). provider инъецируется тестами с фейковым
+    транспортом; в команде строится из окружения."""
+    from rusterm.providers.base import ProviderError
+    from rusterm.providers.budget import (
+        BudgetExceeded,
+        ConfigError,
+        RequestGate,
+    )
+
+    tick = repos.instrument.ticker_for_instrument(instrument_id, as_of)
+    if tick is None:
+        print(f"у {instrument_id!r} нет тикера на {as_of}",
+              file=sys.stderr)
+        return 1
+    symbol = tick["ticker"]
+    if provider is None:
+        provider = get_provider("twelvedata", gate=RequestGate())
+    if isinstance(provider, ConfigError):
+        print(f"twelvedata недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+
+    cache_url = provider.cache_url(symbol, start, None)
+    row = repos.conn.execute(
+        """SELECT sha256 FROM raw_object
+           WHERE provider='twelvedata' AND url=?""", (cache_url,)).fetchone()
+    requests_spent = 0
+    if row is not None:
+        payload = json.loads(repos.raw.get(row[0]).decode("utf-8"))
+    else:
+        outcome = provider.time_series(symbol, start=start, end=None)
+        if isinstance(outcome, (ProviderError, ConfigError,
+                                BudgetExceeded)):
+            print(f"twelvedata: {outcome.reason}", file=sys.stderr)
+            return 1
+        payload = outcome
+        requests_spent = 1
+        raw = json.dumps(payload, sort_keys=True,
+                         ensure_ascii=False).encode("utf-8")
+        repos.raw.put(raw, provider="twelvedata", block="prices",
+                      url=cache_url, instrument_id=instrument_id)
+    rows = provider.parse_series(payload)
+    inserted = repos.price.put_rows(instrument_id, "twelvedata", rows)
+    last = rows[-1]["date"] if rows else "—"
+    print(f"{instrument_id}: строк получено: {len(rows)}; "
+          f"записано новых: {inserted}; запросов: {requests_spent}; "
+          f"последняя дата: {last}")
     return 0
 
 
@@ -1369,7 +1437,8 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--ticker", default=None)
     p_ing.add_argument("--market", default=None)
     p_ing.add_argument("--watchlist", default=None)
-    p_ing.add_argument("--source", choices=("synthetic", "edgar"),
+    p_ing.add_argument("--source", choices=("synthetic", "edgar",
+                                            "twelvedata"),
                        default="synthetic")
     sub.add_parser("demo", help="создать синтетический демо-инструмент")
     p_add = sub.add_parser("add", help="добавить настоящую компанию")

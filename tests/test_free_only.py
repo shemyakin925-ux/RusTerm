@@ -14,7 +14,11 @@ import pytest
 from pathlib import Path
 
 import rusterm.providers as providers
-from rusterm.providers.budget import ConfigError, RequestGate
+from rusterm.providers.budget import (
+    ConfigError,
+    NetworkGate,
+    RequestGate,
+)
 
 _TIERS = ("open", "free_key", "paid")
 
@@ -120,12 +124,21 @@ def test_quotations_channel_declares_vendor_free_ceiling():
     assert providers.channel_tier("twelvedata") == "free_key"
 
 
-def test_twelvedata_seat_is_refused_until_module_lands():
-    """ТЗ-28 R3: модуль котировок не подделывается — место честно
-    отвечает provider_not_implemented значением."""
-    out = providers.get_provider("twelvedata", gate=RequestGate())
+FAKE_UA = "Synthetic Test free.invalid"
+
+
+def test_twelvedata_seat_builds_the_provider():
+    """ТЗ-28 R3 landила объявление раньше модуля; ТЗ-30 B1 принёс
+    twelvedata.py — место собирает клиента. В изолированном окружении
+    теста ключа нет: отказ значением twelvedata_key_unset — дверь
+    ключа работает через реестр, provider_not_implemented больше не
+    ответ (пин заменён сильнейшим, см. REPORT-30)."""
+    out = providers.get_provider(
+        "twelvedata",
+        gate=RequestGate(gate=NetworkGate(environ={
+            "RUSTERM_SEC_UA": FAKE_UA})))
     assert isinstance(out, ConfigError)
-    assert out.reason == "provider_not_implemented:twelvedata", out.reason
+    assert out.reason == "twelvedata_key_unset", out.reason
 
 
 # ── R4: новый хост не появляется мимо реестра ──────────────────────────
