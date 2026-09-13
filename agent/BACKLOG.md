@@ -118,6 +118,26 @@ The BR gap list (`CD_CONTA`, `DS_CONTA`, `VL_CONTA`, `ESCALA_MOEDA`
 unmapped) is real and belongs to TASK-27 N7 with the collection channel
 that will produce the payloads.
 
+## Standing rule — everything is free (user, 13.09.2026)
+
+Written as **ADR-0018** and into README §1, §7, §9, §12, §15. It binds
+every task and every backlog item from this date on, idle-time work
+included.
+
+| Question | Answer |
+|---|---|
+| May an item depend on a paid tariff, subscription, deposit or pay-as-you-go channel? | No. |
+| Is a free tier that asks for a payment card at registration free? | No — a card is payment. |
+| Is a free key issued by registration free? | Yes (DART, Twelve Data free, OpenRouter). A contact header (`RUSTERM_SEC_UA`) is not payment either. |
+| A channel is closed unless you pay — what happens? | The existing named refusal (`source_unreachable`, `manual_import_required`) and manual import. Never a paid detour. |
+| May a paid vendor be named? | In an ADR, as a rejected alternative with its price. Never in code as a default, never in acceptance, tests or CI. |
+| Which model? | Free models through the user's OpenRouter key. Budget is counted in free-tier requests; the project counts no money, because it spends none. |
+| A free ceiling is unknown — may it be estimated? | No. Quote the vendor's number or say «проектный потолок» and name it as a placeholder. |
+
+The rule is made machine-checkable by **`agent/TASK-28.md`** (registry
+tier field, refusal door, doctor section, undeclared-host guard). Until
+that lands, the rule is still binding — it is simply checked by reading.
+
 ## Guards the coordinator added 11.09.2026. Do not weaken them
 
 Two guard tests were written by the coordinator, not by a lane. **P1
