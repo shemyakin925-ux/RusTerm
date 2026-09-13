@@ -26,3 +26,26 @@ def _isolated_rusterm_env(tmp_path, monkeypatch):
     for name in env_module.ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_network_in_default_run(request, monkeypatch):
+    """Доказательство «нуля запросов» (TASK-29 A2), машинное: в тесте
+    без маркера live urllib.request.urlopen заменён на падающий страж.
+    Любой выход в сеть в default-прогоне роняет тест с именем URL.
+    Живые тесты несут маркер live и по умолчанию не собираются
+    (addopts -m "not live"). Subprocess этой замены не видит — их
+    закрывает само собранное окружение теста и изоляция из A1."""
+    if request.node.get_closest_marker("live"):
+        yield
+        return
+
+    import urllib.request
+
+    def _forbidden(url, *args, **kwargs):
+        raise AssertionError(
+            "сеть в default-прогоне (тест обязан нести маркер live): "
+            f"{url}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _forbidden)
+    yield

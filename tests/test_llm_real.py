@@ -12,6 +12,7 @@ import pytest
 from rusterm import env as env_module
 
 
+@pytest.mark.live
 def test_m5_real_model_skips_without_key():
     env_module.load_env()
     if not __import__("os").environ.get("RUSTERM_LLM_API_KEY"):

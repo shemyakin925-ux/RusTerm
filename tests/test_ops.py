@@ -327,12 +327,19 @@ def test_d7_d8_ops_command_audit_rows_confirm_and_json_keys():
 
     repo = Path(__file__).resolve().parents[1]
     stub = repo / "tests" / "e2e_stub"
-    env = {**os.environ,
-           "RUSTERM_SEC_UA": "Synthetic Test e2e.invalid",
-           "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
-           "PYTHONPATH": os.pathsep.join(
-               [str(stub), str(repo), os.environ.get("PYTHONPATH", "")]),
-           "TERM": "xterm"}
+    # окружение собрано самим тестом (TASK-29 A2): ни одного RUSTERM_*
+    # из наследства — при наличии ключа cmd_ops уходил бы в живой вызов
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("RUSTERM_")}
+    env.update({
+        "RUSTERM_SEC_UA": "Synthetic Test e2e.invalid",
+        "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+        "PYTHONPATH": os.pathsep.join(
+            [str(stub), str(repo), os.environ.get("PYTHONPATH", "")]),
+        "TERM": "xterm"})
+    assert sorted(k for k in env if k.startswith("RUSTERM_")) == \
+        ["RUSTERM_ENV_FILE", "RUSTERM_SEC_UA"], sorted(
+            k for k in env if k.startswith("RUSTERM_"))
 
     def run(root, *argv):
         return subprocess.run(

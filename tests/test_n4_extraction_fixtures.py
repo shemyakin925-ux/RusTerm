@@ -51,6 +51,7 @@ def test_stage1_extraction_reaches_every_table():
     assert "210(3)" in joined
 
 
+@pytest.mark.live
 @pytest.mark.skipif(os.environ.get("RUSTERM_LLM_API_KEY") is None,
                     reason="RUSTERM_LLM_API_KEY unset (N2 сетевых "
                            "правил): модельная половина N4 не гоняется")

@@ -234,6 +234,7 @@ def test_budget_exceeded_value_on_exhausted_host():
 _HAS_KEY = bool(os.environ.get(KEY_ENV, "").strip())
 
 
+@pytest.mark.live
 @pytest.mark.skipif(not _HAS_KEY, reason="RUSTERM_DART_KEY unset (N7)")
 def test_live_company_json_answers():
     live = DartProvider.from_env(_gate())

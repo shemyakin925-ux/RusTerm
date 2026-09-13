@@ -26,7 +26,10 @@ exclude = ["tests*", "fixtures*", "agent*", "docs*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers"
+# ТЗ-29 A2: default-прогон не собирает ни один тест, способный дойти
+# до сети или модели; живой путь — только явным -m live.
+addopts = '-q --strict-markers -m "not live"'
 markers = [
     "integration: тесты с реальными источниками (требуют сеть)",
+    "live: живой сетевой/модельный вызов — запускается только явно (-m live), default-прогон его не собирает (TASK-29 A2)",
 ]

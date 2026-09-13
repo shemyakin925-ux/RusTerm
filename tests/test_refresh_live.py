@@ -43,6 +43,7 @@ def _live_ua() -> str | None:
 
 
 @pytest.mark.integration
+@pytest.mark.live
 def test_c6_live_incremental_second_pass_zero_downloads():
     if not _live_ua():
         pytest.skip("SEC_UA UNSET — network path not exercised")

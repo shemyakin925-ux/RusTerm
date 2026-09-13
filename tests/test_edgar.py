@@ -171,6 +171,7 @@ def test_gate_still_enforced_inside_provider():
 
 
 @pytest.mark.integration
+@pytest.mark.live
 def test_live_edgar_probe_skips_without_contact():
     """Живой запрос к SEC: ровно один, через RequestGate, с контактом
     из окружения. Без RUSTERM_SEC_UA — чистый пропуск (N2/N7)."""

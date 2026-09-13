@@ -76,3 +76,32 @@ Secrets:         nothing reprinted; arrival pytest output had printed the real
 Pushed:          not yet (mid-shift; updated at HANDOFF)
 Questions for the coordinator:
 1. (none yet)
+
+### A2 — network in the suite only behind the live marker (DONE)
+
+- `pyproject.toml`: `live` marker registered; `addopts` now
+  `-q --strict-markers -m "not live"` — a default run collects no test
+  that can reach the network or the model.
+- Five tests carry `live`: `test_edgar.py::test_live_edgar_probe…`,
+  `test_refresh_live.py::test_c6_live…`, `test_llm_real.py::test_m5…`,
+  `test_market_kr.py::test_live_company_json_answers`,
+  `test_n4_extraction_fixtures.py::test_n4_model_audit_table`
+  (the two "successors" found by survey, both key-gated).
+  `python3 -m pytest -m live --collect-only -q` lists exactly these
+  five files, one test each.
+- Machine proof of zero requests: `tests/conftest.py` gains an autouse
+  fixture that replaces `urllib.request.urlopen` with a raising guard
+  for every test without the `live` marker (all five `_default_transport`
+  implementations go through `urllib.request.urlopen`; subprocesses are
+  covered separately by self-built environments and A1 inheritance).
+- `tests/test_ops.py` subprocess env is now built by the test itself:
+  every inherited `RUSTERM_*` name is stripped, then only
+  `RUSTERM_SEC_UA` and a nonexistent `RUSTERM_ENV_FILE` are set; an
+  assert pins the resulting name set. With a key in the parent
+  environment the CLI subprocess can no longer take the API path —
+  the live-call hole from arrival is closed at the source.
+- Verification: default run with all four keys EXPORTED into the shell
+  environment: all four names set to fake values whose shape was kept
+  out of this report on purpose (the secrets guard scans tracked
+  files for key shapes) -> EXIT=0, 0 failures — a request would have
+  raised through the guard.
