@@ -49,6 +49,22 @@ _HOST_LIMITS: dict[str, HostLimit] = {
                          nightly_max=5000),
 }
 
+# Тариф внешнего канала (ADR-0018, ТЗ-28 R1): закрытый набор.
+# open — ключа нет вовсе или только контакт-заголовок; free_key — ключ
+# по регистрации без карты; paid — подписка/тариф/депозит/карта при
+# регистрации. Реестр не выдаёт канал без объявления тарифа и не
+# выдаёт канал с тарифом paid — и то и другое значением ConfigError.
+_TIERS = ("open", "free_key", "paid")
+
+_CHANNEL_TIERS: dict[str, str] = {
+    "edgar": "free_key",      # контакт-заголовок RUSTERM_SEC_UA
+    "dart": "free_key",       # ключ по регистрации (opendart.fss.or.kr)
+    "cvm": "open",            # без ключа
+    "asx": "open",            # без ключа (котировки объявлений)
+    "otcmarkets": "open",     # без ключа
+    "llm-api": "free_key",    # ключ OpenRouter по регистрации
+}
+
 # Сетевые провайдеры: выдаются только с RequestGate (TASK-8 U5 —
 # реестр делает обход лимитера невозможным, а не «на совести» автора).
 # Места импортируют свой модуль ВНУТРИ вызова (ADR-0012 §2): после этой
@@ -103,6 +119,11 @@ def get_provider(name: str, gate: RequestGate | None = None):
     объявления хоста не выдаётся вовсе (TASK-19 F5).
     """
     if name in _NETWORK_PROVIDERS:
+        tier = _CHANNEL_TIERS.get(name)
+        if tier not in _TIERS:
+            return ConfigError(reason=f"provider_declares_no_tier:{name}")
+        if tier == "paid":
+            return ConfigError(reason="paid_channel_refused")
         if name not in _HOST_LIMITS:
             return ConfigError(reason=f"provider_declares_no_host:{name}")
         if gate is None:
@@ -125,6 +146,13 @@ def host_limit(name: str) -> HostLimit | None:
     return _HOST_LIMITS.get(name)
 
 
+def channel_tier(name: str) -> str | None:
+    """Тариф канала по имени провайдера (ТЗ-28 R1); None — имя не
+    объявлено сетевым каналом. doctor печатает его, страж следит,
+    чтобы каждое сетевое имя несло тариф из закрытого набора."""
+    return _CHANNEL_TIERS.get(name)
+
+
 def all_host_limits() -> dict[str, HostLimit]:
     """Все объявления: имя провайдера -> HostLimit (BACKLOG B24 —
     потолок хоста для doctor и status)."""
@@ -136,5 +164,5 @@ __all__ = [
     "MarketDataProvider", "SyntheticMarketProvider",
     "UnknownProvider", "ProviderError", "ConfigError", "HostLimit",
     "RequestGate", "register", "get_provider", "available", "host_limit",
-    "all_host_limits",
+    "all_host_limits", "channel_tier",
 ]
