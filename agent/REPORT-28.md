@@ -177,3 +177,33 @@ Questions for the coordinator:
   declaration landed); the Done-when quote and the two replacements
   are recorded here for the coordinator's ruling. No assertion was
   deleted or weakened; both replacements are strictly stronger.
+
+### R4 — no new host appears past the registry (DONE)
+
+- Guard: `test_every_host_literal_belongs_to_a_declared_channel` in
+  `tests/test_free_only.py` (test-only zone, no production change).
+  It parses every `rusterm/providers/*.py` with `ast`, collects host
+  names from string constants (inside f-strings too, via their static
+  fragments), SKIPS docstrings by AST position (module/class/function
+  docstrings are prose — otcmarkets.py and asx.py carry refused-paid
+  explanations there), and compares registrable domains against the
+  registry's declared hosts. Comparison by registrable domain, not by
+  exact string, because the tree legitimately reaches subdomains of a
+  declared channel's domain (measured, quoted by the sanity print:
+  edgar -> www.sec.gov + data.sec.gov; dart ->
+  engopendart.fss.or.kr; otcmarkets -> backend + www.otcmarkets.com).
+  The multi-label public suffixes in use are an explicit closed tuple
+  (.or.kr, .com.br, .gov.br, .com.au, .co.uk, .com.tr).
+- Green on the tree as it stands: 8 passed.
+- Red on a deliberate offender (scratch edit, then reverted; verbatim):
+  `AssertionError: хосты мимо реестра: edgar.py:32: quotes.paidvendor.example`
+  — file, line and host named, as required.
+- Sanity print proving the guard is not vacuous (hosts actually
+  collected, mapped to registrable domains):
+  asx.py {asx.api.markitdigital.com: markitdigital.com};
+  cvm.py {dados.cvm.gov.br: cvm.gov.br};
+  dart.py {engopendart.fss.or.kr: fss.or.kr};
+  edgar.py {www.sec.gov: sec.gov, data.sec.gov: sec.gov};
+  llm_api.py {openrouter.ai: openrouter.ai};
+  otcmarkets.py {backend.otcmarkets.com, www.otcmarkets.com:
+  otcmarkets.com}.

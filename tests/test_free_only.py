@@ -7,7 +7,11 @@ paid; синтетическое paid-место, подсаженное в ре
 """
 from __future__ import annotations
 
+import ast
+
 import pytest
+
+from pathlib import Path
 
 import rusterm.providers as providers
 from rusterm.providers.budget import ConfigError, RequestGate
@@ -122,3 +126,82 @@ def test_twelvedata_seat_is_refused_until_module_lands():
     out = providers.get_provider("twelvedata", gate=RequestGate())
     assert isinstance(out, ConfigError)
     assert out.reason == "provider_not_implemented:twelvedata", out.reason
+
+
+# ── R4: новый хост не появляется мимо реестра ──────────────────────────
+
+# Известные двух-трёхметочные публичные суффиксы наших вендоров: для
+# них регистрируемый домен — три метки, иначе две. Таблица короткая и
+# закрытая; новый вендор с новым суффиксом обязан дополнить её явно.
+_MULTI_LABEL_SUFFIXES = (".or.kr", ".com.br", ".gov.br", ".com.au",
+                         ".co.uk", ".com.tr")
+
+
+def _registrable(host: str) -> str:
+    for suffix in _MULTI_LABEL_SUFFIXES:
+        if host.endswith(suffix):
+            return host.split(".")[-3] + suffix
+    return ".".join(host.split(".")[-2:])
+
+
+def _host_of(literal: str) -> str | None:
+    """Hostname из строкового литерала, похожего на URL; не-URL — None.
+    Берётся первый token с схемой: литералы-прозы без URL дают None."""
+    from urllib.parse import urlparse
+    for token in literal.split():
+        if "://" in token:
+            netloc = urlparse(token).netloc.lower().strip("/")
+            if netloc and "." in netloc and netloc[0].isalnum():
+                return netloc
+    return None
+
+
+def _docstring_spans(tree: ast.AST) -> list[tuple[int, int]]:
+    """(lineno, end_lineno) докстрингов модуля/классов/функций: хост в
+    докстринге, объясняющем отказанный платный аналог, — проза, а не
+    канал, и страж краснеть от него не должен."""
+    spans = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                             ast.AsyncFunctionDef)):
+            body = node.body[0] if getattr(node, "body", None) else None
+            if isinstance(body, ast.Expr) and \
+                    isinstance(body.value, ast.Constant) and \
+                    isinstance(body.value.value, str):
+                spans.append((body.value.lineno, body.value.end_lineno))
+    return spans
+
+
+def _host_literals(path: Path) -> dict[str, int]:
+    """{host: lineno} по строковым константам модуля, вне докстрингов.
+    Разбор — через ast, не регэксп по тексту: комментарии вообще не
+    попадают в дерево, а докстринги вырезаются позициями."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    spans = _docstring_spans(tree)
+    hosts: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if any(a <= node.lineno <= b for a, b in spans):
+                continue
+            host = _host_of(node.value)
+            if host and host not in hosts:
+                hosts[host] = node.lineno
+    return hosts
+
+
+def test_every_host_literal_belongs_to_a_declared_channel():
+    """ТЗ-28 R4: каждый хост, достижимый из rusterm/providers/*.py,
+    принадлежит каналу, объявленному в реестре (по регистрируемому
+    домену: www.sec.gov — тот же канал edgar, что data.sec.gov).
+    Нарушение называется файлом, строкой и хостом."""
+    import rusterm.providers as providers_mod
+    declared = {_registrable(limit.host)
+                for limit in providers_mod.all_host_limits().values()}
+    assert declared, "реестр пуст — страж ничего не охраняет"
+    zone = Path(providers_mod.__file__).parent
+    offenders = []
+    for path in sorted(zone.glob("*.py")):
+        for host, lineno in _host_literals(path).items():
+            if _registrable(host) not in declared:
+                offenders.append(f"{path.name}:{lineno}: {host}")
+    assert not offenders, "хосты мимо реестра: " + "; ".join(offenders)
