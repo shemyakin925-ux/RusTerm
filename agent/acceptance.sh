@@ -171,15 +171,19 @@ else
 fi
 
 # ── 10. docs/ не изменён, кроме новых ADR ────────────────────────────────
-head_ '10. docs/ не изменён, кроме новых ADR'
+head_ '10. docs/ не изменён, кроме новых ADR и новых страниц каталога'
 if git cat-file -e origin/main^{commit} 2>/dev/null; then
   git diff --name-status origin/main HEAD -- docs/ >"$TMP/docs.txt" 2>/dev/null
-  if grep -vE '^A[[:space:]]+docs/adr/' "$TMP/docs.txt" | grep -q .; then
-    bad 'docs/ правился помимо добавления новых ADR'
-    grep -vE '^A[[:space:]]+docs/adr/' "$TMP/docs.txt" | detail
+  # Расширено координатором 13.09.2026 (вопрос 1 REPORT-24): новая
+  # страница каталога отраслевых метрик — такое же добавление, как
+  # новый ADR. Правка существующего файла docs/ по-прежнему провал.
+  ALLOW='^A[[:space:]]+docs/(adr|industry-metrics)/'
+  if grep -vE "$ALLOW" "$TMP/docs.txt" | grep -q .; then
+    bad 'docs/ правился помимо добавления новых ADR и страниц каталога'
+    grep -vE "$ALLOW" "$TMP/docs.txt" | detail
   else
-    ADR=$(grep -cE '^A[[:space:]]+docs/adr/' "$TMP/docs.txt" || true)
-    ok "docs/ нетронут, новых ADR: ${ADR:-0}"
+    ADR=$(grep -cE "$ALLOW" "$TMP/docs.txt" || true)
+    ok "docs/ нетронут, новых файлов-добавлений: ${ADR:-0}"
   fi
 else
   printf '  \033[33mПРОПУСК\033[0m нет origin/main для сверки\n'

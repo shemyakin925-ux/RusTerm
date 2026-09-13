@@ -1,7 +1,6 @@
 # TASK-24 — M10: Industry View получает входы. Физические метрики, HHI, второй сектор
 
-- **Status: READY** — take it when `agent/TASK-23.md` is finished and
-  handed over, or when its items are exhausted before 09:30.
+- **Status: ACCEPTED** 13.09.2026 — journal `agent/ACCEPTANCE-27.txt`; merged into `main` (`616173c`). Undone items live on in TASK-29…TASK-41, named there.
 - **Branch:** `agent/night-6` (branch it from the head of `agent/night-5`)
 - **Report:** `agent/REPORT-24.md`
 - **Sequential, one process** — but the night is large. Items are sized

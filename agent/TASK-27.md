@@ -1,7 +1,6 @@
 # TASK-27 — M13: долги, у которых появились предпосылки. Связать построенное и перестать врать о состоянии
 
-- **Status: READY** — take it when `agent/TASK-26.md` is finished and
-  handed over, or when its items are exhausted before 09:30.
+- **Status: ACCEPTED** 13.09.2026 — journal `agent/ACCEPTANCE-27.txt`; merged into `main` (`616173c`). Undone items live on in TASK-29…TASK-41, named there.
 - **Branch:** `agent/night-9` (branch it from the head of `agent/night-8`)
 - **Report:** `agent/REPORT-27.md`
 - **Sequential, one process.** Medium night — every item here was

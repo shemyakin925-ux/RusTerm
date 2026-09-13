@@ -1,7 +1,6 @@
 # TASK-23 — M9: котировки и валюация. Формулы наконец получают входы
 
-- **Status: READY** — take it when `agent/TASK-22.md` is finished and
-  handed over, or when its items are exhausted before 09:30.
+- **Status: ACCEPTED** 13.09.2026 — journal `agent/ACCEPTANCE-27.txt`; merged into `main` (`616173c`). Undone items live on in TASK-29…TASK-41, named there.
 - **Branch:** `agent/night-5` (branch it from the head of `agent/night-4`)
 - **Report:** `agent/REPORT-23.md`
 - **Sequential, one process.** Schema, then a provider, then the

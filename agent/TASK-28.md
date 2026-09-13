@@ -1,9 +1,10 @@
 # TASK-28 — Бесплатность становится правилом, которое проверяет машина
 
-- **Status: READY** — take it when `agent/TASK-27.md` is finished and
-  handed over, or when its items are exhausted before 09:30.
-- **Branch:** `agent/night-10` (branch it from the head of `agent/night-9`)
+- **Status: READY** — take it in numeric order, after TASK-29 has made
+  the suite green with the keys in place.
+- **Branch:** the shift branch, cut from `main` (`agent/PROTOCOL.md` §11)
 - **Report:** `agent/REPORT-28.md`
+- **Protocol:** `agent/PROTOCOL.md`. State: `agent/CONTEXT.md`.
 - **Sequential, one process.** Small night by design: one rule, one
   registry field, one guard file, one doctor section.
 - **Depends on nothing.** Every item runs on whatever state TASK-22…27
@@ -21,8 +22,8 @@ Section 1 is the working protocol and outranks the task list.
 ## 0. Start here
 
 ```bash
-git checkout agent/night-9 && git pull
-git checkout -b agent/night-10
+git checkout main && git pull
+git checkout -b agent/night-10        # once per shift, not per task
 bash agent/selfcheck.sh > /tmp/sc.txt 2>&1; echo "STATUS=$?"; tail -6 /tmp/sc.txt
 python3 -c "from rusterm.store.db import _SCHEMA_VERSION as v; print(v)"
 python3 -c "import rusterm.providers as p; print(sorted(p.available()))"

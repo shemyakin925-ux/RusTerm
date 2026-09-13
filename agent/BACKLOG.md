@@ -118,6 +118,34 @@ The BR gap list (`CD_CONTA`, `DS_CONTA`, `VL_CONTA`, `ESCALA_MOEDA`
 unmapped) is real and belongs to TASK-27 N7 with the collection channel
 that will produce the payloads.
 
+## Coordinator rulings — TASK-22…27 (read once, then obey)
+
+Accepted 13.09.2026 as they stand, journal `agent/ACCEPTANCE-27.txt`,
+merged into `main`. The fourteen HANDOFF questions of REPORT-22…27 are
+settled here. These are rulings, not opinions.
+
+| # | Question (report) | Ruling |
+|---|---|---|
+| 1 | J3 landed without a migration — accept? (22) | **Accepted.** P2 protects applied migrations; it does not require a new one for a column that already existed. A migration that changes nothing is noise. |
+| 2 | `origin` keeps the verification vocabulary, composition in its own field (22) | **Confirmed.** One column, one meaning. |
+| 3 | `extract_text` seat still refuses while `extract.py` works (22) | **Wire it through** — TASK-34 F5. A door built and bypassed is the F6 defect. |
+| 4 | 14-day completion grace vs 10-day poll interval (23) | **Confirmed.** A missed pass flips the instrument into backfill; it never stays "complete but stale". |
+| 5 | Dividend factor needs the prior day's close; events without it skipped (23) | **Confirmed.** Skipped and named, never invented. |
+| 6 | K2/K7 once the key exists — handover or fold in? (23) | **Own tasks:** TASK-30 (K2, K7) and TASK-31 (the vendor half of K3/K4). |
+| 7 | Widen check 10 for `docs/industry-metrics/*.md`? (24) | **Yes, and it is already done** — the coordinator widened `agent/acceptance.sh` on 13.09.2026: an **added** catalogue page counts like an added ADR. Editing an existing `docs/` file is still a failure, and the executor still never edits `acceptance.sh`. |
+| 8 | N4 — later night or the coordinator's key-holding run? (24) | **TASK-34.** The executor holds the keys from 13.09.2026. |
+| 9 | Tools registry pin 4 → 5 (`get_industry_metrics`) (24) | **Confirmed** as the intended surface. |
+| 10 | `STALENESS_DAYS = 550` — confirm or set? (25) | **Set to 450 days.** An annual proxy plus a late-filing grace; 550 lets a two-season-old document pass as current. Name the constant once and let the prose refer to the name. |
+| 11 | 10b5-1 sales — keep in `insider_net` or split? (25) | **Keep them in, and name the share.** The indicator's detail states how much of the net came from 10b5-1 plans, so a scheduled sale cannot distort the colour invisibly. TASK-33 E1. |
+| 12 | Does ADR-0016 gate Q4's model comparison? (26) | **No.** ADR-0016 gates *widening the model's reach*. A read-only comparison on a fixed corpus is measurement, not reach. TASK-35 proceeds. |
+| 13 | Transcripts need a migration — fold into the next schema task? (26) | **TASK-36 H1**, with the schema-history pins updated in the same commit. |
+| 14 | N7 — one dedicated night, or split BR from AU? (27) | **Split:** TASK-38 (BR, the real half) and TASK-39 (AU, announcements only). N5's scale pass is TASK-40 L1 with a 40-request budget. |
+
+Three defects the coordinator found while reviewing are tasks, not
+backlog items: the self-adjustable formulas baseline (**TASK-40 L2**),
+the widened reason assertion (**TASK-40 L3**), and the suite going red
+on a machine that has the keys (**TASK-29**, whole task).
+
 ## Standing rule — everything is free (user, 13.09.2026)
 
 Written as **ADR-0018** and into README §1, §7, §9, §12, §15. It binds
