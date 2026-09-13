@@ -109,3 +109,63 @@ def test_doctor_reports_keys_by_name_and_set_unset_only(capsys, tmp_path):
     finally:
         for name in monkey_env:
             os.environ.pop(name, None)
+
+
+def test_client_repr_masks_the_key(tmp_path):
+    """ТЗ-29 A4: ключ, подставленный в клиента (LLM и DART), не
+    всплывает ни в repr(), ни в отформатированном сообщении ассерта
+    (то, что pytest печатает при падении), ни в аудит-логе."""
+    import os
+    import sqlite3
+
+    import rusterm.cli as cli
+    from rusterm.providers.budget import HostLimit
+
+    fake = "sk-or-v1-TESTONLY000000"
+    tail = fake[4:]  # всё, кроме четырёхсимвольного префикса
+
+    client = LlmApiClient(
+        base_url="https://openrouter.ai/api/v1", model="free/model",
+        api_key=fake,
+        limit=HostLimit(host="openrouter.ai", per_second=1.0,
+                        nightly_max=5000))
+    dart = DartProvider(gate=RequestGate(), api_key=fake)
+    for obj in (client, dart):
+        shown = repr(obj)
+        assert fake not in shown
+        assert tail not in shown
+
+    # отформатированное сообщение ассерта не несёт значения
+    message = f"client state: {client!r} / {dart!r}"
+    assert fake not in message and tail not in message
+
+    # аудит-лог: ключ в окружении (модель не задана -> правило-клиент),
+    # строка аудита не содержит ни значения, ни хвоста
+    root = tmp_path / "app"
+    injected = {"RUSTERM_LLM_API_KEY": fake,
+                "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+                "RUSTERM_SEC_UA": "Synthetic Test a4.invalid"}
+    saved = {n: os.environ.get(n) for n in injected}
+    os.environ.update(injected)
+    try:
+        assert cli.main(["--root", str(root), "init"]) == 0
+        assert cli.main(["--root", str(root), "watchlist", "create", "w1",
+                         "--name", "n"]) == 0
+        cli.main(["--root", str(root), "ops", "--watchlist", "w1",
+                  "--request", "а как дела у рынка вообще?"])
+        db = sqlite3.connect(str(root / "rusterm.db"))
+        try:
+            rows = db.execute(
+                "SELECT action, target, payload, confirmed, result"
+                " FROM audit_log").fetchall()
+        finally:
+            db.close()
+        assert rows, "аудит-строка не появилась — проверка пуста"
+        blob = json.dumps(rows, ensure_ascii=False, default=str)
+        assert fake not in blob and tail not in blob
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value

@@ -75,6 +75,14 @@ class LlmApiClient:
     attempts: int = RETRY_ATTEMPTS
     backoff: float = RETRY_BACKOFF_SECONDS
 
+    def __repr__(self) -> str:
+        """api_key не печатается никогда (ТЗ-29 A4): маска одна и та же,
+        какое бы значение ни стояло в поле, — repr попадает в сообщения
+        ассертов и логи, значению ключа там делать нечего."""
+        return (f"LlmApiClient(base_url={self.base_url!r}, "
+                f"model={self.model!r}, api_key='sk-or-***', "
+                f"limit={self.limit!r})")
+
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None,
                  gate: RequestGate | None = None,

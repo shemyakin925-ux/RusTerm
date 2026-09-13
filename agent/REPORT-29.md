@@ -125,3 +125,22 @@ Questions for the coordinator:
   - explicit `python3 -m pytest -m live tests/test_llm_real.py -q`
     without a key -> «s», clean skip, EXIT=0.
   Neither a present nor an absent key makes a default run red.
+
+### A4 — the key value never reaches the output (DONE)
+
+- `LlmApiClient.__repr__` and `DartProvider.__repr__` (the only two
+  dataclasses carrying `api_key`) print a fixed mask
+  (`api_key='sk-or-***'` / `'***'`) regardless of the stored value —
+  reprs land in assertion messages and logs, a key value has no
+  business there.
+- `tests/test_secrets_absent.py::test_client_repr_masks_the_key`:
+  builds both clients with a fake key, asserts the fake value AND its
+  four-character-prefix tail are absent from `repr()`, from a
+  formatted assertion message, and from every `audit_log` row written
+  by an in-process `ops` run with the key in the environment (model
+  unset -> rule fallback, the same door N1 built).
+- Verification: full default run EXIT=0;
+  `python3 -m pytest -q 2>&1 | grep -c "sk-or-v1-TESTONLY"` -> 0
+  (grep found no match). The fake key lives in the test source only;
+  the secrets shape guard passes (the fake does not match a real key
+  shape, which is exactly why the task chose that literal).

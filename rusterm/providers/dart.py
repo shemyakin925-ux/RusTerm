@@ -73,6 +73,13 @@ class DartProvider:
     transport: Callable[[str, dict], tuple] = _default_transport
     source_name: str = "dart"
 
+    def __repr__(self) -> str:
+        """api_key не печатается никогда (ТЗ-29 A4) — то же правило,
+        что у LlmApiClient: значение ключа не попадает в repr, а значит
+        и в сообщения ассертов с {provider!r}."""
+        return (f"DartProvider(gate={self.gate!r}, api_key='***', "
+                f"source_name={self.source_name!r})")
+
     @classmethod
     def from_env(cls, gate: RequestGate,
                  environ: Mapping[str, str] | None = None):
