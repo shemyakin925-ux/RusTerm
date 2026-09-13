@@ -144,3 +144,71 @@ Questions for the coordinator:
   (grep found no match). The fake key lives in the test source only;
   the secrets shape guard passes (the fake does not match a real key
   shape, which is exactly why the task chose that literal).
+
+### A5 — acceptance with the keys in place (DONE)
+
+- Real key file in place (~/.rusterm.env, 1031 bytes):
+  `bash agent/acceptance.sh` -> ACC_EXIT=0 (captured before any pipe),
+  «Итог: пройдено 13, провалено 0 — Принято».
+- The suite is green on the machine that has the keys; the arrival
+  red (three tests, one live model call, a key prefix in pytest
+  output) is closed at all three causes: isolation (A1), marker
+  (A2/A3), masking (A4).
+
+## What not to trust
+
+- `test_m4_scale::test_c2_hundred_issuer_build_shape_stays_linear`
+  failed ONCE in one full run during A1 verification and passed in
+  isolation and in every subsequent full run (four more since). Timing
+  sensitivity under load, offline test, untouched by this task.
+- The `live`-marked tests were never run with real network access in
+  this shift: `python3 -m pytest -m live` was executed only without a
+  key (clean skip proof). The five live tests' own assertions are
+  exactly as they were on main.
+
+### A5 follow-up — one unexplained flake, recorded honestly
+
+- During A5 staging, one `bash agent/selfcheck.sh` run recorded
+  «Итог: пройдено 12, провалено 1», exit 1. selfcheck keeps only the
+  tail of the acceptance log, so the failing CHECK could not be named
+  from that run. Three immediate acceptance/selfcheck re-runs were all
+  13/0 (ACC_EXIT=0 twice, SELFCHECK OK once).
+- Suspected (not proven): the `test_m4_scale` timing flake inside the
+  suite check — the only offline timing-sensitive test, already flaked
+  once during A1 under load; its FAILED lines would have fallen above
+  selfcheck's tail window. No assertion touched, nothing changed to
+  chase it.
+
+## Disputed
+
+- (empty by design — the flake above is recorded under A5 as an
+  observation with a named suspect, not a dispute about a task item)
+
+## HANDOFF (mid-shift, TASK-29 complete except final bookkeeping)
+
+Status:          PARTIAL — TASK-29 items A1-A5 all done; final HANDOFF at shift end
+Arrival state:   selfcheck STATUS=1; acceptance «пройдено 11, провалено 2», exit 2
+Items done:      A1, A2, A3, A4, A5
+Items not done:  none in TASK-29; the m4_scale flake and the selfcheck tail-window
+                 blindness are observations, not items
+Acceptance:      «Итог: пройдено 13, провалено 0 — Принято», ACC_EXIT=0, real key
+                 file in place (1031 bytes)
+Tests:           625 collected; default run green; 5 live-marked deselected by
+                 default, listed exactly by -m live --collect-only
+Guards:          conftest env isolation + urlopen network guard (new);
+                 test_secrets_absent extended with repr/audit masking case;
+                 no existing assertion weakened (selfcheck P1 green on every commit)
+Schema:          unchanged (41)
+Network:         0 requests of 0 budget (live tests not exercised)
+Model:           0 calls of 0 budget; GLM-5.3-Flash
+Secrets:         default-run output grepped for the fake key literal — 0 hits;
+                 the secrets shape guard caught one key-shaped line I had
+                 written into this report during A2 — removed before commit
+Pushed:          through A4 yes; this commit next
+Questions for the coordinator:
+1. selfcheck prints only tail -4 of a failed acceptance run — the 12/1
+   flake above could not be attributed to a check. Dump the full
+   acceptance output (or its FAILED lines) when red? Backlog-sized S.
+2. The leaked key prefix from the arrival red (coordinator's note):
+   user should re-issue that OpenRouter key; nothing in the repo or
+   this shift's output carries it.
