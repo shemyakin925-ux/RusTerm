@@ -119,3 +119,39 @@ Questions for the coordinator:
 2. K3's vendor cross-check cannot see vendor adjusted values on the
    free plan — keep the NULL-adjusted state and pin it (current), or
    name a follow-up item?
+
+### Repair — the B2 cache lookup broke I9, caught by acceptance (DONE)
+
+- The first B2 commit put the cache lookup SQL into
+  `rusterm/cli/__init__.py` (`repos.conn.execute(...)` over
+  raw_object) — invariant I9 violated, acceptance check 7 went red
+  (три прогона 12 из 1 подряд; один ранний прогон был 11 из 2 —
+  второй провал, m4_scale, тайминг-флак, зелёный в изоляции).
+- Fix: lookup moved into the store layer as
+  `RawRepo.find_by_provider_url(provider, url)`; the CLI calls the
+  repo method, no SQL outside `rusterm/store/`. Acceptance back to
+  «Итог: пройдено 13, провалено 0», SELFCHECK OK.
+
+## HANDOFF (final)
+
+Status:          DONE
+Arrival state:   selfcheck STATUS=0 (continued on agent/night-10 after TASK-28)
+Items done:      B1, B2, B3, B4 + one repair (I9, see above)
+Items not done:  none in TASK-30
+Acceptance:      «Итог: пройдено 13, провалено 0 — Принято», selfcheck EXIT=0 (real key file in place)
+Tests:           test_market_prices 8 passed; test_free_only 11 passed; full default run EXIT=0; 5 live-marked deselected by default
+Guards:          registry/limit consistency and ceiling refusal pinned; seat pin replaced stronger (Disputed); SQL-only-in-store restored by repair
+Schema:          unchanged (41)
+Network:         1 real request spent of 40 (Twelve Data), 1 of 60 overall
+Model:           0 calls of 0; GLM-5.3-Flash
+Secrets:         cache URL and trimmed payload carry no key; repr masked; artefact grep — 0 hits
+Pushed:          yes
+Questions for the coordinator:
+1. Cadence has no CLI surface (B4 note): command wanted, or code-only
+   until a night owns it?
+2. K3's vendor cross-check sees no vendor adjusted values on the free
+   plan — keep NULL-adjusted pinned as is (current), or name a
+   follow-up item?
+3. m4_scale tripped once in acceptance today (timing mean-budget,
+   green in isolation every time). Watch, or move it to a load-tolerant
+   form (ratio-only)?

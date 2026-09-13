@@ -222,6 +222,16 @@ class RawRepo:
     def has(self, sha256: str) -> bool:
         return has_object(self.paths.raw_store, sha256)
 
+    def find_by_provider_url(self, provider: str, url: str) -> Optional[str]:
+        """sha256 последнего объекта провайдера по каноническому URL
+        (ТЗ-30 B2: кеш котировок — URL без ключа); None — объекта нет."""
+        row = self.conn.execute(
+            """SELECT sha256 FROM raw_object
+               WHERE provider=? AND url=?
+               ORDER BY fetched_at DESC LIMIT 1""",
+            (provider, url)).fetchone()
+        return row[0] if row else None
+
     def get(self, sha256: str) -> bytes:
         return decompress_object(self.paths.raw_store, sha256)
 

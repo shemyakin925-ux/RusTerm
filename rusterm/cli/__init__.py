@@ -228,12 +228,10 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
         return 1
 
     cache_url = provider.cache_url(symbol, start, None)
-    row = repos.conn.execute(
-        """SELECT sha256 FROM raw_object
-           WHERE provider='twelvedata' AND url=?""", (cache_url,)).fetchone()
+    cached_sha = repos.raw.find_by_provider_url("twelvedata", cache_url)
     requests_spent = 0
-    if row is not None:
-        payload = json.loads(repos.raw.get(row[0]).decode("utf-8"))
+    if cached_sha is not None:
+        payload = json.loads(repos.raw.get(cached_sha).decode("utf-8"))
     else:
         outcome = provider.time_series(symbol, start=start, end=None)
         if isinstance(outcome, (ProviderError, ConfigError,
