@@ -226,3 +226,48 @@ Questions for the coordinator:
   (refusal names «бесплатн», and after removing that word no «платн»
   remains — the paid-plan check is substring-safe). test_free_only:
   10 passed; full default run EXIT=0.
+
+### R6 — backlog, top-down (DONE, two decisions named)
+
+- **B33 — closed as already-done.** The item's substance landed with
+  TASK-27 N6 (selfcheck's EXPECTED_CHECKS is read from acceptance.sh:
+  `grep -cE "^head_ '"`). Re-verified today per the accept command,
+  on a scratch copy (check 12 pins the real acceptance.sh to
+  origin/main, so a scratch copy is the only way): a 14th `head_`
+  line added to the copy -> `grep -c` counts 14; the pass condition
+  «пройдено 14, провалено 0» matches; a «пройдено 12, провалено 1»
+  outcome does NOT match -> selfcheck fails (also seen live at this
+  shift's arrival: 12/1 -> SELFCHECK FAIL). Moved to Done in
+  BACKLOG.md as one collapsed line. NOTE for TASK-40 L4: B33 is no
+  longer open; L4 still holds B34, B35.
+- **B36 — SKIPPED, budget.** Its accept is `pytest -m live` with a
+  real key: real model calls. This task's budget is model 0.
+- **B34, B35 — NOT taken, reserved.** Both are scheduled inside
+  TASK-40 L4 by the coordinator; taking them here would gut a queued
+  task. The queue decision is the coordinator's, not mine.
+
+---
+
+## HANDOFF (final, per TASK-28 §3)
+
+Status:          DONE
+Arrival state:   selfcheck STATUS=0 (this shift's branch; TASK-29 taken first per LAUNCH order 29 -> 28)
+Items done:      R1, R2, R3, R4, R5, R6
+Items not done:  none; B36 skipped on budget, B34/B35 left to TASK-40 L4 (both named above)
+Acceptance:      «Итог: пройдено 13, провалено 0 — Принято», ACC_EXIT=0 (real key file in place)
+Tests:           default run EXIT=0, 0 failed; 10 test_free_only tests; 5 live-marked tests deselected by default
+Tiers:           asx open; cvm open; dart free_key; edgar free_key; llm-api free_key; otcmarkets open; twelvedata free_key (available() = these seven + synthetic-market + synthetic-disclosures)
+Ceilings:        vendor number: twelvedata (800/day, 8/min); project placeholder named as placeholder: edgar, dart, cvm, asx, otcmarkets, llm-api (5000/хост)
+Guards:          R1 paid-seat refusal — synthetic paid seat refused by value, factory uncalled, calls_made 0 (test green; no live red needed: no registered name is paid); R4 undeclared-host — red output pasted verbatim in R4 (quotes.paidvendor.example at edgar.py:32), reverted
+Secrets:         doctor output and default-run output grepped for the dummy key — 0 hits
+Network:         0 requests used of the 10 budget (the night is offline by nature)
+Pushed:          yes, every commit
+Questions for the coordinator:
+1. R3's Done-when conflicts with its own work section (pins vs the
+   required twelvedata declaration) — recorded in Disputed with both
+   quotes; the pins were replaced by strictly stronger ones. Confirm
+   the replacement or rule how such pins must be written from now on
+   (parameterised over the registry?).
+2. B33 closed as already-done (TASK-27 N6) with today's re-verification;
+   TASK-40 L4 now covers B34 and B35 only — adjust L4's wording at the
+   next acceptance if it should say so explicitly.

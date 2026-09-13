@@ -197,11 +197,6 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   executes nothing (the TASK-7 T16 contract) — accept:
   `python3 -m pytest -m live tests/test_llm_real.py` with the key set
   is green — size: M
-- [ ] B33 — `agent/selfcheck.sh` stops hard-coding "пройдено 13": read
-  the expected count from `acceptance.sh` itself, so a fourteenth check
-  does not make selfcheck lie — accept: add a check to a scratch copy of
-  acceptance.sh, selfcheck still passes on green and still fails on red
-  — size: S
 - [ ] B34 — the OTC universe drift (12,794 live vs 12,867 in
   `agent/REPORT-MARKETS.md`) gets a written tolerance instead of a
   finding repeated every night — accept: REPORT-MARKETS states the
@@ -226,6 +221,8 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   night's work now, not idle-time work.
 
 ## Done
+
+- [x] B33 — selfcheck reads its expected check count from acceptance.sh instead of hard-coding "пройдено 13" — landed with TASK-27 N6; re-verified 13.09.2026 (scratch 14-check copy counts 14, the pass condition matches 14, a 12/1 outcome fails the match as seen live at arrival) — TASK-28 R6, agent/REPORT-28.md
 
 **ID reuse, noted 12.09.2026.** The numbers B19-B25 were handed out
 twice — once in the TASK-7/11/12/14 era and again in the TASK-19 era —
