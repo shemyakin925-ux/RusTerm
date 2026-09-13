@@ -64,3 +64,42 @@ def test_name_without_tier_is_refused_by_value(monkeypatch):
     out = providers.get_provider("tierless-synthetic", gate=RequestGate())
     assert isinstance(out, ConfigError)
     assert out.reason == "provider_declares_no_tier:tierless-synthetic"
+
+
+def test_doctor_prints_free_section_without_paid_and_without_key_values(
+        tmp_path, capsys):
+    """ТЗ-28 R2: doctor несёт раздел бесплатности — каждое сетевое имя
+    из реестра с его тарифом; слова paid в выводе нет; подставное
+    значение ключа в вывод не попадает; отсутствие ключа не меняет код
+    выхода."""
+    import json
+    import os
+
+    import rusterm.cli as cli
+
+    injected = {"RUSTERM_LLM_API_KEY": "dummykey",
+                "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests"}
+    saved = {n: os.environ.get(n) for n in injected}
+    os.environ.update(injected)
+    try:
+        root = tmp_path / "app"
+        assert cli.main(["--root", str(root), "init"]) == 0
+        capsys.readouterr()
+        assert cli.main(["--root", str(root), "doctor"]) == 0
+        out = capsys.readouterr().out
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    payload = json.loads(out)
+    section = payload["free_channels"]
+    for name in providers.available():
+        tier = providers.channel_tier(name)
+        if tier is None:
+            continue  # синтетические места — не внешние каналы, без тарифа
+        assert name in section, (name, sorted(section))
+        assert section[name]["tier"] == tier, name
+    assert "paid" not in out
+    assert "dummykey" not in out

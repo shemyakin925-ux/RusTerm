@@ -65,6 +65,14 @@ _CHANNEL_TIERS: dict[str, str] = {
     "llm-api": "free_key",    # ключ OpenRouter по регистрации
 }
 
+# Какое env-имя открывает канал (ТЗ-28 R2, doctor печатает да/нет):
+# у open-каналов ключа нет — имён здесь нет.
+_CHANNEL_KEY_ENV: dict[str, str] = {
+    "edgar": "RUSTERM_SEC_UA",
+    "dart": "RUSTERM_DART_KEY",
+    "llm-api": "RUSTERM_LLM_API_KEY",
+}
+
 # Сетевые провайдеры: выдаются только с RequestGate (TASK-8 U5 —
 # реестр делает обход лимитера невозможным, а не «на совести» автора).
 # Места импортируют свой модуль ВНУТРИ вызова (ADR-0012 §2): после этой
@@ -153,6 +161,12 @@ def channel_tier(name: str) -> str | None:
     return _CHANNEL_TIERS.get(name)
 
 
+def channel_key_env(name: str) -> str | None:
+    """Env-имя, открывающее канал (ТЗ-28 R2); None — каналу ключ не
+    нужен (tariff open). doctor показывает факт наличия, не значение."""
+    return _CHANNEL_KEY_ENV.get(name)
+
+
 def all_host_limits() -> dict[str, HostLimit]:
     """Все объявления: имя провайдера -> HostLimit (BACKLOG B24 —
     потолок хоста для doctor и status)."""
@@ -164,5 +178,5 @@ __all__ = [
     "MarketDataProvider", "SyntheticMarketProvider",
     "UnknownProvider", "ProviderError", "ConfigError", "HostLimit",
     "RequestGate", "register", "get_provider", "available", "host_limit",
-    "all_host_limits", "channel_tier",
+    "all_host_limits", "channel_tier", "channel_key_env",
 ]

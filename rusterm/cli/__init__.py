@@ -884,6 +884,33 @@ def cmd_doctor(args) -> int:
                                                "ceiling": None,
                                                "per_second": None}
         for host, used in report.get("request_budget", {}).items()}
+    # ТЗ-28 R2: раздел «бесплатность» — по каждому каналу реестра: хост,
+    # тариф, потолок (число вендора или «проектный потолок») и факт
+    # наличия ключа. Значения ключей не печатаются никогда; отсутствие
+    # ключа здесь не ошибка и код выхода не меняет.
+    from rusterm import env as env_module
+    from rusterm.providers import all_host_limits, channel_key_env, \
+        channel_tier
+    origins = env_module.report()["vars"]
+    channels = {}
+    for name, limit in sorted(all_host_limits().items()):
+        key_env = channel_key_env(name)
+        if key_env:
+            present = "да" if origins.get(key_env, "—") != "—" else "нет"
+        else:
+            present = "—"
+        channels[name] = {
+            "host": limit.host,
+            "tier": channel_tier(name),
+            "per_second": limit.per_second,
+            "nightly_max": limit.nightly_max,
+            "ceiling_kind": ("проектный потолок"
+                             if limit.nightly_max == 5000
+                             else "тариф вендора"),
+            "key_env": key_env or "—",
+            "key_present": present,
+        }
+    report["free_channels"] = channels
     print(json.dumps(report, ensure_ascii=False, indent=2))
     conn.close()
     return 0 if report["ok"] else 1

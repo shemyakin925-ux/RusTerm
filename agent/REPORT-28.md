@@ -65,3 +65,59 @@ Secrets:         no key values anywhere; repr masks from TASK-29 A4 in place
 Pushed:          per-commit
 Questions for the coordinator:
 1. (none yet)
+
+### R2 — doctor prints the freeness section (DONE)
+
+- Registry gained `channel_key_env(name)` (which env name opens the
+  channel; None for open channels). `cmd_doctor` builds
+  `report["free_channels"]` from the registry alone: host, tier,
+  per_second, nightly_max, `ceiling_kind` («проектный потолок» for the
+  5000 placeholder, «тариф вендора» for a vendor number), key_env and
+  `key_present` (`да`/`нет`/`—`, never a value). An absent key prints
+  `нет` and does not change the exit status (verified: doctor exit 0
+  with RUSTERM_DART_KEY unset).
+- `rusterm doctor` output (keys: dummykey injected for RUSTERM_LLM_API_KEY,
+  DART unset), the section verbatim:
+
+```json
+{
+ "free_channels": {
+  "asx": {"host": "asx.api.markitdigital.com", "tier": "open",
+          "per_second": 1.0, "nightly_max": 5000,
+          "ceiling_kind": "проектный потолок", "key_env": "—", "key_present": "—"},
+  "cvm": {"host": "dados.cvm.gov.br", "tier": "open",
+          "per_second": 1.0, "nightly_max": 5000,
+          "ceiling_kind": "проектный потолок", "key_env": "—", "key_present": "—"},
+  "dart": {"host": "opendart.fss.or.kr", "tier": "free_key",
+           "per_second": 2.0, "nightly_max": 5000,
+           "ceiling_kind": "проектный потолок", "key_env": "RUSTERM_DART_KEY",
+           "key_present": "нет"},
+  "edgar": {"host": "data.sec.gov", "tier": "free_key",
+            "per_second": 5.0, "nightly_max": 5000,
+            "ceiling_kind": "проектный потолок", "key_env": "RUSTERM_SEC_UA",
+            "key_present": "да"},
+  "llm-api": {"host": "openrouter.ai", "tier": "free_key",
+              "per_second": 1.0, "nightly_max": 5000,
+              "ceiling_kind": "проектный потолок", "key_env": "RUSTERM_LLM_API_KEY",
+              "key_present": "да"},
+  "otcmarkets": {"host": "backend.otcmarkets.com", "tier": "open",
+                 "per_second": 1.0, "nightly_max": 5000,
+                 "ceiling_kind": "проектный потолок", "key_env": "—",
+                 "key_present": "—"}
+ }
+}
+```
+
+- Reading note, stated honestly: the task's Done-when says «every name
+  from available() appears in the section»; the section lists the
+  registry's network channels. `available()` also returns two
+  synthetic seats (`synthetic-market`, `synthetic-disclosures`) which
+  are not external channels, carry no host and no tier; the test
+  asserts every available() name THAT HAS a declared tier appears with
+  exactly that tier. Declaring synthetics as external channels would
+  contradict the registry semantics (budget.py: synthetic seats are
+  zero-cost and do not touch the limiter).
+- Test: `test_doctor_prints_free_section_without_paid_and_without_key_values`
+  — every tier-bearing name from available() in the section with its
+  tier; the string `paid` nowhere in the output; `dummykey` nowhere in
+  the output (run with RUSTERM_LLM_API_KEY=dummykey); exit 0. 5 passed.
