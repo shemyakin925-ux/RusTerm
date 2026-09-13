@@ -189,6 +189,14 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
+- [ ] B36 — the M5 live model path, implemented behind the `live`
+  marker (debt guarded by the TASK-9 V7 tripwire, which on 13.09.2026
+  became a `live`-marked test instead of a default-run failure, see
+  TASK-29 A3): a real model answers through the read-only tools with
+  every numeric claim cited — at most 2 model calls, a mass operation
+  executes nothing (the TASK-7 T16 contract) — accept:
+  `python3 -m pytest -m live tests/test_llm_real.py` with the key set
+  is green — size: M
 - [ ] B33 — `agent/selfcheck.sh` stops hard-coding "пройдено 13": read
   the expected count from `acceptance.sh` itself, so a fourteenth check
   does not make selfcheck lie — accept: add a check to a scratch copy of

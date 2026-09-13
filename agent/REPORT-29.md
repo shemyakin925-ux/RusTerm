@@ -105,3 +105,23 @@ Questions for the coordinator:
   out of this report on purpose (the secrets guard scans tracked
   files for key shapes) -> EXIT=0, 0 failures — a request would have
   raised through the guard.
+
+### A3 — the V7 tripwire stops falling from a key's presence (DONE)
+
+- Resolution chosen: option 2 — the test keeps its contract (an
+  explicit `-m live` run with a key still fails while the live M5 path
+  is unimplemented) and skips by default behind the `live` marker.
+  Reason: this task's budget is model 0; implementing the live path
+  here would need real calls, and the path itself is TASK-35/B36
+  territory. The debt is written into `agent/BACKLOG.md` by name as
+  **B36** with the TASK-7 T16 contract quoted (≤ 2 calls, citations,
+  mass op executes nothing, accept command given, size M).
+- Docstring updated to state the resolution and point at B36.
+- Verification, both runs quoted:
+  - default run, key PRESENT (real `~/.rusterm.env` in place):
+    `python3 -m pytest tests/test_llm_real.py -q` -> EXIT=0 (deselected);
+  - default run, key ABSENT (`RUSTERM_ENV_FILE=/nonexistent/…`):
+    EXIT=0 (deselected);
+  - explicit `python3 -m pytest -m live tests/test_llm_real.py -q`
+    without a key -> «s», clean skip, EXIT=0.
+  Neither a present nor an absent key makes a default run red.
