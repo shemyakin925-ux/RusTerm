@@ -16,7 +16,8 @@ import os
 import stat
 from pathlib import Path
 
-ENV_NAMES = ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER", "RUSTERM_LLM_API_KEY")
+ENV_NAMES = ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER", "RUSTERM_LLM_API_KEY",
+             "RUSTERM_LLM_MODEL", "RUSTERM_TWELVEDATA_KEY")
 
 # Происхождения последнего load_env: после бутстрапа doctor обязан
 # показывать, ОТКУДА пришла переменная, а не «окружение» (load_env сам
