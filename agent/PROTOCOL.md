@@ -162,3 +162,33 @@ its own report file, all on the shift branch. A task whose precondition
 is missing is **skipped, not faked** — write `SKIPPED — <reason>` in its
 report and take the next one. Do not merge into `main`: the release is
 the coordinator's, by the user's word.
+
+## 12. The relay: how a task is taken and handed back from 14.09.2026 on
+
+A task no longer waits to be noticed. `agent/BATON.json` on the shift
+branch names whose turn it is, and `agent/relay.py` blocks until the turn
+comes. **Two commands bracket every task:**
+
+```bash
+# ход пришёл: ветка подтянута, следующее ТЗ названо
+python3 agent/relay.py wait --for executor --timeout 3600
+
+# работа сдана: отчёт запушен, ход у координатора
+python3 agent/relay.py hand --to coordinator --report agent/REPORT-NN.md \
+  --note "<one line: what is done, what is not>"
+```
+
+Rules:
+
+- **Commit and push your work first, then `hand`.** `hand` only moves the
+  baton (plus files named with `--add`); it is not a substitute for §1.6-7.
+- **Never push to the shift branch while the baton is not yours.** It is
+  the coordinator's turn to write there; your push will be rejected as
+  non-fast-forward. `wait` and `hand` rebase you onto the coordinator's
+  commit by themselves (`pull --rebase --autostash`).
+- `wait` exit codes: `0` your turn, `2` timeout (run it again), `3`
+  paused by the user, `4` the cycle is closed — in cases 3 and 4 stop and
+  write nothing further.
+- The baton does not replace `agent/STATE.json`: keep writing it per §5.
+- The relay is transport, not permission: §10 (stop time) and the
+  prohibitions of §2 outrank it.
