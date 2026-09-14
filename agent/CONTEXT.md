@@ -5,8 +5,8 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 15.09.2026, after accepting TASK-31, TASK-32 and
-TASK-33 on `agent/night-11` (acceptance 13/13, exit 0 on each). The shift branch is `agent/night-11` and the
+Last updated: 15.09.2026, after accepting TASK-31…TASK-34 on
+`agent/night-11` (acceptance 13/13, exit 0 on each). The shift branch is `agent/night-11` and the
 turn is passed by the relay — `agent/PROTOCOL.md` §12, driver
 `agent/relay.py`, baton `agent/BATON.json`.
 
@@ -39,6 +39,10 @@ user, data never leaves the machine. **Everything in it is free
 `agent/TASK*.md`, `PROTOCOL.md`, `CONTEXT.md`, `BACKLOG.md`, `LAUNCH.md`
 or `acceptance.sh` is a red selfcheck — the executor owns reports,
 `STATE.json`, `BATON.json`, code and tests.
+
+**A red selfcheck cannot be committed (TASK-34 F6).** The tracked hook
+`agent/githooks/pre-commit` runs it without a pipe; bootstrap once per
+clone with `git config core.hooksPath agent/githooks`.
 
 **Pin replacement (TASK-32 D5).** A removed `assert` passes selfcheck only
 with a `ЗАМЕНА-БУЛАВКИ:` / `ПОЧЕМУ СИЛЬНЕЕ:` block in the commit message
@@ -86,10 +90,11 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M6 CA + OTC | both collected through EDGAR |
 | M7 industry aggregate | done |
 | M8 six markets, manual import | registry of six; US/CA/OTC collect, KR needs its key, BR/AU have providers but **no `ingest` channel** |
-| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **43** |
+| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **44** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |
 | M12 chat | loop, citation guard, adversarial corpus, ADR-0016 — **no TUI screen, no transcripts, no model comparison** (TASK-35, 36, 37) |
+| M14 manual import + model | the four recorded tables run through the real free model: column discipline correct on 81 values, **0 facts stored** — stage ① flattens the table and verbatim quotes fail the string law (TASK-34 F1, repair ordered as TASK-35 G5); `verified-but-wrong=0` is vacuous until then |
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |
 
 Data reaching a user today: **US 10 measures of 10 plus real prices; CA 3/10; OTC 3/10**

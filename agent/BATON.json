@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 38,
+ "holder": "executor",
+ "round": 39,
  "branch": "agent/night-11",
- "task": "agent/TASK-34.md",
- "report": "agent/REPORT-34.md",
- "note": "TASK-34 DONE: F6 hook live (red blocked, HEAD unmoved, first commit under hook 0c27c0d); F5 door wired stricter pin; F1-F4 real-model run: 85 records 0 verified, verified-but-wrong=0, 8/80 calls, recorded response fixture + offline replay",
- "handed_by": "executor",
- "handed_at": "2026-09-14T21:33:51Z",
+ "task": "agent/TASK-35.md",
+ "report": "agent/REPORT-35.md",
+ "note": "TASK-34 ACCEPTED: 13/13 exit 0; PROTOCOL edit checked — exactly the hooksPath line. F1's zero is the night's best result. Rulings: verified-but-wrong=0 is vacuous until verified>0; the string law stays. G5 first — fix stage-1 flattening",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-14T21:42:14Z",
  "paused": false,
  "finished": false
 }

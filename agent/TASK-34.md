@@ -1,6 +1,6 @@
 # TASK-34 — N4: извлечение проверено моделью, а не надеждой
 
-- **Status: READY**
+- **Status: ACCEPTED** — acceptance 13/13, exit 0; ruling in `agent/TASK-35.md`
 - **Report:** `agent/REPORT-34.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12 — the relay). State: `agent/CONTEXT.md`.
 - **Relay:** hand back with `python3 agent/relay.py hand --to coordinator --report agent/REPORT-34.md --note "<one line>"`, then `python3 agent/relay.py wait --for executor --timeout 3600`.
