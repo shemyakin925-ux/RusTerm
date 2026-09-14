@@ -128,3 +128,24 @@ Questions for the coordinator:
 1. (none yet)
 
 NOW: D4, step 8
+
+## Done (continued)
+
+### D5 — P1 stops blocking sanctioned pin replacement (DONE)
+
+- The rule moved to `agent/p1_rule.sh` (called by selfcheck's P1
+  block): removed assert lines in a staged *.py file pass only when
+  (a) the commit message carries, for THAT file, the block
+  `ЗАМЕНА-БУЛАВКИ: file::test -> successor file::test` +
+  `ПОЧЕМУ СИЛЬНЕЕ: <one line>`, and (b) the same file gains at least
+  as many assert lines as it lost. Everything else stays red. The
+  message is read from HEAD (post-commit run) or .git/COMMIT_EDITMSG
+  (declaration before committing) — both workflows covered.
+- `agent/acceptance.sh` untouched; the acceptance-piping guards in
+  tests/test_selfcheck_guard.py still assert the same strings.
+- Guard's own tests `tests/test_d5_p1_rule.py` (temp git repo):
+  removal without the block -> red; declared but fewer asserts added
+  -> red (names the balance); declared with equal added -> green; no
+  removals -> always green. 4 passed.
+- `bash agent/selfcheck.sh` green on this item's commit (P1
+  fast-path: no *.py removals in the D5 commit).
