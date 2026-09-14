@@ -213,10 +213,10 @@ class TwelveDataProvider:
     @staticmethod
     def parse_dividends(payload: dict) -> tuple[list[dict], str, int]:
         """payload /dividends -> (строки, валюта из meta, счётчик
-        неразобранного). Сумма — КАК ОТДАЛ ВЕНДОР: в сегодняшней базе
-        акций (замер REPORT-31: 0.000892857143 * 112 = 0.10 — дивиденд
-        1988 года до пересчёта). Пересчёт в объявленную сумму на дату —
-        правило rusterm.core.prices.declared_dividend, не парсера."""
+        неразобранного). Суммы идут в хранилище КАК ОТДАЛ ВЕНДОР —
+        в сегодняшней базе акций, той же, что его close (ADR-0020);
+        отношение дивиденд/close инвариантно к базе, поэтому
+        dividend_factor корректен прямо на этих числах."""
         meta = payload.get("meta", {}) or {}
         currency = meta.get("currency") or None
         out: list[dict] = []

@@ -265,11 +265,11 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
     /dividends тем же каналом, что котировки; каждый payload кешируется
     по каноническому URL без ключа (ADR-0003), события пишутся в
     corporate_action (I7: уникальность (инструмент, ex_date, вид)).
-    Дивиденды вендор отдаёт в сегодняшней базе акций — в хранилище
-    идёт объявленная сумма на дату (declared_dividend), она и делится
-    на сырой close при корректировке (K3). Сплиты пишутся как есть:
-    фактор k = from_factor/to_factor."""
-    from rusterm.core.prices import declared_dividend
+    Суммы пишутся КАК ОТДАЛ ВЕНДОР — в сегодняшней базе акций, той же,
+    в которой вендорский close (ADR-0020): отношение дивиденд/close
+    инвариантно к базе, и пересчёт в объявленную сумму на дату в
+    хранилище не делается. Сплиты пишутся как есть: фактор
+    k = from_factor/to_factor."""
     from rusterm.providers.base import ProviderError
     from rusterm.providers.budget import (
         BudgetExceeded,
@@ -322,11 +322,8 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
                                  factor=s["factor"]):
             written += 1
     for d in dividends:
-        ks_after = [s["factor"] for s in splits
-                    if s["ex_date"] > d["ex_date"]]
-        declared = declared_dividend(d["amount"], ks_after)
         if repos.corp_action.put(instrument_id, d["ex_date"], "dividend",
-                                 amount=declared, currency=currency):
+                                 amount=d["amount"], currency=currency):
             written += 1
     skipped = splits_skipped + div_skipped
     print(f"{instrument_id}: корп.действия: сплитов {len(splits)}; "

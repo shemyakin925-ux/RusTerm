@@ -22,17 +22,59 @@ def declared_dividend(amount_adjusted: float,
     """Объявленный дивиденд на ex-date из вендорской суммы.
 
     Вендор (/dividends, ТЗ-31 C3) отдаёт суммы в СЕГОДНЯШНЕЙ базе
-    акций: сумма 1988 года 0.000892857143 * 112 = 0.10 — объявленный
-    $0.10, поделённый на все сплиты ПОСЛЕ него (2*2*7*4). Наша
-    dividend_factor делит сумму на close того же дня в базе ТОГО ДНЯ
-    (сырой close ряда), поэтому в corporate_action пишется
-    пересчитанное объявленное значение:
-      declared = adjusted * П(k) по сплитам с ex_date ПОЗЖЕ дивиденда.
+    акций — той же, что и его close (ADR-0020): сумма 1988 года
+    0.000892857143 * 112 = 0.10 — объявленный $0.10, поделённый на все
+    сплиты ПОСЛЕ него (2*2*7*4). Функция — machinery доказательства
+    базы (ТЗ-31 C1), а НЕ шаг хранения: в corporate_action идёт
+    вендорское число как есть, и отношение дивиденд/close корректно
+    без пересчёта (инвариантность к масштабу базы).
     """
     k = 1.0
     for factor in split_ks_after:
         k *= factor
     return amount_adjusted * k
+
+
+def build_vendor_events(price_rows: list[dict],
+                        action_rows: list[dict]) -> list[tuple[str, float]]:
+    """События коррекции для ВЕНДОРСКОГО ряда (ADR-0020).
+
+    Бесплатный close Twelve Data уже приведён к сегодняшней базе
+    акций: сплит в данных, и повторное применение фактора сплита —
+    двойная коррекция. Остаются дивиденды: их коэффициент строится
+    так же, как в build_events (close последнего дня ПЕРЕД ex-date;
+    нет цены — событие не применяется). Отношение дивиденд/close
+    инвариантно к базе, поэтому вендорские суммы корректны напрямую.
+    """
+    dividend_rows = [a for a in action_rows if a.get("kind") == "dividend"]
+    return [(date, f) for date, f in build_events(price_rows, dividend_rows)]
+
+
+def vendor_adjusted_series(
+        price_rows: list[dict],
+        action_rows: list[dict],
+) -> tuple[list[tuple[str, float]], list[tuple[str, float, float]]]:
+    """Скорректированный ряд по вендорским строкам (ADR-0020):
+    сплиты уже в close, применяются только дивиденды. Форма возврата —
+    как у our_adjusted_series; вендорского adjusted на бесплатном
+    тарифе нет (ADR-0019), поэтому disagreements всегда пуст и
+    вендорская сверка возвращается вместе с входом, если поле
+    появится."""
+    closes = [(r["date"], float(r["close"])) for r in price_rows
+              if r.get("close") is not None]
+    events = build_vendor_events(price_rows, action_rows)
+    ours = price_adj(closes, events)
+    vendor = {r["date"]: r["adjusted"] for r in price_rows
+              if r.get("adjusted") is not None}
+    disagreements: list[tuple[str, float, float]] = []
+    for date, value in ours:
+        other = vendor.get(date)
+        if other is None:
+            continue
+        if abs(other - value) > max(TOLERANCE_ABS,
+                                    abs(value) * TOLERANCE_REL):
+            disagreements.append((date, value, float(other)))
+    return ours, disagreements
 
 
 def build_events(price_rows: list[dict],

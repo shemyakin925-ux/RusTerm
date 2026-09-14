@@ -106,9 +106,10 @@ def test_golden_dividends_parse_from_recorded_payload():
 
 
 def test_declared_amount_is_unadjusted_to_ex_date_basis():
-    """Пересчёт в объявленную сумму: 1988-й 0.000892857143*112=0.10;
-    2013-02-07 0.094642857143*28=2.65; после последнего сплита сумма
-    не меняется."""
+    """Доказательство базы вендора (ADR-0020): 1988-й
+    0.000892857143*112=0.10; 2013-02-07 0.094642857143*28=2.65; после
+    последнего сплита сумма не меняется. Функция — machinery
+    доказательства, в хранилище идёт вендорское число как есть."""
     assert declared_dividend(0.000892857143, [2.0, 2.0, 7.0, 4.0]) == \
         pytest.approx(0.10, abs=1e-9)
     assert declared_dividend(0.094642857143, [7.0, 4.0]) == \
@@ -137,6 +138,13 @@ def test_collection_lands_events_and_second_run_is_free(tmp_path):
     assert split["factor"] == 4.0 and split["source"] == "twelvedata"
     div2013 = next(e for e in events if e["kind"] == "dividend"
                    and e["ex_date"] == "2013-02-07")
+    # ADR-0020: в хранилище — вендорское число как есть (сегодняшняя
+    # база акций); ниже div2013 переприсваивается объявленной базе для
+    # доказательства базы — machinery, не шаг хранения
+    vendor_amount = div2013["amount"]
+    assert vendor_amount == 0.094642857143
+    div2013 = {"amount": declared_dividend(vendor_amount, [7.0, 4.0]),
+               "currency": div2013["currency"]}
     assert div2013["amount"] == pytest.approx(2.65, abs=1e-9)
     assert div2013["currency"] == "USD"
     # payload'ы легли в raw-хранилище с каноническим URL без ключа
@@ -188,22 +196,32 @@ def test_price_adj_order_independence_on_real_rows():
     dividends, currency, _ = td.TwelveDataProvider.parse_dividends(
         _payload("dividends_AAPL_full.json"))
     assert currency == "USD"
-    # объявленные суммы: та же схема, что в коллекции
-    for d in dividends:
-        ks = [s["factor"] for s in splits if s["ex_date"] > d["ex_date"]]
-        d["amount"] = declared_dividend(d["amount"], ks)
+    # суммы дивидендов — вендорские как есть (ADR-0020): вендорская
+    # база у close и дивидендов одна, пересчёт не нужен
     action_rows = splits + dividends
 
     events = build_events(price_rows, action_rows)
     series = price_adj([(r["date"], float(r["close"]))
                         for r in price_rows], events)
+    # канонизация: build_events сортирует события по ex_date, поэтому
+    # перестановка ВХОДНЫХ строк действий не меняет ряд ни на бит
     reversed_series = price_adj(
         [(r["date"], float(r["close"])) for r in price_rows],
-        list(reversed(events)))
+        build_events(price_rows, list(reversed(action_rows))))
     assert series == reversed_series, \
-        "порядок событий изменил скорректированный ряд"
+        "порядок входных строк действий изменил скорректированный ряд"
+
+    # прямая перестановка СОМНОЖИТЕЛЕЙ: коммутативность математически,
+    # float сходится приближённо (конвенция теста B5 в test_formulas.py)
+    reversed_events = price_adj(
+        [(r["date"], float(r["close"])) for r in price_rows],
+        list(reversed(events)))
+    for (d1, v1), (d2, v2) in zip(series, reversed_events):
+        assert d1 == d2
+        assert v1 == pytest.approx(v2)
 
     # и через весь путь K3 — our_adjusted_series на тех же строках
     ours_a, _ = our_adjusted_series(price_rows, action_rows)
-    ours_b, _ = our_adjusted_series(price_rows, list(reversed(action_rows)))
+    ours_b, _ = our_adjusted_series(price_rows,
+                                    list(reversed(action_rows)))
     assert ours_a == ours_b

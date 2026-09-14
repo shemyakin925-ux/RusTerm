@@ -8,6 +8,9 @@ adjusted — сверка.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from rusterm.core.prices import our_adjusted_series, build_events
@@ -85,3 +88,100 @@ def test_agreements_and_disagreements_counted(env=None):
     assert len(disagreements) == 1
     agreed = total_days - len(disagreements)
     assert agreed == 2
+
+
+# ── ТЗ-31 C1: доказательство изнутри на реальных событиях ──────────────
+
+_DATA = (Path(__file__).resolve().parents[1] / "tests" / "data"
+         / "twelvedata")
+
+
+def _payload(name: str) -> dict:
+    return json.loads((_DATA / name).read_text(encoding="utf-8"))
+
+
+def test_real_split_event_digit_for_digit_against_vendor():
+    """Сплит AAPL 4:1 (ex-date 2020-08-31): 499.23 * split_factor(4) =
+    124.8075 — число нашей функции совпало с сохранённой вендорской
+    close на 2020-08-28 ЦИФРА В ЦИФРУ. Тем самым доказано и что
+    формула верна, и что вендорский бесплатный close уже несёт
+    сплит-коррекцию (ADR-0020): 2020-08-31 — уже сырой 129.039993."""
+    from rusterm.formulas import price_adj
+    from rusterm.providers.twelvedata import TwelveDataProvider
+
+    ours = price_adj([("2020-08-28", 499.23)],
+                     [("2020-08-31", split_factor(4.0))])
+    assert ours == [("2020-08-28", 124.8075)]
+
+    window = TwelveDataProvider.parse_series(
+        _payload("time_series_AAPL_split_window.json"))
+    closes = {r["date"]: r["close"] for r in window}
+    assert closes["2020-08-28"] == 124.8075, \
+        "вендор изменил базу ряда? ADR-0020 п.4"
+    assert closes["2020-08-31"] == 129.039993
+
+
+def test_real_dividend_series_digit_for_digit():
+    """Вендорский ряд корректируется ТОЛЬКО дивидендами (ADR-0020):
+    на 2026-05-08 вручную 293.32001 * (1-0.26/293.32001) *
+    (1-0.27/313.32999) — тот же порядок умножения, что в price_adj;
+    совпадение цифра в цифру. Вендорский adjusted в строках остаётся
+    None (ADR-0019), расхождений нет."""
+    from rusterm.providers.twelvedata import TwelveDataProvider
+    from rusterm.core.prices import vendor_adjusted_series
+
+    rows = TwelveDataProvider.parse_series(
+        _payload("time_series_AAPL_div_window.json"))
+    actions, currency, _skipped = TwelveDataProvider.parse_dividends(
+        _payload("dividends_AAPL_full.json"))
+    assert currency == "USD"
+    series, disagreements = vendor_adjusted_series(rows, actions)
+    assert disagreements == [], \
+        "вендор начал отдавать adjusted — сверка ADR-0014 §4 вернулась"
+    by_date = dict(series)
+    # оба дивиденда 2026 года — 0.27 (майское повышение 2026, payload);
+    # тот же порядок умножения, что в price_adj: факторы, затем close
+    hand = 293.32001 * ((1.0 - 0.27 / 293.32001)
+                        * (1.0 - 0.27 / 313.32999))
+    assert by_date["2026-05-08"] == hand
+    # последний день ПЕРЕД ex-date 2026-08-10 несёт его фактор;
+    # сам день ex-date уже торгуется по новой базе — своего фактора нет
+    hand_last = 313.32999 * (1.0 - 0.27 / 313.32999)
+    assert by_date["2026-08-07"] == hand_last
+    assert by_date["2026-08-10"] == 308.26001
+    # сырой close не тронут: корректировка сообщается рядом, не правкой
+    raw = {r["date"]: r["close"] for r in rows}
+    assert raw["2026-05-08"] == 293.32001
+
+
+def test_real_price_rows_keep_adjusted_null_in_store(tmp_path):
+    """Булавка на уровне хранилища: строки записанного payload ложатся
+    в price с adjusted IS NULL на ВСЕХ строках. Вендор начнёт
+    присылать поле — булавка встанет красным, и сверка ADR-0014 §4
+    вернётся вместе со входом."""
+    import sqlite3
+
+    from rusterm.providers.twelvedata import TwelveDataProvider
+    from rusterm.store.db import apply_migrations
+    from rusterm.store.paths import AppPaths, ensure_app_dir
+    from rusterm.store.repos import (Instrument, Issuer, RepoRegistry)
+
+    paths = AppPaths.from_root(tmp_path / "app")
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-r", "Corp r", "US", None, None, "us_gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-R", "i-r", None, "common", "active", None))
+    rows = TwelveDataProvider.parse_series(
+        _payload("time_series_AAPL_1day_trimmed.json"))
+    assert len(rows) == 200
+    repos.price.put_rows("US-R", "twelvedata", rows)
+    nulls, filled = conn.execute(
+        """SELECT SUM(adjusted IS NULL), SUM(adjusted IS NOT NULL)
+           FROM price WHERE instrument_id='US-R'""").fetchone()
+    assert (nulls, filled) == (200, 0), (nulls, filled)
+    conn.close()
