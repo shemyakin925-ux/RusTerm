@@ -897,10 +897,20 @@ class SnapshotBuilder:
         cash = inputs.get("cash")
         stinv = inputs.get("st_investments")
         minority = inputs.get("minority_interest")
-        # ТЗ-31 C2: NCI ни разу не отчитан (ни отдельным концептом, ни
-        # включённым капиталом) — 0.0 производно от набора фактов
-        if minority is None and self._nci_never_reported(issuer_id):
-            minority = (0.0, None, None, None)
+        # ТЗ-32 D7 (вердикт: отсутствие — не ноль): 0.0 требует
+        # ПОЛОЖИТЕЛЬНОГО свидетельства — в фактах есть блок капитала
+        # (total_equity) и ни разу не отчитан ни один концепт NCI;
+        # тогда ноль производен от набора фактов, а его причина видна
+        # в lineage ролью nci_absent_in_equity_block на факте блока
+        # капитала. Нет блока капитала — minority остаётся None:
+        # ev получает missing_data с именем входа.
+        nci_lineage: list = []
+        equity = inputs.get("total_equity")
+        if minority is None and equity is not None                 and self._nci_never_reported(issuer_id):
+            minority = (0.0, None, None, equity[3])
+            nci_lineage = [{"fact_id": equity[3],
+                            "peer_measure_id": None,
+                            "role": "nci_absent_in_equity_block"}]
         ev_value = None
         ev_reason = None
         if total_value is None:
@@ -928,6 +938,7 @@ class SnapshotBuilder:
                   "minority_interest"):
             if inputs.get(c):
                 ev_lineage += self._fact_lineage(inputs[c][3])
+        ev_lineage += nci_lineage
         ev_mid = write("ev", ev_value, ev_reason, price_currency or "",
                        ev_lineage)
 
@@ -1004,6 +1015,7 @@ class SnapshotBuilder:
         # roic = nopat / avg(invested_capital) — оба входа в валюте
         # отчётности; nopat посчитан из тех же фактов (K6: одна валюта)
         ic = inputs.get("invested_capital")
+        ic_lineage_extra: list = []
         if ic is None:
             # ТЗ-31 C2: производный инвестированный капитал по формуле
             # словаря из фактов последнего момента; NCI — по правилу
@@ -1014,6 +1026,7 @@ class SnapshotBuilder:
                 ic = (invested_capital(te[0], minority[0], td[0], c[0],
                                        si[0]), None, price_currency,
                       None)
+                ic_lineage_extra = nci_lineage
         annual_nopat = self._annual_common_period(
             issuer_id, ("operating_income", "tax_expense",
                         "pretax_income"))
@@ -1037,7 +1050,8 @@ class SnapshotBuilder:
                 write("roic", m.value, m.null_reason, "ratio",
                       self._with_basis(
                           annual_nopat["lineage"]
-                          + self._fact_lineage(ic[3]), "annual"))
+                          + self._fact_lineage(ic[3])
+                          + ic_lineage_extra, "annual"))
         elif nop is None:
             write("roic", None, "missing_data: nopat", "ratio", [])
         else:

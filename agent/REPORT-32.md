@@ -170,3 +170,25 @@ NOW: D4, step 8
   9M fact for Apple), and that README §15 now lists it.
 - Schema version 42 -> 43; the version-literal updates in five test
   files are declared per the D5 rule (see the commit message).
+
+## Done (continued)
+
+### D7 — absence of NCI is not zero (DONE)
+
+- The zero rule now requires POSITIVE evidence: minority_interest is
+  0.0 only where the fact set contains the equity block (a
+  total_equity fact) AND no NCI concept (MinorityInterest,
+  equity-including-NCI) has ever been reported. The reason is visible
+  in lineage: the ev measure carries a lineage row with role
+  `nci_absent_in_equity_block` pointing at the equity-block fact (and
+  the derived invested_capital path carries it into roic's lineage).
+- With no equity block, minority stays None and ev reads the existing
+  named reason `missing_data: minority_interest` — no invented zero.
+- Both branches asserted on real-shaped facts:
+  `test_nci_zero_visible_in_lineage` (Apple golden env: exactly one
+  nci_absent_in_equity_block row resolving to the total_equity fact)
+  and `test_nci_zero_requires_equity_block` (equity block removed ->
+  ev None, reason `missing_data: minority_interest`).
+- For the real US-AAPL snapshot nothing changes numerically (the
+  equity block exists); the rule only closes the unjustified-zero
+  path for issuers without an equity block.

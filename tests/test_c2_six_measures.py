@@ -252,3 +252,73 @@ def test_dps_ttm_window_is_rolling_365_days(tmp_path):
     assert [c["ex_date"] for c in ca_lineage] == \
         ["2025-08-13", "2026-08-12"], ca_lineage
     conn.close()
+
+
+# ── ТЗ-32 D7: отсутствие NCI — не ноль без положительного свидетельства ─
+
+def test_nci_zero_visible_in_lineage(env):
+    """Ветка 1 (реальные факты Apple): блок капитала есть, NCI ни разу
+    не отчитан -> ev использует minority=0.0, и причина видна в
+    lineage ролью nci_absent_in_equity_block на факте блока капитала."""
+    conn, by_concept = env
+    ev = by_concept["ev"]
+    assert float(ev[4]) > 0
+    ev_lineage = conn.execute(
+        """SELECT l.fact_id, f.canonical_concept, l.role
+           FROM measure_lineage l JOIN fact f ON f.fact_id = l.fact_id
+           WHERE l.measure_id=?""", (ev[0],)).fetchall()
+    nci_rows = [r for r in ev_lineage
+                if r[2] == "nci_absent_in_equity_block"]
+    assert len(nci_rows) == 1, ev_lineage
+    assert nci_rows[0][1] == "total_equity", nci_rows
+    conn.close()
+
+
+def test_nci_zero_requires_equity_block(tmp_path):
+    """Ветка 2: нет блока капитала (total_equity отсутствует) — ноль
+    НЕ выводится: ev читает missing_data с именем minority_interest,
+    а не выдуманный ноль."""
+    paths = AppPaths.from_root(tmp_path / "app")
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-n", "Corp n", "US", "1", None, "us_gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-N", "i-n", None, "common", "active", None))
+    repos.price.put_rows("US-N", "twelvedata",
+                         [{"date": "2026-08-12", "close": 100.0,
+                           "currency": "USD"}])
+    obj = repos.raw.put(b'{"n": 1}', provider="synthetic",
+                        block="fundamentals")
+    for canonical, value in (("shares_outstanding", "7000000"),
+                             ("total_debt", "1000000"),
+                             ("cash", "500000"),
+                             ("st_investments", "250000")):
+        conn.execute(
+            """INSERT INTO fact(fact_id, issuer_id, concept, period_start,
+               period_end, period_type, value, unit, currency, basis,
+               origin, source_ref, locator, parser_version, status,
+               ingested_at, canonical_concept, source_kind)
+               VALUES (?, 'i-n', ?, '2026-06-27', '2026-06-27',
+               'instant', ?, 'USD', 'USD', 'as_reported', 'extracted',
+               ?, '{}', 'companyfacts.v1', 'ok', 0, ?, 'provider')""",
+            (f"f-n-{canonical}", canonical, value, obj.sha256, canonical))
+    conn.commit()
+    for d in ("2026-05-11", "2026-08-10"):
+        repos.corp_action.put("US-N", d, "dividend", amount=0.27,
+                              currency="USD")
+    builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                              coverage_repo=repos.coverage,
+                              price_repo=repos.price,
+                              corp_action_repo=repos.corp_action)
+    builder.build("US-N", "i-n", "2026-08-12")
+    rows = repos.snapshot.get_measures(
+        repos.snapshot.latest_snapshot_id("US-N"))
+    ev = next(m for m in rows if m[3] == "ev")
+    assert ev[4] is None
+    # существующая именованная причина: вход назван, ноль не выдуман
+    assert ev[10] == "missing_data: minority_interest", ev[10]
+    conn.close()
