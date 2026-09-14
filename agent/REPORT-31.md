@@ -287,3 +287,38 @@ NOW: C2, step 8
   null_reason `currency_mismatch: KRW, USD` (quoted; both currencies
   named, refusal not silence).
 - `python3 -m pytest tests/test_currency_firewall.py -q` -> 5 passed.
+## Done (continued)
+
+### C5 — cadence gets a surface, not only code (DONE)
+
+- `rusterm cadence [--json] [--as-of DATE]` (the name already used in
+  the code — core/cadence.py; the ruling on REPORT-30 Q1 was "yes, a
+  command"). Per instrument: state (incomplete/complete), last stored
+  date, NUMBER of gaps (new `cadence.gaps`; instrument_state refactored
+  onto it — reason text unchanged), next poll due (incomplete: now;
+  complete: reference = max(last poll, last date) + POLL_INTERVAL_DAYS
+  — the same rule as plan_pass).
+- `--json` top-level keys pinned into the B16 schema pin (extended,
+  never loosened): as_of, instruments, incomplete, next_pass_requests,
+  daily_ceiling. Incomplete instruments list before complete ones
+  (plan_pass backfill-first ordering, asserted).
+- `doctor` gains the cadence section: incomplete count, next-pass
+  request cost, against the vendor ceiling 800/day; on an
+  uninitialized DB the section says reason schema_not_ready instead
+  of crashing.
+- Live outputs (root ~/.rusterm, 1 instrument, history closed to
+  2026-09-14):
+  `каденция на 2026-09-15: инструментов 1; неполных 0; следующий
+   проход ≈ 0 запросов из 800/день`
+  `US-AAPL: complete; дыр 0; последняя дата 2026-09-14; опрос к
+   2026-09-24; (skip: polled:2026-09-14)`
+  JSON: {"as_of": "2026-09-15", "instruments": [{"instrument_id":
+  "US-AAPL", "state": "complete", "action": "skip", "reason":
+  "polled:2026-09-14", "gaps": 0, "last_date": "2026-09-14",
+  "next_poll_due": "2026-09-24"}], "incomplete": 0,
+  "next_pass_requests": 0, "daily_ceiling": 800}
+  doctor cadence section: {"incomplete": 0, "next_pass_requests": 0,
+  "daily_ceiling": 800}
+- `python3 -m pytest tests/test_c5_cadence_cli.py -q` -> 2 passed;
+  full suite 0 failed.
+

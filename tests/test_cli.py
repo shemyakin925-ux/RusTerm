@@ -880,6 +880,9 @@ def test_b16_json_commands_carry_expected_keys(capsys):
             "metrics": {"metrics", "recorded"},
             "budget": {"ceiling_per_night", "rate_per_second",
                        "provider_ran", "used", "refused", "samples"},
+            # ТЗ-31 C5: каденность присоединяется к закреплённой схеме
+            "cadence": {"as_of", "instruments", "incomplete",
+                        "next_pass_requests", "daily_ceiling"},
         }
         extra = {"coverage": ["--instrument", "US-CLI-DEMO"]}
         for command, keys in expected.items():

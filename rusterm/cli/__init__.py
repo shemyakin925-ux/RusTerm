@@ -1016,6 +1016,62 @@ def cmd_add(args) -> int:
     return 0
 
 
+def cmd_cadence(args) -> int:
+    """Кадентность котировок — на поверхность (ТЗ-31 C5, ruling
+    REPORT-30 Q1: «да, команда»). По каждому инструменту: состояние
+    (incomplete/complete), последняя сохранённая дата, число дыр,
+    срок следующего опроса. Правило обхода перестаёт быть
+    непрозрачным: пользователь видит, что сделает следующий проход и
+    сколько он стоит против дневного потолка вендора."""
+    from rusterm.core import cadence
+    from rusterm.providers import host_limit
+
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    as_of = args.as_of or args_as_of_default()
+    plan = cadence.plan_pass(repos, as_of)
+    rows = []
+    for entry in plan:
+        hole_count = len(cadence.gaps(
+            repos.price.dates(entry.instrument_id)))
+        last_poll = repos.job.last_poll_date(entry.instrument_id,
+                                             "prices")
+        rows.append({
+            "instrument_id": entry.instrument_id,
+            "state": entry.state,
+            "action": entry.action,
+            "reason": entry.reason,
+            "gaps": hole_count,
+            "last_date": entry.last_date,
+            "next_poll_due": cadence.next_poll_due(
+                last_poll, entry.last_date, as_of, entry.state),
+        })
+    incomplete = sum(1 for r in rows if r["state"] == "incomplete")
+    next_pass_requests = sum(1 for e in plan if e.action != "skip")
+    limit = host_limit("twelvedata")
+    ceiling = limit.nightly_max if limit is not None else None
+    conn.close()
+    if args.json:
+        print(json.dumps({
+            "as_of": as_of,
+            "instruments": rows,
+            "incomplete": incomplete,
+            "next_pass_requests": next_pass_requests,
+            "daily_ceiling": ceiling,
+        }, ensure_ascii=False))
+        return 0
+    print(f"каденция на {as_of}: инструментов {len(rows)}; неполных "
+          f"{incomplete}; следующий проход ≈ {next_pass_requests} "
+          f"запросов из {ceiling}/день")
+    for r in rows:
+        print(f"  {r['instrument_id']}: {r['state']}; дыр "
+              f"{r['gaps']}; последняя дата "
+              f"{r['last_date'] or '—'}; опрос к "
+              f"{r['next_poll_due']}; ({r['action']}: {r['reason']})")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     paths, conn = _open(args.root)
     report = doctor_report(paths, conn)
@@ -1059,6 +1115,30 @@ def cmd_doctor(args) -> int:
             "key_present": present,
         }
     report["free_channels"] = channels
+    # ТЗ-31 C5: каденция видна доктору — сколько инструментов неполны
+    # и сколько запросов стоит следующий проход против потолка вендора.
+    # База может быть не инициализирована — раздел честно называет это.
+    import sqlite3 as _sqlite3
+    from rusterm.core import cadence as cadence_mod
+    tw_limit = all_host_limits().get("twelvedata")
+    ceiling = tw_limit.nightly_max if tw_limit else None
+    try:
+        repos = RepoRegistry(conn, paths)
+        plan = cadence_mod.plan_pass(repos, args_as_of_default())
+        report["cadence"] = {
+            "incomplete": sum(1 for e in plan
+                              if e.state == "incomplete"),
+            "next_pass_requests": sum(1 for e in plan
+                                      if e.action != "skip"),
+            "daily_ceiling": ceiling,
+        }
+    except _sqlite3.DatabaseError:
+        report["cadence"] = {
+            "incomplete": None,
+            "next_pass_requests": None,
+            "daily_ceiling": ceiling,
+            "reason": "schema_not_ready",
+        }
     print(json.dumps(report, ensure_ascii=False, indent=2))
     conn.close()
     return 0 if report["ok"] else 1
@@ -1628,6 +1708,13 @@ def main(argv: list[str] | None = None) -> int:
                        help="извлечь и проверить, ничего не записывая")
     sub.add_parser("chat",
                    help="чат с цитатами (ТЗ-26 Q1); нужен ключ модели")
+    p_cad = sub.add_parser("cadence",
+                           help="кадентность котировок: состояние, дыры,"
+                                " срок опроса (ТЗ-31 C5)")
+    p_cad.add_argument("--json", action="store_true",
+                       help="машиночитаемая форма с закреплёнными ключами")
+    p_cad.add_argument("--as-of", dest="as_of", default=None,
+                       help="дата расчёта (по умолчанию сегодня)")
     p_mkt = sub.add_parser("markets",
                            help="реестр рынков: коды, провайдеры, доступ")
     p_mkt.add_argument("--json", action="store_true")
@@ -1652,6 +1739,7 @@ def main(argv: list[str] | None = None) -> int:
         "industry": cmd_industry,
         "markets": cmd_markets,
         "import": cmd_import,
+        "cadence": cmd_cadence,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "
