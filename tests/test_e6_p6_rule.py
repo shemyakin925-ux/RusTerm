@@ -65,3 +65,28 @@ def test_staging_both_is_red(tmp_path):
     result = _stage(repo, "agent/TASK.md", "agent/REPORT-33.md")
     assert result.returncode != 0
     assert "agent/TASK.md" in result.stdout
+
+
+def test_protocol_edit_without_declaration_is_red(tmp_path):
+    repo, env = _repo(tmp_path)
+    (repo / "agent" / "PROTOCOL.md").write_text("# p\n", encoding="utf-8")
+    subprocess.run(["git", "add", "agent/PROTOCOL.md"], cwd=repo,
+                   capture_output=True, text=True, check=True)
+    result = subprocess.run(["bash", str(P6_RULE)], cwd=repo,
+                            capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "agent/PROTOCOL.md" in result.stdout
+
+
+def test_protocol_edit_with_declared_authorisation_is_green(tmp_path):
+    repo, env = _repo(tmp_path)
+    (repo / "agent" / "PROTOCOL.md").write_text("# p\n# bootstrap\n",
+                                                encoding="utf-8")
+    subprocess.run(["git", "add", "agent/PROTOCOL.md"], cwd=repo,
+                   capture_output=True, text=True, check=True)
+    (repo / ".git" / "COMMIT_EDITMSG").write_text(
+        "смена\n\nРАЗРЕШЕНИЕ-ПРОТОКОЛА: строка бутстрапа хука (ТЗ-34 F6)\n",
+        encoding="utf-8")
+    result = subprocess.run(["bash", str(P6_RULE)], cwd=repo,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr

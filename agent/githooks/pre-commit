@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# ТЗ-34 F6: красный selfcheck нельзя закоммитить, как бы его ни звали.
+# Регрессия 6c1ba21: `bash agent/selfcheck.sh | tail -1` вернул код
+# tail, и красный коммит уехал. Хук зовёт селфчек БЕЗ пайпа и падает
+# вместе с ним. Активируется раз на клон:
+#   git config core.hooksPath agent/githooks
+# (см. agent/PROTOCOL.md §12 — строка бутстрапа).
+
+bash "$(dirname "$0")/../selfcheck.sh"

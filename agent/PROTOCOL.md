@@ -180,6 +180,10 @@ python3 agent/relay.py hand --to coordinator --report agent/REPORT-NN.md \
 
 Rules:
 
+- **Bootstrap (once per clone): `git config core.hooksPath agent/githooks`
+ ** — the tracked pre-commit hook (ТЗ-34 F6) then runs `bash
+  agent/selfcheck.sh` without a pipe on every commit, so a red
+  selfcheck cannot be committed whatever the caller types.
 - **Commit and push your work first, then `hand`.** `hand` only moves the
   baton (plus files named with `--add`); it is not a substitute for §1.6-7.
 - **Never push to the shift branch while the baton is not yours.** It is

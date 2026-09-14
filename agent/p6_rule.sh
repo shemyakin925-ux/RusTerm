@@ -25,9 +25,24 @@ agent/acceptance.sh}"
 STAGED=$(git diff --cached --name-only 2>/dev/null || true)
 [ -z "$STAGED" ] && exit 0
 
+# Единственное исключение (ТЗ-34 F6): правка agent/PROTOCOL.md
+# разрешена, когда сообщение коммита объявляет её строкой
+#   РАЗРЕШЕНИЕ-ПРОТОКОЛА: <что и почему>
+# (та же механика объявленной замены, что у P1/D5).
+MSG="$(git log -1 --format=%B 2>/dev/null || true)"
+if [ -f .git/COMMIT_EDITMSG ]; then
+    MSG="$MSG
+$(cat .git/COMMIT_EDITMSG 2>/dev/null || true)"
+fi
+
 FAIL=""
 while IFS= read -r staged; do
     [ -z "$staged" ] && continue
+    if [ "$staged" = "agent/PROTOCOL.md" ]; then
+        if printf '%s\n' "$MSG" | grep -q '^РАЗРЕШЕНИЕ-ПРОТОКОЛА:'; then
+            continue
+        fi
+    fi
     while IFS= read -r pattern; do
         [ -z "$pattern" ] && continue
         case "$staged" in
