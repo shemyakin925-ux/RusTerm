@@ -1,6 +1,6 @@
 # TASK-33 — P5 и P6: светофор перестаёт быть серым
 
-- **Status: READY**
+- **Status: ACCEPTED** — acceptance 13/13, exit 0; charter restore verified in the diff
 - **Report:** `agent/REPORT-33.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12 — the relay). State: `agent/CONTEXT.md`.
 - **Relay:** hand back with `python3 agent/relay.py hand --to coordinator --report agent/REPORT-33.md --note "<one line>"`, then `python3 agent/relay.py wait --for executor --timeout 3600`.

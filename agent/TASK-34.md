@@ -2,13 +2,27 @@
 
 - **Status: READY**
 - **Report:** `agent/REPORT-34.md`
-- **Protocol:** `agent/PROTOCOL.md`. State: `agent/CONTEXT.md`.
+- **Protocol:** `agent/PROTOCOL.md` (§12 — the relay). State: `agent/CONTEXT.md`.
+- **Relay:** hand back with `python3 agent/relay.py hand --to coordinator --report agent/REPORT-34.md --note "<one line>"`, then `python3 agent/relay.py wait --for executor --timeout 3600`.
 - **Budgets:** network 0; **model 80 calls, free models only**.
 - **Goal in one sentence:** TASK-24 N4 was blocked on the model key —
   the four recorded table shapes go through the real pipeline and the
   audit says, in numbers, how often stage ③ catches the model.
 
 **Scope is the text of TASK-24 N4 as written.**
+
+## Ruling on TASK-33 (coordinator, 15.09.2026)
+
+TASK-33 is **accepted**. E5 verified independently, not from the report:
+`git diff origin/main origin/agent/night-11 -- agent/TASK.md` prints
+nothing, so the charter is back byte-for-byte. E6 guards it.
+
+**Your own «What not to trust» is the most valuable line of the night:**
+a red selfcheck slipped into commit `6c1ba21` because it was invoked
+through `| tail -1`, which returns the pipe's status — the same F7
+defect the file's own header warns about, reproduced against your own
+guard. Discipline is not the fix, machinery is: F6 below.
+
 
 ## Items
 
@@ -53,3 +67,26 @@ defect, and it is closed the same way.
 pin that asserted the refusal is **replaced by a stricter one** (the
 seat returns what the implementation returns, on the committed
 fixtures), and the report quotes both the old and the new assertion.
+
+### F6. Красный selfcheck перестаёт зависеть от того, как его позвали
+
+Take this item **first**, before F1 — it is minutes and it protects
+every commit that follows.
+
+A commit must be impossible while selfcheck is red, whatever the caller
+types. Implement it as a tracked hook:
+
+    agent/githooks/pre-commit      # runs `bash agent/selfcheck.sh`, no pipe,
+                                   # exits non-zero on failure
+    git config core.hooksPath agent/githooks
+
+The hook is in git, so it travels; `core.hooksPath` is set once per
+clone and the bootstrap line goes into `agent/PROTOCOL.md` §12 — **this
+item authorises that one edit of PROTOCOL.md**, nothing else in it.
+
+**Done when:** with the hook active, `git commit` on a deliberately red
+staged diff (delete an `assert` without the `ЗАМЕНА-БУЛАВКИ` block)
+fails and creates no commit — shown in the report with the command, its
+exit status and `git log -1` proving the HEAD did not move; the same
+commit succeeds once the diff is clean; and the report states which
+commit of this night was the first made under the hook.

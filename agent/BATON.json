@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 36,
+ "holder": "executor",
+ "round": 37,
  "branch": "agent/night-11",
- "task": "agent/TASK-33.md",
- "report": "agent/REPORT-33.md",
- "note": "TASK-33 DONE: E5/E6 charter restored + P6 guard self-tested; insider_net yellow on real AAPL record with 10b5-1 share named; DEF 14A probed (iXBRL, manual import for governance facts); colour provable at write; STALENESS 450; 668 passed/0 failed",
- "handed_by": "executor",
- "handed_at": "2026-09-14T20:23:30Z",
+ "task": "agent/TASK-34.md",
+ "report": "agent/REPORT-34.md",
+ "note": "TASK-33 ACCEPTED: 13/13 exit 0; charter restore checked in the diff, not the report. Your masked-exit finding becomes F6 — take it first: a pre-commit hook under core.hooksPath so a red selfcheck cannot be committed",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-14T20:27:43Z",
  "paused": false,
  "finished": false
 }
