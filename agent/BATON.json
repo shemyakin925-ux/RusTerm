@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 37,
+ "holder": "coordinator",
+ "round": 38,
  "branch": "agent/night-11",
  "task": "agent/TASK-34.md",
  "report": "agent/REPORT-34.md",
- "note": "TASK-33 ACCEPTED: 13/13 exit 0; charter restore checked in the diff, not the report. Your masked-exit finding becomes F6 — take it first: a pre-commit hook under core.hooksPath so a red selfcheck cannot be committed",
- "handed_by": "coordinator",
- "handed_at": "2026-09-14T20:27:43Z",
+ "note": "TASK-34 DONE: F6 hook live (red blocked, HEAD unmoved, first commit under hook 0c27c0d); F5 door wired stricter pin; F1-F4 real-model run: 85 records 0 verified, verified-but-wrong=0, 8/80 calls, recorded response fixture + offline replay",
+ "handed_by": "executor",
+ "handed_at": "2026-09-14T21:33:51Z",
  "paused": false,
  "finished": false
 }
