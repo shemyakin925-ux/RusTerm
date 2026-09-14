@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from rusterm.manual.pipeline import import_document
+from rusterm.store.repos import ManualExtractionRepo
 from rusterm.manual.records import (
     ParsedRecords, build_prompt, parse_records, period_bounds)
 from rusterm.providers.base import ProviderError
@@ -280,3 +282,45 @@ def test_cli_import_unknown_issuer_refused(app, capsys):
                      "--issuer", "GHOST", "--market", "US"])
     assert code == 1
     assert "не найден" in capsys.readouterr().err
+
+
+# ── ТЗ-34 F4: записанный ответ настоящей модели гоняет конвейер офлайн ──
+
+_RECORDED_RESPONSE = ((Path(__file__).resolve().parents[1] / "tests"
+                       / "data" / "manual"
+                       / "response_table2_fleet.json").read_text(
+                           encoding="utf-8"))
+_FLEET_TABLE = (Path(__file__).resolve().parents[1] / "tests" / "data"
+                / "n4_fleet_tables"
+                / "table2_ten_column_fleet_by_class.html")
+
+
+class _RecordedClient:
+    """Клиент, отвечающий ЗАПИСАННЫМ ответом настоящей модели
+    (OpenRouter, free tier, 14.09.2026) — полный офлайн-прогон."""
+
+    model = "glm-5.3-flash (recorded)"
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, prompt):
+        self.calls += 1
+        return _RECORDED_RESPONSE
+
+
+def test_recorded_model_response_replays_whole_pipeline_offline(app):
+    """F4: ①②③ на записанном ответе — 36 записей, все unverified
+    (цитаты модели — буквальные копии сплющенного текста страницы),
+    ни одного факта; путь покрыт на машине без ключа."""
+    conn, paths, _doc = app
+    client = _RecordedClient()
+    outcome = import_document(conn, paths, _FLEET_TABLE, "cik-0",
+                              client)
+    assert outcome.records_total == 36
+    assert outcome.records_verified == 0
+    assert outcome.records_unverified == 36
+    assert outcome.facts_stored == 0
+    assert client.calls == 1
+    counts = ManualExtractionRepo(conn).counts(outcome.document_sha)
+    assert counts == {"total": 36, "verified": 0, "unverified": 36}

@@ -85,3 +85,67 @@ NOW: F6, step 8
   text) — strictly stronger: it pins DELEGATION plus real parsing,
   not a refusal. `tests/test_manual_seats.py` 13 passed;
   manual suite (extract/pipeline/seats) green.
+
+### F1 — the four table shapes through the real pipeline (DONE)
+
+Client: the user's configured free model `glm-5.3-flash` (OpenRouter
+free tier), through RequestGate with the llm-api declared limit; run
+root /tmp/n4root (synthetic issuer n4-fleet — the user's real DB is
+not polluted with fixtures).
+
+| table | extracted records | verified | near_miss | failed (dropped) | facts stored |
+|---|---|---|---|---|---|
+| table1_clean_two_column | 0 | 0 | 0 | 0 | 0 |
+| table2_ten_column_fleet_by_class | 36 | 0 | 0 | 0 | 0 |
+| table3_with_total_row | 45 (36 + 9 Total) | 0 | 0 | 0 | 0 |
+| table4_footnote_in_number | 0 stored (9 dropped: bad shape — "210(3)" values) | 0 | 0 | 9 | 0 |
+
+Findings recorded as measured, nothing tuned:
+- The extract stage flattens an HTML table into digit soup
+  ("Off-hire daysVoyage days / 12365"; "VLCC1230000004300...").
+  On table1 the model returns an empty set — nothing quotable.
+- On tables 2-3 the model names EVERY metric and takes EVERY number
+  from the right column (all 81 values match the by-eye read), but
+  the deterministic control rejects all of them: the quotes are
+  verbatim copies of the FLATTENED text and still fail the string
+  law on whitespace. The honest measure of the feature is therefore
+  0 facts from 4 tables — the bottleneck is stage ①'s table
+  flattening, not the model's column discipline.
+- table4's footnote markers inside numbers ("210(3)") break the
+  model's output shape: all 9 records dropped by the shape counter.
+
+### F2 — verified-but-wrong is measured, not assumed (DONE)
+
+**verified-but-wrong cases: 0**, and the evidence is stronger than
+the number: not a single record was verified on any of the four
+tables (verified=0 everywhere), so nothing wrong could pass the
+control. Additionally every stored record was compared by eye
+against the fixture tables — all 81 values on tables 2-3 are the
+CORRECT column values (the model's column discipline is fine; the
+quotes/whitespace are what fails). A `verified=no` record is stored,
+shown, and absent from every formula — asserted by the existing
+`tests/test_manual_pipeline.py::test_unverified_record_stored_marked_and_never_a_fact`.
+
+### F3 — the cost is named (DONE)
+
+- Model calls: 8 `complete()` invocations total; 4 of them were
+  refused at the gate before any network (client constructed without
+  a gate — my first-pass error, recorded here as spent discipline),
+  4 real API calls — exactly one per table. STATE.json:
+  `llm_calls: 8` of the 80-call budget.
+- Free-tier limit (ADR-0018: the budget is calls, not money):
+  OpenRouter free model `glm-5.3-flash`; no paid route touched.
+
+### F4 — a recorded model response is committed (DONE)
+
+- `tests/data/manual/response_table2_fleet.json` — the real model's
+  answer for the ten-column fleet table (7,430 bytes, synthetic
+  content only).
+- `tests/test_manual_pipeline.py::test_recorded_model_response_replays_whole_pipeline_offline`:
+  a fake client serves the recorded response through the WHOLE
+  ①②③ pipeline on the committed table2 fixture -> 36 records,
+  0 verified, 36 stored as unverified, 0 facts, exactly 1 call.
+  The path is covered on a machine with no key.
+- Repair en route (F1 scope): the final ImportOutcome dropped
+  `records_near_miss` (the field existed, the live return omitted it
+  — near-miss would always print 0); now passed through.
