@@ -149,3 +149,27 @@ shown, and absent from every formula — asserted by the existing
 - Repair en route (F1 scope): the final ImportOutcome dropped
   `records_near_miss` (the field existed, the live return omitted it
   — near-miss would always print 0); now passed through.
+
+## HANDOFF (final, TASK-34 complete)
+
+Status:          DONE
+Arrival state:   selfcheck OK at 8cce46c (13/13)
+Items done:      F6 (first, under its own hook from 0c27c0d on), F5, F1, F2, F3, F4
+Items not done:  none in TASK-34
+Acceptance:      «Итог: пройдено 13, провалено 0», SELFCHECK OK at 0b27074 (exit captured before any pipe)
+Tests:           full default run 0 failed (675 passed, 1 skipped, 6 deselected, 4 xfailed at the last full run)
+Guards:          pre-commit hook (tracked) + hooksPath bootstrap in PROTOCOL §12 (declared РАЗРЕШЕНИЕ-ПРОТОКОЛА); extract_text door wired, refusal pin replaced by a stricter delegation pin (declared ЗАМЕНА-БУЛАВКИ); ImportOutcome near-miss passthrough repaired
+Schema:          unchanged (44)
+Network:         0 requests of 0; Model: 8 complete() of 80 (4 gate-refused, 4 real API, free tier glm-5.3-flash)
+Secrets:         0 hits (recorded model response contains synthetic table content only)
+Pushed:          yes
+Questions for the coordinator:
+1. The extract stage flattens HTML tables into digit soup — that is
+   THE bottleneck this task measured (0 facts from 4 tables, the
+   model's column discipline was fine). A structure-aware table
+   extraction is the follow-up if the feature is to ever verify.
+2. Gate-refused complete() calls are counted in llm_calls (8 of 80)
+   although 4 never reached the network — counted as spent
+   discipline; ruling welcome.
+
+NOW: HANDOFF, step 8
