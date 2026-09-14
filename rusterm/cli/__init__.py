@@ -171,6 +171,12 @@ def cmd_ingest(args) -> int:
                                              args_as_of_default())
             if code != 0:
                 exit_code = code
+            # Корпоративные действия (ТЗ-31 C3): тот же вендор, свои
+            # два payload'а со своим кешем; отказ не топит котировки
+            code = _ingest_twelvedata_actions(repos, instrument_id,
+                                              args_as_of_default())
+            if code != 0:
+                exit_code = code
         conn.close()
         return exit_code
     if args.source == "edgar":
@@ -250,6 +256,82 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
     print(f"{instrument_id}: строк получено: {len(rows)}; "
           f"записано новых: {inserted}; запросов: {requests_spent}; "
           f"последняя дата: {last}")
+    return 0
+
+
+def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
+                               provider=None) -> int:
+    """Корпоративные действия с вендора (ТЗ-31 C3): /splits и
+    /dividends тем же каналом, что котировки; каждый payload кешируется
+    по каноническому URL без ключа (ADR-0003), события пишутся в
+    corporate_action (I7: уникальность (инструмент, ex_date, вид)).
+    Дивиденды вендор отдаёт в сегодняшней базе акций — в хранилище
+    идёт объявленная сумма на дату (declared_dividend), она и делится
+    на сырой close при корректировке (K3). Сплиты пишутся как есть:
+    фактор k = from_factor/to_factor."""
+    from rusterm.core.prices import declared_dividend
+    from rusterm.providers.base import ProviderError
+    from rusterm.providers.budget import (
+        BudgetExceeded,
+        ConfigError,
+        RequestGate,
+    )
+
+    tick = repos.instrument.ticker_for_instrument(instrument_id, as_of)
+    if tick is None:
+        print(f"у {instrument_id!r} нет тикера на {as_of}",
+              file=sys.stderr)
+        return 1
+    symbol = tick["ticker"]
+    if provider is None:
+        provider = get_provider("twelvedata", gate=RequestGate())
+    if isinstance(provider, ConfigError):
+        print(f"twelvedata недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+
+    payloads: dict[str, dict] = {}
+    requests_spent = 0
+    for kind, fetch in (("splits", provider.splits),
+                        ("dividends", provider.dividends)):
+        cache_url = provider.cache_url_ca(kind, symbol)
+        cached_sha = repos.raw.find_by_provider_url("twelvedata", cache_url)
+        if cached_sha is not None:
+            payloads[kind] = json.loads(
+                repos.raw.get(cached_sha).decode("utf-8"))
+            continue
+        outcome = fetch(symbol)
+        if isinstance(outcome, (ProviderError, ConfigError,
+                                BudgetExceeded)):
+            print(f"twelvedata: {kind}: {outcome.reason}", file=sys.stderr)
+            return 1
+        payloads[kind] = outcome
+        requests_spent += 1
+        raw = json.dumps(outcome, sort_keys=True,
+                         ensure_ascii=False).encode("utf-8")
+        repos.raw.put(raw, provider="twelvedata",
+                      block="corporate_actions", url=cache_url,
+                      instrument_id=instrument_id)
+
+    splits, splits_skipped = provider.parse_splits(payloads["splits"])
+    dividends, currency, div_skipped = provider.parse_dividends(
+        payloads["dividends"])
+    written = 0
+    for s in splits:
+        if repos.corp_action.put(instrument_id, s["ex_date"], "split",
+                                 factor=s["factor"]):
+            written += 1
+    for d in dividends:
+        ks_after = [s["factor"] for s in splits
+                    if s["ex_date"] > d["ex_date"]]
+        declared = declared_dividend(d["amount"], ks_after)
+        if repos.corp_action.put(instrument_id, d["ex_date"], "dividend",
+                                 amount=declared, currency=currency):
+            written += 1
+    skipped = splits_skipped + div_skipped
+    print(f"{instrument_id}: корп.действия: сплитов {len(splits)}; "
+          f"дивидендов {len(dividends)}; записано новых: {written}; "
+          f"запросов: {requests_spent}; неразобрано: {skipped}")
     return 0
 
 

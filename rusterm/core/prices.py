@@ -17,6 +17,24 @@ TOLERANCE_ABS = 0.01
 TOLERANCE_REL = 0.001
 
 
+def declared_dividend(amount_adjusted: float,
+                      split_ks_after: list[float]) -> float:
+    """Объявленный дивиденд на ex-date из вендорской суммы.
+
+    Вендор (/dividends, ТЗ-31 C3) отдаёт суммы в СЕГОДНЯШНЕЙ базе
+    акций: сумма 1988 года 0.000892857143 * 112 = 0.10 — объявленный
+    $0.10, поделённый на все сплиты ПОСЛЕ него (2*2*7*4). Наша
+    dividend_factor делит сумму на close того же дня в базе ТОГО ДНЯ
+    (сырой close ряда), поэтому в corporate_action пишется
+    пересчитанное объявленное значение:
+      declared = adjusted * П(k) по сплитам с ex_date ПОЗЖЕ дивиденда.
+    """
+    k = 1.0
+    for factor in split_ks_after:
+        k *= factor
+    return amount_adjusted * k
+
+
 def build_events(price_rows: list[dict],
                  action_rows: list[dict]) -> list[tuple[str, float]]:
     """corporate_action -> коэффициенты для price_adj.
