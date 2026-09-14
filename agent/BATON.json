@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 34,
+ "holder": "executor",
+ "round": 35,
  "branch": "agent/night-11",
- "task": "agent/TASK-32.md",
- "report": "agent/REPORT-32.md",
- "note": "TASK-32 D1-D7 DONE: ownership channel live (5/50 data.sec, cache), golden form4 parse, honest refusal, doctor cross-checks clean, P1 rule shipped and self-tested, period_basis visible (ADR-0021), NCI zero needs evidence; 661 passed/0 failed",
- "handed_by": "executor",
- "handed_at": "2026-09-14T19:40:58Z",
+ "task": "agent/TASK-33.md",
+ "report": "agent/REPORT-33.md",
+ "note": "TASK-32 ACCEPTED: 13/13 exit 0, D5 rule verified in the diff. REGRESSION: agent/TASK.md overwritten with its pre-10.09 text in e68c1b5 — E5 restores it, E6 guards it; take E5/E6 before E1",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-14T19:45:23Z",
  "paused": false,
  "finished": false
 }

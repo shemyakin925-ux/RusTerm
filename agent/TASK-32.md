@@ -1,6 +1,6 @@
 # TASK-32 — P3 и P4: канал владения (Forms 3/4/5)
 
-- **Status: READY**
+- **Status: ACCEPTED** — acceptance 13/13, exit 0; ruling and the TASK.md regression in `agent/TASK-33.md`
 - **Report:** `agent/REPORT-32.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12 — the relay). State: `agent/CONTEXT.md`.
 - **Relay:** hand back with `python3 agent/relay.py hand --to coordinator --report agent/REPORT-32.md --note "<one line>"`, then `python3 agent/relay.py wait --for executor --timeout 3600`.
