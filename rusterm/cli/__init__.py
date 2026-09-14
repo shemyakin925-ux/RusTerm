@@ -189,6 +189,17 @@ def cmd_ingest(args) -> int:
                 exit_code = code
         conn.close()
         return exit_code
+    if args.source == "ownership":
+        # Владение Forms 3/4/5 (ТЗ-32 D2): реальный сбор никогда не
+        # дефолт; metadata из submissions, тела — с Archives
+        exit_code = 0
+        for instrument_id, issuer_id in targets:
+            code = _ingest_edgar_ownership(repos, instrument_id,
+                                           issuer_id, args_as_of_default())
+            if code != 0:
+                exit_code = code
+        conn.close()
+        return exit_code
     from rusterm.providers.disclosures import DEMO_INDEX_FIXTURE
     providers = {"synthetic": SyntheticDisclosuresProvider(
         fixture_path=DEMO_INDEX_FIXTURE)}
@@ -399,6 +410,95 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     repos.coverage.upsert(instrument_id, "fundamentals", "ready")
     print(f"{instrument_id}: companyfacts загружены; фактов: "
           f"{len(fact_dicts)}; неотображённых концептов: {unmapped}")
+    return 0
+
+
+def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
+                            as_of: str, limit_per_form: int = 2,
+                            provider=None) -> int:
+    """Владение: Forms 3/4/5 -> document + raw (ТЗ-32 D2, ТЗ-25 P4).
+
+    Метаданные — из уже загруженного submissions (ноль запросов);
+    тела сырых XML тянутся с Archives по одному, sha256-идемпотентно.
+    Эмитент без форм владения получает coverage missing с именованной
+    причиной (D3) — пустой успех запрещён. Разбор сделок —
+    rusterm.parsers.ownership.parse_form4, чистый по записанному
+    сырью; хранение сделок — P5, здесь только сбор с провенансом."""
+    import hashlib as _hashlib
+    import xml.etree.ElementTree as _ET
+
+    from rusterm.parsers.ownership import parse_form4
+    from rusterm.providers.base import ProviderError as _PE
+    from rusterm.providers.budget import ConfigError, RequestGate
+
+    instrument = repos.instrument.get_instrument(instrument_id)
+    issuer = repos.instrument.get_issuer(instrument.issuer_id) \
+        if instrument else None
+    if issuer is None or not (issuer.registry_id or "").isdigit():
+        print(f"у эмитента {issuer_id!r} нет CIK — выполните "
+              f"rusterm add --ticker ... --market ...", file=sys.stderr)
+        return 1
+    if provider is None:
+        provider = get_provider("edgar", gate=RequestGate())
+    if isinstance(provider, ConfigError):
+        print(f"edgar-провайдер недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+    provider.cik = int(issuer.registry_id)
+
+    listed = provider.list_ownership(instrument_id,
+                                     limit_per_form=limit_per_form)
+    if isinstance(listed, _PE):
+        print(f"edgar: {listed.reason}", file=sys.stderr)
+        repos.coverage.upsert(instrument_id, "ownership", "missing",
+                              reason=listed.reason)
+        return 1
+    if not listed.documents:
+        # D3: отказ — не пустой успех
+        reason = "source_has_no_disclosure"
+        repos.coverage.upsert(instrument_id, "ownership", "missing",
+                              reason=reason)
+        print(f"{instrument_id}: форм владения 3/4/5 в ленте нет — "
+              f"покрытие missing: {reason}")
+        return 0
+
+    newest = listed.documents  # лимит уже по видам в list_ownership
+    collected = 0
+    transactions = 0
+    for meta in newest:
+        url = provider.raw_document_url(meta.url)
+        # кеш по каноническому URL без ключа (ADR-0003, как у котировок):
+        # тело уже в сырьё-хранилище — ноль запросов на повторе
+        cached_sha = repos.raw.find_by_provider_url("edgar", url)
+        if cached_sha is not None:
+            raw = repos.raw.get(cached_sha)
+            sha = cached_sha
+        else:
+            fetched = provider.fetch_document(url)
+            if isinstance(fetched, _PE):
+                print(f"edgar: {fetched.reason}", file=sys.stderr)
+                return 1
+            raw = fetched.content
+            sha = _hashlib.sha256(raw).hexdigest()
+            repos.raw.put(raw, provider="edgar", block="ownership",
+                          url=url, instrument_id=instrument_id)
+            filename = url.rsplit("/", 1)[-1]
+            repos.document.put(sha, filename=filename, format="xml",
+                               page_count=1, byte_len=len(raw),
+                               issuer_id=issuer.issuer_id)
+            collected += 1
+        try:
+            filing = parse_form4(raw)
+        except (_ET.ParseError, ValueError) as e:
+            print(f"edgar: {filename}: неразобрано: {e}",
+                  file=sys.stderr)
+            return 1
+        transactions += len(filing.transactions)
+    repos.coverage.upsert(instrument_id, "ownership", "ready")
+    print(f"{instrument_id}: форм владения в ленте "
+          f"{len(listed.documents)}; собрано документов {collected} "
+          f"(по {limit_per_form} свежих на вид); сделок разобрано: "
+          f"{transactions}")
     return 0
 
 
@@ -1598,7 +1698,7 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--market", default=None)
     p_ing.add_argument("--watchlist", default=None)
     p_ing.add_argument("--source", choices=("synthetic", "edgar",
-                                            "twelvedata"),
+                                            "twelvedata", "ownership"),
                        default="synthetic")
     sub.add_parser("demo", help="создать синтетический демо-инструмент")
     p_add = sub.add_parser("add", help="добавить настоящую компанию")

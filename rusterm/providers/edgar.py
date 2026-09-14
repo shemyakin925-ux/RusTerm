@@ -294,3 +294,39 @@ class EdgarProvider:
             return json.loads(body.decode("utf-8"))
 
         return self.gate.request(send)
+
+    # ── владение: Forms 3/4/5 (ТЗ-32 D2, ТЗ-25 P4) ──────────────────────
+
+    OWNERSHIP_FORMS = ("3", "4", "5")
+
+    def list_ownership(self, issuer_id: str,
+                       limit_per_form: int | None = None
+                       ) -> DocumentList | ProviderError:
+        """Метаданные Forms 3/4/5 из уже загруженного submissions —
+        ноль новых запросов. limit_per_form режет КАЖДЫЙ вид отдельно:
+        иначе сотни свежих форм 4 вытесняют редкие 3 и 5. Пустой
+        список — валидный ответ: у эмитента нет форм владения в
+        свежей ленте; отказ эмитента без ленты остаётся наверху
+        (no_sec_filings)."""
+        docs: list[DocumentMeta] = []
+        for form in self.OWNERSHIP_FORMS:
+            listed = self.list_documents(issuer_id, doc_type=form)
+            if isinstance(listed, ProviderError):
+                return listed
+            selected = listed.documents
+            if limit_per_form is not None:
+                selected = selected[:limit_per_form]
+            docs.extend(selected)
+        return DocumentList(tuple(docs))
+
+    @staticmethod
+    def raw_document_url(url: str) -> str:
+        """primaryDocument ленты указывает на XSL-рендер
+        (xslF345X0N/doc.xml); сырой XML лежит в том же accession без
+        префикса рендера — замер ТЗ-32 D1. Прочие URL не трогаются."""
+        marker = "/xslF"
+        idx = url.find(marker)
+        if idx == -1:
+            return url
+        slash = url.find("/", idx + 1)
+        return url[:idx] + url[slash:] if slash != -1 else url
