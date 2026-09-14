@@ -36,6 +36,12 @@ if [ -n "$P2" ]; then
     fail "P2" "db.py lines removed beyond the _SCHEMA_VERSION bump"
 fi
 
+# P6: файлы координатора не касаются широким git add (ТЗ-33 E6,
+# регрессия e68c1b5: устаревший agent/TASK.md уехал в коммит).
+if ! bash agent/p6_rule.sh; then
+    fail "P6" "coordinator-owned files staged"
+fi
+
 # P3/P4: ничего вне git, никакого мусора
 P34=$(git status --porcelain | grep '^??' || true)
 if [ -n "$P34" ]; then
