@@ -5,7 +5,7 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 13.09.2026, after merging TASK-22…27 into `main`.
+Last updated: 14.09.2026, after accepting TASK-29, TASK-28 and TASK-30.
 
 ## 1. What the program is
 
@@ -54,6 +54,15 @@ user, data never leaves the machine. **Everything in it is free
    proves it.**
 10. **The single door**: `RuleClient` / `LlmApiClient` are constructed
     only inside `rusterm/core/llm.py` (`tests/test_single_door.py`).
+11. **No test reads the real `~/.rusterm.env`** and no test reaches the
+    network by default: `tests/conftest.py` isolates the environment,
+    and anything that can make a request carries the `live` marker,
+    deselected by `addopts` (TASK-29).
+12. **Every network channel declares its tariff** (`open` / `free_key`
+    / `paid`) and its ceiling in the provider registry; a `paid` channel
+    is refused by value; `doctor` prints the freeness section; a host
+    literal outside the registry fails `tests/test_free_only.py`
+    (TASK-28).
 
 ## 4. Where the product actually is
 
@@ -64,13 +73,13 @@ user, data never leaves the machine. **Everything in it is free
 | M6 CA + OTC | both collected through EDGAR |
 | M7 industry aggregate | done |
 | M8 six markets, manual import | registry of six; US/CA/OTC collect, KR needs its key, BR/AU have providers but **no `ingest` channel** |
-| M9 quotations | schema 41 (`price`, `corporate_action`), formulas wired, cadence simulated — **no vendor rows yet** (TASK-30) |
+| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and cadence has no CLI surface yet (TASK-31 C5) |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import — **five indicators still grey for every issuer** (TASK-32, 33) |
 | M12 chat | loop, citation guard, adversarial corpus, ADR-0016 — **no TUI screen, no transcripts, no model comparison** (TASK-35, 36, 37) |
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |
 
-Data reaching a user today: **US 10 measures of 10; CA 3/10; OTC 3/10**
+Data reaching a user today: **US 10 measures of 10 plus real prices; CA 3/10; OTC 3/10**
 (all three through EDGAR). Everything else is a named refusal.
 
 ## 5. Keys (all free — ADR-0018)
@@ -92,7 +101,7 @@ interface · 0010 markets outside EDGAR, access levels auto/partial/manual
 · 0011 manual document import, three-stage pipeline · 0012 parallel
 lanes · 0013 how a market is added · 0014 Twelve Data free tier, cadence
 by completeness · 0015 how a sector is added · 0016 model surface and
-untrusted text · 0017 lane merge rule · 0018 **everything is free**.
+untrusted text · 0017 lane merge rule · 0018 **everything is free** · 0019 no vendor `adjusted` on the free tier, the correction is ours alone.
 
 ## 7. Reading order when reviewing a night (coordinator)
 

@@ -118,6 +118,28 @@ The BR gap list (`CD_CONTA`, `DS_CONTA`, `VL_CONTA`, `ESCALA_MOEDA`
 unmapped) is real and belongs to TASK-27 N7 with the collection channel
 that will produce the payloads.
 
+## Coordinator rulings — TASK-29, 28, 30 (14.09.2026)
+
+Accepted 14.09.2026, journal `agent/ACCEPTANCE-30.txt`. The shift's
+questions and its two `Disputed` entries are settled here.
+
+| # | Question (report) | Ruling |
+|---|---|---|
+| 1 | R3's Done-when («test_budget.py untouched») contradicted R3's own work section («the declaration lands in the registry») (28) | **Executor upheld; the task text was the bug.** Implementing per the work section was right, and both replacements are strictly stronger. The general rule follows: a pin over the registry is **derived from the registry**, never hand-typed — TASK-40 L7. |
+| 2 | `test_twelvedata_seat_is_refused_until_module_lands` replaced once the module landed (30, Disputed) | **Upheld.** The successor asserts more: the seat builds the client and the key door answers `twelvedata_key_unset`. |
+| 3 | B33 closed as already done by TASK-27 N6 (28) | **Confirmed**, and TASK-40 L4 now names B34 and B35 only. |
+| 4 | `selfcheck.sh` prints only the tail of a red acceptance run, so the flake could not be attributed (29) | **Fix it** — TASK-40 L5. A guard whose failure cannot be read teaches people to re-run instead of read. |
+| 5 | `test_m4_scale` timing flake under load (29, 30) | **Make it load-tolerant** — TASK-40 L6: assert the shape (ratio with a stated tolerance), never a wall-clock budget. |
+| 6 | Cadence has no CLI surface (30) | **Yes, a command** — TASK-31 C5, with a `--json` form joining the B16 key pin and one line in `doctor`. |
+| 7 | The free tier sends no vendor `adjusted`, so K3's cross-check has no input (30) | **Recorded as a decision, not a gap: ADR-0019.** `price_adj` is the only source of adjusted values; `adjusted IS NULL` is pinned by the golden test so the day the vendor starts sending it the pin goes red; TASK-31 C1 is rewritten to three internal proofs. Buying the paid plan is not an option (ADR-0018). |
+| 8 | The leaked OpenRouter key prefix from the 13.09 arrival red (29) | **Not a repository defect** — nothing tracked carries it (re-verified). Re-issuing the key is the user's action; the executor has nothing to do here. |
+
+Noted, no action required: the I9 violation in TASK-30 B2 (cache lookup
+SQL written into `rusterm/cli/__init__.py`) was caught by acceptance
+check 7 and repaired into `RawRepo.find_by_provider_url` inside the same
+shift. That is the guard system working as designed — reported honestly,
+fixed in the open.
+
 ## Coordinator rulings — TASK-22…27 (read once, then obey)
 
 Accepted 13.09.2026 as they stand, journal `agent/ACCEPTANCE-27.txt`,

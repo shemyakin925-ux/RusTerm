@@ -1,7 +1,6 @@
 # TASK-28 — Бесплатность становится правилом, которое проверяет машина
 
-- **Status: READY** — take it in numeric order, after TASK-29 has made
-  the suite green with the keys in place.
+- **Status: ACCEPTED** 14.09.2026 — journal `agent/ACCEPTANCE-30.txt`; acceptance 13/13 on `agent/night-10`, merged into `main`.
 - **Branch:** the shift branch, cut from `main` (`agent/PROTOCOL.md` §11)
 - **Report:** `agent/REPORT-28.md`
 - **Protocol:** `agent/PROTOCOL.md`. State: `agent/CONTEXT.md`.

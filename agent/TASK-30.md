@@ -1,6 +1,6 @@
 # TASK-30 — K2 и K7: котировки перестают быть фикстурами
 
-- **Status: READY**
+- **Status: ACCEPTED** 14.09.2026 — journal `agent/ACCEPTANCE-30.txt`; acceptance 13/13 on `agent/night-10`, merged into `main`.
 - **Report:** `agent/REPORT-30.md`
 - **Protocol:** `agent/PROTOCOL.md`. State: `agent/CONTEXT.md`.
 - **Budgets:** network **60 requests**, of which Twelve Data no more

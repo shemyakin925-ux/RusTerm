@@ -1,7 +1,6 @@
 # TASK-29 — Ключи в окружении: приёмка снова обязана быть зелёной
 
-- **Status: READY** — take it first in the shift; the tasks after it
-  assume a green suite.
+- **Status: ACCEPTED** 14.09.2026 — journal `agent/ACCEPTANCE-30.txt`; acceptance 13/13 on `agent/night-10`, merged into `main`.
 - **Report:** `agent/REPORT-29.md`
 - **Protocol:** `agent/PROTOCOL.md` (read once per shift, it outranks
   this file). State of the project: `agent/CONTEXT.md`.
