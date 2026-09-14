@@ -273,3 +273,17 @@ Questions for the coordinator:
 3. minority absence-as-zero rule — ruling wanted.
 
 NOW: C2, step 8
+## Done (continued)
+
+### C4 — the currency of a price row is not lost (DONE)
+
+- `tests/test_currency_firewall.py::
+  test_non_usd_price_row_keeps_currency_and_aggregate_refuses`:
+  4 USD + 4 KRW instruments, each price row stored in its own market
+  currency (roundtrip via PriceRepo.series asserted), snapshots built
+  through SnapshotBuilder. The KR market_cap keeps the PRICE currency
+  (KRW 50 000 x 7 000 000 shares, unit KRW — no conversion to USD),
+  and the absolute sector aggregate over the mixed set refuses:
+  null_reason `currency_mismatch: KRW, USD` (quoted; both currencies
+  named, refusal not silence).
+- `python3 -m pytest tests/test_currency_firewall.py -q` -> 5 passed.
