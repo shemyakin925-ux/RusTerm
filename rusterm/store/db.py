@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 41  # 40 (TASK-19 F4) + 41: price и corporate_action — место котировок (ТЗ-23 K1, ADR-0014)
+_SCHEMA_VERSION = 42  # 41 (ТЗ-23 K1) + 42: corporate_action как вход мер — lineage на события (ТЗ-31 C2)
 
 
 def _checksum(text: str) -> str:
@@ -590,6 +590,32 @@ def _migrate_41_prices(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[41] = (_migrate_41_prices,
                           _PRICE_DDL + ";" + _CORPORATE_ACTION_DDL)
+
+
+_MEASURE_LINEAGE_CA_DDL = """CREATE TABLE IF NOT EXISTS measure_lineage_ca (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        ca_instrument_id TEXT NOT NULL,
+        ca_ex_date TEXT NOT NULL,
+        ca_kind TEXT NOT NULL,
+        role TEXT NOT NULL,
+        PRIMARY KEY (measure_id, ca_instrument_id, ca_ex_date, ca_kind,
+                     role),
+        FOREIGN KEY (ca_instrument_id, ca_ex_date, ca_kind)
+            REFERENCES corporate_action(instrument_id, ex_date, kind))"""
+
+
+def _migrate_42_ca_lineage(conn: sqlite3.Connection) -> None:
+    """Корпоративные действия как входы мер (ТЗ-31 C2): мера,
+    посчитанная по событиям corporate_action (dps_ttm по скользящему
+    окну), обязана нести lineage на ИМЕННО эти события — I4 без
+    канала на события выталкивал бы такие меры в отказ. Отдельная
+    таблица рядом с measure_lineage: прежняя таблица, её CHECK и её
+    индексы не трогаются."""
+    conn.execute(_MEASURE_LINEAGE_CA_DDL)
+
+
+_CUSTOM_MIGRATIONS[42] = (_migrate_42_ca_lineage,
+                          _MEASURE_LINEAGE_CA_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

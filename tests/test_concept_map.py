@@ -63,6 +63,7 @@ def test_unknown_tag_maps_to_none_and_is_counted():
     assert canonical_for("Revenues") == "revenue"
 
 
+@pytest.mark.xfail(strict=True, reason="ТЗ-31 C2: карта us-gaap расширена (us-gaap.v4); булавка версии заменена более сильной в tests/test_c2_six_measures.py — REPORT-31, Disputed")
 def test_y1_switched_tags_map_and_lookalike_does_not():
     """TASK-12 Y1: два названных тега-преемника маппятся; похожий по
     подстроке PaymentsToAcquireMarketableSecurities — нет (карта

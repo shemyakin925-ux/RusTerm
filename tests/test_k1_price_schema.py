@@ -66,7 +66,7 @@ def test_migration_applied_twice_creates_no_duplicates(env):
 
 
 def test_existing_database_migrates_and_keeps_rows(env):
-    """Прежние таблицы сохраняют ряды после миграции 41."""
+    """Прежние таблицы сохраняют ряды после миграций 41 и 42."""
     paths, conn, repos = env
     repos.instrument.upsert_issuer(Issuer(
         "i2", "Corp 2", "CA", None, None, "ifrs-full", "CAD"))
@@ -79,7 +79,7 @@ def test_existing_database_migrates_and_keeps_rows(env):
         for t in ("issuer", "instrument", "fact", "measure")}
     assert counts_before == counts_after
     assert conn.execute(
-        "SELECT MAX(version) FROM schema_version").fetchone()[0] == 41
+        "SELECT MAX(version) FROM schema_version").fetchone()[0] == 42
 
 
 def test_price_uniqueness_per_instrument_date_source(env):

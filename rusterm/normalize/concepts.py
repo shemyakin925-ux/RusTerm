@@ -7,12 +7,21 @@
 для эмитента/периода/единицы, выигрывает.
 
 Правила: два тега никогда не суммируются; USD-тег не закрывает
-концепт в shares; total_debt/shares_outstanding/price_close/price_adj
-намеренно отсутствуют (составное и инструментные — не эмитентные).
+концепт в shares; price_close/price_adj намеренно отсутствуют
+(инструментные — не эмитентные). Исключение ТЗ-31 C2 (каждый тег — с
+payload-доказательством из companyfacts AAPL, 14.09.2026):
+shares_outstanding <- us-gaap:CommonStockSharesOutstanding (144
+факта, 14 608 963 000 shares на 2026-06-27, 10-Q) — эмитент
+раскрывает класс по строке баланса; total_debt <-
+us-gaap:LongTermDebt (54 факта, 82 300 000 000 USD на 2026-06-27) —
+ОДИН тег «весь сроковой долг» эмитента (коммерческие бумаги не
+входят: суммировать два тега запрещено, недоучёт назван здесь);
+st_investments <- us-gaap:MarketableSecuritiesCurrent (62 факта,
+22 855 000 000 USD на 2026-06-27).
 """
 from __future__ import annotations
 
-CONCEPT_MAP_VERSION = "us-gaap.v3"  # v3: + теги-преемники capex/d_and_a (TASK-12 Y1)
+CONCEPT_MAP_VERSION = "us-gaap.v4"  # v4: + shares_outstanding/total_debt/st_investments по payload-доказательствам (ТЗ-31 C2)
 
 CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "revenue": (
@@ -48,9 +57,17 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
               # эмитент, сдающий оба, продолжает получать прежний
               "PaymentsToAcquireProductiveAssets"),
     "cash": ("CashAndCashEquivalentsAtCarryingValue",),
-    "st_investments": ("ShortTermInvestments",),
+    "st_investments": ("ShortTermInvestments",
+                       # ТЗ-31 C2: строка баланса «рыночные ценные
+                       # бумаги (текущие)» — преемник ShortTermInvestments
+                       "MarketableSecuritiesCurrent"),
     "total_assets": ("Assets",),
     "total_equity": ("StockholdersEquity",),
+    # ТЗ-31 C2: весь сроковой долг ОДНИМ тегом эмитента (не сумма
+    # двух тегов); коммерческие бумаги не входят — недоучёт назван
+    "total_debt": ("LongTermDebt",),
+    # ТЗ-31 C2: акции в обращении по строке баланса эмитента
+    "shares_outstanding": ("CommonStockSharesOutstanding",),
     # капитал включая неконтролирующую долю (TASK-10 W3): НЕ синоним
     # total_equity и никогда с ним не суммируется; формулы пока нет —
     # факт перестаёт быть невидимым

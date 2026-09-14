@@ -9,11 +9,12 @@ peer set, появившиеся ревизии (ADR-0002: смешивать п
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from uuid import uuid4
 
 from rusterm.core.peers import currency_guard, evaluate, percentile_share
-from rusterm.formulas import calculate_measure, measure_unit
+from rusterm.formulas import (calculate_measure, effective_tax_rate,
+                              invested_capital, measure_unit, nopat)
 from rusterm.normalize.concepts import priority_rank, strip_taxonomy
 
 # Меры первого прохода (TASK-9 V4): все формулы §3 data-dictionary,
@@ -180,12 +181,17 @@ class SnapshotBuilder:
     """Собирает и записывает новую версию снапшота по фактам из базы."""
 
     def __init__(self, snapshot_repo, peer_set_repo, coverage_repo,
-                 price_repo=None, industry=None, governance=None):
+                 price_repo=None, industry=None, governance=None,
+                 corp_action_repo=None):
         self._snapshots = snapshot_repo
         self._peers = peer_set_repo
         # ТЗ-23 K4: репозиторий цен; None — цены недоступны, меры
         # получают честную причину missing_data: price_close
         self._prices = price_repo
+        # ТЗ-31 C2: корпоративные действия для dps_ttm (скользящее
+        # окно 365 дней по ex_date); None — вход недоступен, div_yield
+        # получает честную причину missing_data: dps_ttm
+        self._corp_actions = corp_action_repo
         # ТЗ-25 P1: резолвер governance (instrument_id, issuer_id) ->
         # список Assessment (продюсер сам пишет через GovernanceRepo)
         self._governance = governance
@@ -670,6 +676,96 @@ class SnapshotBuilder:
     def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:
         return self._snapshots.fact_currency(fact_id)
 
+    # ── ТЗ-31 C2: входы оценочных мер из реальных данных ────────────────
+
+    def _nci_never_reported(self, issuer_id: str) -> bool:
+        """Истинно, если эмитент НИ РАЗУ не отчитывал неконтролирующую
+        долю ни отдельным концептом, ни включённым капиталом: в его
+        отчётности нет строки NCI, и 0.0 — производное от набора
+        фактов, а не выдумка. Хотя бы один признак NCI — deriving
+        невозможен, возвращается False."""
+        rows = self._snapshots.as_reported_facts(
+            issuer_id, ("minority_interest", "total_equity_incl_nci"))
+        return not rows
+
+    def _annual_common_period(self, issuer_id: str,
+                              concepts: tuple) -> Optional[dict]:
+        """Последний общий ГОДОВОЙ период (350..380 дней) по концептам:
+        {concept: (value, fact_id)} с приоритетом карты, иначе None.
+        Для ev_ebitda и roic (ТЗ-31 C2): квартальный знаменатель давал
+        бы кратную ошибку; годовой период отчётности — честный TTM-
+        эквивалент, период виден в строках lineage."""
+        rows = self._snapshots.as_reported_facts(issuer_id, concepts)
+        by_concept: dict[str, list] = {}
+        for concept, value, fact_id, _unit, start, end, canonical in rows:
+            key = canonical or concept
+            if key not in concepts:
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            by_concept.setdefault(key, []).append(
+                {"value": numeric, "fact_id": fact_id, "start": start,
+                 "end": end,
+                 "rank": priority_rank(key, strip_taxonomy(concept)[1],
+                                       strip_taxonomy(concept)[0]
+                                       or "us-gaap")})
+        if any(c not in by_concept for c in concepts):
+            return None
+        key_sets = [{(r["start"], r["end"]) for r in by_concept[c]}
+                    for c in concepts]
+        common = set.intersection(*key_sets)
+        annual = [k for k in common
+                  if 350 <= (date.fromisoformat(k[1])
+                             - date.fromisoformat(k[0])).days <= 380]
+        if not annual:
+            return None
+        start, end = max(annual, key=lambda k: (k[1], k[0]))
+        out: dict = {"period": (start, end), "lineage": [], "values": {}}
+        for c in concepts:
+            row = min((r for r in by_concept[c]
+                       if (r["start"], r["end"]) == (start, end)),
+                      key=lambda r: r["rank"])
+            out["values"][c] = row["value"]
+            out["lineage"].append({"fact_id": row["fact_id"],
+                                   "peer_measure_id": None,
+                                   "role": "input"})
+        return out
+
+    def _dps_ttm_from_actions(self, instrument_id: str, as_of: str,
+                              price_currency: Optional[str]) -> Optional[tuple]:
+        """dps_ttm по скользящему окну 365 дней из corporate_action
+        (ТЗ-31 C2): суммы вендора в сегодняшней базе акций — той же,
+        что цена (ADR-0020), поэтому отношение корректно. Валюта
+        событий обязана совпасть с валютой цены. Возвращает
+        (сумма, as_of, валюта, события окна) — события идут в lineage
+        меры (миграция 42). Нет окна/репозитория — None: calling
+        сторона ставит missing_data: dps_ttm."""
+        if self._corp_actions is None:
+            return None
+        try:
+            low = (date.fromisoformat(as_of)
+                   - timedelta(days=365)).isoformat()
+        except (TypeError, ValueError):
+            return None
+        events = self._corp_actions.all(instrument_id)
+        total = 0.0
+        window: list[dict] = []
+        for e in events:
+            if e["kind"] != "dividend" or e["amount"] is None:
+                continue
+            if not (low < e["ex_date"] <= as_of):
+                continue
+            if price_currency and e["currency"] \
+                    and e["currency"] != price_currency:
+                return None  # K6: разные валюты — не частное
+            total += float(e["amount"])
+            window.append(e)
+        if not window:
+            return None
+        return (total, as_of, price_currency, window)
+
     def _fact_lineage(self, fact_id: Optional[str]) -> list:
         if not fact_id:
             return []
@@ -795,6 +891,10 @@ class SnapshotBuilder:
         cash = inputs.get("cash")
         stinv = inputs.get("st_investments")
         minority = inputs.get("minority_interest")
+        # ТЗ-31 C2: NCI ни разу не отчитан (ни отдельным концептом, ни
+        # включённым капиталом) — 0.0 производно от набора фактов
+        if minority is None and self._nci_never_reported(issuer_id):
+            minority = (0.0, None, None, None)
         ev_value = None
         ev_reason = None
         if total_value is None:
@@ -827,27 +927,48 @@ class SnapshotBuilder:
 
         # ev_ebitda = ev / ebitda — ratio: обе стороны уже в одной
         # валюте (ev наследует валюту цены, ebitda — валюту фактов
-        # эмитента); разные валюты фактов отсечены стражем выше
+        # эмитента); разные валюты фактов отсечены стражем выше.
+        # ТЗ-31 C2: знаменатель — ГОДОВОЙ общий период (TTM-
+        # эквивалент): квартальный ebitda давал бы кратную ошибку;
+        # нет годового — прежнее поведение (мера ebitda первого
+        # прохода, период виден в её строке)
         ebitda_value = computed.get("ebitda")
         ebitda_mid = measure_row_ids.get("ebitda")
         if ev_reason is not None and ev_value is None:
             write("ev_ebitda", None, "missing_data: ev", "ratio", [])
-        elif ebitda_value is None or not ebitda_mid:
-            write("ev_ebitda", None, "missing_data: ebitda", "ratio",
-                  [])
         else:
-            m = calculate_measure("ev_ebitda", ev=ev_value,
-                                  ebitda_ttm=ebitda_value)
-            # I4: входы — МЕРЫ (ev и ebitda), lineage идёт по
-            # peer_measure_id на их строки
-            write("ev_ebitda", m.value, m.null_reason, "ratio",
-                  [{"fact_id": None, "peer_measure_id": ev_mid,
-                    "role": "input"},
-                   {"fact_id": None, "peer_measure_id": ebitda_mid,
-                    "role": "input"}])
+            annual_ebitda = self._annual_common_period(
+                issuer_id, ("operating_income", "d_and_a"))
+            if annual_ebitda is not None:
+                m = calculate_measure(
+                    "ev_ebitda", ev=ev_value,
+                    ebitda_ttm=annual_ebitda["values"]["operating_income"]
+                    + annual_ebitda["values"]["d_and_a"])
+                write("ev_ebitda", m.value, m.null_reason, "ratio",
+                      [{"fact_id": None, "peer_measure_id": ev_mid,
+                        "role": "input"}] + annual_ebitda["lineage"])
+            elif ebitda_value is None or not ebitda_mid:
+                write("ev_ebitda", None, "missing_data: ebitda", "ratio",
+                      [])
+            else:
+                m = calculate_measure("ev_ebitda", ev=ev_value,
+                                      ebitda_ttm=ebitda_value)
+                # I4: входы — МЕРЫ (ev и ebitda), lineage идёт по
+                # peer_measure_id на их строки
+                write("ev_ebitda", m.value, m.null_reason, "ratio",
+                      [{"fact_id": None, "peer_measure_id": ev_mid,
+                        "role": "input"},
+                       {"fact_id": None, "peer_measure_id": ebitda_mid,
+                        "role": "input"}])
 
-        # div_yield = dps_ttm / price_close — валюты обязаны совпасть
+        # div_yield = dps_ttm / price_close — валюты обязаны совпасть.
+        # ТЗ-31 C2: нет факта dps_ttm — TTM по скользящему окну 365
+        # дней из corporate_action (вендорская база = база цены,
+        # ADR-0020); валюты сверяются тем же правилом K6
         dps = inputs.get("dps_ttm")
+        if dps is None:
+            dps = self._dps_ttm_from_actions(instrument_id, as_of,
+                                             price_currency)
         dps_cur = dps[2] if dps else None
         if dps is None:
             write("div_yield", None, "missing_data: dps_ttm", "ratio",
@@ -859,18 +980,55 @@ class SnapshotBuilder:
         else:
             m = calculate_measure("div_yield", dps_ttm=dps[0],
                                   price_close=price_value)
-            write("div_yield", m.value, m.null_reason, "ratio",
-                  self._fact_lineage(dps[3]))
+            # ТЗ-31 C2: dps_ttm из corporate_action несёт lineage на
+            # события окна (миграция 42); факт-маршрут — как прежде
+            if isinstance(dps[3], list) and dps[3]:
+                lineage = [{"ca_instrument_id": instrument_id,
+                            "ca_ex_date": e["ex_date"],
+                            "ca_kind": "dividend", "role": "input"}
+                           for e in dps[3]]
+            else:
+                lineage = self._fact_lineage(dps[3])
+            write("div_yield", m.value, m.null_reason, "ratio", lineage)
 
         # roic = nopat / avg(invested_capital) — оба входа в валюте
         # отчётности; nopat посчитан из тех же фактов (K6: одна валюта)
         ic = inputs.get("invested_capital")
+        if ic is None:
+            # ТЗ-31 C2: производный инвестированный капитал по формуле
+            # словаря из фактов последнего момента; NCI — по правилу
+            # нулевого меньшинства выше
+            te, td = inputs.get("total_equity"), inputs.get("total_debt")
+            c, si = inputs.get("cash"), inputs.get("st_investments")
+            if None not in (te, td, c, si, minority):
+                ic = (invested_capital(te[0], minority[0], td[0], c[0],
+                                       si[0]), None, price_currency,
+                      None)
+        annual_nopat = self._annual_common_period(
+            issuer_id, ("operating_income", "tax_expense",
+                        "pretax_income"))
         nop = computed.get("nopat")
-        if nop is None:
-            write("roic", None, "missing_data: nopat", "ratio", [])
-        elif ic is None:
+        if ic is None:
             write("roic", None, "missing_data: invested_capital",
                   "ratio", [])
+        elif annual_nopat is not None:
+            rate, rate_reason = effective_tax_rate(
+                annual_nopat["values"]["tax_expense"],
+                annual_nopat["values"]["pretax_income"])
+            nop_value = nopat(annual_nopat["values"]["operating_income"],
+                              rate) if rate is not None else None
+            if nop_value is None:
+                write("roic", None, "missing_data: nopat", "ratio",
+                      annual_nopat["lineage"])
+            else:
+                m = calculate_measure("roic", nopat=nop_value,
+                                      invested_capital_begin=ic[0],
+                                      invested_capital_end=ic[0])
+                write("roic", m.value, m.null_reason, "ratio",
+                      annual_nopat["lineage"]
+                      + self._fact_lineage(ic[3]))
+        elif nop is None:
+            write("roic", None, "missing_data: nopat", "ratio", [])
         else:
             m = calculate_measure("roic", nopat=nop,
                                   invested_capital_begin=ic[0],

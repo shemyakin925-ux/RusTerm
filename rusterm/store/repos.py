@@ -472,6 +472,17 @@ class SnapshotRepo:
             (measure_id,)).fetchall()
         return [r[0] for r in rows]
 
+    def lineage_ca(self, measure_id: str) -> List[dict]:
+        """Корпоративные действия — входы меры (ТЗ-31 C2, миграция 42):
+        события окна dps_ttm для панели источника и проверки I4."""
+        rows = self.conn.execute(
+            """SELECT ca_instrument_id, ca_ex_date, ca_kind, role
+               FROM measure_lineage_ca WHERE measure_id=?
+               ORDER BY ca_ex_date""",
+            (measure_id,)).fetchall()
+        return [dict(zip(("instrument_id", "ex_date", "kind", "role"),
+                         r)) for r in rows]
+
     def instruments_for_fact(self, fact_id: str) -> List[str]:
         """Инструменты, чьи снапшоты содержат меры с lineage,
         ссылающимся на факт (процесс 5, узел recompute)."""
@@ -599,7 +610,11 @@ class SnapshotRepo:
         а null_reason обязателен и объясняет, чего не хватило (data-model §4).
 
         measure и lineage пишутся одной транзакцией — полусостояний нет.
-        lineage: [{"fact_id": ...}|{"peer_measure_id": ...}, "role": ...}]
+        lineage: [{"fact_id": ...}|{"peer_measure_id": ...}|"role": ...}]
+        ТЗ-31 C2: строка lineage может вместо fact_id/peer_measure_id
+        нести корпоративное действие — {"ca_instrument_id", "ca_ex_date",
+        "ca_kind", "role"}: она пишется в measure_lineage_ca (миграция
+        42) и тоже защищает I4.
         """
         value = measure.get("value")
         null_reason = measure.get("null_reason")
@@ -624,11 +639,19 @@ class SnapshotRepo:
                  measure.get("method_version"), null_reason,
                  measure.get("peer_set_version")))
             for l in lineage:
-                c.execute(
-                    """INSERT INTO measure_lineage(measure_id, fact_id,
-                      peer_measure_id, role) VALUES (?, ?, ?, ?)""",
-                    (measure["measure_id"], l.get("fact_id"),
-                     l.get("peer_measure_id"), l["role"]))
+                if l.get("ca_instrument_id") is not None:
+                    c.execute(
+                        """INSERT INTO measure_lineage_ca(measure_id,
+                          ca_instrument_id, ca_ex_date, ca_kind, role)
+                          VALUES (?, ?, ?, ?, ?)""",
+                        (measure["measure_id"], l["ca_instrument_id"],
+                         l["ca_ex_date"], l["ca_kind"], l["role"]))
+                else:
+                    c.execute(
+                        """INSERT INTO measure_lineage(measure_id, fact_id,
+                          peer_measure_id, role) VALUES (?, ?, ?, ?)""",
+                        (measure["measure_id"], l.get("fact_id"),
+                         l.get("peer_measure_id"), l["role"]))
         return measure["measure_id"]
 
 

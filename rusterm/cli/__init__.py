@@ -441,6 +441,7 @@ def cmd_refresh(args) -> int:
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
+                              corp_action_repo=repos.corp_action,
                               industry=lambda iid, _issuer:
                                   industry_metrics_for(repos, iid),
                               governance=lambda iid, issuer:
@@ -529,6 +530,7 @@ def cmd_snapshot(args) -> int:
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
+                              corp_action_repo=repos.corp_action,
                               industry=lambda iid, _issuer:
                                   industry_metrics_for(repos, iid),
                               governance=lambda iid, issuer:
@@ -618,6 +620,7 @@ def cmd_verify(args) -> int:
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
+                              corp_action_repo=repos.corp_action,
                               industry=lambda iid, _issuer:
                                   industry_metrics_for(repos, iid),
                               governance=lambda iid, issuer:
