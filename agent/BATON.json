@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 31,
+ "holder": "coordinator",
+ "round": 32,
  "branch": "agent/night-11",
  "task": "agent/TASK-31.md",
  "report": "agent/REPORT-31.md",
- "note": "night-11 start: take TASK-31, then the READY queue in numeric order",
- "handed_by": "coordinator",
- "handed_at": "2026-09-14T15:34:13Z",
+ "note": "TASK-31 DONE: C1-C5 (vendor CA, internal adjustment proofs + ADR-0020, six measures with values, currency kept, cadence CLI); 650 passed/0 failed; 12/40 Twelve Data requests; 3 rulings requested in Disputed",
+ "handed_by": "executor",
+ "handed_at": "2026-09-14T18:38:39Z",
  "paused": false,
  "finished": false
 }
