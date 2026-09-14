@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 35,
+ "holder": "coordinator",
+ "round": 36,
  "branch": "agent/night-11",
  "task": "agent/TASK-33.md",
  "report": "agent/REPORT-33.md",
- "note": "TASK-32 ACCEPTED: 13/13 exit 0, D5 rule verified in the diff. REGRESSION: agent/TASK.md overwritten with its pre-10.09 text in e68c1b5 — E5 restores it, E6 guards it; take E5/E6 before E1",
- "handed_by": "coordinator",
- "handed_at": "2026-09-14T19:45:23Z",
+ "note": "TASK-33 DONE: E5/E6 charter restored + P6 guard self-tested; insider_net yellow on real AAPL record with 10b5-1 share named; DEF 14A probed (iXBRL, manual import for governance facts); colour provable at write; STALENESS 450; 668 passed/0 failed",
+ "handed_by": "executor",
+ "handed_at": "2026-09-14T20:23:30Z",
  "paused": false,
  "finished": false
 }
