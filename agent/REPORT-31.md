@@ -322,3 +322,24 @@ NOW: C2, step 8
 - `python3 -m pytest tests/test_c5_cadence_cli.py -q` -> 2 passed;
   full suite 0 failed.
 
+## HANDOFF (final, TASK-31 complete)
+
+Status:          DONE
+Arrival state:   selfcheck STATUS=OK, «Итог: пройдено 13, провалено 0» before any commit
+Items done:      C1, C2, C3, C4, C5 (+ one C3 basis repair folded into C1, see above)
+Items not done:  none in TASK-31
+Acceptance:      «Итог: пройдено 13, провалено 0», ACCEPTED, SELFCHECK OK at the last commit (874105f); captured before any pipe
+Tests:           650 passed, 1 skipped, 5 deselected, 4 xfailed, 0 failed
+Guards:          4 v3-era pins unholdable -> xfail(strict) with stronger successors (map-subset pin, v4 stamp pins); 13 schema-version literals 41->42 (migration 42); adjusted IS NULL pin now at parse AND store level; vendor-basis anchors 124.80750/129.039993 pinned; no assert deleted
+Schema:          41 -> 42 (measure_lineage_ca: corporate actions as measure inputs)
+Network:         12 of 40 Twelve Data requests (1 series + 6 probes + 2 CA collect + 3 re-bootstrap after map v4)
+Model:           0 of 0; GLM-5.3-Flash
+Secrets:         keys never printed; payload URLs and tests/data grepped — 0 hits
+Pushed:          yes — 603f13b, 8d84e16, a9c4fd5, beedb72, 874105f on agent/night-11
+Questions for the coordinator:
+1. P1 grep vs sanctioned replacements — mechanism wanted (Disputed).
+2. ev_ebitda/roic annual-period denominator convention — ruling wanted.
+3. minority absence-as-zero rule — ruling wanted.
+4. ADR-0020 (free close is split-adjusted) — confirm or amend.
+
+NOW: HANDOFF, step 8
