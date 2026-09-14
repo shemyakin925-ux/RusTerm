@@ -149,3 +149,24 @@ NOW: D4, step 8
   removals -> always green. 4 passed.
 - `bash agent/selfcheck.sh` green on this item's commit (P1
   fast-path: no *.py removals in the D5 commit).
+
+## Done (continued)
+
+### D6 — the annual approximation becomes visible (DONE)
+
+- Migration 43: `period_basis TEXT (ttm | annual)` added to both
+  lineage tables (NULL = direct single-period input). The snapshot
+  writer stamps it: `ev_ebitda` and `roic` annual-denominator rows
+  carry `annual`, `div_yield` (365-day window over corporate actions
+  and the dps fact route) carries `ttm`.
+- `tests/test_c2_six_measures.py` extended: for the AAPL golden
+  snapshot, ev_ebitda and roic lineage carries exactly
+  `period_basis='annual'` AND the period is named — the annual
+  lineage resolves to facts with period_end 2025-09-27 (FY2025);
+  div_yield's CA lineage carries `ttm`.
+- ADR-0021 records WHY TTM is not buildable from XBRL for an issuer
+  that files no Q4 3-month fact (no Q4 3-month duration in the
+  annual report; the year+YTD-priorYTD algebra lacks the prior-year
+  9M fact for Apple), and that README §15 now lists it.
+- Schema version 42 -> 43; the version-literal updates in five test
+  files are declared per the D5 rule (see the commit message).

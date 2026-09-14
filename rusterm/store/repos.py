@@ -639,19 +639,25 @@ class SnapshotRepo:
                  measure.get("method_version"), null_reason,
                  measure.get("peer_set_version")))
             for l in lineage:
+                # ТЗ-32 D6: period_basis (ttm|annual) — база периода
+                # входа, NULL для прямого однопериодного
                 if l.get("ca_instrument_id") is not None:
                     c.execute(
                         """INSERT INTO measure_lineage_ca(measure_id,
-                          ca_instrument_id, ca_ex_date, ca_kind, role)
-                          VALUES (?, ?, ?, ?, ?)""",
+                          ca_instrument_id, ca_ex_date, ca_kind, role,
+                          period_basis)
+                          VALUES (?, ?, ?, ?, ?, ?)""",
                         (measure["measure_id"], l["ca_instrument_id"],
-                         l["ca_ex_date"], l["ca_kind"], l["role"]))
+                         l["ca_ex_date"], l["ca_kind"], l["role"],
+                         l.get("period_basis")))
                 else:
                     c.execute(
                         """INSERT INTO measure_lineage(measure_id, fact_id,
-                          peer_measure_id, role) VALUES (?, ?, ?, ?)""",
+                          peer_measure_id, role, period_basis)
+                          VALUES (?, ?, ?, ?, ?)""",
                         (measure["measure_id"], l.get("fact_id"),
-                         l.get("peer_measure_id"), l["role"]))
+                         l.get("peer_measure_id"), l["role"],
+                         l.get("period_basis")))
         return measure["measure_id"]
 
 

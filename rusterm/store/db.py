@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 42  # 41 (ТЗ-23 K1) + 42: corporate_action как вход мер — lineage на события (ТЗ-31 C2)
+_SCHEMA_VERSION = 43  # 42 (ТЗ-31 C2) + 43: period_basis в lineage — ttm|annual видно (ТЗ-32 D6)
 
 
 def _checksum(text: str) -> str:
@@ -616,6 +616,24 @@ def _migrate_42_ca_lineage(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[42] = (_migrate_42_ca_lineage,
                           _MEASURE_LINEAGE_CA_DDL)
+
+
+def _migrate_43_period_basis(conn: sqlite3.Connection) -> None:
+    """База периода в lineage (ТЗ-32 D6): приближение по годовому
+    периоду (ev_ebitda, roic) и TTM-окно (dps_ttm по корпоративным
+    действиям) перестают быть невидимыми — каждая строка lineage
+    может нести ttm|annual; NULL — прямой однопериодный вход."""
+    conn.execute("ALTER TABLE measure_lineage ADD COLUMN period_basis"
+                 " TEXT CHECK (period_basis IS NULL OR period_basis"
+                 " IN ('ttm','annual'))")
+    conn.execute("ALTER TABLE measure_lineage_ca ADD COLUMN"
+                 " period_basis TEXT CHECK (period_basis IS NULL OR"
+                 " period_basis IN ('ttm','annual'))")
+
+
+_CUSTOM_MIGRATIONS[43] = (_migrate_43_period_basis,
+                          "ALTER TABLE measure_lineage;"
+                          " ALTER TABLE measure_lineage_ca")
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

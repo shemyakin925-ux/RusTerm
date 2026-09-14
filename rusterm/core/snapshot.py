@@ -766,6 +766,12 @@ class SnapshotBuilder:
             return None
         return (total, as_of, price_currency, window)
 
+    @staticmethod
+    def _with_basis(rows: list, basis: str) -> list:
+        """Пометить строки lineage базой периода (ТЗ-32 D6: ttm |
+        annual) — приближение перестаёт быть невидимым."""
+        return [dict(row, period_basis=basis) for row in rows]
+
     def _fact_lineage(self, fact_id: Optional[str]) -> list:
         if not fact_id:
             return []
@@ -945,8 +951,10 @@ class SnapshotBuilder:
                     ebitda_ttm=annual_ebitda["values"]["operating_income"]
                     + annual_ebitda["values"]["d_and_a"])
                 write("ev_ebitda", m.value, m.null_reason, "ratio",
-                      [{"fact_id": None, "peer_measure_id": ev_mid,
-                        "role": "input"}] + annual_ebitda["lineage"])
+                      self._with_basis(
+                          [{"fact_id": None, "peer_measure_id": ev_mid,
+                            "role": "input"}]
+                          + annual_ebitda["lineage"], "annual"))
             elif ebitda_value is None or not ebitda_mid:
                 write("ev_ebitda", None, "missing_data: ebitda", "ratio",
                       [])
@@ -983,12 +991,14 @@ class SnapshotBuilder:
             # ТЗ-31 C2: dps_ttm из corporate_action несёт lineage на
             # события окна (миграция 42); факт-маршрут — как прежде
             if isinstance(dps[3], list) and dps[3]:
-                lineage = [{"ca_instrument_id": instrument_id,
-                            "ca_ex_date": e["ex_date"],
-                            "ca_kind": "dividend", "role": "input"}
-                           for e in dps[3]]
+                lineage = self._with_basis(
+                    [{"ca_instrument_id": instrument_id,
+                      "ca_ex_date": e["ex_date"],
+                      "ca_kind": "dividend", "role": "input"}
+                     for e in dps[3]], "ttm")
             else:
-                lineage = self._fact_lineage(dps[3])
+                lineage = self._with_basis(
+                    self._fact_lineage(dps[3]), "ttm")
             write("div_yield", m.value, m.null_reason, "ratio", lineage)
 
         # roic = nopat / avg(invested_capital) — оба входа в валюте
@@ -1025,8 +1035,9 @@ class SnapshotBuilder:
                                       invested_capital_begin=ic[0],
                                       invested_capital_end=ic[0])
                 write("roic", m.value, m.null_reason, "ratio",
-                      annual_nopat["lineage"]
-                      + self._fact_lineage(ic[3]))
+                      self._with_basis(
+                          annual_nopat["lineage"]
+                          + self._fact_lineage(ic[3]), "annual"))
         elif nop is None:
             write("roic", None, "missing_data: nopat", "ratio", [])
         else:

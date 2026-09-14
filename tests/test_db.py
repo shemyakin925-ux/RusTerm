@@ -17,12 +17,13 @@ def test_schema_version_is_36():
     + 39 (industry_aggregate, TASK-17 E3)
     + 40 (document, manual_extraction, fact.source_kind; TASK-19 F4)
     + 41 (price, corporate_action; ТЗ-23 K1, ADR-0014)
-    + 42 (corporate_action — вход мер: lineage на события; ТЗ-31 C2)."""
-    assert _SCHEMA_VERSION == 42
+    + 42 (corporate_action — вход мер: lineage на события; ТЗ-31 C2)
+    + 43 (period_basis ttm|annual в lineage; ТЗ-32 D6)."""
+    assert _SCHEMA_VERSION == 43
 
 
 def test_apply_migrations_creates_all_tables():
-    """M3: миграция создаёт все таблицы и создаёт все таблицы; текущая версия — 42 (ТЗ-31 C2)."""
+    """M3: миграция создаёт все таблицы и создаёт все таблицы; текущая версия — 43 (ТЗ-32 D6)."""
     import os
     tmpdir = tempfile.mkdtemp()
     db_path = os.path.join(tmpdir, "test.db")
@@ -34,7 +35,7 @@ def test_apply_migrations_creates_all_tables():
         # Берём максимальную версию (последняя применённая)
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 42
+        assert row[0] == 43
         # Ключевые таблицы
         tables = ["issuer", "instrument", "listing", "fact", "peer_set", "snapshot",
                   "measure", "coverage", "job", "audit_log",
@@ -212,8 +213,8 @@ def test_migration_33_keeps_data_and_allows_gzip():
         # v32-база получает 33 (gzip), 35 (governance), 36 (canonical),
         # 37 (issuer_ingest_state), 38 (индексы), 39 (агрегат) и
         # 40 (ручной импорт, TASK-19 F4)
-        assert newly == [33, 35, 36, 37, 38, 39, 40, 41, 42], \
-            f"ожидались [33, 35, 36, 37, 38, 39, 40, 41, 42], получили {newly}"
+        assert newly == [33, 35, 36, 37, 38, 39, 40, 41, 42, 43], \
+            f"ожидались [33, 35, 36, 37, 38, 39, 40, 41, 42, 43], получили {newly}"
         rows = dict(conn.execute(
             "SELECT sha256, compression FROM raw_object").fetchall())
         assert rows == {"a" * 64: "none", "b" * 64: "zstd"}, (
@@ -483,7 +484,7 @@ def test_v39_database_migrates_fact_source_kind_defaults_provider(monkeypatch):
         # подъём: схема дозировано доезжает до 40
         monkeypatch.setattr(db_module, "_SCHEMA_VERSION", real_version)
         newly = apply_migrations(conn)
-        assert newly == [40, 41, 42]
+        assert newly == [40, 41, 42, 43]
         rows = conn.execute(
             "SELECT fact_id, source_kind FROM fact").fetchall()
         assert len(rows) == 1

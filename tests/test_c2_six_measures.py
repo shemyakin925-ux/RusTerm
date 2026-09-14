@@ -189,8 +189,29 @@ def test_golden_units_currencies_and_periods(env):
     assert by_concept["ev"][5] == "USD"
     for concept in ("pb", "ev_ebitda", "div_yield", "roic"):
         assert by_concept[concept][5] == "ratio", concept
-    # dps_ttm без факта: lineage пуст, значение пришло из corporate_action
+    # dps_ttm без факта: значение пришло из corporate_action
     assert by_concept["div_yield"][4] is not None
+    # ТЗ-32 D6: база периода видна в lineage — годовое приближение
+    # (annual) у ev_ebitda и roic, окно 365 дней (ttm) у div_yield
+    for concept in ("ev_ebitda", "roic"):
+        mid = by_concept[concept][0]
+        bases = {r[0] for r in conn.execute(
+            """SELECT period_basis FROM measure_lineage
+               WHERE measure_id=? AND period_basis IS NOT NULL""",
+            (mid,))}
+        assert bases == {"annual"}, (concept, bases)
+    div_mid = by_concept["div_yield"][0]
+    bases = {r[0] for r in conn.execute(
+        """SELECT period_basis FROM measure_lineage_ca
+           WHERE measure_id=?""", (div_mid,))}
+    assert bases == {"ttm"}, bases
+    # годовой период назван: FY2025 у знаменателя ev_ebitda
+    mid = by_concept["ev_ebitda"][0]
+    periods = {r[0] for r in conn.execute(
+        """SELECT f.period_end FROM measure_lineage l
+           JOIN fact f ON f.fact_id = l.fact_id
+           WHERE l.measure_id=? AND l.period_basis='annual'""", (mid,))}
+    assert "2025-09-27" in periods, periods
     conn.close()
 
 
