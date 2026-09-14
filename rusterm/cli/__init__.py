@@ -493,6 +493,10 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
             print(f"edgar: {filename}: неразобрано: {e}",
                   file=sys.stderr)
             return 1
+        # сделки хранятся (миграция 44): вход insider_net считался бы
+        # из сохранённого, а не пересобирался из воздуха (ТЗ-33 E1)
+        repos.ownership.replace_for_document(sha, issuer.issuer_id,
+                                             filing.transactions)
         transactions += len(filing.transactions)
     repos.coverage.upsert(instrument_id, "ownership", "ready")
     print(f"{instrument_id}: форм владения в ленте "
@@ -537,6 +541,7 @@ def cmd_refresh(args) -> int:
 
     from rusterm.core.industry.inputs import industry_metrics_for
     from rusterm.core.governance import (governance_inputs_from_records,
+                                         insider_net_inputs_from_store,
                                          produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
@@ -548,9 +553,12 @@ def cmd_refresh(args) -> int:
                                   produce_assessments(
                                       repos.governance, iid,
                                       args_as_of_default(),
-                                      governance_inputs_from_records(
+                                      {**governance_inputs_from_records(
                                           repos.manual_extraction,
-                                          issuer)))
+                                          issuer),
+                                       **insider_net_inputs_from_store(
+                                           repos, iid, issuer,
+                                           args_as_of_default())}))
     gate = RequestGate()
 
     def provider_factory(cik: int):
@@ -626,6 +634,7 @@ def cmd_snapshot(args) -> int:
         return 1
     from rusterm.core.industry.inputs import industry_metrics_for
     from rusterm.core.governance import (governance_inputs_from_records,
+                                         insider_net_inputs_from_store,
                                          produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
@@ -637,9 +646,12 @@ def cmd_snapshot(args) -> int:
                                   produce_assessments(
                                       repos.governance, iid,
                                       args_as_of_default(),
-                                      governance_inputs_from_records(
+                                      {**governance_inputs_from_records(
                                           repos.manual_extraction,
-                                          issuer)))
+                                          issuer),
+                                       **insider_net_inputs_from_store(
+                                           repos, iid, issuer,
+                                           args_as_of_default())}))
     as_of = args.as_of or args_as_of_default()
     for instrument_id, issuer_id in targets:
         result = builder.build(instrument_id, issuer_id, as_of)
@@ -716,6 +728,7 @@ def cmd_verify(args) -> int:
     # пересборка снапшотов инструментов, чей lineage ссылался на факт
     from rusterm.core.industry.inputs import industry_metrics_for
     from rusterm.core.governance import (governance_inputs_from_records,
+                                         insider_net_inputs_from_store,
                                          produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
@@ -727,9 +740,12 @@ def cmd_verify(args) -> int:
                                   produce_assessments(
                                       repos.governance, iid,
                                       args_as_of_default(),
-                                      governance_inputs_from_records(
+                                      {**governance_inputs_from_records(
                                           repos.manual_extraction,
-                                          issuer)))
+                                          issuer),
+                                       **insider_net_inputs_from_store(
+                                           repos, iid, issuer,
+                                           args_as_of_default())}))
     rebuilds = service.recompute(args.fact, builder)
     rebuilt = "; ".join(f"{r.snapshot_id} v{r.version}" for r in rebuilds) \
         or "нет мер с lineage на этот факт"

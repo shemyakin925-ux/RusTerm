@@ -151,7 +151,7 @@ def test_migration_35_creates_table_and_repo_appends_history():
                            isolation_level=None)
     try:
         apply_migrations(conn)
-        assert _SCHEMA_VERSION == 43
+        assert _SCHEMA_VERSION == 44
         repos = RepoRegistry(conn, paths)
         repos.instrument.upsert_issuer(Issuer(
             "i1", "N", "US", None, None, "us_gaap", "USD"))
@@ -175,3 +175,55 @@ def test_migration_35_creates_table_and_repo_appends_history():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+# ── ТЗ-33 E3/E4: цвет доказуем, устаревание на реальных датах ──────────
+
+def test_colour_without_lineage_cannot_be_written():
+    """E3: не-серый цвет без lineage не проходит ни продюсера, ни
+    саму запись (страж в GovernanceRepo.record)."""
+    import pytest as _pytest
+    from rusterm.core.governance import insider_net, independent_directors
+    from rusterm.store.repos import GovernanceRepo
+    with _pytest.raises(ValueError):
+        insider_net("US-X", 0.5, "2026-09-13", "")
+    with _pytest.raises(ValueError):
+        independent_directors("US-X", 0.6, "2026-09-13", "")
+    repo = GovernanceRepo(sqlite3.connect(":memory:",
+                                          isolation_level=None))
+    from rusterm.store.db import apply_migrations
+    apply_migrations(repo.conn)
+    assessment = {"instrument_id": "US-X", "indicator": "insider_net",
+                  "color": "green", "method_version": "governance.v1",
+                  "as_of": "2026-09-13", "lineage_ref": "",
+                  "reason": "net_buys"}
+    with _pytest.raises(ValueError):
+        repo.record(assessment)
+
+
+def test_staleness_450_days_on_real_filing_date():
+    """E4 (BACKLOG 10): окно 450 дней. Оценка на дату реального
+    файла формы (2026-09-10) цветная; тот же вход, оценённый позже
+    окна, — серый stale с причиной."""
+    from datetime import date as _date
+    from rusterm.core import governance as gov
+    from rusterm.core.governance import insider_net, produce_assessments
+    assert gov.STALENESS_DAYS == 450
+
+    fresh = insider_net("US-X", -0.0001, "2026-09-10", "ownership:doc")
+    assert fresh.color == "yellow"
+
+    class _Repo:
+        def has_override(self, *_a):
+            return False
+
+        def record(self, a):
+            return None
+
+    spec = {"insider_net": {"inputs": {"net_ratio": -0.0001},
+                            "lineage_ref": "ownership:doc"}}
+    produced = produce_assessments(_Repo(), "US-X", "2026-09-10", spec,
+                                   now=_date(2027, 12, 15))
+    by = {a.indicator: a for a in produced}
+    assert by["insider_net"].color == "gray"
+    assert by["insider_net"].reason.startswith("stale:"), by["insider_net"]

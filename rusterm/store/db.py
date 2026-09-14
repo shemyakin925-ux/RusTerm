@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 43  # 42 (ТЗ-31 C2) + 43: period_basis в lineage — ttm|annual видно (ТЗ-32 D6)
+_SCHEMA_VERSION = 44  # 43 (ТЗ-32 D6) + 44: ownership_transaction — сделки Forms 3/4/5 (ТЗ-33 E1)
 
 
 def _checksum(text: str) -> str:
@@ -634,6 +634,29 @@ def _migrate_43_period_basis(conn: sqlite3.Connection) -> None:
 _CUSTOM_MIGRATIONS[43] = (_migrate_43_period_basis,
                           "ALTER TABLE measure_lineage;"
                           " ALTER TABLE measure_lineage_ca")
+
+_OWNERSHIP_TX_DDL = """CREATE TABLE IF NOT EXISTS ownership_transaction (
+        document_sha256 TEXT NOT NULL REFERENCES document(sha256),
+        tx_index INTEGER NOT NULL,
+        issuer_id TEXT NOT NULL,
+        insider TEXT NOT NULL,
+        role TEXT,
+        date TEXT NOT NULL,
+        direction TEXT,
+        shares REAL,
+        price REAL,
+        tenb5_one INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (document_sha256, tx_index))"""
+
+
+def _migrate_44_ownership_tx(conn: sqlite3.Connection) -> None:
+    """Сделки инсайдеров из Forms 3/4/5 (ТЗ-33 E1, ТЗ-25 P5): вход
+    insider_net хранится, а не пересчитывается из воздуха; уникальность
+    (документ, индекс сделки) — повторный разбор не плодит дублей (I7)."""
+    conn.execute(_OWNERSHIP_TX_DDL)
+
+
+_CUSTOM_MIGRATIONS[44] = (_migrate_44_ownership_tx, _OWNERSHIP_TX_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

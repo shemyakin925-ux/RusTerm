@@ -33,6 +33,9 @@ class OwnershipTransaction:
     shares: float | None
     price: float | None
     security: str
+    tenb5_one: bool = False
+    """Сделка по плану Rule 10b5-1: сноски сделки упоминают план
+    (вердикт BACKLOG 11: доля 10b5-1 называется в деталях цвета)."""
 
 
 @dataclass
@@ -112,11 +115,17 @@ def parse_form4(raw: bytes) -> OwnershipFiling:
         officer_title=officer_title,
     )
 
+    footnotes = {node.get("id"): (node.text or "")
+                 for node in root.findall("footnotes/footnote")}
     table = root.find("nonDerivativeTable")
     for tx in (table.findall("nonDerivativeTransaction")
                if table is not None else []):
         # объём, цена и направление живут в <transactionAmounts>
         # (замер ТЗ-32 D2 на записанном payload AAPL)
+        # сделка по плану 10b5-1: её footnoteId указывает на сноску
+        # с упоминанием плана (замер ТЗ-33 E1 на payload AAPL)
+        tenb5 = any("10b5-1" in footnotes.get(ref.get("id", ""), "")
+                    for ref in tx.findall(".//footnoteId"))
         amounts = tx.find("transactionAmounts")
         direction_code = _value(amounts.find("transactionAcquiredDisposedCode")
                                 if amounts is not None else None)
@@ -132,5 +141,6 @@ def parse_form4(raw: bytes) -> OwnershipFiling:
             price=_float(_value(amounts.find("transactionPricePerShare")
                                 if amounts is not None else None)),
             security=_value(tx.find("securityTitle")) or "",
+            tenb5_one=tenb5,
         ))
     return filing

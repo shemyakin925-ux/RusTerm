@@ -225,3 +225,83 @@ def test_live_ownership_collection_one_issuer(tmp_path):
               "ownership")
     assert got.returncode == 0, got.stderr
     assert "собрано документов" in got.stdout
+
+
+# ── ТЗ-33 E1: сделки хранятся, цвет считается из сохранённого ──────────
+
+def test_collector_persists_transactions_with_tenb5(tmp_path):
+    """Сделки ложатся в ownership_transaction (миграция 44): у
+    записи form 4 флаг 10b5-1 поднят (сноска F1 упоминает план),
+    форма 3 сделок не даёт."""
+    conn, repos = _env(tmp_path)
+    calls: list[str] = []
+    provider = _fake_provider(_SUBMISSIONS, calls)
+    code = _ingest_edgar_ownership(repos, "US-OWN", "i-o",
+                                   "2026-09-13", provider=provider)
+    assert code == 0
+    rows = repos.ownership.for_issuer("i-o")
+    newstead = [r for r in rows if r["insider"] == "Newstead Jennifer"]
+    assert len(newstead) == 1
+    tx = newstead[0]
+    assert (tx["date"], tx["direction"], tx["shares"]) == \
+        ("2026-09-08", "disposed", 1438.0)
+    assert tx["tenb5_one"] == 1
+    assert all(r["tenb5_one"] == 0
+               for r in rows if r["insider"] != "Newstead Jennifer")
+    conn.close()
+
+
+def test_insider_resolver_arithmetic_and_honest_empty(tmp_path):
+    """Числитель из сохранённых сделок (окно 365 дней), знаменатель —
+    market_cap_total последнего снапшота; без сделок или без
+    знаменателя входа нет — серость честная, число не выдумывается."""
+    from rusterm.core.governance import insider_net, \
+        insider_net_inputs_from_store
+    from rusterm.parsers.ownership import OwnershipTransaction
+
+    conn, repos = _env(tmp_path)
+    # пока ни сделок, ни снапшота — входа нет
+    assert insider_net_inputs_from_store(repos, "US-OWN", "i-o",
+                                         "2026-09-13") == {}
+    sha = repos.document.put(_payload("000114036126036226_form4.xml"),
+                             filename="form4.xml", format="xml",
+                             page_count=1, byte_len=3153,
+                             issuer_id="i-o")
+    assert sha
+    repos.ownership.replace_for_document(sha, "i-o", [
+        OwnershipTransaction(insider="A", role="officer",
+                             officer_title=None, date="2026-09-01",
+                             direction="acquired", shares=200.0,
+                             price=None, security="Common Stock"),
+        OwnershipTransaction(insider="B", role="director",
+                             officer_title=None, date="2026-08-20",
+                             direction="disposed", shares=500.0,
+                             price=300.0, security="Common Stock",
+                             tenb5_one=True),
+    ])
+    # сделки есть, знаменателя нет — входа нет (0/None не выдумывается)
+    assert insider_net_inputs_from_store(repos, "US-OWN", "i-o",
+                                         "2026-09-13") == {}
+    repos.snapshot.create_snapshot("s-own", "US-OWN", 1, "2026-09-13",
+                                   None, "none", "ready")
+    repos.snapshot.add_block("s-own", "fundamentals", "ready", None)
+    repos.snapshot.insert_measure(
+        "m-mcap-own", "s-own", "issuer", "i-o", "market_cap_total",
+        "1000000.0", "USD", "2026-09-13", "2026-09-13",
+        "market_cap_total", "v1", None, None)
+    spec = insider_net_inputs_from_store(repos, "US-OWN", "i-o",
+                                         "2026-09-13")
+    inputs = spec["insider_net"]["inputs"]
+    assert inputs["net_ratio"] == pytest.approx(-300.0 / 1_000_000.0)
+    assert inputs["tenb5_net"] == -500.0
+    assert inputs["net_shares"] == -300.0
+    assert "buys=200,sells=500,net=-300sh" in \
+        spec["insider_net"]["lineage_ref"]
+    # цвет с названной долей 10b5-1 (BACKLOG 11)
+    a = insider_net("US-OWN", inputs["net_ratio"], "2026-09-13",
+                    spec["insider_net"]["lineage_ref"],
+                    tenb5_net=inputs["tenb5_net"],
+                    net_shares=inputs["net_shares"])
+    assert a.color == "yellow"
+    assert "tenb5_net=-500sh (167% of net)" in a.reason
+    conn.close()

@@ -1584,10 +1584,17 @@ class GovernanceRepo:
 
     def record(self, assessment) -> str:
         """Оценка — словарь или dataclass Assessment с полями строки
-        governance_assessment."""
+        governance_assessment. ТЗ-33 E3: цвет без lineage не
+        записывается вовсе — страж стоит и у записи, а не только у
+        продюсера."""
         if not isinstance(assessment, dict):
             from dataclasses import asdict
             assessment = asdict(assessment)
+        if assessment["color"] in ("green", "yellow", "red") \
+                and not (assessment.get("lineage_ref") or "").strip():
+            raise ValueError(
+                f"I-governance: {assessment['indicator']} цвета "
+                f"{assessment['color']!r} без lineage не записывается")
         assessment_id = str(uuid.uuid4())
         with writer_transaction(self.conn) as c:
             c.execute(
@@ -1756,6 +1763,7 @@ class RepoRegistry:
         self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)
         self.document = DocumentRepo(conn)
         self.manual_extraction = ManualExtractionRepo(conn)
+        self.ownership = OwnershipRepo(conn)
 
 
 class IndustryRepo:
@@ -1920,6 +1928,53 @@ class CorporateActionRepo:
                        amount, currency, source FROM corporate_action
                        WHERE instrument_id=? ORDER BY ex_date""",
                     (instrument_id,))]
+
+
+class OwnershipRepo:
+    """Сделки инсайдеров из Forms 3/4/5 (ТЗ-33 E1, миграция 44).
+    Запись идемпотентна по (документ, индекс сделки) — I7."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def replace_for_document(self, document_sha256: str, issuer_id: str,
+                             transactions: list) -> int:
+        """Заменить разбор документа целиком: повторный разбор того же
+        sha даёт те же строки (детерминированный парсер)."""
+        with writer_transaction(self.conn) as c:
+            c.execute("DELETE FROM ownership_transaction"
+                      " WHERE document_sha256=?",
+                      (document_sha256,))
+            for idx, tx in enumerate(transactions):
+                c.execute(
+                    """INSERT OR REPLACE INTO ownership_transaction(
+                       document_sha256, tx_index, issuer_id, insider,
+                       role, date, direction, shares, price, tenb5_one)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (document_sha256, idx, issuer_id, tx.insider,
+                     tx.role, tx.date, tx.direction, tx.shares,
+                     tx.price, int(tx.tenb5_one)))
+            return len(transactions)
+
+    def for_issuer(self, issuer_id: str, since: str | None = None,
+                   until: str | None = None) -> list:
+        """Сделки эмитента по возрастанию даты; окно [since, until]."""
+        sql = """SELECT document_sha256, tx_index, issuer_id, insider,
+                        role, date, direction, shares, price, tenb5_one
+                 FROM ownership_transaction WHERE issuer_id=?"""
+        args: list = [issuer_id]
+        if since is not None:
+            sql += " AND date >= ?"
+            args.append(since)
+        if until is not None:
+            sql += " AND date <= ?"
+            args.append(until)
+        sql += " ORDER BY date"
+        keys = ("document_sha256", "tx_index", "issuer_id", "insider",
+                "role", "date", "direction", "shares", "price",
+                "tenb5_one")
+        return [dict(zip(keys, r))
+                for r in self.conn.execute(sql, args)]
 
 
 class DocumentRepo:

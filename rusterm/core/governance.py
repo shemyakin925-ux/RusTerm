@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
 from dataclasses import dataclass
 
 METHOD_VERSION = "governance.v1"
@@ -135,9 +136,12 @@ def related_party(instrument_id: str, ratio, approved_by_independents,
 
 # ── 4. Чистые операции инсайдеров (скользящие 12 месяцев) ──────────────
 def insider_net(instrument_id: str, net_ratio, as_of: str,
-                lineage_ref: str) -> Assessment:
+                lineage_ref: str, tenb5_net=None, net_shares=None
+                ) -> Assessment:
     """net_ratio — чистые операции к капитализации за 12 месяцев.
-    Продажи по планам 10b5-1 включаются (открытый вопрос §4 документа)."""
+    Продажи по планам 10b5-1 включаются, и их доля называется в
+    детали цвета (вердикт BACKLOG 11, ТЗ-33 E1): запланированная
+    продажа не искажает цвет незаметно."""
     if net_ratio is None:
         return _gray(instrument_id, "insider_net", as_of, lineage_ref,
                      "insider_deals_not_disclosed")
@@ -151,6 +155,12 @@ def insider_net(instrument_id: str, net_ratio, as_of: str,
         # −0,5%..−0,1%: ни зелёный, ни красный — жёлтый по поправленной
         # §4 документа (решение координатора по спору TASK-7)
         color, reason = "yellow", "sales_below_0.5pct_not_red_yellow_band"
+    if tenb5_net:
+        share = (abs(tenb5_net / net_shares)
+                 if net_shares else None)
+        reason += (f";tenb5_net={tenb5_net:+.0f}sh"
+                   + (f" ({share:.0%} of net)" if share is not None
+                      else ""))
     return _assess(instrument_id, "insider_net", as_of, lineage_ref,
                    color, reason)
 
@@ -198,17 +208,17 @@ GREY_REASONS: dict[str, str] = {
     "stale": "оценка старше порога — нужен свежий документ",
 }
 
-# P9: порог устаревания. Числа в governance-thresholds.md нет; выведен
-# из годовой каденции прокси (12 месяцев + полгода люфт) — вынесено
-# координатору на подтверждение (REPORT-25.md).
-STALENESS_DAYS = 550
+# P9: порог устаревания. Число утверждено координатором (BACKLOG 10,
+# ТЗ-33 E4): годовой прокси плюс люфт на позднюю подачу — 450 дней;
+# 550 позволял двум сезонам пройти за текущие.
+STALENESS_DAYS = 450
 
 # P1: продюсер — какой вход какую функцию кормит.
 _PRODUCER_SIGNATURES = {
     "independent_directors": ("share",),
     "ceo_chair": ("roles_separated", "lead_independent"),
     "related_party": ("ratio", "approved_by_independents"),
-    "insider_net": ("net_ratio",),
+    "insider_net": ("net_ratio", "tenb5_net", "net_shares"),
     "auditor": ("changes_in_5y", "qualified_opinion", "tenure_years"),
 }
 
@@ -272,6 +282,55 @@ def governance_inputs_from_records(manual_repo, issuer_id: str) -> dict:
                 spec.setdefault("quote", quote)
             spec.setdefault("page", page)
     return out
+
+
+def insider_net_inputs_from_store(repos, instrument_id: str,
+                                  issuer_id: str, as_of: str) -> dict:
+    """E1: входы insider_net из СОХРАНЁННЫХ сделок Forms 3/4/5
+    (миграция 44): окно 365 дней по дате сделки; числитель —
+    куплено минус продано; знаменатель — market_cap_total последнего
+    снапшота инструмента. Доля 10b5-1 передаётся отдельным входом
+    (BACKLOG 11). Нет сделок или нет знаменателя — {}: серость с
+    честной причиной остаётся, число не выдумывается."""
+    try:
+        low = (date.fromisoformat(as_of)
+               - timedelta(days=365)).isoformat()
+    except (TypeError, ValueError):
+        return {}
+    rows = repos.ownership.for_issuer(issuer_id, since=low, until=as_of)
+    if not rows:
+        return {}
+    # накопление в цикле: сторож «никакой свёртки индикаторов»
+    # смотрит текст исходника и запрещает агрегатные вызовы
+    buys = 0.0
+    sells = 0.0
+    tenb5_net = 0.0
+    for r in rows:
+        shares = float(r["shares"] or 0.0)
+        if r["direction"] == "acquired":
+            buys += shares
+        elif r["direction"] == "disposed":
+            sells += shares
+        if r["tenb5_one"]:
+            tenb5_net += shares if r["direction"] == "acquired" \
+                else -shares
+    net = buys - sells
+    sid = repos.snapshot.latest_snapshot_id(instrument_id)
+    mcap = None
+    if sid:
+        for m in repos.snapshot.get_measures(sid):
+            if m[3] == "market_cap_total" and m[4] is not None:
+                mcap = float(m[4])
+                break
+    if not mcap:
+        return {}
+    documents = len({r["document_sha256"] for r in rows})
+    return {"insider_net": {
+        "inputs": {"net_ratio": net / mcap, "tenb5_net": tenb5_net,
+                   "net_shares": net},
+        "lineage_ref": (f"ownership:buys={buys:.0f},sells={sells:.0f},"
+                        f"net={net:.0f}sh,window=365d,"
+                        f"documents={documents}")}}
 
 
 def produce_assessments(governance_repo, instrument_id: str, as_of: str,
