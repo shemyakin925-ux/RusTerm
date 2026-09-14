@@ -86,3 +86,19 @@ def _memory_conn():
     conn = sqlite3.connect(":memory:", isolation_level=None)
     apply_migrations(conn)
     return conn
+
+
+def test_stage1_preserves_cell_boundaries():
+    """ТЗ-35 G5: ячейки разделяются табуляцией — дословная цитата
+    ячейки находится в тексте прежним строковым законом, длина строки
+    ячеек не склеивается в цифровой суп."""
+    for name in NAMES:
+        outcome = extract_text(TABLES / name)
+        joined = "\n".join(p.text for p in outcome.pages)
+        assert "\t" in joined, name
+    # прежний дефект: 'Off-hire daysVoyage days' и '12365'
+    one = extract_text(TABLES / "table1_clean_two_column.html")
+    text = "\n".join(p.text for p in one.pages)
+    assert "Off-hire days\tVoyage days" in text
+    assert "12\t365" in text
+    assert "12365" not in text
