@@ -5,7 +5,10 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 14.09.2026, after accepting TASK-29, TASK-28 and TASK-30.
+Last updated: 15.09.2026, after accepting TASK-31 on `agent/night-11`
+(acceptance 13/13, exit 0). The shift branch is `agent/night-11` and the
+turn is passed by the relay — `agent/PROTOCOL.md` §12, driver
+`agent/relay.py`, baton `agent/BATON.json`.
 
 ## 1. What the program is
 
@@ -66,14 +69,14 @@ user, data never leaves the machine. **Everything in it is free
 
 ## 4. Where the product actually is
 
-| Milestone | State on `main` after TASK-27 |
+| Milestone | State after TASK-31 (`agent/night-11`, not yet merged to `main`) |
 |---|---|
 | M1-M4 core, snapshot, watchlist | done and in use |
 | M5 LLM layer | citation guard, four read-only tools, confirmed mass ops |
 | M6 CA + OTC | both collected through EDGAR |
 | M7 industry aggregate | done |
 | M8 six markets, manual import | registry of six; US/CA/OTC collect, KR needs its key, BR/AU have providers but **no `ingest` channel** |
-| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and cadence has no CLI surface yet (TASK-31 C5) |
+| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **42** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import — **five indicators still grey for every issuer** (TASK-32, 33) |
 | M12 chat | loop, citation guard, adversarial corpus, ADR-0016 — **no TUI screen, no transcripts, no model comparison** (TASK-35, 36, 37) |
@@ -101,7 +104,7 @@ interface · 0010 markets outside EDGAR, access levels auto/partial/manual
 · 0011 manual document import, three-stage pipeline · 0012 parallel
 lanes · 0013 how a market is added · 0014 Twelve Data free tier, cadence
 by completeness · 0015 how a sector is added · 0016 model surface and
-untrusted text · 0017 lane merge rule · 0018 **everything is free** · 0019 no vendor `adjusted` on the free tier, the correction is ours alone.
+untrusted text · 0017 lane merge rule · 0018 **everything is free** · 0019 no vendor `adjusted` on the free tier, the correction is ours alone · 0020 **the free `close` is already split-adjusted** — never apply splits twice, dividends only (narrows 0019).
 
 ## 7. Reading order when reviewing a night (coordinator)
 

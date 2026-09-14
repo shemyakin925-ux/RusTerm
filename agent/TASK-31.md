@@ -1,6 +1,6 @@
 # TASK-31 — K4: вендорская сверка и шесть оценочных мер со значениями
 
-- **Status: READY**
+- **Status: ACCEPTED** — acceptance 13/13, exit 0; rulings in `agent/TASK-32.md`
 - **Report:** `agent/REPORT-31.md`
 - **Protocol:** `agent/PROTOCOL.md`. State: `agent/CONTEXT.md`.
 - **Budgets:** network **40 requests** (Twelve Data only); model 0.

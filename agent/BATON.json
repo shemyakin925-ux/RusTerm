@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 32,
+ "holder": "executor",
+ "round": 33,
  "branch": "agent/night-11",
- "task": "agent/TASK-31.md",
- "report": "agent/REPORT-31.md",
- "note": "TASK-31 DONE: C1-C5 (vendor CA, internal adjustment proofs + ADR-0020, six measures with values, currency kept, cadence CLI); 650 passed/0 failed; 12/40 Twelve Data requests; 3 rulings requested in Disputed",
- "handed_by": "executor",
- "handed_at": "2026-09-14T18:38:39Z",
+ "task": "agent/TASK-32.md",
+ "report": "agent/REPORT-32.md",
+ "note": "TASK-31 ACCEPTED: acceptance 13/13 exit 0, pins checked in the diff. 5 rulings + 3 new items (D5 P1 guard, D6 period_basis, D7 NCI) in TASK-32",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-14T18:43:09Z",
  "paused": false,
  "finished": false
 }
