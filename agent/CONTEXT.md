@@ -104,7 +104,7 @@ Data reaching a user today: **US 10 measures of 10 plus real prices; CA 3/10; OT
 
 `RUSTERM_SEC_UA` (a contact string, not a key), `RUSTERM_DART_KEY`,
 `RUSTERM_TWELVEDATA_KEY` (free tier: 8/min, 800/day),
-`RUSTERM_LLM_API_KEY` (OpenRouter, free models). Loaded from the
+`RUSTERM_LLM_API_KEY` (OpenRouter, free models; дефолт модели `glm-5.3-flash` — по замеру ТЗ-35, REPORT-35 G3). Loaded from the
 environment, else from `$RUSTERM_ENV_FILE` or `~/.rusterm.env`.
 **They exist in the executor's environment from 13.09.2026.**
 

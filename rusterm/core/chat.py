@@ -64,10 +64,17 @@ class ChatSession:
 
     # ── инструменты ─────────────────────────────────────────────────
     def _call_tool(self, name: str, arguments: dict) -> dict:
-        """Вызов только из read-only реестра; всё прочее — отказ."""
+        """Вызов только из read-only реестра; всё прочее — отказ.
+        неверные аргументы — тоже значение (ТЗ-35 G1: живые модели
+        зовут инструмент с неполными аргументами; TypeError наружу —
+        крах петли, а не отказ)."""
         if name not in tools_module.TOOLS:
             raise ToolRefused(name)
-        outcome = tools_module.TOOLS[name](self._repos, **arguments)
+        try:
+            outcome = tools_module.TOOLS[name](self._repos, **arguments)
+        except TypeError as e:
+            return {"outcome": "tool_argument_error",
+                    "detail": str(e)}
         self.calls_made += 1
         return {"outcome": outcome}
 
@@ -126,6 +133,10 @@ class ChatSession:
             text = reply.get("text")
             if not tool_calls:
                 answer = text
+                # ошибка живого клиента (гейт/сеть) — названная причина,
+                # а не молчаливый пустой ответ (ТЗ-35 G1)
+                if answer is None and reply.get("error"):
+                    rejection = f"llm_error:{reply['error']}"
                 break
             if per_question >= self.max_per_question:
                 rejection = "question_call_ceiling_reached"
