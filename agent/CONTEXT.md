@@ -5,7 +5,12 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 14.09.2026, after accepting TASK-29, TASK-28 and TASK-30.
+Last updated: 15.09.2026, after accepting TASK-31…TASK-36 on
+`agent/night-11` (acceptance 13/13, exit 0 on each). **TASK-37 is NOT
+accepted**: its I5 is right in design but assumes `.git` is a directory, so
+acceptance in a linked worktree is 11/13 — repair ordered as I6. The shift branch is `agent/night-11` and the
+turn is passed by the relay — `agent/PROTOCOL.md` §12, driver
+`agent/relay.py`, baton `agent/BATON.json`.
 
 ## 1. What the program is
 
@@ -31,6 +36,30 @@ user, data never leaves the machine. **Everything in it is free
 | `agent/` | the coordination channel: this file, `PROTOCOL.md`, `TASK-*.md`, `REPORT-*.md`, `BACKLOG.md`, `acceptance.sh`, `selfcheck.sh`, `LAUNCH.md` (for the user, Russian) |
 
 ## 3. Standing rules that bind every task
+
+**Coordinator-owned files (TASK-33 E6).** A staged diff touching
+`agent/TASK*.md`, `PROTOCOL.md`, `CONTEXT.md`, `BACKLOG.md`, `LAUNCH.md`
+or `acceptance.sh` is a red selfcheck — the executor owns reports,
+`STATE.json`, `BATON.json`, code and tests.
+
+**Guards are not self-widening (TASK-36 H6).** A `РАЗРЕШЕНИЕ-<file>:`
+marker in a commit message means nothing unless the task file named in
+`agent/BATON.json` says `РАЗРЕШЕНО ПРАВИТЬ: <path>`; the blocklist is not
+overridable from the environment; an empty index checks `HEAD~1..HEAD`
+instead of passing vacuously. **TASK-37 I5** makes selfcheck and the hook run the
+*committed* guard, closing the `95b669a` bypass — but it reads
+`.git/COMMIT_EDITMSG` literally, so in a linked worktree the guards see no
+commit message at all. Until I6 lands, a declared marker is invisible
+outside a plain clone.
+
+**A red selfcheck cannot be committed (TASK-34 F6).** The tracked hook
+`agent/githooks/pre-commit` runs it without a pipe; bootstrap once per
+clone with `git config core.hooksPath agent/githooks`.
+
+**Pin replacement (TASK-32 D5).** A removed `assert` passes selfcheck only
+with a `ЗАМЕНА-БУЛАВКИ:` / `ПОЧЕМУ СИЛЬНЕЕ:` block in the commit message
+and no net loss of assert lines in that file — `agent/p1_rule.sh`.
+
 
 1. **Free only** — ADR-0018. No paid tariff, subscription, deposit or
    card-at-registration anywhere on an obligatory route.
@@ -66,17 +95,19 @@ user, data never leaves the machine. **Everything in it is free
 
 ## 4. Where the product actually is
 
-| Milestone | State on `main` after TASK-27 |
+| Milestone | State after TASK-31 (`agent/night-11`, not yet merged to `main`) |
 |---|---|
 | M1-M4 core, snapshot, watchlist | done and in use |
 | M5 LLM layer | citation guard, four read-only tools, confirmed mass ops |
 | M6 CA + OTC | both collected through EDGAR |
 | M7 industry aggregate | done |
 | M8 six markets, manual import | registry of six; US/CA/OTC collect, KR needs its key, BR/AU have providers but **no `ingest` channel** |
-| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and cadence has no CLI surface yet (TASK-31 C5) |
+| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **44** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
-| M11 governance | producer, grey reasons, proxy through manual import — **five indicators still grey for every issuer** (TASK-32, 33) |
+| M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |
+| M12 chat (TASK-35, 36) | three free models measured, default by numbers; transcripts survive the process (migration 45), export and re-verify, cost counters in `status`, no key or content leak — screen still missing (TASK-37 I3) |
 | M12 chat | loop, citation guard, adversarial corpus, ADR-0016 — **no TUI screen, no transcripts, no model comparison** (TASK-35, 36, 37) |
+| M14 manual import + model | repaired in TASK-35 G5 — a tab at the cell boundary, the string law untouched: the same four tables now give **89 verified records, verified-but-wrong 0 of 89**, the footnote row stored `unverified/near_miss` with a named reason; three free models measured on the chat corpus, default `glm-5.3-flash` by numbers (G3) |
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |
 
 Data reaching a user today: **US 10 measures of 10 plus real prices; CA 3/10; OTC 3/10**
@@ -86,7 +117,9 @@ Data reaching a user today: **US 10 measures of 10 plus real prices; CA 3/10; OT
 
 `RUSTERM_SEC_UA` (a contact string, not a key), `RUSTERM_DART_KEY`,
 `RUSTERM_TWELVEDATA_KEY` (free tier: 8/min, 800/day),
-`RUSTERM_LLM_API_KEY` (OpenRouter, free models). Loaded from the
+`RUSTERM_LLM_API_KEY` (OpenRouter, free models; the default model is
+`glm-5.3-flash` — chosen by measurement in TASK-35 G3, not by taste).
+Loaded from the
 environment, else from `$RUSTERM_ENV_FILE` or `~/.rusterm.env`.
 **They exist in the executor's environment from 13.09.2026.**
 
@@ -101,7 +134,7 @@ interface · 0010 markets outside EDGAR, access levels auto/partial/manual
 · 0011 manual document import, three-stage pipeline · 0012 parallel
 lanes · 0013 how a market is added · 0014 Twelve Data free tier, cadence
 by completeness · 0015 how a sector is added · 0016 model surface and
-untrusted text · 0017 lane merge rule · 0018 **everything is free** · 0019 no vendor `adjusted` on the free tier, the correction is ours alone.
+untrusted text · 0017 lane merge rule · 0018 **everything is free** · 0019 no vendor `adjusted` on the free tier, the correction is ours alone · 0020 **the free `close` is already split-adjusted** — never apply splits twice, dividends only (narrows 0019) · 0021 annual instead of TTM where the Q4 3-month fact is never filed; `period_basis` in lineage.
 
 ## 7. Reading order when reviewing a night (coordinator)
 

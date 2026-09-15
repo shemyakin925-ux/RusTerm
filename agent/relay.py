@@ -211,8 +211,17 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
         if not sync_worktree(remote, branch, quiet=True):
             raise SystemExit(EXIT_ERROR)
         (root / BATON_PATH).write_text(payload, encoding="utf-8")
+        # Чужое, уже лежащее в индексе, в коммит эстафеты не берётся:
+        # ТЗ-37 I5 уехал внутрь коммита «Эстафета: круг 44» именно так.
+        staged = [f for f in git("diff", "--cached", "--name-only").splitlines()
+                  if f and f != BATON_PATH and f not in extra]
+        if staged:
+            print("в индексе лежит чужое — в коммит эстафеты не берётся:")
+            for f in staged[:10]:
+                print("  ", f)
+            print("закоммить это своим коммитом, эстафета несёт только своё")
         git("add", "--", BATON_PATH, *extra)
-        git("commit", "-m", message)
+        git("commit", "--only", "-m", message, "--", BATON_PATH, *extra)
         proc = subprocess.run(("git", "push", remote, f"{branch}:{branch}"),
                               capture_output=True)
         if proc.returncode != 0:
