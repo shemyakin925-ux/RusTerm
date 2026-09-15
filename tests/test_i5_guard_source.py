@@ -13,6 +13,7 @@ I5 через переменную I5_NESTED, чтобы не рекурсиро
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -48,18 +49,15 @@ def _nested() -> bool:
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _single_flight():
-    """Рекурсия невозможна и без переменной окружения: модуль держит
-    замок на весь свой прогон, вложенный pytest (из selfcheck внутри
-    зелёного случая) видит замок и пропускает модуль целиком."""
-    lock = Path(tempfile.gettempdir()) / "i5-demo-single-flight.lock"
-    if lock.exists():
-        pytest.skip("другой прогон демонстрации I5 уже идёт")
-    lock.write_text("", encoding="utf-8")
-    try:
-        yield
-    finally:
-        lock.unlink(missing_ok=True)
+def _demonstration_ran():
+    """ТЗ-36 I8: замок с фиксированным путём мог протухнуть (SIGKILL,
+    reboot) и молча выкидывать демонстрацию из любого прогона на хосте.
+    Замок убран: рекурсию держит I5_NESTED (хук и зелёный случай), а
+    этот маркер доказывает sentinel-тесту, что демонстрация ВЫПОЛНЕНА
+    в текущем процессе."""
+    marker = Path(tempfile.gettempdir()) / "i5-demo-ran.json"
+    marker.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    yield
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
