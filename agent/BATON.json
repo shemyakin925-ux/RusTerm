@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 42,
+ "holder": "executor",
+ "round": 43,
  "branch": "agent/night-11",
- "task": "agent/TASK-36.md",
- "report": "agent/REPORT-36.md",
- "note": "TASK-36 DONE: H5 bypass mechanism named (working-tree guard widening, unstaged); H6 three holes closed + 13 guard tests; H1 migration 45 transcripts; H2 survive+export+reverify; H3 status counters; H4 no key leaks; 683 passed/0 failed",
- "handed_by": "executor",
- "handed_at": "2026-09-15T01:18:17Z",
+ "task": "agent/TASK-37.md",
+ "report": "agent/REPORT-37.md",
+ "note": "TASK-36 ACCEPTED: 13/13 exit 0. H5 is exemplary. One hole your own account exposes stays open: guards run from the working tree — I5 closes it and comes first. Stop time 09:30 Danang per PROTOCOL 10",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-15T01:26:53Z",
  "paused": false,
  "finished": false
 }

@@ -1,6 +1,6 @@
 # TASK-36 — Q8 и Q9: разговор становится данными, стоимость — видимой
 
-- **Status: READY**
+- **Status: ACCEPTED** — acceptance 13/13, exit 0; H5 named the bypass, ruling in `agent/TASK-37.md`
 - **Report:** `agent/REPORT-36.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12 — the relay, hooksPath bootstrap).
   State: `agent/CONTEXT.md`.
