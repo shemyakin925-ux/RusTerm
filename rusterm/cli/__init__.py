@@ -676,7 +676,23 @@ def cmd_snapshot(args) -> int:
 
 def cmd_export(args) -> int:
     paths, conn = _open(args.root)
+    if getattr(args, "chat", None):
+        # ТЗ-36 H2: расшифровка разговора экспортируется как данные
+        repos = RepoRegistry(conn, paths)
+        transcript = repos.chat_transcript.get(args.chat)
+        if transcript is None:
+            print(f"расшифровки {args.chat!r} нет", file=sys.stderr)
+            conn.close()
+            return 1
+        print(json.dumps(transcript, ensure_ascii=False, indent=1))
+        conn.close()
+        return 0
     repo = SnapshotRepo(conn)
+    if not args.instrument:
+        print("укажите --instrument ИНСТРУМЕНТ или --chat SESSION_ID",
+              file=sys.stderr)
+        conn.close()
+        return 1
     snapshot_id = repo.latest_snapshot_id(args.instrument)
     if snapshot_id is None:
         print(f"для {args.instrument!r} снапшотов нет — сначала "
@@ -965,6 +981,9 @@ def cmd_status(args) -> int:
             "samples": budget_samples,
         },
         "env": env_module.report(),
+        # ТЗ-36 H3: стоимость разговора видна до счёта — вызовы по
+        # моделям из расшифровок
+        "chat": repos.chat_transcript.calls_totals(),
     }
     conn.close()
     if args.json:
@@ -1295,7 +1314,7 @@ def cmd_chat(args) -> int:
     """Чат с цитатами (ТЗ-26 Q1): вопрос -> read-only инструменты ->
     ответ, где каждое число доказуемо. Чат никогда не пишет.
     Без RUSTERM_LLM_API_KEY — внятное сообщение и код 1, не падение."""
-    from rusterm.core.chat import ChatSession
+    from rusterm.core.chat import ChatSession, save_transcript
     from rusterm.providers.budget import ConfigError, RequestGate
     client = get_provider("llm-api", gate=RequestGate())
     if isinstance(client, ConfigError):
@@ -1337,6 +1356,12 @@ def cmd_chat(args) -> int:
         else:
             print(result["answer"])
     print(f"вызовов модели/инструментов за сессию: {session.calls_made}")
+    # ТЗ-36 H2: расшифровка — данные, переживает процесс
+    session_id = f"chat-{int(time.time()*1000)}"
+    save_transcript(repos, session, session_id,
+                    instrument_id=args.instrument
+                    if hasattr(args, "instrument") else None)
+    print(f"расшифровка сохранена: {session_id}")
     conn.close()
     return 0
 
@@ -1734,7 +1759,9 @@ def main(argv: list[str] | None = None) -> int:
     p_snap.add_argument("--watchlist", default=None)
     p_snap.add_argument("--as-of", default=None)
     p_exp = sub.add_parser("export", help="экспорт последнего снапшота")
-    p_exp.add_argument("--instrument", required=True)
+    p_exp.add_argument("--instrument", required=False, default=None)
+    p_exp.add_argument("--chat", default=None,
+                       help="экспорт расшифровки разговора (ТЗ-36 H2)")
     p_exp.add_argument("--format", choices=("json", "csv", "md"),
                        default="json")
     p_exp.add_argument("--out", default=None)

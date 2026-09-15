@@ -47,6 +47,9 @@ class TranscriptEntry:
     text: str
     tool_calls: list = field(default_factory=list)
     rejected: bool = False
+    citations: list = field(default_factory=list)
+    """ТЗ-36 H2: числа-цитаты ответа хранятся на ходе — расшифровка
+    переносит их в базу для повторной верификации."""
 
 
 class ChatSession:
@@ -153,8 +156,15 @@ class ChatSession:
                     used_tools.append(name)
                     allowed_values.extend(_NUMBER_RE.findall(
                         json_dumps(result)))
+                    # ТЗ-36 H2: в расшифровку идёт ЗАПРОС (имя и
+                    # аргументы) вместе с результатом — повторная
+                    # верификация перезапускает запрос по свежим данным
                     self.transcript.append(TranscriptEntry(
-                        "tool", name, tool_calls=[result]))
+                        "tool", name,
+                        tool_calls=[{"name": name,
+                                     "arguments": call.get("arguments")
+                                     or {},
+                                     "outcome": result}]))
                 except ToolRefused as e:
                     self.transcript.append(TranscriptEntry(
                         "system-note", f"tool refused: {e.name} "
@@ -174,13 +184,69 @@ class ChatSession:
                         "reason": "guard_rejected_uncited_number",
                         "tool_calls": used_tools, "rejected": True,
                         "rejected_text": answer}
-            self.transcript.append(TranscriptEntry("assistant", answer))
+            self.transcript.append(TranscriptEntry(
+                "assistant", answer, citations=guarded))
             return {"answer": answer, "citations": guarded,
                     "tool_calls": used_tools, "rejected": False}
         self.transcript.append(TranscriptEntry(
             "system-note", f"rejected: {rejection}"))
         return {"answer": None, "reason": rejection,
                 "tool_calls": used_tools, "rejected": True}
+
+
+def save_transcript(repos, session, session_id: str,
+                    instrument_id: str | None = None) -> str:
+    """ТЗ-36 H2: расшифровка — данные. Сессия и ходы пишутся в
+    chat_transcript/chat_turn (миграция 45): модель, вызовы, ходы с
+    цитатами и вызовами инструментов. Повторное сохранение той же
+    сессии обновляет счётчик, ходы переписываются идемпотентно
+    (INSERT OR REPLACE по (сессия, индекс))."""
+    import time as _time
+    model = getattr(session._client, "model", "unknown")
+    repos.chat_transcript.create_session(session_id, model,
+                                         instrument_id,
+                                         _time.time(),
+                                         session.calls_made)
+    for idx, entry in enumerate(session.transcript):
+        repos.chat_transcript.add_turn(
+            session_id, idx, entry.role, entry.text, entry.citations,
+            entry.tool_calls, entry.rejected)
+    return session_id
+
+
+def reverify_transcript(repos, session_id: str) -> dict:
+    """ТЗ-36 Q8: повторная верификация — цитаты хода сверяются со
+    СВЕЖИМИ результатами тех же вызовов инструментов. Цитата, которой
+    больше нет в новых данных, сообщается как не резолвящаяся
+    ("data moved on"), а не подменяется новым числом."""
+    from . import tools as tools_module
+    from .llm import _NUMBER_RE, _normalize_number
+    transcript = repos.chat_transcript.get(session_id)
+    if transcript is None:
+        return {"session_id": session_id, "error": "not_found"}
+    fresh_allowed: set = set()
+    for turn in transcript["turns"]:
+        for call in turn["tool_calls"]:
+            name = call.get("name")
+            if name in tools_module.TOOLS:
+                try:
+                    outcome = tools_module.TOOLS[name](
+                        repos, **(call.get("arguments") or {}))
+                except Exception:
+                    continue
+                fresh_allowed.update(_NUMBER_RE.findall(
+                    json_dumps(outcome)))
+    stale: dict[int, list] = {}
+    for turn in transcript["turns"]:
+        if turn["role"] != "assistant" or not turn["citations"]:
+            continue
+        gone = [c for c in turn["citations"]
+                if _normalize_number(c) not in fresh_allowed]
+        if gone:
+            stale[turn["turn_index"]] = gone
+    return {"session_id": session_id,
+            "verified": not stale,
+            "stale_citations": stale}
 
 
 def json_dumps(obj) -> str:

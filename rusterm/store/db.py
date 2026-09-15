@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 44  # 43 (ТЗ-32 D6) + 44: ownership_transaction — сделки Forms 3/4/5 (ТЗ-33 E1)
+_SCHEMA_VERSION = 45  # 44 (ТЗ-33 E1) + 45: chat_transcript/chat_turn — расшифровки разговоров (ТЗ-36 H1)
 
 
 def _checksum(text: str) -> str:
@@ -657,6 +657,35 @@ def _migrate_44_ownership_tx(conn: sqlite3.Connection) -> None:
 
 
 _CUSTOM_MIGRATIONS[44] = (_migrate_44_ownership_tx, _OWNERSHIP_TX_DDL)
+
+_CHAT_TRANSCRIPT_DDL = """CREATE TABLE IF NOT EXISTS chat_transcript (
+        session_id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        instrument_id TEXT,
+        started_at REAL NOT NULL,
+        calls INTEGER NOT NULL DEFAULT 0)"""
+_CHAT_TURN_DDL = """CREATE TABLE IF NOT EXISTS chat_turn (
+        session_id TEXT NOT NULL REFERENCES chat_transcript(session_id),
+        turn_index INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        text TEXT,
+        citations TEXT,
+        tool_calls TEXT,
+        rejected INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (session_id, turn_index))"""
+
+
+def _migrate_45_chat_transcripts(conn: sqlite3.Connection) -> None:
+    """Расшифровки разговоров (ТЗ-36 H1, Q8): сессия с моделью и
+    числом вызовов; ходы с цитатами и вызовами инструментов. Запись
+    только добавлением; экспорт и повторная верификация читают эти
+    таблицы, ничего не пересчитывая."""
+    conn.execute(_CHAT_TRANSCRIPT_DDL)
+    conn.execute(_CHAT_TURN_DDL)
+
+
+_CUSTOM_MIGRATIONS[45] = (_migrate_45_chat_transcripts,
+                          _CHAT_TRANSCRIPT_DDL + ";" + _CHAT_TURN_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

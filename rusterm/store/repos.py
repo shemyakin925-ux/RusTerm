@@ -1764,6 +1764,7 @@ class RepoRegistry:
         self.document = DocumentRepo(conn)
         self.manual_extraction = ManualExtractionRepo(conn)
         self.ownership = OwnershipRepo(conn)
+        self.chat_transcript = ChatTranscriptRepo(conn)
 
 
 class IndustryRepo:
@@ -1928,6 +1929,77 @@ class CorporateActionRepo:
                        amount, currency, source FROM corporate_action
                        WHERE instrument_id=? ORDER BY ex_date""",
                     (instrument_id,))]
+
+
+class ChatTranscriptRepo:
+    """Расшифровки разговоров (ТЗ-36 H1, Q8): сессия + ходы. Запись
+    только добавлением (повтор create той же сессии — обновляет счётчик
+    вызовов, ходы не переписываются). Ключ модели никогда не хранится —
+    только имя модели."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def create_session(self, session_id: str, model: str,
+                       instrument_id: Optional[str], started_at: float,
+                       calls: int) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO chat_transcript(session_id, model,
+                   instrument_id, started_at, calls)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(session_id) DO UPDATE SET
+                     calls=excluded.calls""",
+                (session_id, model, instrument_id, started_at, calls))
+
+    def add_turn(self, session_id: str, turn_index: int, role: str,
+                 text: Optional[str], citations: Optional[list],
+                 tool_calls: Optional[list], rejected: bool) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT OR REPLACE INTO chat_turn(session_id, turn_index,
+                   role, text, citations, tool_calls, rejected)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (session_id, turn_index, role, text,
+                 json.dumps(citations or [], ensure_ascii=False),
+                 json.dumps(tool_calls or [], ensure_ascii=False),
+                 int(rejected)))
+
+    def get(self, session_id: str) -> Optional[dict]:
+        row = self.conn.execute(
+            """SELECT session_id, model, instrument_id, started_at, calls
+               FROM chat_transcript WHERE session_id=?""",
+            (session_id,)).fetchone()
+        if row is None:
+            return None
+        keys = ("session_id", "model", "instrument_id", "started_at",
+                "calls")
+        session = dict(zip(keys, row))
+        turns = self.conn.execute(
+            """SELECT turn_index, role, text, citations, tool_calls,
+                      rejected FROM chat_turn WHERE session_id=?
+               ORDER BY turn_index""", (session_id,)).fetchall()
+        session["turns"] = [
+            {"turn_index": t[0], "role": t[1], "text": t[2],
+             "citations": json.loads(t[3] or "[]"),
+             "tool_calls": json.loads(t[4] or "[]"),
+             "rejected": bool(t[5])} for t in turns]
+        return session
+
+    def calls_totals(self) -> dict:
+        """Вызовы по моделям и всего (ТЗ-36 H3): сумма по сессиям."""
+        per_model = {r[0]: r[1] for r in self.conn.execute(
+            "SELECT model, SUM(calls) FROM chat_transcript"
+            " GROUP BY model")}
+        total = self.conn.execute(
+            "SELECT COALESCE(SUM(calls), 0) FROM chat_transcript"
+        ).fetchone()[0]
+        today = self.conn.execute(
+            """SELECT COALESCE(SUM(calls), 0) FROM chat_transcript
+               WHERE started_at >= ?""",
+            (time.mktime(date.today().timetuple()),)).fetchone()[0]
+        return {"calls_total": total, "calls_today": today,
+                "per_model": per_model}
 
 
 class OwnershipRepo:
