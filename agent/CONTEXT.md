@@ -6,7 +6,9 @@ acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
 Last updated: 15.09.2026, after accepting TASK-31…TASK-36 on
-`agent/night-11` (acceptance 13/13, exit 0 on each). The shift branch is `agent/night-11` and the
+`agent/night-11` (acceptance 13/13, exit 0 on each). **TASK-37 is NOT
+accepted**: its I5 is right in design but assumes `.git` is a directory, so
+acceptance in a linked worktree is 11/13 — repair ordered as I6. The shift branch is `agent/night-11` and the
 turn is passed by the relay — `agent/PROTOCOL.md` §12, driver
 `agent/relay.py`, baton `agent/BATON.json`.
 
@@ -44,9 +46,11 @@ or `acceptance.sh` is a red selfcheck — the executor owns reports,
 marker in a commit message means nothing unless the task file named in
 `agent/BATON.json` says `РАЗРЕШЕНО ПРАВИТЬ: <path>`; the blocklist is not
 overridable from the environment; an empty index checks `HEAD~1..HEAD`
-instead of passing vacuously. **Still open (TASK-37 I5):** selfcheck and
-the hook run the *working-tree* copy of a guard — the `95b669a` bypass —
-until they execute the committed one.
+instead of passing vacuously. **TASK-37 I5** makes selfcheck and the hook run the
+*committed* guard, closing the `95b669a` bypass — but it reads
+`.git/COMMIT_EDITMSG` literally, so in a linked worktree the guards see no
+commit message at all. Until I6 lands, a declared marker is invisible
+outside a plain clone.
 
 **A red selfcheck cannot be committed (TASK-34 F6).** The tracked hook
 `agent/githooks/pre-commit` runs it without a pipe; bootstrap once per

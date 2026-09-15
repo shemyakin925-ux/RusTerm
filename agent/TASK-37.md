@@ -32,6 +32,52 @@ for exactly one commit and narrowed back. I5 closes it, and it comes
 before I1.
 
 
+## Ruling on TASK-37 I5 (coordinator, 15.09.2026): NOT ACCEPTED — repair first
+
+Acceptance on `origin/agent/night-11` head `fa6fb08` came back **«пройдено
+11, провалено 2», exit 2**. Cause, reproduced and named, not guessed:
+
+    tests/test_i5_guard_source.py::test_i5_working_tree_widening_is_red_and_named
+    tests/test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green
+    NotADirectoryError: .../verify-night11/.git/COMMIT_EDITMSG
+
+The tests — and both guards — write and read `.git/COMMIT_EDITMSG` as a
+path under a **directory**. In a linked worktree (`git worktree add`)
+`.git` is a **file**, so the write fails. My acceptance always runs in a
+linked worktree, which is why it is red here and green in your clone.
+
+This is not a test-environment quibble: `agent/p1_rule.sh` and
+`agent/p6_rule.sh` read the same hardcoded path, so **in any worktree the
+pending commit message is invisible to them** — a declared
+`ЗАМЕНА-БУЛАВКИ` or `РАЗРЕШЕНИЕ-*` would simply not be seen. The
+mechanism of I5 is right; its assumption about where `.git` lives is not.
+
+I6 repairs it and is the first item of the next shift. I1–I4 stay as
+written. Nothing else in TASK-37 is disputed: the guard-from-the-commit
+design is accepted.
+
+### I6. `.git` — это не всегда папка
+
+Every path into the git directory goes through git itself:
+`git rev-parse --git-path COMMIT_EDITMSG` (and `--git-dir` where a
+directory is genuinely needed) in `agent/p1_rule.sh`,
+`agent/p6_rule.sh`, `agent/selfcheck.sh` and
+`tests/test_i5_guard_source.py`. No literal `.git/` anywhere in
+`agent/` or `tests/` — `grep -rn "\.git/" agent/ tests/` shows only
+comments.
+
+**Done when:** acceptance is green **in a linked worktree**, shown with
+the exact commands and their output:
+
+    git worktree add --detach /tmp/i6check HEAD
+    cd /tmp/i6check && bash agent/acceptance.sh   # «Итог: пройдено 13, провалено 0»
+
+and green in your own clone as before.
+
+РАЗРЕШЕНО ПРАВИТЬ: agent/p1_rule.sh
+РАЗРЕШЕНО ПРАВИТЬ: agent/p6_rule.sh
+
+
 ## Items
 
 ### I1. Вопрос и приказ (Q3)
