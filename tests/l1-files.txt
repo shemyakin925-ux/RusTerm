@@ -1,0 +1,2 @@
+tests/test_x.py
+rusterm/core/chat.py

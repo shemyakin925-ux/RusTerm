@@ -87,7 +87,7 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
         editmsg_saved = Path(editmsg).read_text(encoding="utf-8")
         Path(editmsg).write_text(
             "demo\n\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
-        result = _selfcheck()
+        result = _selfcheck({"I5_NESTED": "1"})
         assert result.returncode != 0
         combined = result.stdout + result.stderr
         assert "agent/p6_rule.sh" in combined, combined[-800:]
@@ -126,9 +126,8 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
         combined = result.stdout + result.stderr
         assert "p6_rule.sh исполняется из index" in combined
     finally:
-        _git("restore", "--staged", "agent/p6_rule.sh",
-             check=False)
-        _git("checkout", "--", "agent/p6_rule.sh", check=False)
+        _git("restore", "--staged", "agent/p6_rule.sh", check=False)
+        guard.write_text(saved, encoding="utf-8")
         Path(editmsg).write_text(editmsg_saved, encoding="utf-8")
 
 

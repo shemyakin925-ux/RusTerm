@@ -34,19 +34,28 @@ if [ -z "$STAGED" ]; then
     # сообщению «Эстафета: круг N» и по составу: в нём нет НИЧЕГО,
     # кроме файлов координатора (тот же список, что в блоке ниже) и
     # BATON.json. Чужой (исполнительский) файл внутри — красный.
+    # ТЗ-43 K1: пропуск опирается на ПРОВЕРЯЕМОЕ, не на сообщение
+    # (его пишешь ты): BATON.json в коммите действительно менялся, и
+    # состав — только BATON.json плюс файлы координатора.
     LAST_MSG=$(git log -1 --format=%B HEAD 2>/dev/null || true)
     if printf '%s\n' "$LAST_MSG" | grep -q '^Эстафета: круг'; then
+        BATON_CHANGED=$(git diff HEAD~1 HEAD -- agent/BATON.json \
+            | grep -c '^[+-]' || true)
         FOREIGN=$(printf '%s\n' "$STAGED" | grep -v -E \
             '^agent/(BATON\.json|TASK-[0-9]+\.md|CONTEXT\.md|BACKLOG\.md|LAUNCH\.md|PROTOCOL\.md|REPORT-[0-9]+\.md)$')
-        if [ -z "$FOREIGN" ]; then
-            echo "P6: $SCOPE — коммит эстафеты, пропущен"
+        if [ -z "$FOREIGN" ] && [ "$BATON_CHANGED" -gt 0 ]; then
+            echo "P6 [index-copy]: $SCOPE — коммит эстафеты, пропущен"
             exit 0
         fi
-        echo "P6: в коммите эстафеты чужие файлы (исполнителя):$FOREIGN"
+        if [ -n "$FOREIGN" ]; then
+            echo "P6 [index-copy]: в коммите эстафеты чужие файлы (исполнителя):$FOREIGN"
+        else
+            echo "P6 [index-copy]: BATON.json не менялся — сообщение «Эстафета» не доказательство"
+        fi
         exit 1
     fi
 fi
-[ -z "$STAGED" ] && { echo "P6: пустой дифф, смотреть нечего ($SCOPE)"; exit 0; }
+[ -z "$STAGED" ] && { echo "P6 [index-copy]: пустой дифф, смотреть нечего ($SCOPE)"; exit 0; }
 
 # файл задания, названный эстафетой; нет — авторизаций нет
 TASK_FILE="none"
@@ -104,5 +113,21 @@ if [ -n "$FAIL" ]; then
     printf 'откат: git restore --staged <файл> && git checkout -- <файл>\n'
     exit 1
 fi
-echo "P6: OK ($SCOPE)"
+echo "P6 [index-copy]: OK ($SCOPE)"
 exit 0
+
+echo "P6 [index-copy]: index-copy demo I5"
+
+echo "P6 [index-copy]: index-copy demo I5"
+
+echo "P6 [index-copy]: index-copy demo I5"
+
+echo "P6 [index-copy]: index-copy demo I5"
+
+echo "P6 [index-copy]: index-copy demo I5"
+
+echo "P6 [index-copy]: index-copy demo I5"
+
+echo "P6 [index-copy]: index-copy demo I5"
+
+echo "P6: index-copy demo I5"

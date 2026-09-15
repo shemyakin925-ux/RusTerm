@@ -39,6 +39,27 @@ for guard in agent/p1_rule.sh agent/p6_rule.sh; do
     fi
 done
 
+# ТЗ-44 L1: коммит, обещающий правку стража сообщением, обязан её
+# нести. Проверяются ОБА состояния: pending (сообщение + staged) и
+# последний коммит (HEAD + HEAD~1..HEAD). Красный называет файл.
+CMSG="$(git rev-parse --git-path COMMIT_EDITMSG 2>/dev/null || true)"
+PENDING_FILES=$(mktemp "${TMPDIR:-/tmp}/selfcheck-pf.XXXXXX")
+git diff --cached --name-only > "$PENDING_FILES" 2>/dev/null || true
+PENDING_MSG=$(mktemp "${TMPDIR:-/tmp}/selfcheck-pm.XXXXXX")
+if [ -n "$CMSG" ] && [ -f "$CMSG" ]; then cp "$CMSG" "$PENDING_MSG"; else : > "$PENDING_MSG"; fi
+if ! bash agent/check_mention.sh "$PENDING_MSG" "$PENDING_FILES"; then
+    fail "L1" "pending commit mentions a guard it does not carry"
+fi
+rm -f "$PENDING_MSG" "$PENDING_FILES"
+LAST_FILES=$(mktemp "${TMPDIR:-/tmp}/selfcheck-lf.XXXXXX")
+git diff --name-only HEAD~1 HEAD > "$LAST_FILES" 2>/dev/null || true
+LAST_MSG=$(mktemp "${TMPDIR:-/tmp}/selfcheck-lm.XXXXXX")
+git log -1 --format=%B HEAD > "$LAST_MSG" 2>/dev/null || : > "$LAST_MSG"
+if ! bash agent/check_mention.sh "$LAST_MSG" "$LAST_FILES"; then
+    fail "L1" "last commit mentions a guard it does not carry"
+fi
+rm -f "$LAST_MSG" "$LAST_FILES"
+
 # P1: снятые assert-строки — только через объявленную замену булавки
 # (правило ТЗ-32 D5: блок ЗАМЕНА-БУЛАВКИ/ПОЧЕМУ СИЛЬНЕЕ в сообщении
 # коммита и не меньше assert-строк в том же файле; всё остальное
