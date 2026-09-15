@@ -176,6 +176,9 @@ python3 agent/relay.py wait --for executor --timeout 3600
 # работа сдана: отчёт запушен, ход у координатора
 python3 agent/relay.py hand --to coordinator --report agent/REPORT-NN.md \
   --note "<one line: what is done, what is not>"
+# ТЗ-42 J2: убедиться, что ход ДОЕХАЛ (hand мог смолчать провал);
+# ненулевой код — ход не передан: работа не сдана, разбирайся и повтори
+python3 agent/relay.py status --assert-holder coordinator
 ```
 
 Rules:
