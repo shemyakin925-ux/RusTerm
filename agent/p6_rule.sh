@@ -50,9 +50,12 @@ authorized() {  # <path> — есть ли строка РАЗРЕШЕНО ПР�
 # сообщение коммита: HEAD (прогон по коммиту) или COMMIT_EDITMSG
 # (декларация перед коммитом)
 MSG="$(git log -1 --format=%B 2>/dev/null || true)"
-if [ -f .git/COMMIT_EDITMSG ]; then
+# ТЗ-37 I7: .git не всегда папка (linked worktree) — путь через
+# git rev-parse, как в p1_rule.sh
+EDITMSG=$(git rev-parse --git-path COMMIT_EDITMSG 2>/dev/null || true)
+if [ -n "$EDITMSG" ] && [ -f "$EDITMSG" ]; then
     MSG="$MSG
-$(cat .git/COMMIT_EDITMSG 2>/dev/null || true)"
+$(cat "$EDITMSG" 2>/dev/null || true)"
 fi
 
 FAIL=""

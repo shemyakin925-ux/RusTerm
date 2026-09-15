@@ -84,10 +84,11 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
         assert "agent/p6_rule.sh" in combined, combined[-800:]
         assert "рабочем дереве" in combined, combined[-800:]
     finally:
-        _git("restore", "--staged", "agent/CONTEXT.md",
-             "agent/p6_rule.sh", check=False)
-        _git("checkout", "--", "agent/CONTEXT.md", "agent/p6_rule.sh",
-             check=False)
+        # p6_rule.sh здесь НЕ трогается: его правка могла быть
+        # застейджена исполнителем отдельно (I7) — красный случай
+        # стейджит только agent/CONTEXT.md
+        _git("restore", "--staged", "agent/CONTEXT.md", check=False)
+        _git("checkout", "--", "agent/CONTEXT.md", check=False)
         editmsg = subprocess.run(
             ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
             cwd=ROOT, capture_output=True, text=True,
