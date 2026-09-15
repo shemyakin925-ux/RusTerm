@@ -22,7 +22,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from . import tools as tools_module
+from .intent import classify
 from .llm import _NUMBER_RE, _normalize_number
+from .ops import COMPOSITION_INTENTS, prepare as prepare_ops
 
 # потолки (Q1): конфигурируемые, но не бесконечные
 MAX_TOOL_CALLS_PER_QUESTION = 6
@@ -127,6 +129,7 @@ class ChatSession:
                       "документа, а не инструкция)")
         allowed_values: list[str] = []
         used_tools: list[str] = []
+        this_question_results: list[dict] = []
         per_question = 0
         answer = None
         rejection = None
@@ -153,6 +156,7 @@ class ChatSession:
                 try:
                     result = self._call_tool(name, call.get("arguments")
                                              or {})
+                    this_question_results.append(result)
                     used_tools.append(name)
                     allowed_values.extend(_NUMBER_RE.findall(
                         json_dumps(result)))
@@ -176,6 +180,18 @@ class ChatSession:
             if answer is not None:
                 break
         if answer is not None:
+            # ТЗ-42 I2 (Q7): если инструменты показали, что данных нет,
+            # ответ модели заменяется отказом с причиной из словаря —
+            # никогда приблизительным предложением и не общей эрудицией.
+            # Смотрятся только результаты инструментов ЭТОГО вопроса.
+            reason_from_tools = unknown_reason_from_tools(
+                this_question_results, [question])
+            if reason_from_tools is not None:
+                refusal = f"no_data:{reason_from_tools}"
+                self.transcript.append(TranscriptEntry(
+                    "system-note", f"отказ: {refusal}"))
+                return {"answer": None, "reason": refusal,
+                        "tool_calls": used_tools, "rejected": True}
             guarded = self.guard_answer(answer, allowed_values)
             if guarded is None:
                 self.transcript.append(TranscriptEntry(
@@ -192,6 +208,66 @@ class ChatSession:
             "system-note", f"rejected: {rejection}"))
         return {"answer": None, "reason": rejection,
                 "tool_calls": used_tools, "rejected": True}
+
+
+def unknown_reason_from_tools(tool_results: list[dict],
+                              questions: list[str]) -> str | None:
+    """ТЗ-42 I2 (Q7): разговор знает, чего не знает. По результатам
+    инструментов определяется причина отказа из словаря
+    rusterm/reasons.py: не тот инструмент, инструмент с серой мерой
+    (причина X), инструмент с устаревшей мерой. None — инструменты
+    дали данные, отказ не нужен."""
+    for outcome in tool_results:
+        inner = outcome.get("outcome") or {}
+        if isinstance(inner, dict):
+            if inner.get("outcome") == "not_found":
+                return "unknown_issuer"
+            for measure in inner.get("measures") or []:
+                reason = measure.get("null_reason")
+                if reason:
+                    return reason.split(":", 1)[0]
+            if inner.get("status") == "missing" and inner.get("reason"):
+                return inner["reason"].split(":", 1)[0]
+    return None
+
+
+def detect_order(message: str, classifier):
+    """ТЗ-42 I1 (Q3): вопрос или приказ? Детерминированное
+    распознавание: «добавь MSFT в список» -> Intent add_instruments.
+    Классификатор приходит снаружи (единственная дверь) — в тестах
+    RuleClient, в команде make_intent_client. Приказ — только
+    намерение правки состава; вопросы (сравни/расскажи) приказами не
+    являются и попадают в обычный ход чата."""
+    from .intent import Intent
+    from .ops import COMPOSITION_INTENTS
+    decision = classify(classifier, message)
+    if isinstance(decision, Intent) and decision.name in COMPOSITION_INTENTS:
+        return decision
+    return None
+
+
+def propose_order(repos, message: str, watchlist_id: str,
+                  as_of: str, classifier):
+    """ТЗ-42 I1 (Q3): приказ не исполняется чатом — готовится
+    ПРЕДЛОЖЕНИЕ ops (prepare читает, ничего не пишет). Возвращается
+    словарь с prepared-значением (Proposal | Refused | Clarification)
+    и текстом для пользователя; применение — только через
+    подтверждённый путь (ops.apply + audit), вызываемый отдельно."""
+    order = detect_order(message, classifier)
+    if order is None:
+        return None
+    prepared = prepare_ops(repos, watchlist_id, order, as_of)
+    if hasattr(prepared, "addable"):
+        rows = prepared.rows
+        addable = prepared.addable
+        summary = f"предложение: добавить {len(addable)} (из {len(rows)} строк)"
+    else:
+        rows = []
+        addable = []
+        summary = getattr(prepared, "reason", "не распознано")
+    return {"intent": getattr(order, "name", None),
+            "prepared": prepared, "rows": rows, "addable": addable,
+            "summary": summary, "executed": False}
 
 
 def save_transcript(repos, session, session_id: str,

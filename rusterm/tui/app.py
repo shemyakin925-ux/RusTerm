@@ -41,6 +41,10 @@ def _list_screen(stdscr, repos, watchlist_id):
                 rows[cursor]["instrument_id"])
             if peer:
                 _industry_screen(stdscr, repos, peer["peer_set_id"])
+        elif key == ord("c"):
+            # ТЗ-42 I3/I4: разговор — клиент через единственную дверь
+            from rusterm.core.llm import make_intent_client
+            _chat_screen(stdscr, repos, make_intent_client(), None)
         # r и прочие клавиши — просто перерисовать из базы заново
 
 
@@ -89,6 +93,53 @@ def _industry_screen(stdscr, repos, sector):
         key = stdscr.getch()
         if key in (ord("q"), ord("Q")):
             return "quit"
+        if key == ESC_KEY:
+            return None
+
+
+def _chat_screen(stdscr, repos, session_id: str | None):
+    """Экран «Разговор» (ТЗ-42 I3, Q10): вопрос -> ответ через ТОТ ЖЕ
+    ChatSession, что и CLI. Клиент строится единственной дверью
+    make_intent_client (ТЗ-42 I4) — экран свой клиент не создаёт.
+    Вопрос, Enter — отправить, ESC — выход."""
+    import curses
+
+    from rusterm.core.chat import ChatSession
+    from rusterm.core.llm import make_intent_client
+
+    client = make_intent_client()
+    session = ChatSession(repos, client)
+    rows = []
+    stdscr.addstr(0, 0, "Разговор (вопрос, Enter — отправить, ESC — выход):")
+    stdscr.addstr(1, 0, "> ")
+    stdscr.refresh()
+    question = ""
+    while True:
+        key = stdscr.getch()
+        if key in (curses.KEY_ENTER, 10, 13):
+            if question.strip():
+                result = session.ask(question)
+                rows.append((question, result.get("answer"),
+                             result.get("citations") or [],
+                             session.calls_made))
+            question = ""
+            stdscr.erase()
+            stdscr.addstr(0, 0, "Разговор (вопрос, Enter — отправить, ESC — выход):")
+            for i, (q, a, cit, _calls) in enumerate(rows, start=1):
+                stdscr.addstr(i, 0, f"вы: {q}")
+                if a:
+                    stdscr.addstr(i + 1, 2, f"модель: {a}")
+                for j, citation in enumerate(cit):
+                    stdscr.addstr(i + 2 + j, 4, f"цитата: {citation}")
+            row = 1 + sum(3 for _ in rows)
+            stdscr.addstr(row, 0,
+                          f"вызовов: {session.calls_made}")
+            stdscr.addstr(row + 1, 0, "> ")
+            stdscr.refresh()
+        elif key in (curses.KEY_BACKSPACE, 127, 8):
+            question = question[:-1]
+        elif 32 <= key < 127 or key > 127:
+            question += chr(key)
         if key == ESC_KEY:
             return None
 

@@ -361,3 +361,41 @@ def render_card(card: dict) -> list[str]:
     for g in card["governance"]:
         lines.append(f"  {g['indicator']}: {g['color']}")
     return lines
+
+
+# ── Экран «Разговор» (ТЗ-42 I3, Q10): ходы, цитаты, стоимость ───────────
+
+def chat_screen(session: dict, calls_made: int) -> dict:
+    """Собрать экран разговора из сохранённой/текущей расшифровки:
+    ходы (роль, текст), цитаты ответов, строка стоимости (вызовы).
+    session — словарь chat_transcript.get(): model, turns, calls.
+    Чистая функция: ничего не читает и не пишет."""
+    turns: list[dict] = []
+    for turn in session.get("turns", []):
+        turns.append({
+            "role": turn["role"],
+            "text": turn.get("text") or "",
+            "rejected": bool(turn.get("rejected")),
+            "citations": list(turn.get("citations") or []),
+        })
+    return {"model": session.get("model", ""),
+            "calls": session.get("calls", calls_made),
+            "turns": turns}
+
+
+def render_chat(screen: dict) -> list[str]:
+    """Строки экрана разговора: ходы с цитатами и строка стоимости.
+    Ни одной управляющей последовательности — рисование в app.py."""
+    lines: list[str] = []
+    for turn in screen["turns"]:
+        mark = {"user": "вы", "assistant": "модель",
+                "tool": "инструмент"}.get(turn["role"], turn["role"])
+        for raw in (turn["text"] or "").splitlines() or [""]:
+            line = f"{mark}: {raw}"
+            if turn["rejected"]:
+                line = f"{line} [ОТКЛОНЕНО]"
+            lines.append(line)
+        for citation in turn["citations"]:
+            lines.append(f"   цитата: {citation}")
+    lines.append(f"вызовов: {screen['calls']}; модель: {screen['model']}")
+    return lines
