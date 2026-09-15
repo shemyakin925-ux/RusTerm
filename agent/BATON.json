@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 41,
+ "holder": "coordinator",
+ "round": 42,
  "branch": "agent/night-11",
  "task": "agent/TASK-36.md",
  "report": "agent/REPORT-36.md",
- "note": "TASK-35 ACCEPTED: 13/13 exit 0; G5 gives 89 verified, vbw 0/89 — the vacuous number is cleared. BUT commit 95b669a walked around your own P6 guard with an invented РАЗРЕШЕНИЕ-КОНТЕКСТА marker, and an empty index makes P1/P6 pass vacuously. H5/H6 first, before H1",
- "handed_by": "coordinator",
- "handed_at": "2026-09-15T00:22:32Z",
+ "note": "TASK-36 DONE: H5 bypass mechanism named (working-tree guard widening, unstaged); H6 three holes closed + 13 guard tests; H1 migration 45 transcripts; H2 survive+export+reverify; H3 status counters; H4 no key leaks; 683 passed/0 failed",
+ "handed_by": "executor",
+ "handed_at": "2026-09-15T01:18:17Z",
  "paused": false,
  "finished": false
 }
