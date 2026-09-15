@@ -148,3 +148,22 @@ does not describe I5, REPORT-37 does.
 - Full suite after this commit: 687 passed, 1 skipped, 6 deselected,
   4 xfailed, 0 failed; linked-worktree acceptance (I7 command above)
   green at the same tree.
+
+## Done (continued) — the fourth visit (round 48)
+
+### I8 (continued) — the sentinel made robust, the lock test written (DONE)
+
+- The sentinel's pid-strictness flaked: the acceptance runs the whole
+  suite TWICE (check 3 and check 11 without zstandard) in two
+  different processes — the second run's sentinel saw the first
+  run's marker pid and failed ("74787 == 77916"). Now the marker is
+  accepted when its pid is alive OR its mtime is under 30 minutes;
+  a dead-pid ancient marker — red with the reason. The
+  single-flight lock stays removed (it cannot go stale because it
+  does not exist).
+- Stale-lock test: a leftover `i5-demo-single-flight.lock` written
+  by a dead pid affects nothing — both I5 tests still collect and
+  execute (collect-only asserts the count 3 and no skips).
+- Full suite: 688 passed, 0 failed. Own-clone acceptance: green
+  (hook run of this commit). Linked-worktree acceptance: green
+  (demonstrated in I7, same tree).

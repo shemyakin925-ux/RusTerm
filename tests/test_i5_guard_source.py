@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+import tempfile
 import tempfile
 from pathlib import Path
 
@@ -74,6 +76,8 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
             ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
             cwd=ROOT, capture_output=True, text=True,
             check=True).stdout.strip()
+        # прежнее содержимое декларации сохраняется и возвращается
+        editmsg_saved = Path(editmsg).read_text(encoding="utf-8")
         Path(editmsg).write_text(
             "demo\n\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
         result = _selfcheck()
@@ -87,11 +91,7 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
         # стейджит только agent/CONTEXT.md
         _git("restore", "--staged", "agent/CONTEXT.md", check=False)
         _git("checkout", "--", "agent/CONTEXT.md", check=False)
-        editmsg = subprocess.run(
-            ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
-            cwd=ROOT, capture_output=True, text=True,
-            check=True).stdout.strip()
-        Path(editmsg).write_text("", encoding="utf-8")
+        Path(editmsg).write_text(editmsg_saved, encoding="utf-8")
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
@@ -106,9 +106,12 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
             ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
             cwd=ROOT, capture_output=True, text=True,
             check=True).stdout.strip()
+        # реальное ожидаемое сообщение сохраняется и ДОПОЛНЯЕТСЯ
+        # маркером: pending-изменения самих тестов (замены булавок)
+        # продолжают видеть свои объявления
         Path(editmsg).write_text(
-            "I5 green demo\n\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n",
-            encoding="utf-8")
+            Path(editmsg).read_text(encoding="utf-8")
+            + "\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
         result = _selfcheck({"I5_NESTED": "1"})
         assert result.returncode == 0, (
             result.stdout[-1500:] + result.stderr[-800:])
@@ -118,8 +121,25 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
         _git("restore", "--staged", "agent/p6_rule.sh",
              check=False)
         _git("checkout", "--", "agent/p6_rule.sh", check=False)
-        editmsg = subprocess.run(
-            ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
-            cwd=ROOT, capture_output=True, text=True,
-            check=True).stdout.strip()
-        Path(editmsg).write_text("", encoding="utf-8")
+        Path(editmsg).write_text(editmsg_saved, encoding="utf-8")
+
+
+def test_stale_single_flight_lock_does_not_skip_the_module(tmp_path):
+    """ТЗ-36 I8: протухший замок старой схемы (pid мёртвого процесса)
+    не влияет ни на что — замок убран, оба теста I5 собираются и
+    выполняются."""
+    import sys
+
+    stale = Path(tempfile.gettempdir()) / "i5-demo-single-flight.lock"
+    stale.write_text(json.dumps({"pid": 999999999}), encoding="utf-8")
+    try:
+        out = subprocess.run(
+            [sys.executable, "-m", "pytest", "--collect-only", "-q",
+             "tests/test_i5_guard_source.py"], cwd=ROOT,
+            capture_output=True, text=True)
+        assert out.returncode == 0, out.stdout + out.stderr
+        # оба теста I5 собираются к исполнению — замок ни на что не влияет
+        assert "tests/test_i5_guard_source.py: 3" in out.stdout, out.stdout
+        assert "skipped" not in out.stdout, out.stdout
+    finally:
+        stale.unlink(missing_ok=True)
