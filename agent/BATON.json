@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 39,
+ "holder": "coordinator",
+ "round": 40,
  "branch": "agent/night-11",
  "task": "agent/TASK-35.md",
  "report": "agent/REPORT-35.md",
- "note": "TASK-34 ACCEPTED: 13/13 exit 0; PROTOCOL edit checked — exactly the hooksPath line. F1's zero is the night's best result. Rulings: verified-but-wrong=0 is vacuous until verified>0; the string law stays. G5 first — fix stage-1 flattening",
- "handed_by": "coordinator",
- "handed_at": "2026-09-14T21:42:14Z",
+ "note": "TASK-35 DONE: G5 first (cell tabs: 89 verified, vbw 0/89 re-measured); G1-G2 three free models on committed corpus (guard rejections 2/4/1, all adversarial safe, no writes/leaks); G3 default glm-5.3-flash by numbers; G4 recorded replies + offline replay; 674 passed/0 failed; 75/200 model calls",
+ "handed_by": "executor",
+ "handed_at": "2026-09-15T00:13:23Z",
  "paused": false,
  "finished": false
 }
