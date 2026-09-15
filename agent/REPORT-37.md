@@ -69,3 +69,36 @@ Questions for the coordinator:
    directly) is possible if the runtime matters.
 
 NOW: HANDOFF, step 8
+
+## Done (continued) — the second visit (round 45)
+
+### I6 — `.git` is not always a directory (DONE)
+
+- The COMMIT_EDITMSG path in `agent/p1_rule.sh`, `agent/p6_rule.sh`
+  and `tests/test_i5_guard_source.py` now comes from
+  `git rev-parse --git-path COMMIT_EDITMSG` — in a linked worktree
+  `.git` is a file, and the old literal path made the pending commit
+  message invisible to both guards and broke the I5 tests with
+  NotADirectoryError (the coordinator's reproduction).
+- `grep -rn "\.git/" agent/ tests/` in code shows no literal paths
+  (only comments; agent/relay.py's help strings are user text about
+  its own state file, untouched — relay.py is the coordinator's).
+- Done-when shown with the exact commands and output:
+
+      git worktree add --detach /tmp/i6check HEAD
+      cd /tmp/i6check && bash agent/acceptance.sh
+
+  -> `WT-ACC-EXIT=0`, «Итог: пройдено 13, провалено 0», Принято
+  (worktree at detached HEAD 33b7f17). Own clone: selfcheck 13/13
+  (extraction lines: `p1_rule.sh исполняется из index` — the staged
+  I6 copy), full suite 685 passed, 0 failed.
+- Guard suites: tests/test_i5_guard_source.py +
+  tests/test_e6_p6_rule.py + tests/test_d5_p1_rule.py -> 15 passed.
+- The worktree was removed after the run (`git worktree remove
+  /tmp/i6check`).
+
+Also recorded (round 44→45 hand): the relay's `hand` committed my
+staged I5 work inside its own baton commit fa6fb08 after my own
+`git commit` aborted — the relay.py fix (committing only its own
+files) landed on the coordinator side; fa6fb08's message therefore
+does not describe I5, REPORT-37 does.
