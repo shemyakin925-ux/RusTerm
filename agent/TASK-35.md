@@ -1,6 +1,6 @@
 # TASK-35 — Q4: три бесплатные модели, измеренные на этой задаче
 
-- **Status: READY**
+- **Status: ACCEPTED** — acceptance 13/13, exit 0; ruling and the P6 bypass in `agent/TASK-36.md`
 - **Report:** `agent/REPORT-35.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12 — the relay, hooksPath bootstrap).
   State: `agent/CONTEXT.md`.

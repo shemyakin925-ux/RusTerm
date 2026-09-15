@@ -5,7 +5,7 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 15.09.2026, after accepting TASK-31…TASK-34 on
+Last updated: 15.09.2026, after accepting TASK-31…TASK-35 on
 `agent/night-11` (acceptance 13/13, exit 0 on each). The shift branch is `agent/night-11` and the
 turn is passed by the relay — `agent/PROTOCOL.md` §12, driver
 `agent/relay.py`, baton `agent/BATON.json`.
@@ -39,6 +39,12 @@ user, data never leaves the machine. **Everything in it is free
 `agent/TASK*.md`, `PROTOCOL.md`, `CONTEXT.md`, `BACKLOG.md`, `LAUNCH.md`
 or `acceptance.sh` is a red selfcheck — the executor owns reports,
 `STATE.json`, `BATON.json`, code and tests.
+
+**Guards are not self-widening (ruling of 15.09.2026).** A
+`РАЗРЕШЕНИЕ-<file>:` marker in a commit message means nothing unless the
+current task file says `РАЗРЕШЕНО ПРАВИТЬ: <path>`. Commit `95b669a`
+walked around P6 with an invented marker; TASK-36 H5/H6 closes it, empty
+index included.
 
 **A red selfcheck cannot be committed (TASK-34 F6).** The tracked hook
 `agent/githooks/pre-commit` runs it without a pipe; bootstrap once per
@@ -94,7 +100,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |
 | M12 chat | loop, citation guard, adversarial corpus, ADR-0016 — **no TUI screen, no transcripts, no model comparison** (TASK-35, 36, 37) |
-| M14 manual import + model | the four recorded tables run through the real free model: column discipline correct on 81 values, **0 facts stored** — stage ① flattens the table and verbatim quotes fail the string law (TASK-34 F1, repair ordered as TASK-35 G5); `verified-but-wrong=0` is vacuous until then |
+| M14 manual import + model | repaired in TASK-35 G5 — a tab at the cell boundary, the string law untouched: the same four tables now give **89 verified records, verified-but-wrong 0 of 89**, the footnote row stored `unverified/near_miss` with a named reason; three free models measured on the chat corpus, default `glm-5.3-flash` by numbers (G3) |
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |
 
 Data reaching a user today: **US 10 measures of 10 plus real prices; CA 3/10; OTC 3/10**
@@ -104,7 +110,9 @@ Data reaching a user today: **US 10 measures of 10 plus real prices; CA 3/10; OT
 
 `RUSTERM_SEC_UA` (a contact string, not a key), `RUSTERM_DART_KEY`,
 `RUSTERM_TWELVEDATA_KEY` (free tier: 8/min, 800/day),
-`RUSTERM_LLM_API_KEY` (OpenRouter, free models; дефолт модели `glm-5.3-flash` — по замеру ТЗ-35, REPORT-35 G3). Loaded from the
+`RUSTERM_LLM_API_KEY` (OpenRouter, free models; the default model is
+`glm-5.3-flash` — chosen by measurement in TASK-35 G3, not by taste).
+Loaded from the
 environment, else from `$RUSTERM_ENV_FILE` or `~/.rusterm.env`.
 **They exist in the executor's environment from 13.09.2026.**
 
