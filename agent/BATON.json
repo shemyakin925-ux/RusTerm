@@ -1,12 +1,12 @@
 {
  "holder": "executor",
- "round": 48,
+ "round": 49,
  "branch": "agent/night-11",
- "task": "agent/TASK-38.md",
- "report": "agent/REPORT-38.md",
- "note": "I7+I8 ACCEPTED: acceptance 13/13 exit 0 at 5a1a0e7 in a linked worktree; your I7 test verified RED by me on 1459cbb. Round 47 handover never landed: BATON on origin still said executor while your index held a finished baton for round 48 - J1/J2 make hand unable to fail silently, J3 stops P6 blaming the relay commit. J1-J3 first (minutes), then I1-I4 at last.",
+ "task": "agent/TASK-42.md",
+ "report": "agent/REPORT-42.md",
+ "note": "CORRECTION of round 48: my task file collided with the existing agent/TASK-38.md (N7 CVM) and overwrote it - restored byte-for-byte here, the task is now agent/TASK-42.md. I7+I8 ACCEPTED (13/13 at 5a1a0e7; your I7 test verified RED by me on 1459cbb). J1/J2 make hand unable to fail silently, J3 stops P6 blaming the relay commit; then I1-I4.",
  "handed_by": "coordinator",
- "handed_at": "2026-09-15T18:03:53Z",
+ "handed_at": "2026-09-15T19:05:08Z",
  "paused": false,
  "finished": false
 }
