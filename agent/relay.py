@@ -216,12 +216,19 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
         staged = [f for f in git("diff", "--cached", "--name-only").splitlines()
                   if f and f != BATON_PATH and f not in extra]
         if staged:
-            print("в индексе лежит чужое — в коммит эстафеты не берётся:")
-            for f in staged[:10]:
-                print("  ", f)
-            print("закоммить это своим коммитом, эстафета несёт только своё")
+            # ТЗ-42 J1: эстафету нельзя передавать из грязного индекса —
+            # именно так круг 48 остался непереданным
+            die("в индексе лежит чужое: " + ", ".join(staged[:10])
+                + ". Ход не передан и работа не сдана. Закоммить это "
+                "своим коммитом и повтори: python3 agent/relay.py hand ...")
         git("add", "--", BATON_PATH, *extra)
-        git("commit", "--only", "-m", message, "--", BATON_PATH, *extra)
+        try:
+            git("commit", "--only", "-m", message, "--", BATON_PATH, *extra)
+        except SystemExit:
+            # ТЗ-42 J1: провал коммита — не тишина: ход не передан
+            die("коммит эстафеты не прошёл. Ход не передан и работа не "
+                "сдана. Разберись (хук/индекс) и повтори: python3 "
+                "agent/relay.py hand ...")
         proc = subprocess.run(("git", "push", remote, f"{branch}:{branch}"),
                               capture_output=True)
         if proc.returncode != 0:
@@ -257,8 +264,9 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
                           capture_output=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
-        die("push отклонён — ветка ушла вперёд. Перечитай состояние "
-            "(relay.py status) и повтори передачу.")
+        die("push отклонён — ветка ушла вперёд. Ход не передан и работа "
+            "не сдана. Перечитай состояние (relay.py status) и повтори "
+            "передачу.")
     fetch(remote, branch)
     return commit[:7]
 
@@ -301,6 +309,20 @@ def cmd_status(a: argparse.Namespace) -> int:
     baton = read_remote_baton(a.remote, branch)
     if baton is None:
         die(f"на {a.remote}/{branch} нет {BATON_PATH} — сначала relay.py init")
+    # ТЗ-42 J2: проверка держателя — код возврата, а не надежда.
+    # После hand вызывающий обязан прогнать это; ненулевой код — ход
+    # не доехал (см. PROTOCOL §12).
+    if getattr(a, "assert_holder", None):
+        expected = a.assert_holder
+        if expected not in ROLES:
+            die(f"--assert-holder принимает {ROLES}")
+        if baton.get("holder") != expected:
+            sys.stderr.write(
+                f"relay: ход НЕ передан: на {a.remote}/{branch} держит "
+                f"{baton.get('holder')!r}, а не {expected!r}. Работа не "
+                "сдана. Разберись (relay.py status, журнал пуша) и "
+                "повтори hand.\n")
+            return EXIT_ERROR
     print(f"ветка: {a.remote}/{branch}")
     print(baton_line(baton))
     if baton.get("note"):
@@ -512,8 +534,16 @@ def cmd_hand(a: argparse.Namespace) -> int:
         + (f" — {new['task']}" if new.get("task") else "")
     )
     sha = push_baton(a.remote, branch, new, list(a.add or []), message)
+    # ТЗ-42 J1: пуш — не доказательство. Перечитываем BATON с origin:
+    # ход считается переданным, только если там теперь держатель a.to.
+    fetch(a.remote, branch)
+    on_origin = read_remote_baton(a.remote, branch)
+    if on_origin is None or on_origin.get("holder") != a.to:
+        die(f"ход НЕ передан: на {a.remote}/{branch} держит "
+            f"{(on_origin or {}).get('holder', 'никто')!r}, а не {a.to!r}. "
+            "Работа не сдана. Проверь relay.py status и повтори hand.")
     print(f"передано коммитом {sha}")
-    print(baton_line(new))
+    print(baton_line(on_origin))
     for rel in a.add or []:
         print("  вложено:", rel)
     return EXIT_OK
@@ -597,6 +627,10 @@ def main(argv: list[str]) -> int:
     s.set_defaults(func=cmd_init)
 
     s = sub.add_parser("status", help="чей ход прямо сейчас")
+    s.add_argument("--assert-holder", dest="assert_holder", default=None,
+                   metavar="РОЛЬ",
+                   help="ненулевой код, если на origin/<ветка> держит не "
+                        "эта роль (ТЗ-42 J2)")
     s.set_defaults(func=cmd_status)
 
     s = sub.add_parser("wait", help="блокирующее ожидание своего хода")

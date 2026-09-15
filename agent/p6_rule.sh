@@ -30,6 +30,21 @@ if [ -z "$STAGED" ]; then
     # H6.3: после коммита индекс пуст — смотрим последний коммит
     STAGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
     SCOPE="HEAD~1..HEAD (last commit)"
+    # ТЗ-42 J3: коммит самой эстафеты пропускается — узнаётся по
+    # сообщению «Эстафета: круг N» и по составу: в нём нет НИЧЕГО,
+    # кроме файлов координатора (тот же список, что в блоке ниже) и
+    # BATON.json. Чужой (исполнительский) файл внутри — красный.
+    LAST_MSG=$(git log -1 --format=%B HEAD 2>/dev/null || true)
+    if printf '%s\n' "$LAST_MSG" | grep -q '^Эстафета: круг'; then
+        FOREIGN=$(printf '%s\n' "$STAGED" | grep -v -E \
+            '^agent/(BATON\.json|TASK-[0-9]+\.md|CONTEXT\.md|BACKLOG\.md|LAUNCH\.md|PROTOCOL\.md|REPORT-[0-9]+\.md)$')
+        if [ -z "$FOREIGN" ]; then
+            echo "P6: $SCOPE — коммит эстафеты, пропущен"
+            exit 0
+        fi
+        echo "P6: в коммите эстафеты чужие файлы (исполнителя):$FOREIGN"
+        exit 1
+    fi
 fi
 [ -z "$STAGED" ] && { echo "P6: пустой дифф, смотреть нечего ($SCOPE)"; exit 0; }
 
