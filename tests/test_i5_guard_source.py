@@ -106,12 +106,13 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
             ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
             cwd=ROOT, capture_output=True, text=True,
             check=True).stdout.strip()
+        editmsg_saved = Path(editmsg).read_text(encoding="utf-8")
         # реальное ожидаемое сообщение сохраняется и ДОПОЛНЯЕТСЯ
         # маркером: pending-изменения самих тестов (замены булавок)
         # продолжают видеть свои объявления
         Path(editmsg).write_text(
-            Path(editmsg).read_text(encoding="utf-8")
-            + "\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
+            editmsg_saved + "\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n",
+            encoding="utf-8")
         result = _selfcheck({"I5_NESTED": "1"})
         assert result.returncode == 0, (
             result.stdout[-1500:] + result.stderr[-800:])
