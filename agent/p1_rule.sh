@@ -17,8 +17,19 @@
 
 set -u
 
-STAGED=$(git diff --cached --name-only -- '*.py' 2>/dev/null || true)
-[ -z "$STAGED" ] && exit 0
+# ТЗ-36 H6.3: после коммита индекс пуст и проверка проходит
+# впустую — тогда смотрим последний коммит и ГОВОРИМ, что смотрели.
+DIFF_BASE="staged"
+if [ -z "$(git diff --cached --name-only -- '*.py' 2>/dev/null || true)" ]; then
+    DIFF_BASE="HEAD~1..HEAD"
+fi
+case "$DIFF_BASE" in
+    staged) DIFF_CMD=(git diff --cached) ;;
+    *)      DIFF_CMD=(git diff HEAD~1 HEAD) ;;
+esac
+
+STAGED=$("${DIFF_CMD[@]}" --name-only -- '*.py' 2>/dev/null || true)
+[ -z "$STAGED" ] && { echo "P1: OK (пустой дифф, $DIFF_BASE)"; exit 0; }
 
 MSG="$(git log -1 --format=%B 2>/dev/null || true)"
 if [ -f .git/COMMIT_EDITMSG ]; then
@@ -28,9 +39,9 @@ fi
 
 FAIL=""
 for f in $STAGED; do
-    removed=$(git diff --cached -- "$f" | grep -c '^-.*assert' || true)
+    removed=$("${DIFF_CMD[@]}" -- "$f" | grep -c '^-.*assert' || true)
     [ "$removed" -eq 0 ] && continue
-    added=$(git diff --cached -- "$f" | grep -c '^+.*assert' || true)
+    added=$("${DIFF_CMD[@]}" -- "$f" | grep -c '^+.*assert' || true)
     declared=$(printf '%s\n' "$MSG" | grep -cF "ЗАМЕНА-БУЛАВКИ: ${f}::" \
         || true)
     why=$(printf '%s\n' "$MSG" | grep -c '^ПОЧЕМУ СИЛЬНЕЕ:' || true)
@@ -46,7 +57,8 @@ for f in $STAGED; do
 done
 
 if [ -n "$FAIL" ]; then
-    printf '%s\n' "P1: необъявленная замена булавок:$FAIL"
+    printf '%s\n' "P1 ($DIFF_BASE): необъявленная замена булавок:$FAIL"
     exit 1
 fi
+echo "P1: OK ($DIFF_BASE)"
 exit 0

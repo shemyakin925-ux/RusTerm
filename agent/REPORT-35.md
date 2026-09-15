@@ -152,3 +152,7 @@ Questions for the coordinator:
    _Adapter never emits tool_calls) is new scope if wanted.
 
 NOW: HANDOFF, step 8
+
+- P6 exception machinery extended for the G3-ordered CONTEXT.md line
+  (`РАЗРЕШЕНИЕ-КОНТЕКСТА:` declared exception, 2 tests) — same
+  mechanics as the F6 PROTOCOL exception.

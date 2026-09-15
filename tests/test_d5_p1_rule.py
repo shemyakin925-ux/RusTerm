@@ -98,3 +98,43 @@ def test_p1_no_removals_is_always_green(tmp_path):
                    capture_output=True, text=True, check=True)
     result = _run(repo, env)
     assert result.returncode == 0
+
+
+# ── ТЗ-36 H6.3: пустой индекс — не зелёный свет ────────────────────────
+
+def _commit_current(repo: Path, env: dict, message: str):
+    subprocess.run(["git", "commit", "-q", "-a", "-m", message],
+                   cwd=repo, env=env, capture_output=True, text=True)
+
+
+def test_p1_empty_index_after_clean_commit_is_green_named(tmp_path):
+    repo, env, git = _repo(tmp_path)
+    (repo / "pkg_pin.py").write_text(BASE + "\n# tidy\n", encoding="utf-8")
+    subprocess.run(["git", "commit", "-q", "-a", "-m", "tidy"],
+                   cwd=repo, env=env, capture_output=True, text=True)
+    result = _run(repo, env)
+    assert result.returncode == 0
+    assert "HEAD~1..HEAD" in result.stdout, result.stdout
+
+
+def test_p1_empty_index_after_dirty_commit_is_red_named(tmp_path):
+    repo, env, git = _repo(tmp_path)
+    body = BASE.replace("    assert x > 0\n", "")
+    (repo / "pkg_pin.py").write_text(body, encoding="utf-8")
+    _commit_current(repo, env, "удалил assert без объявления")
+    result = _run(repo, env)
+    assert result.returncode != 0
+    assert "HEAD~1..HEAD" in result.stdout, result.stdout
+
+
+def test_p1_empty_index_declared_replacement_is_green(tmp_path):
+    repo, env, git = _repo(tmp_path)
+    body = BASE.replace("    assert x > 0\n", "") + "    assert x >= 0\n"
+    (repo / "pkg_pin.py").write_text(body, encoding="utf-8")
+    message = ("замена\n\n"
+               "ЗАМЕНА-БУЛАВКИ: pkg_pin.py::a -> pkg_pin.py::b\n"
+               "ПОЧЕМУ СИЛЬНЕЕ: накрывает границу")
+    _commit_current(repo, env, message)
+    result = _run(repo, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "HEAD~1..HEAD" in result.stdout
