@@ -56,7 +56,11 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
         guard = ROOT / "agent" / "p6_rule.sh"
         saved = guard.read_text(encoding="utf-8")
         guard.write_text(WIDENED, encoding="utf-8")  # НЕ стейджится
-        (ROOT / ".git" / "COMMIT_EDITMSG").write_text(
+        editmsg = subprocess.run(
+            ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
+            cwd=ROOT, capture_output=True, text=True,
+            check=True).stdout.strip()
+        Path(editmsg).write_text(
             "demo\n\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
         result = _selfcheck()
         assert result.returncode != 0
@@ -68,8 +72,11 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
              "agent/p6_rule.sh", check=False)
         _git("checkout", "--", "agent/CONTEXT.md", "agent/p6_rule.sh",
              check=False)
-        (ROOT / ".git" / "COMMIT_EDITMSG").write_text(
-            "", encoding="utf-8")
+        editmsg = subprocess.run(
+            ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
+            cwd=ROOT, capture_output=True, text=True,
+            check=True).stdout.strip()
+        Path(editmsg).write_text("", encoding="utf-8")
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
@@ -80,9 +87,13 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
         guard.write_text(WIDENED, encoding="utf-8")
         _git("add", "agent/p6_rule.sh")  # расширение ЗАСТЕЙДЖЕНО
         # agent/TASK-37.md несёт РАЗРЕШЕНО ПРАВИТЬ: agent/p6_rule.sh
-        (ROOT / ".git" / "COMMIT_EDITMSG").write_text(
-            "I5 green demo\n\n"
-            "РАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
+        editmsg = subprocess.run(
+            ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
+            cwd=ROOT, capture_output=True, text=True,
+            check=True).stdout.strip()
+        Path(editmsg).write_text(
+            "I5 green demo\n\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n",
+            encoding="utf-8")
         result = _selfcheck({"I5_NESTED": "1"})
         assert result.returncode == 0, (
             result.stdout[-1500:] + result.stderr[-800:])
@@ -92,5 +103,8 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
         _git("restore", "--staged", "agent/p6_rule.sh",
              check=False)
         _git("checkout", "--", "agent/p6_rule.sh", check=False)
-        (ROOT / ".git" / "COMMIT_EDITMSG").write_text(
-            "", encoding="utf-8")
+        editmsg = subprocess.run(
+            ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
+            cwd=ROOT, capture_output=True, text=True,
+            check=True).stdout.strip()
+        Path(editmsg).write_text("", encoding="utf-8")

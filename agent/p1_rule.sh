@@ -32,9 +32,11 @@ STAGED=$("${DIFF_CMD[@]}" --name-only -- '*.py' 2>/dev/null || true)
 [ -z "$STAGED" ] && { echo "P1: OK (пустой дифф, $DIFF_BASE)"; exit 0; }
 
 MSG="$(git log -1 --format=%B 2>/dev/null || true)"
-if [ -f .git/COMMIT_EDITMSG ]; then
+# ТЗ-37 I6: .git не всегда папка (linked worktree) — путь через git
+EDITMSG=$(git rev-parse --git-path COMMIT_EDITMSG 2>/dev/null || true)
+if [ -n "$EDITMSG" ] && [ -f "$EDITMSG" ]; then
     MSG="$MSG
-$(cat .git/COMMIT_EDITMSG 2>/dev/null || true)"
+$(cat "$EDITMSG" 2>/dev/null || true)"
 fi
 
 FAIL=""
