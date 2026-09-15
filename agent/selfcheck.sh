@@ -18,13 +18,34 @@ fail() {
     exit 1
 }
 
+# ТЗ-37 I5: стражи исполняются из КОММИТА, не из рабочего дерева —
+# иначе правка стража в рабочем дереве легализует один обходной
+# коммит (случай 95b669a). Незастейдженная правка стража — красная
+# сама по себе, с именем файла.
+GUARD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/selfcheck-guards.XXXXXX")
+for guard in agent/p1_rule.sh agent/p6_rule.sh; do
+    base=$(basename "$guard")
+    if ! git diff --quiet -- "$guard"; then
+        fail "I5" "страж изменён в рабочем дереве и не застейджен: $guard"
+    fi
+    if git diff --cached --name-only -- "$guard" | grep -q .; then
+        git show ":$guard" > "$GUARD_DIR/$base" 2>/dev/null \
+            || fail "I5" "$guard нет в индексе"
+        echo "I5: $base исполняется из index"
+    else
+        git show "HEAD:$guard" > "$GUARD_DIR/$base" 2>/dev/null \
+            || fail "I5" "$guard нет в HEAD"
+        echo "I5: $base исполняется из HEAD"
+    fi
+done
+
 # P1: снятые assert-строки — только через объявленную замену булавки
 # (правило ТЗ-32 D5: блок ЗАМЕНА-БУЛАВКИ/ПОЧЕМУ СИЛЬНЕЕ в сообщении
 # коммита и не меньше assert-строк в том же файле; всё остальное
 # красное). Сторож смотрит только код: в прозе (*.md) слово «assert» —
 # часть русской речи бэклога, и маркер диффа '-' делает из неё ложную
 # тревогу (случай B24, 11.09).
-if ! bash agent/p1_rule.sh; then
+if ! bash "$GUARD_DIR/p1_rule.sh"; then
     fail "P1" "undeclared pin replacement in staged diff"
 fi
 
@@ -38,7 +59,8 @@ fi
 
 # P6: файлы координатора не касаются широким git add (ТЗ-33 E6,
 # регрессия e68c1b5: устаревший agent/TASK.md уехал в коммит).
-if ! bash agent/p6_rule.sh; then
+# Исполняется извлечённая из коммита копия стража (I5).
+if ! bash "$GUARD_DIR/p6_rule.sh"; then
     fail "P6" "coordinator-owned files staged"
 fi
 

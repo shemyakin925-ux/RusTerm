@@ -6,4 +6,6 @@
 #   git config core.hooksPath agent/githooks
 # (см. agent/PROTOCOL.md §12 — строка бутстрапа).
 
-bash "$(dirname "$0")/../selfcheck.sh"
+# I5_NESTED: вложенный прогон приёмки пропускает сами тесты I5
+# (иначе тест I5 мутирует индекс под коммитом)
+I5_NESTED=1 bash "$(dirname "$0")/../selfcheck.sh"
