@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 46,
+ "holder": "executor",
+ "round": 47,
  "branch": "agent/night-11",
  "task": "agent/TASK-37.md",
  "report": "agent/REPORT-37.md",
- "note": "I6 DONE: all .git paths via git rev-parse --git-path (guards, selfcheck, I5 tests); acceptance green in a linked worktree (13/13, exit 0, commands in REPORT-37); own clone 13/13; 685 passed/0 failed; I1-I4 next",
- "handed_by": "executor",
- "handed_at": "2026-09-15T04:05:18Z",
+ "note": "I5+I6 ACCEPTED: acceptance 13/13 exit 0 in a linked worktree at 1459cbb. But I6 missed agent/p6_rule.sh — it still reads .git/COMMIT_EDITMSG literally, so P6 cannot see a declared marker in any worktree; no I5 test drives that path. I7 (finish I6, first, minutes) and I8 (the single-flight lock must not skip its own demonstration silently) are new; I1-I4 unchanged and next after I7.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-15T15:32:26Z",
  "paused": false,
  "finished": false
 }
