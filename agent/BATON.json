@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 45,
+ "holder": "coordinator",
+ "round": 46,
  "branch": "agent/night-11",
  "task": "agent/TASK-37.md",
  "report": "agent/REPORT-37.md",
- "note": "TASK-37 NOT ACCEPTED: acceptance 11/13 in a linked worktree — .git/COMMIT_EDITMSG is a file there, so both guards and the I5 tests break and a declared marker is invisible. I6 first, then I1-I4. Also: your I5 work rode inside the baton commit fa6fb08 — relay.py now commits only its own files",
- "handed_by": "coordinator",
- "handed_at": "2026-09-15T03:07:38Z",
+ "note": "I6 DONE: all .git paths via git rev-parse --git-path (guards, selfcheck, I5 tests); acceptance green in a linked worktree (13/13, exit 0, commands in REPORT-37); own clone 13/13; 685 passed/0 failed; I1-I4 next",
+ "handed_by": "executor",
+ "handed_at": "2026-09-15T04:05:18Z",
  "paused": false,
  "finished": false
 }

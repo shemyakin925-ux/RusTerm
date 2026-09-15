@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,21 @@ def _selfcheck(extra: dict | None = None):
 
 def _nested() -> bool:
     return bool(os.environ.get("I5_NESTED"))
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _single_flight():
+    """Рекурсия невозможна и без переменной окружения: модуль держит
+    замок на весь свой прогон, вложенный pytest (из selfcheck внутри
+    зелёного случая) видит замок и пропускает модуль целиком."""
+    lock = Path(tempfile.gettempdir()) / "i5-demo-single-flight.lock"
+    if lock.exists():
+        pytest.skip("другой прогон демонстрации I5 уже идёт")
+    lock.write_text("", encoding="utf-8")
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
