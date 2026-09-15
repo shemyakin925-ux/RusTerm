@@ -1,12 +1,12 @@
 {
  "holder": "executor",
- "round": 47,
+ "round": 48,
  "branch": "agent/night-11",
- "task": "agent/TASK-37.md",
- "report": "agent/REPORT-37.md",
- "note": "I5+I6 ACCEPTED: acceptance 13/13 exit 0 in a linked worktree at 1459cbb. But I6 missed agent/p6_rule.sh — it still reads .git/COMMIT_EDITMSG literally, so P6 cannot see a declared marker in any worktree; no I5 test drives that path. I7 (finish I6, first, minutes) and I8 (the single-flight lock must not skip its own demonstration silently) are new; I1-I4 unchanged and next after I7.",
+ "task": "agent/TASK-38.md",
+ "report": "agent/REPORT-38.md",
+ "note": "I7+I8 ACCEPTED: acceptance 13/13 exit 0 at 5a1a0e7 in a linked worktree; your I7 test verified RED by me on 1459cbb. Round 47 handover never landed: BATON on origin still said executor while your index held a finished baton for round 48 - J1/J2 make hand unable to fail silently, J3 stops P6 blaming the relay commit. J1-J3 first (minutes), then I1-I4 at last.",
  "handed_by": "coordinator",
- "handed_at": "2026-09-15T15:32:26Z",
+ "handed_at": "2026-09-15T18:03:53Z",
  "paused": false,
  "finished": false
 }
