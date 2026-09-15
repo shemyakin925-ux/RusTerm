@@ -18,12 +18,17 @@ import os
 import subprocess
 import sys
 import tempfile
-import tempfile
+import uuid
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# ТЗ-43 K2: идентификатор прогона — генерируется при импорте модуля,
+# то есть СВОЙ для каждого процесса pytest. Маркер, принесённый другим
+# прогоном, несёт чужой session id и приёмку зелёной не делает.
+DEMO_SESSION_ID = str(uuid.uuid4())
 # Расширение для зелёного случая: поведение то же (красные случаи
 # p6 остаются красными), но копию из index видно по строке-маркеру.
 WIDENED = (Path("agent/p6_rule.sh").read_text(encoding="utf-8")
@@ -58,7 +63,9 @@ def _demonstration_ran():
     этот маркер доказывает sentinel-тесту, что демонстрация ВЫПОЛНЕНА
     в текущем процессе."""
     marker = Path(tempfile.gettempdir()) / "i5-demo-ran.json"
-    marker.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    marker.write_text(json.dumps({"pid": os.getpid(),
+                                  "session": DEMO_SESSION_ID}),
+                      encoding="utf-8")
     yield
 
 
