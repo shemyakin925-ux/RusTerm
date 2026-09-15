@@ -211,6 +211,15 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
+- [ ] B37 — `agent/selfcheck.sh` leaks its guard temp dir: the
+  `mktemp -d` for the extracted `p1_rule.sh`/`p6_rule.sh` copies (TASK-37
+  I5) has no trap, and the later `trap ... EXIT` for the acceptance file
+  would replace one anyway — so every selfcheck run, i.e. every commit,
+  leaves a `selfcheck-guards.XXXXXX` directory behind. Remove both dirs
+  from a single EXIT trap — accept: run `bash agent/selfcheck.sh`, then
+  `ls -d "${TMPDIR:-/tmp}"/selfcheck-guards.* 2>/dev/null` prints
+  nothing — size: S
+
 - [ ] B36 — the M5 live model path, implemented behind the `live`
   marker (debt guarded by the TASK-9 V7 tripwire, which on 13.09.2026
   became a `live`-marked test instead of a default-run failure, see

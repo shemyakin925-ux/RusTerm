@@ -5,12 +5,16 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 15.09.2026, after accepting TASK-31…TASK-36 on
-`agent/night-11` (acceptance 13/13, exit 0 on each). **TASK-37 is NOT
-accepted**: its I5 is right in design but assumes `.git` is a directory, so
-acceptance in a linked worktree is 11/13 — repair ordered as I6. The shift branch is `agent/night-11` and the
-turn is passed by the relay — `agent/PROTOCOL.md` §12, driver
-`agent/relay.py`, baton `agent/BATON.json`.
+Last updated: 15.09.2026, after round 46 on `agent/night-11`. Accepted:
+TASK-31…TASK-36, and **TASK-37 I5+I6** — acceptance at `1459cbb` is
+«пройдено 13, провалено 0», exit 0, run **in a linked worktree**, where
+the round before gave 11/13. TASK-37 stays open: **I1–I4 are not
+started** (question vs order, does-not-know, TUI screen, single door) and
+**I7–I8 are new** — `agent/p6_rule.sh` was missed by I6, and the I5
+single-flight lock can skip its own demonstration silently. The shift
+branch is `agent/night-11` and the turn is passed by the relay —
+`agent/PROTOCOL.md` §12, driver `agent/relay.py`, baton
+`agent/BATON.json`.
 
 ## 1. What the program is
 
@@ -47,10 +51,16 @@ marker in a commit message means nothing unless the task file named in
 `agent/BATON.json` says `РАЗРЕШЕНО ПРАВИТЬ: <path>`; the blocklist is not
 overridable from the environment; an empty index checks `HEAD~1..HEAD`
 instead of passing vacuously. **TASK-37 I5** makes selfcheck and the hook run the
-*committed* guard, closing the `95b669a` bypass — but it reads
-`.git/COMMIT_EDITMSG` literally, so in a linked worktree the guards see no
-commit message at all. Until I6 lands, a declared marker is invisible
-outside a plain clone.
+*committed* guard, closing the `95b669a` bypass: `agent/selfcheck.sh`
+extracts `p1_rule.sh` and `p6_rule.sh` from the index when staged, else
+from `HEAD`, names the source in its output, and an unstaged guard edit
+is red by itself. **I6** routes the git directory through `git rev-parse
+--git-path` — except in `agent/p6_rule.sh`, which still reads
+`.git/COMMIT_EDITMSG` literally. Until **I7** lands, a declared
+`РАЗРЕШЕНИЕ-*` marker is invisible to P6 in any linked worktree (no
+error — `.git` is a file there, the test simply goes false), so an
+authorised edit reads as a violation. No I5 test drives that path: the
+green case stages only the guard, the red case is over-determined.
 
 **A red selfcheck cannot be committed (TASK-34 F6).** The tracked hook
 `agent/githooks/pre-commit` runs it without a pipe; bootstrap once per
@@ -105,7 +115,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **44** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |
-| M12 chat (TASK-35, 36) | three free models measured, default by numbers; transcripts survive the process (migration 45), export and re-verify, cost counters in `status`, no key or content leak — screen still missing (TASK-37 I3) |
+| M12 chat (TASK-35, 36) | three free models measured, default by numbers; transcripts survive the process (migration 45), export and re-verify, cost counters in `status`, no key or content leak — **screen still missing**, and Q3/Q7/Q10 (question vs order, does-not-know, screen, single door) are TASK-37 I1–I4, deferred two nights running |
 | M12 chat | loop, citation guard, adversarial corpus, ADR-0016 — **no TUI screen, no transcripts, no model comparison** (TASK-35, 36, 37) |
 | M14 manual import + model | repaired in TASK-35 G5 — a tab at the cell boundary, the string law untouched: the same four tables now give **89 verified records, verified-but-wrong 0 of 89**, the footnote row stored `unverified/near_miss` with a named reason; three free models measured on the chat corpus, default `glm-5.3-flash` by numbers (G3) |
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |

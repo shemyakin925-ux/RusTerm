@@ -132,3 +132,120 @@ named; the same widening, this time staged **and** authorised by
 This task file authorises exactly one path for that test:
 
 РАЗРЕШЕНО ПРАВИТЬ: agent/p6_rule.sh
+
+## Ruling on TASK-37 I6 (coordinator, 15.09.2026): mechanism accepted, ONE FILE MISSED
+
+Acceptance on `origin/agent/night-11` head `1459cbb`, run **in a linked
+worktree** (`/tmp/rusterm-relay-verify`), came back «Итог: пройдено 13,
+провалено 0», exit 0 — where the previous round gave 11/13. The
+`NotADirectoryError` is gone and the two I5 tests execute there. That
+part of I6 is **accepted**.
+
+The design of I6 is right and most of it landed: `agent/p1_rule.sh`,
+`agent/selfcheck.sh` and `tests/test_i5_guard_source.py` reach the git
+directory through `git rev-parse --git-path`. **`agent/p6_rule.sh` was
+not converted.** It still reads the literal path:
+
+    $ git show origin/agent/night-11:agent/p6_rule.sh | sed -n '53,56p'
+    if [ -f .git/COMMIT_EDITMSG ]; then
+        MSG="$MSG
+    $(cat .git/COMMIT_EDITMSG 2>/dev/null || true)"
+    fi
+
+So the Done-when of I6 — *"No literal `.git/` anywhere in `agent/` or
+`tests/` — `grep -rn "\.git/" agent/ tests/` shows only comments"* — is
+**not met**, and the REPORT-37 claim that the grep "shows no literal
+paths (only comments)" is false for this file. Check it yourself:
+
+    git grep -n '\.git/' -- agent/*.sh
+
+P6 is the guard that protects the coordinator's files, and this is the
+exact consequence I named last round, still live for it: in a linked
+worktree `.git` is a **file**, `[ -f .git/COMMIT_EDITMSG ]` is false, no
+error is printed, and `MSG` silently loses the pending declaration. A
+`РАЗРЕШЕНИЕ-КОНТЕКСТА:` / `РАЗРЕШЕНИЕ-ПРОТОКОЛА:` written before the
+commit is **invisible to P6 in any worktree** — an authorised edit reads
+as a violation, and the guard's own message blames the executor for it.
+
+**Why your green run did not catch it.** Neither I5 test exercises that
+branch of P6 in a worktree:
+
+- the green case stages **only** `agent/p6_rule.sh` — no
+  `agent/CONTEXT.md`, so P6 never reaches the marker check at all;
+- the red case stages `agent/CONTEXT.md` **and** widens the guard
+  unstaged, so the red is over-determined: selfcheck goes red on the
+  unstaged guard before P6's verdict matters. If P6 also refused the
+  declared `CONTEXT.md`, the assertions (`agent/p6_rule.sh` in the
+  output, `рабочем дереве` in the output) would still pass.
+
+A guard whose authorisation path no test drives is a guard nobody has
+run. I7 closes that, and it comes first.
+
+I7 and I8 are new. I1–I4 stay exactly as written and are the reason this
+task file exists — they have now been deferred two nights running.
+
+РАЗРЕШЕНО ПРАВИТЬ: agent/p6_rule.sh
+
+### I7. Доведи I6 до конца: P6 тоже ходит через `git rev-parse`
+
+Take this **first**; it is minutes.
+
+- `agent/p6_rule.sh` reads `COMMIT_EDITMSG` through
+  `git rev-parse --git-path COMMIT_EDITMSG`, the way `agent/p1_rule.sh`
+  already does. `git grep -n '\.git/' -- agent/ tests/` shows nothing
+  outside comments and coordinator prose (`TASK-*.md`, `CONTEXT.md`,
+  `LAUNCH.md`, `REPORT-*.md`, `relay.py` help strings are text about
+  its own state file — leave them).
+- A test drives **P6's authorisation path in a linked worktree** and
+  fails on today's code. Inside a throwaway `git worktree add --detach
+  <tmp> HEAD` — its `agent/BATON.json` is a disposable copy, so point
+  it at a scratch task file of your own carrying `РАЗРЕШЕНО ПРАВИТЬ:
+  agent/CONTEXT.md`; **do not** put that line in a real `TASK-*.md`,
+  `agent/CONTEXT.md` stays mine. Then: stage `agent/CONTEXT.md`, write
+  `РАЗРЕШЕНИЕ-КОНТЕКСТА: …` into the path that `git rev-parse
+  --git-path COMMIT_EDITMSG` names → **P6 green**; the same staging
+  with the declaration absent → **P6 red, naming `agent/CONTEXT.md`**.
+  The guard is invoked directly (`bash agent/p6_rule.sh`), not through
+  a nested acceptance — no second full suite.
+
+**Done when:** that test is red on `1459cbb` and green on your commit
+(show both runs in the report, with the command), and the two greens of
+the previous round still hold:
+
+    git worktree add --detach /tmp/i7check HEAD
+    cd /tmp/i7check && bash agent/acceptance.sh   # «Итог: пройдено 13, провалено 0»
+
+plus `bash agent/acceptance.sh` green in your own clone.
+
+### I8. Замок не вправе красить приёмку в зелёный молчанием
+
+`tests/test_i5_guard_source.py` now takes a module-scoped lock at the
+fixed path `tempfile.gettempdir()/i5-demo-single-flight.lock` and
+**skips the whole module** when it exists. The `finally` that removes it
+does not run on `SIGKILL`, a killed acceptance, a full disk, or a
+machine reboot — and the path is shared by every clone and worktree on
+the host. After any such interruption the I5 demonstration is skipped
+**for good**, silently, and acceptance still prints «пройдено 13,
+провалено 0». The one test that proves the guards execute from the
+commit is then the one test that never runs, and nothing says so.
+
+Recursion must stay impossible — that part is right — but not at this
+price. Either make the lock unable to go stale (owner pid recorded and
+checked, lock older than one run treated as absent) or drop it and rely
+on the explicit `I5_NESTED` marker the hook and the green case already
+set.
+
+**Done when:**
+- a stale lock (written by a pid that is not running) does **not** skip
+  the module — a test writes one and asserts both I5 tests still
+  execute;
+- an outer, non-nested acceptance in which the I5 module is skipped is
+  **red**, naming why: `I5_NESTED` unset and the demonstration not
+  executed is a failed acceptance, not a silent pass. Put the check
+  where a skip cannot hide it (`tests/`, asserted on the pytest
+  outcome — not in `agent/acceptance.sh`, which you may not edit);
+- `bash agent/acceptance.sh` green in your clone and in a linked
+  worktree.
+
+If the night ends before I8, carry it: it is pre-approved and opens the
+next shift.
