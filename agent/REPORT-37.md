@@ -102,3 +102,49 @@ staged I5 work inside its own baton commit fa6fb08 after my own
 `git commit` aborted — the relay.py fix (committing only its own
 files) landed on the coordinator side; fa6fb08's message therefore
 does not describe I5, REPORT-37 does.
+
+## Done (continued) — the third visit (round 47)
+
+### I7 — P6 also walks through `git rev-parse` (DONE)
+
+- `agent/p6_rule.sh` reads COMMIT_EDITMSG through
+  `git rev-parse --git-path COMMIT_EDITMSG` (the fix was lost in the
+  round-46 rebase — re-applied and committed at 627a0dc).
+- `git grep -n '\.git/' -- agent/ tests/` in code: only comments and
+  the I7 test's DOCSTRING mention (prose); no literal paths.
+- New test `tests/test_i7_p6_worktree.py`: a throwaway linked
+  worktree whose BATON.json points at a DISPOSABLE task file outside
+  `agent/` (so the TASK-* pattern does not catch it) carrying
+  `РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md`; CONTEXT.md staged; the
+  declaration written into the `--git-path` path. Guard invoked
+  directly, no nested acceptance.
+  - RED on today's code: `I7_BASE=1459cbb pytest
+    tests/test_i7_p6_worktree.py -q` -> 1 passed (the test asserts
+    P6 red naming agent/CONTEXT.md — the literal path made the
+    declaration invisible in a worktree);
+  - GREEN on the fix: `pytest tests/test_i7_p6_worktree.py -q` ->
+    1 passed (P6 green — the declaration seen through --git-path).
+  The worktree base is the INDEX tree wrapped in a temporary
+  dangling commit when p6_rule.sh is staged, so the test always
+  exercises what is about to be committed.
+- Both greens of the previous round hold: linked-worktree acceptance
+  at HEAD -> `WT-EXIT=0`, «Итог: пройдено 13, провалено 0»; own
+  clone acceptance green (in the hook run of this commit).
+
+### I8 — the lock cannot paint acceptance green by silence (DONE)
+
+- The fixed-path single-flight lock is REMOVED. Recursion stays
+  impossible through the explicit `I5_NESTED` marker (the hook and
+  the green case set it).
+- The I5 module now writes a demonstration marker
+  (`i5-demo-ran.json`, own pid); a new sentinel module
+  `tests/test_i5z_demonstration_ran.py` (alphabetically after the
+  demonstration) fails the acceptance when the demonstration did not
+  run in this process and `I5_NESTED` is unset — a silent skip can
+  no longer paint acceptance green.
+- Stale-lock test: a leftover lock file no longer affects anything —
+  both I5 tests still collect (`--collect-only` asserts both names,
+  no skips).
+- Full suite after this commit: 687 passed, 1 skipped, 6 deselected,
+  4 xfailed, 0 failed; linked-worktree acceptance (I7 command above)
+  green at the same tree.
