@@ -42,9 +42,9 @@ def _list_screen(stdscr, repos, watchlist_id):
             if peer:
                 _industry_screen(stdscr, repos, peer["peer_set_id"])
         elif key == ord("c"):
-            # ТЗ-42 I3/I4: разговор — клиент через единственную дверь
-            from rusterm.core.llm import make_intent_client
-            _chat_screen(stdscr, repos, make_intent_client(), None)
+            # ТЗ-42 I3/I4, ТЗ-46 N2: разговор — клиент строится одной
+            # дверью ВНУТРИ экрана; вторым разом не передаётся
+            _chat_screen(stdscr, repos, None)
         # r и прочие клавиши — просто перерисовать из базы заново
 
 

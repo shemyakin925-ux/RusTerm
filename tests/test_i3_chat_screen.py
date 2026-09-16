@@ -114,3 +114,55 @@ def test_app_screen_constructs_client_through_the_door():
     assert "make_intent_client" in source
     assert "LlmApiClient(" not in source
     assert "RuleClient(" not in source
+
+
+class _KeyStdscr:
+    """ТЗ-46 N2: экран ведётся КЛАВИШАМИ — очередь нажатий, потом «q»,
+    чтобы тест не зависал. addstr-и собираются в history, который
+    clear() не трогает: список перерисовывается после разговора, и
+    тест всё ещё видит, какой экран открывался."""
+
+    def __init__(self, keys):
+        self._keys = list(keys)
+        self.history = []
+
+    def clear(self):
+        pass
+
+    def erase(self):
+        pass
+
+    def addstr(self, row, col, text, *rest):
+        self.history.append((row, str(text)))
+
+    def refresh(self):
+        pass
+
+    def getch(self):
+        if not self._keys:
+            return ord("q")
+        return self._keys.pop(0)
+
+
+def test_key_c_opens_the_conversation_from_the_list(env, monkeypatch):
+    """ТЗ-46 N2: нажатие «c» на экране списка открывает разговор и
+    возвращается без исключения — экран ведётся клавишей, а не прямым
+    вызовом _chat_screen. Клиент строится единственной дверью ровно
+    один раз за нажатие, вторым аргументом не передаётся."""
+    import rusterm.core.llm as llm_module
+
+    conn, repos, paths = env
+    door_calls = []
+
+    def _fake_door():
+        door_calls.append(1)
+        return Fake([])
+
+    monkeypatch.setattr(llm_module, "make_intent_client", _fake_door)
+    stdscr = _KeyStdscr([ord("c"), 27])
+    outcome = app._list_screen(stdscr, repos, None)
+    assert outcome is None
+    assert len(door_calls) == 1, door_calls
+    assert any("Разговор" in text for _row, text in stdscr.history), (
+        stdscr.history)
+    conn.close()
