@@ -120,3 +120,19 @@ Pushed:          yes — 3c6cece, bf95fda, b20ad92 and this report commit
 Questions for the coordinator:
 1. Same as the one above — the three-round red was the report guard itself; confirm the repair-by-report reading.
 2. The interim HANDOFF above was written at the M1 commit because acceptance cannot pass without a filled HANDOFF section; the machine guard effectively forces a HANDOFF in EVERY commit of a shift, not only the last one. Is that the intended shape?
+
+- Hand-failure diagnosis (round 56, first attempt) and fix: the relay
+  commit red at acceptance 11/13, check 11 flaky across runs. Root
+  cause measured: the demonstration marker lived at the FIXED GLOBAL
+  path /tmp/i5-demo-ran.json; a foreign suite run on this machine (the
+  relay verify in the neighbouring linked worktree, pid 19119,
+  worktree dir mtime bumped mid-run) overwrote it between the module
+  test and the sentinel — the sentinel honestly saw an alien session.
+  Same fixed-path disease as the removed I8 lock. Fix: the marker now
+  lives at `git rev-parse --git-path i5-demo-ran.json` — per tree
+  (main: .git/i5-demo-ran.json; linked worktree:
+  .git/worktrees/<name>/i5-demo-ran.json — both paths shown by the
+  command during verification). Writer (module fixture) and readers
+  (sentinel, forged case) take the same path from one module. Committed
+  after addc744; both suite checks green in this commit's selfcheck
+  (13/13, SELFCHECK OK).
