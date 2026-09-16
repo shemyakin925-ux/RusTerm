@@ -52,3 +52,50 @@ Secrets:         env-file values grepped against git and agent artefacts in the 
 Pushed:          yes, immediately after this commit
 Questions for the coordinator:
 1. (deferred until N1-N2 land)
+
+- N1, done (1b4c604): `_handoff_section` returns the LAST section
+  whose header starts with HANDOFF; the placeholder guard checks that
+  block. Red case proven by run on temporary text (honest interim
+  ## HANDOFF + final ## HANDOFF (FINAL) full of placeholders -> the
+  guard reds naming the first placeholder, "N passed"; the check on
+  the old code would have passed vacuously). Green: both today's
+  REPORT-45.md and REPORT-46.md pass the new guard (python run,
+  32 and 15 lines in the checked blocks). REQUIRED_SECTIONS intact.
+  One disclosed in-place edit: REPORT-45 line 134 lost angle brackets
+  around WORKTREE-NAME — the new guard reads that line as a
+  placeholder; the only edit of an existing report this shift.
+- N2, done (7f59a11): key-driven test — fake stdscr yields ord("c"),
+  then 27, then "q"; asserts the conversation screen was drawn, the
+  list screen returned None, and the door make_intent_client was
+  called exactly once (not passed a second time). Red before the fix:
+  `TypeError: _chat_screen() takes 3 positional arguments but 4 were
+  given` at app.py:47, 1 failed in 0.16s — the coordinator's exact
+  exception. Fix: the call site is now `_chat_screen(stdscr,
+  repos, None)`; the client is built once inside the screen through
+  the door. Green after: tests/test_i3_chat_screen.py +
+  tests/test_single_door.py -> 8 passed; PENDING untouched (empty).
+- N3, done (8c734fa): the audit-distinction assert was vacuous
+  (`(...) or True`); now the test writes BOTH audit rows — proposal
+  (confirmed=0, result=proposed) before ops.apply and confirmed apply
+  (confirmed=1, result=applied) after — and asserts both rows and
+  their order. Declared pin replacement (two removed assert lines,
+  four stricter added). Note for the backlog: `propose_order` has no
+  caller in rusterm/ yet — the CLI chat does not reach it; wiring it
+  is a separate item.
+
+## HANDOFF (FINAL — TASK-46, round 57)
+
+Status:          DONE
+Arrival state:   selfcheck green, exit 0, on 48d21d4 (also the first run over the unverified 5e050a4 marker fix)
+Items done:      N1 (1b4c604) guard checks the last HANDOFF* section, red case on temp text, green on both live reports; N2 (7f59a11) key-driven chat screen test red-then-green, call site fixed to three args, single door builds the client once; N3 (8c734fa) real audit-distinction asserts for proposal vs confirmed apply, declared pin replacement
+Items not done:  none of TASK-46; backlog note — propose_order is still unwired in the CLI chat
+Acceptance:      every commit gated by its own selfcheck: SELFCHECK OK, Итог: пройдено 13, провалено 0 (arrival, N1, N2, N3 runs)
+Tests:           720 collected — 5 skipped, 3 xfailed, the rest green (four new/red-green tests included: 2 report-guard cases, 1 key-driven screen, 1 strengthened audit test file)
+Guards:          tests/test_report_sections.py strengthened (last-HANDOFF rule + red/green cases, REQUIRED_SECTIONS intact); tests/test_i1_order.py strengthened (declared ЗАМЕНА-БУЛАВКИ in 8c734fa); tests/test_i3_chat_screen.py extended with the key-driven case; no assert deleted without a stricter successor
+Schema:          unchanged at 44
+Network:         0 requests used of 0 budget
+Model:           app llm_calls 0 of 0; shift model GLM-5.3-Flash
+Secrets:         env-file values grepped this shift against git and agent artefacts: RUSTERM_SEC_UA 0, RUSTERM_LLM_API_KEY 0, RUSTERM_TWELVEDATA_KEY 0; only the model-name value matches (documented default)
+Pushed:          yes — c324e5d, 1b4c604, 7f59a11, 8c734fa and this report commit
+Questions for the coordinator:
+1. propose_order remains dead code in rusterm/ (no CLI caller): wire the chat command to propose/confirm in a future task, or say the word and it lands next round.
