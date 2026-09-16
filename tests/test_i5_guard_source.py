@@ -97,6 +97,19 @@ def _nested() -> bool:
     return bool(os.environ.get("I5_NESTED"))
 
 
+def _marker_path() -> Path:
+    """ТЗ-45 M2: маркер демонстрации живёт в git-каталоге ЭТОГО дерева
+    (git rev-parse --git-path), а не в общем /tmp: чужой прогон любой
+    другой рабочей копии на той же машине больше не перезаписывает
+    его между тестом модуля и sentinel (гонка круга 56: верификация
+    в соседнем connected-дереве красила sentinel чужим session)."""
+    out = subprocess.run(
+        ["git", "rev-parse", "--git-path", "i5-demo-ran.json"],
+        cwd=ROOT, capture_output=True, text=True, check=True)
+    path = Path(out.stdout.strip())
+    return path if path.is_absolute() else (ROOT / path)
+
+
 def _editmsg_read():
     """ТЗ-45 M3: отсутствие COMMIT_EDITMSG — законное состояние свежего
     подключённого дерева, а не ошибка. Возвращает (путь, прежний текст
@@ -150,8 +163,9 @@ def _demonstration_ran():
     reboot) и молча выкидывать демонстрацию из любого прогона на хосте.
     Замок убран: рекурсию держит I5_NESTED (хук и зелёный случай), а
     этот маркер доказывает sentinel-тесту, что демонстрация ВЫПОЛНЕНА
-    в текущем процессе."""
-    marker = Path(tempfile.gettempdir()) / "i5-demo-ran.json"
+    в текущем процессе. Путь — git-каталог дерева (_marker_path), не
+    общий /tmp (ТЗ-45 M2)."""
+    marker = _marker_path()
     marker.write_text(json.dumps({"pid": os.getpid(),
                                   "session": DEMO_SESSION_ID}),
                       encoding="utf-8")

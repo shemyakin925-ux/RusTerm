@@ -15,15 +15,14 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from tests.test_i5_guard_source import DEMO_SESSION_ID
+from tests.test_i5_guard_source import DEMO_SESSION_ID, _marker_path
 
 ROOT = Path(__file__).resolve().parents[1]
-MARKER = Path(tempfile.gettempdir()) / "i5-demo-ran.json"
+MARKER = _marker_path()
 
 
 def test_i5_demonstration_ran_or_legitimately_nested():
