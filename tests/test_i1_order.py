@@ -15,7 +15,6 @@ import sqlite3
 import pytest
 
 from rusterm.core.chat import detect_order, propose_order
-from rusterm.core.intent import RuleClient
 from rusterm.core.intent import RuleClient, classify
 from rusterm.store.db import apply_migrations
 from rusterm.store.paths import AppPaths, ensure_app_dir
@@ -87,6 +86,13 @@ def test_propose_writes_nothing_until_confirmed(env):
     assert proposal["addable"], proposal
     assert "предложение" in proposal["summary"]
 
+    # предложение попадает в аудит ДО применения: confirmed=0
+    file_error = repos.audit.log(
+        "chat-proposal", "w1",
+        {"intent": proposal["intent"], "addable": len(proposal["addable"])},
+        confirmed=False, result="proposed")
+    assert file_error is None, file_error
+
     # применение — подтверждённый путь ops.apply
     from rusterm.core.ops import apply
     result = apply(repos.watchlist, "w1", proposal["addable"],
@@ -101,12 +107,14 @@ def test_propose_writes_nothing_until_confirmed(env):
         {"intent": proposal["intent"], "addable": len(proposal["addable"])},
         confirmed=True, result="applied")
     assert file_error is None, file_error
-    # журнал аудита отличает предложение от применения
+    # ТЗ-46 N3: журнал аудита РАЗЛИЧАЕТ предложение и применение —
+    # обе строки на месте, порядок предложение -> применение
     audits = conn.execute(
         "SELECT action, confirmed, result FROM audit_log "
-        "ORDER BY rowid DESC").fetchall()
-    assert audits[0] == ("chat-confirmed", 1, "applied"), audits
-    assert ("chat-proposal", 0) in [(r[0], r[1]) for r in audits] or True
+        "ORDER BY rowid").fetchall()
+    assert ("chat-proposal", 0, "proposed") in audits, audits
+    assert ("chat-confirmed", 1, "applied") in audits, audits
+    assert audits[-1] == ("chat-confirmed", 1, "applied"), audits
     conn.close()
 
 
