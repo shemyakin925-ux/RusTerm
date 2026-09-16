@@ -62,6 +62,17 @@ error — `.git` is a file there, the test simply goes false), so an
 authorised edit reads as a violation. No I5 test drives that path: the
 green case stages only the guard, the red case is over-determined.
 
+**I5 cleans up after itself and survives a fresh tree (TASK-45
+M1–M3).** The guard test module restores `agent/p6_rule.sh` and
+`agent/CONTEXT.md` byte-exact — worktree bytes, file mode and the
+index blob via `update-index --cacheinfo`, never `git checkout` —
+keeps a guard edit that was already staged before the run verbatim in
+the index, and asserts its own `git status --porcelain` clean. An
+absent `COMMIT_EDITMSG` is the legal state of a fresh linked worktree:
+it is saved as absence and restored as absence, not an error. The I8
+sentinel compares the demonstration marker's session id with THIS
+pytest process; a fresh marker from a live alien process is red.
+
 **A red selfcheck cannot be committed (TASK-34 F6).** The tracked hook
 `agent/githooks/pre-commit` runs it without a pipe; bootstrap once per
 clone with `git config core.hooksPath agent/githooks`.

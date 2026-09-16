@@ -97,6 +97,27 @@ def _nested() -> bool:
     return bool(os.environ.get("I5_NESTED"))
 
 
+def _editmsg_read():
+    """ТЗ-45 M3: отсутствие COMMIT_EDITMSG — законное состояние свежего
+    подключённого дерева, а не ошибка. Возвращает (путь, прежний текст
+    или None)."""
+    path = Path(subprocess.run(
+        ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
+        cwd=ROOT, capture_output=True, text=True,
+        check=True).stdout.strip())
+    saved = path.read_text(encoding="utf-8") if path.exists() else None
+    return path, saved
+
+
+def _editmsg_restore(path: Path, saved: str | None) -> None:
+    """ТЗ-45 M3: вернуть ровно то, что было: было отсутствие — вернуть
+    отсутствие, а не пустой файл."""
+    if saved is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_text(saved, encoding="utf-8")
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _guard_edit_staged_before_the_module():
     """ТЗ-45 M1: до всяких тестов в индекс кладётся СВОЯ правка стража —
@@ -139,17 +160,14 @@ def _demonstration_ran():
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
 def test_i5_working_tree_widening_is_red_and_named(tmp_path):
+    editmsg = None
+    editmsg_saved = None
     try:
         CONTEXT_MD.write_text(CONTEXT_MD.read_text(encoding="utf-8")
                               + "\nI5 red demo\n", encoding="utf-8")
         _git("add", "agent/CONTEXT.md")
         P6_GUARD.write_text(WIDENED, encoding="utf-8")  # НЕ стейджится
-        editmsg = subprocess.run(
-            ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
-            cwd=ROOT, capture_output=True, text=True,
-            check=True).stdout.strip()
-        # прежнее содержимое декларации сохраняется и возвращается
-        editmsg_saved = Path(editmsg).read_text(encoding="utf-8")
+        editmsg, editmsg_saved = _editmsg_read()
         Path(editmsg).write_text(
             "demo\n\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
         result = _selfcheck({"I5_NESTED": "1"})
@@ -159,27 +177,27 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
         assert "рабочем дереве" in combined, combined[-800:]
     finally:
         # страж и CONTEXT.md возвращает autouse-фикстура ТЗ-45 M1
-        # (байты + блоб индекса); здесь только декларация коммита
-        Path(editmsg).write_text(editmsg_saved, encoding="utf-8")
+        # (байты + блоб индекса); здесь только декларация коммита,
+        # и только если она была объявлена (M3: отсутствие законно)
+        if editmsg is not None:
+            _editmsg_restore(editmsg, editmsg_saved)
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
 def test_i5_staged_and_authorised_widening_is_green(tmp_path):
+    editmsg = None
+    editmsg_saved = None
     try:
         P6_GUARD.write_text(WIDENED, encoding="utf-8")
         _git("add", "agent/p6_rule.sh")  # расширение ЗАСТЕЙДЖЕНО
         # файл задания из agent/BATON.json несёт
         # РАЗРЕШЕНО ПРАВИТЬ: agent/p6_rule.sh
-        editmsg = subprocess.run(
-            ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
-            cwd=ROOT, capture_output=True, text=True,
-            check=True).stdout.strip()
-        editmsg_saved = Path(editmsg).read_text(encoding="utf-8")
+        editmsg, editmsg_saved = _editmsg_read()
         # реальное ожидаемое сообщение сохраняется и ДОПОЛНЯЕТСЯ
-        # маркером: pending-изменения самих тестов (замены булавок)
-        # продолжают видеть свои объявления
+        # маркером; в свежем дереве основания нет — маркер кладётся
+        # поверх пустой строки (M3)
         Path(editmsg).write_text(
-            editmsg_saved + "\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n",
+            (editmsg_saved or "") + "\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n",
             encoding="utf-8")
         result = _selfcheck({"I5_NESTED": "1"})
         assert result.returncode == 0, (
@@ -187,7 +205,8 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
         combined = result.stdout + result.stderr
         assert "p6_rule.sh исполняется из index" in combined
     finally:
-        Path(editmsg).write_text(editmsg_saved, encoding="utf-8")
+        if editmsg is not None:
+            _editmsg_restore(editmsg, editmsg_saved)
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
