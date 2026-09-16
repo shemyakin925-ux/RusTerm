@@ -131,7 +131,7 @@ Questions for the coordinator:
   Same fixed-path disease as the removed I8 lock. Fix: the marker now
   lives at `git rev-parse --git-path i5-demo-ran.json` — per tree
   (main: .git/i5-demo-ran.json; linked worktree:
-  .git/worktrees/<name>/i5-demo-ran.json — both paths shown by the
+  .git/worktrees/WORKTREE-NAME/i5-demo-ran.json — both paths shown by the
   command during verification). Writer (module fixture) and readers
   (sentinel, forged case) take the same path from one module. Committed
   after addc744; both suite checks green in this commit's selfcheck
