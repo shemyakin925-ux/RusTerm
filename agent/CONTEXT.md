@@ -5,17 +5,15 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 17.09.2026, after round 56 on `agent/night-11`. Accepted:
-TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-45. Acceptance at
-`addc744` in a fresh linked worktree is «пройдено 13, провалено 0»,
-exit 0 — the first fully green head in five rounds, verified by the
-coordinator's own run. The guard machinery that ate rounds 47-56 is
-closed: the I5 demonstration now restores `agent/p6_rule.sh` by blob
-from the index (never `git checkout`), and the I5 sentinel compares the
-marker's `session` with this run's id instead of «pid alive or fresh».
+Last updated: 17.09.2026, after round 58 on `agent/night-11`. Accepted:
+TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-46. Acceptance at
+`6f33114` in a fresh linked worktree is «пройдено 13, провалено 0»,
+exit 0 — three green heads in a row, each verified by the coordinator's
+own run. The guard machinery that ate rounds 47-56 is closed, and the
+chat screen is reachable again (TASK-46 N2).
 
-**Open product debt: TASK-37 I1-I3.** I4 (single door) is satisfied.
-I3 shipped broken — see the standing rule on connectivity below. The
+**Open product debt: TASK-37 I2** (does-not-know) — TASK-47 O1. I1
+(question vs order) landed with TASK-46 N3, I3 and I4 are done. The
 shift branch is `agent/night-11` and the turn is passed by the relay —
 `agent/PROTOCOL.md` §12, driver `agent/relay.py`, baton
 `agent/BATON.json`.
@@ -81,6 +79,31 @@ pytest process; a fresh marker from a live alien process is red.
 `agent/githooks/pre-commit` runs it without a pipe; bootstrap once per
 clone with `git config core.hooksPath agent/githooks`.
 
+**The executor writes `updated_at` by hand and it drifts (round 58).**
+Git stamps its commits from the real clock and those are correct; the
+`updated_at` field of `agent/STATE.json` is typed, always on a round
+minute, and ran up to **+232 minutes ahead** of real UTC during
+TASK-45/46 — two consecutive commits even carried the same value. This
+is not cosmetic: PROTOCOL §10 ends the shift at 10:00 Danang, so a
+four-hour drift ends the night a third early. The machine is on +07, so
+`TZ=Asia/Bangkok date` is the wall clock. TASK-47 O0 makes this a guard.
+
+**An assertion that exists may still assert nothing (TASK-46 N3).**
+P1 guards against a *deleted* `assert`; `assert <anything> or True` keeps
+the line and proves nothing, and TASK-37 I1 counted as covered by such a
+line for three nights. A second case is live in `tests/test_repos.py:246`
+— it walks the AST for direct SQL outside `rusterm/store/`, prints
+`WARNING:` and ends `assert True`. TASK-48 Q1 turns this into a guard.
+
+**Two working copies on one machine share `/tmp` (TASK-45, round 56).**
+The coordinator's acceptance runs in a linked worktree while the
+executor works in their own; a test writing to a path built from
+`tempfile.gettempdir()` is therefore shared between them. The I5
+demonstration marker collided exactly this way and moved to the tree's
+git directory via `git rev-parse --git-path` (`5e050a4`). Tests use
+pytest's `tmp_path`, or the git directory — never a bare `/tmp` path.
+TASK-48 Q2 turns this into a guard.
+
 **Acceptance proves structure, not connectivity (TASK-46 N2).** Twice
 now a place was built, covered by tests and never correctly called:
 `make_intent_client` (TASK-27 N1) and the chat screen — `_chat_screen`
@@ -137,7 +160,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 
 ## 4. Where the product actually is
 
-| Milestone | State after TASK-45 (`agent/night-11`, not yet merged to `main`) |
+| Milestone | State after TASK-46 (`agent/night-11`, not yet merged to `main`) |
 |---|---|
 | M1-M4 core, snapshot, watchlist | done and in use |
 | M5 LLM layer | citation guard, four read-only tools, confirmed mass ops |
@@ -147,7 +170,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **44** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |
-| M12 chat (TASK-35, 36, 42) | three free models measured, default by numbers; transcripts survive the process (migration 45), export and re-verify, cost counters in `status`, no key or content leak; `_chat_screen` exists in `rusterm/tui/app.py` and goes through `make_intent_client` (I4 satisfied) — but **the key that opens it crashes**: the call at line 47 passes four positional arguments to a three-parameter signature (TASK-46 N2). I1 (question vs order) and I2 (does-not-know) still not started, deferred four nights running |
+| M12 chat (TASK-35, 36, 42, 46) | three free models measured, default by numbers; transcripts survive the process (migration 45), export and re-verify, cost counters in `status`, no key or content leak; **the chat screen is reachable** — key «c» opens it and a test drives the key, not the function (TASK-46 N2); order vs question produces a proposal that applies nothing until confirmed, both audit rows asserted (TASK-46 N3). **I2, does-not-know, is the last open item of TASK-37** |
 | M14 manual import + model | repaired in TASK-35 G5 — a tab at the cell boundary, the string law untouched: the same four tables now give **89 verified records, verified-but-wrong 0 of 89**, the footnote row stored `unverified/near_miss` with a named reason; three free models measured on the chat corpus, default `glm-5.3-flash` by numbers (G3) |
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |
 
