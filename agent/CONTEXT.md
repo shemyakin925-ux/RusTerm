@@ -5,14 +5,18 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 15.09.2026, after round 46 on `agent/night-11`. Accepted:
-TASK-31…TASK-36, and **TASK-37 I5+I6** — acceptance at `1459cbb` is
-«пройдено 13, провалено 0», exit 0, run **in a linked worktree**, where
-the round before gave 11/13. TASK-37 stays open: **I1–I4 are not
-started** (question vs order, does-not-know, TUI screen, single door) and
-**I7–I8 are new** — `agent/p6_rule.sh` was missed by I6, and the I5
-single-flight lock can skip its own demonstration silently. The shift
-branch is `agent/night-11` and the turn is passed by the relay —
+Last updated: 17.09.2026, after round 56 on `agent/night-11`. Accepted:
+TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-45. Acceptance at
+`addc744` in a fresh linked worktree is «пройдено 13, провалено 0»,
+exit 0 — the first fully green head in five rounds, verified by the
+coordinator's own run. The guard machinery that ate rounds 47-56 is
+closed: the I5 demonstration now restores `agent/p6_rule.sh` by blob
+from the index (never `git checkout`), and the I5 sentinel compares the
+marker's `session` with this run's id instead of «pid alive or fresh».
+
+**Open product debt: TASK-37 I1-I3.** I4 (single door) is satisfied.
+I3 shipped broken — see the standing rule on connectivity below. The
+shift branch is `agent/night-11` and the turn is passed by the relay —
 `agent/PROTOCOL.md` §12, driver `agent/relay.py`, baton
 `agent/BATON.json`.
 
@@ -62,9 +66,37 @@ error — `.git` is a file there, the test simply goes false), so an
 authorised edit reads as a violation. No I5 test drives that path: the
 green case stages only the guard, the red case is over-determined.
 
+**I5 cleans up after itself and survives a fresh tree (TASK-45
+M1–M3).** The guard test module restores `agent/p6_rule.sh` and
+`agent/CONTEXT.md` byte-exact — worktree bytes, file mode and the
+index blob via `update-index --cacheinfo`, never `git checkout` —
+keeps a guard edit that was already staged before the run verbatim in
+the index, and asserts its own `git status --porcelain` clean. An
+absent `COMMIT_EDITMSG` is the legal state of a fresh linked worktree:
+it is saved as absence and restored as absence, not an error. The I8
+sentinel compares the demonstration marker's session id with THIS
+pytest process; a fresh marker from a live alien process is red.
+
 **A red selfcheck cannot be committed (TASK-34 F6).** The tracked hook
 `agent/githooks/pre-commit` runs it without a pipe; bootstrap once per
 clone with `git config core.hooksPath agent/githooks`.
+
+**Acceptance proves structure, not connectivity (TASK-46 N2).** Twice
+now a place was built, covered by tests and never correctly called:
+`make_intent_client` (TASK-27 N1) and the chat screen — `_chat_screen`
+is invoked from `rusterm/tui/app.py:47` with four positional arguments
+against a three-parameter signature, so pressing «c» raises
+`TypeError` and the screen is unreachable, with 13/13 green. A test
+that calls a screen function directly proves nothing about the key that
+opens it: drive the key. TASK-47 O2 turns this into a guard.
+
+**STATE.json moves with the report, not ahead of it (TASK-45, ruling on
+Question 1).** `tests/test_report_sections.py` reads the report named in
+`agent/STATE.json`; pointing it at a file that does not exist yet reds
+acceptance, which then blocks the very commit that would create it.
+Name the new report in the same commit that creates it. The HANDOFF
+section is required in *every* commit, by design — an interim HANDOFF is
+cheap and keeps a shift cut short at 03:00 readable.
 
 **Pin replacement (TASK-32 D5).** A removed `assert` passes selfcheck only
 with a `ЗАМЕНА-БУЛАВКИ:` / `ПОЧЕМУ СИЛЬНЕЕ:` block in the commit message
@@ -105,7 +137,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 
 ## 4. Where the product actually is
 
-| Milestone | State after TASK-31 (`agent/night-11`, not yet merged to `main`) |
+| Milestone | State after TASK-45 (`agent/night-11`, not yet merged to `main`) |
 |---|---|
 | M1-M4 core, snapshot, watchlist | done and in use |
 | M5 LLM layer | citation guard, four read-only tools, confirmed mass ops |
@@ -115,8 +147,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **44** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |
-| M12 chat (TASK-35, 36) | three free models measured, default by numbers; transcripts survive the process (migration 45), export and re-verify, cost counters in `status`, no key or content leak — **screen still missing**, and Q3/Q7/Q10 (question vs order, does-not-know, screen, single door) are TASK-37 I1–I4, deferred two nights running |
-| M12 chat | loop, citation guard, adversarial corpus, ADR-0016 — **no TUI screen, no transcripts, no model comparison** (TASK-35, 36, 37) |
+| M12 chat (TASK-35, 36, 42) | three free models measured, default by numbers; transcripts survive the process (migration 45), export and re-verify, cost counters in `status`, no key or content leak; `_chat_screen` exists in `rusterm/tui/app.py` and goes through `make_intent_client` (I4 satisfied) — but **the key that opens it crashes**: the call at line 47 passes four positional arguments to a three-parameter signature (TASK-46 N2). I1 (question vs order) and I2 (does-not-know) still not started, deferred four nights running |
 | M14 manual import + model | repaired in TASK-35 G5 — a tab at the cell boundary, the string law untouched: the same four tables now give **89 verified records, verified-but-wrong 0 of 89**, the footnote row stored `unverified/near_miss` with a named reason; three free models measured on the chat corpus, default `glm-5.3-flash` by numbers (G3) |
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |
 

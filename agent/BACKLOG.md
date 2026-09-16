@@ -211,6 +211,14 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
+- [ ] B38 — the interim `## HANDOFF` blocks pile up in a shift report:
+  `REPORT-45.md` ends with two of them and a reader must know that the
+  second supersedes the first. Once TASK-46 N1 makes the guard read the
+  last one, collapse the convention into one line in `agent/PROTOCOL.md`
+  §5 — interim HANDOFF is headed `## HANDOFF` and the final one
+  `## HANDOFF (FINAL)` — accept: `grep -c '^## HANDOFF' agent/REPORT-46.md`
+  is the number of passes, and the guard names the final block — size: S
+
 - [ ] B37 — `agent/selfcheck.sh` leaks its guard temp dir: the
   `mktemp -d` for the extracted `p1_rule.sh`/`p6_rule.sh` copies (TASK-37
   I5) has no trap, and the later `trap ... EXIT` for the acceptance file
