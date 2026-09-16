@@ -67,3 +67,56 @@ Questions for the coordinator:
   `Итог: пройдено 13, провалено 0`, `Принято.`, `SELFCHECK OK`.
   First 13/13 of the shift: the empty-report defect is closed together
   with the I5 cleanup.
+- M1 fresh-tree check: `git worktree add --detach /tmp/m1check 3c6cece`
+  + module run there: 2 failed, 2 passed in 2.38s — the M1 cleanup
+  test GREEN, `git status --porcelain -- agent/p6_rule.sh` after the
+  module run EMPTY; the two I5 cases fail with `UnboundLocalError:
+  editmsg_saved` on absent COMMIT_EDITMSG — M3 scope, named in the
+  task. Worktree removed after the check.
+
+- M2, done: sentinel requires `payload["session"] == DEMO_SESSION_ID`
+  (imported from the demonstration module — same pytest process, same
+  id); `_pid_alive(pid) or fresh` and the helper are gone. New case:
+  a forged marker (live pid, foreign session) reds the sentinel in a
+  separate subprocess and names the mismatch. In nested runs the case
+  skips — the sentinel legitimately stays silent there (first
+  acceptance attempt was 11/13 exactly because of that missing skip;
+  fixed before commit).
+- M2, verified: `bash agent/acceptance.sh` -> exit 0,
+  `Итог: пройдено 13, провалено 0`; both suite lines shown:
+  «3. pytest целиком — OK, pytest, код возврата 0» and «11. Тесты
+  проходят без zstandard — OK, без zstandard тесты зелёные»;
+  `bash agent/selfcheck.sh` -> `SELFCHECK OK`.
+- Note: running the i5z file alone reds the real sentinel (no
+  demonstration in that process) — that is the required I8 semantics,
+  stated in the module docstring.
+
+- M3, done: absence of COMMIT_EDITMSG is read as None and restored as
+  absence (unlink), not a read error; the finally blocks initialise
+  the path before try and restore only if a declaration was made — no
+  unbound names; the green case composes its marker over an empty
+  base in a fresh tree. Verified: `git worktree add --detach
+  /tmp/m3check b20ad92` + `bash agent/acceptance.sh` there -> exit 0,
+  `Итог: пройдено 13, провалено 0`, `Принято.`; after the run
+  `git status --porcelain` EMPTY and the per-worktree
+  COMMIT_EDITMSG (`.git/worktrees/m3check/COMMIT_EDITMSG`) ABSENT —
+  absence restored. Worktree removed. CONTEXT.md line added in
+  b20ad92 (РАЗРЕШЕНИЕ-КОНТЕКСТА declared in that message).
+
+## HANDOFF (FINAL — supersedes the interim values above)
+
+Status:          DONE
+Arrival state:   selfcheck red at I5 (guard modified, unstaged), exit 1; acceptance 11/13 — both failed checks were the report-section tests reading the report named in STATE.json (no report file for three rounds)
+Items done:      M1 (3c6cece) — module restores guard and CONTEXT.md byte-exact via index blob, 627a0dc pre-staged case, self-assert of clean porcelain, demo junk restored to HEAD; M2 (bf95fda) — sentinel strict on session id of this run, pid-alive-or-fresh removed, forged-marker case; M3 (b20ad92) — absence-safe COMMIT_EDITMSG save/restore, no unbound finally, fresh-tree line in CONTEXT.md
+Items not done:  none of TASK-45
+Acceptance:      fresh linked worktree at b20ad92: Итог: пройдено 13, провалено 0, exit 0; in-tree selfcheck SELFCHECK OK at every commit
+Tests:           716 collected — 5 skipped, 3 xfailed, the rest green (both suite runs inside acceptance green; the two report-section failures of the arrival state are green since the first commit)
+Guards:          agent/p6_rule.sh untouched all shift (fix lives in the test modules); two declared pin replacements: collection-count 3 to 4 in the guard test module (3c6cece) and the sentinel assert (bf95fda), each with ЗАМЕНА-БУЛАВКИ and ПОЧЕМУ СИЛЬНЕЕ in its message; CONTEXT.md edited once with РАЗРЕШЕНИЕ-КОНТЕКСТА declared (b20ad92); nothing weakened, no assert deleted without a stricter successor
+Schema:          unchanged at 44
+Network:         0 requests used of 0 budget
+Model:           app llm_calls 0 of 0; shift model GLM-5.3-Flash
+Secrets:         grepped git and agent artefacts by value — RUSTERM_SEC_UA 0 hits, RUSTERM_LLM_API_KEY 0 hits, RUSTERM_TWELVEDATA_KEY 0 hits (DART key absent from the env file); only the model-name value matches, the documented default
+Pushed:          yes — 3c6cece, bf95fda, b20ad92 and this report commit
+Questions for the coordinator:
+1. Same as the one above — the three-round red was the report guard itself; confirm the repair-by-report reading.
+2. The interim HANDOFF above was written at the M1 commit because acceptance cannot pass without a filled HANDOFF section; the machine guard effectively forces a HANDOFF in EVERY commit of a shift, not only the last one. Is that the intended shape?
