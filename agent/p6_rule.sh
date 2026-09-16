@@ -130,4 +130,6 @@ echo "P6 [index-copy]: index-copy demo I5"
 
 echo "P6 [index-copy]: index-copy demo I5"
 
+echo "P6 [index-copy]: index-copy demo I5"
+
 echo "P6: index-copy demo I5"
