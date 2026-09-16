@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from pathlib import Path
@@ -72,7 +73,12 @@ def _stage(repo: Path, *files: str) -> None:
     for f in files:
         (repo / f).write_text((repo / f).read_text(encoding="utf-8")
                               + "\nedit\n", encoding="utf-8")
-    subprocess.run(["git", "add", *files], cwd=repo,
+    # ТЗ-46: песочница герметична — хук «git commit --only» оставляет
+    # в окружении GIT_INDEX_FILE чужого индекса, и голый «git add»
+    # записал бы песочные строки в индекс основного репозитория.
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("GIT_")}
+    subprocess.run(["git", "add", *files], cwd=repo, env=env,
                    capture_output=True, text=True, check=True)
 
 

@@ -99,3 +99,31 @@ Secrets:         env-file values grepped this shift against git and agent artefa
 Pushed:          yes — c324e5d, 1b4c604, 7f59a11, 8c734fa and this report commit
 Questions for the coordinator:
 1. propose_order remains dead code in rusterm/ (no CLI caller): wire the chat command to propose/confirm in a future task, or say the word and it lands next round.
+
+- Hand-blocker diagnosis (three hand attempts red at acceptance
+  11/13) and fix: the relay's baton commit runs `git commit --only`,
+  whose pre-commit hook inherits GIT_INDEX_FILE pointing at a
+  temporary index; selfcheck -> acceptance -> suite inherit it too.
+  Under that env tests/test_j1_hand.py sandbox relays read the foreign
+  index (2 tests red) and their git calls corrupt the shared temp
+  index file, which breaks the downstream dirty-tree guard. Reproduced
+  deterministically: temp index (HEAD+BATON) + the hook env reds
+  acceptance 11/13; my plain selfchecks never leak, hence green.
+  Fix in my scope: the J1 sandbox strips GIT_INDEX_FILE, GIT_DIR,
+  GIT_WORK_TREE, GIT_OBJECT_DIRECTORY,
+  GIT_ALTERNATE_OBJECT_DIRECTORIES before invoking the relay.
+  Verified: the previously failing 3 tests pass under the simulated
+  hook env (temp index + I5_NESTED=1), 6 passed. relay.py itself is
+  coordinator-owned tooling — the leak can also be closed there by
+  scrubbing the env for the hook; left as a question below.
+- Question 2 (replaces the deferred one): consider scrubbing
+  GIT_INDEX_FILE for the pre-commit hook in the relay hand path
+  (relay.py), or document that executor hands require the hermetic
+  sandbox fix from 6f33114+.
+- Second layer of the same fix: the e6 sandbox `_stage` ran bare
+  `git add` inheriting os.environ — under the hook env it wrote
+  sandbox entries into the main repo's temp index, corrupting it for
+  every later check (the i5-green and dirty-tree failures were
+  cascades of that corruption). `_stage` now strips GIT_* overrides.
+  Verified: e6 + j1 + the i5 module + the guard tests all green under
+  the simulated hook env (temp index HEAD+BATON, I5_NESTED=1).
