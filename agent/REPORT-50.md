@@ -77,18 +77,49 @@ work is T6.
   `agent/p1_rule.sh`; the I5 machinery stages INDEX blobs, not tree
   files, and the I5 tests skip themselves under `I5_NESTED=1`.
 
+## Done (addendum — pre-approved backlog after the queue)
+
+- **BACKLOG B39** (pre-approved): `refresh` errors carry dictionary
+  reasons now — «unknown_issuer: registry_id is empty» and
+  «unknown_issuer: instrument not found»; `is_known_reason` accepted
+  by test; GUIDE §7 line updated to the real output (guard green).
+- **BACKLOG B40** (pre-approved): `budget`, `cadence`, `status`,
+  `coverage` audited — all four created the data directory through
+  `_open` (budget additionally crashed rc=2 with «no such table»).
+  Verdict table:
+
+  | command | must create? | verdict now |
+  |---|---|---|
+  | budget | no | ceilings + «нет данных», rc 0, nothing created |
+  | cadence | no | «нечего планировать», rc 0, nothing created |
+  | status | no | named refusal «каталога данных нет», rc 1 |
+  | coverage | no | named refusal, rc 1 |
+
+  Covered by `tests/test_b40_readonly_commands.py` (B35 style: run
+  from a foreign cwd over an absent data root, assert nothing is
+  created).
+
 ## HANDOFF
 
-Status: PARTIAL (T6 diagnostics done; root cause not reproduced)
-Items done: T1-T5 verified by run; T6.1 failure diagnostics (file kept, failures named — proven); T6.2 guard-dir leak closed (B37); T6.3 env audit; T6.4 environment proof
-Items not done: T6 root cause of the non-deterministic d5 red — next red commit now leaves full evidence by construction
-Acceptance: this commit's selfcheck prints «Итог: пройдено 13, провалено 0», exit 0
-Tests: full suite green in this commit's selfcheck; guide suite, upgrade suite, census suite, arity, clock, tautology, tmp guards all green this shift
-Guards: agent/selfcheck.sh — failure path now preserves and names evidence; guard-dir trap; no accepted check weakened
-Schema: unchanged (45)
-Network: 0 requests of any budget
-Model: 0 llm_calls
-Secrets: no key values anywhere
-Pushed: yes (with the hand)
+FINAL — supersedes the interim values above.
+
+Local Danang clock at the stop decision: **03:36** (`TZ=Asia/Bangkok
+date +%H:%M`).
+Status: PARTIAL — only TASK-50's root-cause hunt is open
+Arrival state: selfcheck SELFCHECK OK on the first run of the shift, acceptance «пройдено 13, провалено 0» at 2c6be05
+Items done: T1-T5 verified by run; T6.1 diagnostics (proven by planted red), T6.2 guard-dir leak (B37), T6.3 env audit, T6.4 env proof, linked-worktree commit probe green (90d3fc3, branch deleted); TASK-47 (O0 reworked to selfcheck, O1-O3), TASK-48 (Q1, Q1b verified, Q2), TASK-49 (R1 census, R2 IFRS v2 + golden values, R3 DART absent), TASK-51 (U1-U4 + doctor --fix), TASK-52 (V1-V4), BACKLOG B39, B40
+Items not done: TASK-50 T6 root cause of the non-deterministic d5 red — not reproduced in 5 clean full-suite runs under the real-commit env; next red commit names itself and keeps its full output by construction
+Acceptance: every commit this shift passed «Итог: пройдено 13, провалено 0» inside the pre-commit hook; exit 0
+Tests: ~780 collected, 0 failed, 5 skipped (I5 nested skips + tui marker), 4 xfailed strict
+Guards: selfcheck failure diagnostics + guard-dir trap; new tests — state clock, report tracked, call arity, no-tautology, no-shared-tmp, guide truth, upgrade path, b40 read-only; no guard weakened, IFRS map v2 with payload evidence
+Schema: unchanged (45); migrations 42-45 exercised on historical bases (TASK-51), not edited
+Network: 0 live requests this shift (TASK-49 census offline on recorded fixtures; 4-request EDGAR budget untouched)
+Model: 0 llm_calls; fake clients only
+Secrets: grepped the four key names across the diff — 0 value hits; RUSTERM_DART_KEY confirmed ABSENT (Disputed in REPORT-49)
+Pushed: yes — agent/night-11 through 3e75262 + this handoff commit; agent/CONTEXT.md coverage line rides the relay hand (--add)
 Questions for the coordinator:
-1. the linked-worktree probe (commit in a fresh worktree with the new selfcheck) — result recorded in the final HANDOFF below; if it is green, the trap evidence must come from your worktree — the next red will now name itself.
+1. DART key: issue one, or the Korean channel stays keyless? (REPORT-49)
+2. roe over incl-NCI equity as a named fallback for CNQ — wanted? (REPORT-49)
+3. doctor: silent migration as default, or --fix flag stays? (REPORT-51)
+4. future-schema open guard (U3 proposal) — approve as an item? (REPORT-51)
+5. period dates in get_snapshot_block output so the year is citable in chat answers? (REPORT-47)
