@@ -60,6 +60,47 @@ if ! bash agent/check_mention.sh "$LAST_MSG" "$LAST_FILES"; then
 fi
 rm -f "$LAST_MSG" "$LAST_FILES"
 
+# ТЗ-47 O0: часы коммита. updated_at в agent/STATE.json сверяется с
+# реальными часами ТОЛЬКО в момент коммита — здесь, а не в tests/:
+# страж в принятом наборе краснел бы в свежем дереве координатора,
+# проверяющем коммит часами позже (промах поймал живой прогон I5 в
+# смене ТЗ-48). Проверяется застейдженная величина; не застейджен —
+# коммит часов не меняет. I5_NESTED=1 (вложенный прогон) пропускает
+# проверку: у вложенного прогона свои часы.
+if [ -z "${I5_NESTED:-}" ] && git diff --cached --name-only -- agent/STATE.json | grep -q .; then
+    STATE_JSON=$(git show :agent/STATE.json)
+    CLOCK=$(python3 - "$STATE_JSON" <<'O0PYEOF'
+import json, sys
+from datetime import datetime, timezone
+
+raw = (json.loads(sys.argv[1]).get("updated_at") or "").strip()
+now = datetime.now(timezone.utc)
+if not raw:
+    print("FAIL:в agent/STATE.json нет updated_at")
+    raise SystemExit
+try:
+    stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+except ValueError:
+    print(f"FAIL:updated_at={raw!r} — не ISO-8601")
+    raise SystemExit
+if stamp.tzinfo is None:
+    print(f"FAIL:updated_at={raw!r} — без часового пояса")
+    raise SystemExit
+drift = (now - stamp.astimezone(timezone.utc)).total_seconds() / 60
+fmt = "%Y-%m-%dT%H:%M:%SZ"
+verdict = "OK" if abs(drift) <= 15 else "FAIL"
+print(f"{verdict}:updated_at={stamp.astimezone(timezone.utc).strftime(fmt)}"
+      f" расходится с реальным {now.strftime(fmt)}"
+      f" на {drift:+.1f} мин (допуск 15)")
+O0PYEOF
+)
+    case "$CLOCK" in
+        OK:*) echo "O0: ${CLOCK#OK:}" ;;
+        FAIL:*) fail "O0" "${CLOCK#FAIL:}" ;;
+        *) fail "O0" "страж часов не смог разобрать updated_at: $CLOCK" ;;
+    esac
+fi
+
 # P1: снятые assert-строки — только через объявленную замену булавки
 # (правило ТЗ-32 D5: блок ЗАМЕНА-БУЛАВКИ/ПОЧЕМУ СИЛЬНЕЕ в сообщении
 # коммита и не меньше assert-строк в том же файле; всё остальное

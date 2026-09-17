@@ -6,48 +6,62 @@
 — 10:00 по Данангу (PROTOCOL §10), поэтому ложные «+4 часа» заканчивают
 ночь на треть раньше.
 
-Страж краснеет, когда updated_at расходится с настоящим временем больше
-чем на 15 минут, и называет обе величины и разницу. Сравнение — с
-реальными часами (datetime.now(timezone.utc), машинная форма `date -u`),
-никак не с committer-датой: в момент проверки commit ещё не существует.
+Разрез стража: ЗДЕСЬ — синтетические проверка разбора и сообщения о
+дрейфе (чистые функции, без настоящих часов: живой прогон в свежем
+дереве координатора не может краснеть от того, что коммит проверяют
+часами позже — этот промах размещения поймал живой прогон
+test_i5_staged_and_authorised_widening_is_green в смене ТЗ-48).
+Настоящие часы сравниваются в agent/selfcheck.sh в момент коммита,
+когда updated_at ещё можно обновить командой.
 """
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 STATE = REPO / "agent" / "STATE.json"
 TOLERANCE_SECONDS = 15 * 60
 
 
-def _updated_at() -> datetime:
+def _drift_seconds(raw: str, now: datetime) -> float:
+    stamp = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    assert stamp.tzinfo is not None, (
+        f"agent/STATE.json updated_at={raw!r} — без часового пояса")
+    return (now - stamp.astimezone(timezone.utc)).total_seconds()
+
+
+def test_state_updated_at_exists_and_parses():
+    """Поле обязано существовать и разбираться как ISO-8601 с поясом —
+    без сравнения с настоящими часами (см. шапку)."""
     state = json.loads(STATE.read_text(encoding="utf-8"))
     raw = state.get("updated_at")
     assert isinstance(raw, str) and raw.strip(), (
         "в agent/STATE.json нет updated_at — поле обязательно")
-    try:
-        stamp = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
-    except ValueError:
-        assert False, f"agent/STATE.json updated_at={raw!r} — не ISO-8601"
-    assert stamp.tzinfo is not None, (
-        f"agent/STATE.json updated_at={raw!r} — без часового пояса")
-    return stamp.astimezone(timezone.utc)
+    assert _drift_seconds(raw, datetime.now(timezone.utc)) is not None
 
 
-def test_state_updated_at_tracks_the_real_clock():
-    stamp = _updated_at()
-    now = datetime.now(timezone.utc)
-    delta_minutes = (now - stamp).total_seconds() / 60
-    assert abs(delta_minutes) <= TOLERANCE_SECONDS / 60, (
-        f"agent/STATE.json updated_at="
-        f"{stamp.strftime('%Y-%m-%dT%H:%M:%SZ')} расходится с реальным "
-        f"{now.strftime('%Y-%m-%dT%H:%M:%SZ')} на "
-        f"{delta_minutes:+.1f} мин (допуск 15)")
+def test_drift_message_names_both_values_and_difference():
+    """Подставленные +3 часа: сообщение стража называет обе величины и
+    разницу. Часы синтетические — красный случай воспроизводим всегда."""
+    now = datetime(2026, 9, 17, 15, 46, 15, tzinfo=timezone.utc)
+    stamp = "2026-09-17T18:46:13Z"
+    with pytest.raises(AssertionError) as exc:
+        drift = _drift_seconds(stamp, now)
+        assert abs(drift) <= TOLERANCE_SECONDS, (
+            f"agent/STATE.json updated_at={stamp} расходится с реальным "
+            f"{now.strftime('%Y-%m-%dT%H:%M:%SZ')} на "
+            f"{drift / 60:+.1f} мин (допуск 15)")
+    message = str(exc.value)
+    assert "2026-09-17T18:46:13Z" in message
+    assert "2026-09-17T15:46:15Z" in message
+    assert "-180.0 мин" in message, message
 
 
-def test_state_updated_at_exists_and_parses():
-    """Отдельный assert на разбор: дрейф и отсутствие поля — разные
-    поломки, у каждой свой красный вывод."""
-    assert _updated_at().year >= 2026
+def test_fresh_stamp_within_tolerance_passes():
+    now = datetime(2026, 9, 17, 15, 46, 15, tzinfo=timezone.utc)
+    stamp = (now - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert abs(_drift_seconds(stamp, now)) <= TOLERANCE_SECONDS

@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-47.md",
  "report": "agent/REPORT-47.md",
- "item": "O3",
- "step": "report-tracked guard written, red case proven",
+ "item": "O0-rework",
+ "step": "clock guard moved to selfcheck, synthetic tests in tests/",
  "status": "working",
  "last_commit": "dac57a9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-17T16:33:44Z"
+ "updated_at": "2026-09-17T17:16:41Z"
 }

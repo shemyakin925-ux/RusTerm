@@ -252,10 +252,13 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
 def test_stale_single_flight_lock_does_not_skip_the_module(tmp_path):
     """ТЗ-36 I8: протухший замок старой схемы (pid мёртвого процесса)
     не влияет ни на что — замок убран, все случаи модуля собираются
-    и выполняются: два случая I5 и уборочный тест ТЗ-45 M1."""
+    и выполняются: два случая I5 и уборочный тест ТЗ-45 M1.
+    ТЗ-48 Q2: замок живёт в tmp_path этой машины прогона — общий /tmp
+    с фиксированным именем был породой круга 56, machinery замок уже
+    не читает (маркер в git-каталоге, 5e050a4)."""
     import sys
 
-    stale = Path(tempfile.gettempdir()) / "i5-demo-single-flight.lock"
+    stale = tmp_path / "i5-demo-single-flight.lock"
     stale.write_text(json.dumps({"pid": 999999999}), encoding="utf-8")
     try:
         out = subprocess.run(

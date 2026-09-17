@@ -22,14 +22,31 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
   - planted exactly +3h: `updated_at=2026-09-17T18:46:13Z расходится
     с реальным 2026-09-17T15:46:15Z на -180.0 мин`; byte-exact
     restore after the demo.
-- O0 `updated_at` is now obtained by command, not typed. The method,
-  used for every refresh this shift:
+- O0 REWORK (same shift, evidence-driven): the wall-clock comparison
+  originally lived in `tests/test_state_clock.py` — WRONG placement,
+  caught live during TASK-48: the nested selfcheck inside
+  `test_i5_staged_and_authorised_widening_is_green` went «пройдено 11,
+  провалено 2» because STATE.json had gone stale past 15 minutes by
+  the time the nested suite reached the clock test. By construction
+  the same red awaits the coordinator's fresh-worktree acceptance run
+  hours after the commit. The wall-clock check moved to
+  `agent/selfcheck.sh` (the task allowed either place): it runs only
+  at commit time, only when STATE.json is staged, and is skipped
+  under I5_NESTED=1. Red case re-proven against selfcheck: staged +3h
+  → `SELFCHECK FAIL (O0): updated_at=2026-09-17T20:08:51Z расходится
+  с реальным 2026-09-17T17:08:52Z на -180.0 мин (допуск 15)`, exit 1;
+  fresh staged value → «O0: … на +0.0 мин», green.
+  `tests/test_state_clock.py` keeps the parse/must-exist checks and
+  now proves the drift MESSAGE on synthetic timestamps — always
+  reproducible, never red on a delayed run.
+- O0 `updated_at` is obtained by command, not typed. The method, used
+  for every refresh this shift:
 
   ```
-  python3 -c "import json,sys; from datetime import datetime,timezone; \
+  python3 -c "import json; from datetime import datetime,timezone; \
   p='agent/STATE.json'; d=json.load(open(p)); \
   d['updated_at']=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'); \
-  open(p,'w').write(json.dumps(d, indent=1) + '\n')"
+  open(p,'w').write(json.dumps(d, indent=1) + chr(10))"
   ```
 
 - O1 (I2 does-not-know): the refusal machinery and the three cases
@@ -97,10 +114,14 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
   covered classes are same-file functions, package imports and
   `self.*` methods.
 - The hook trap (two `test_d5_p1_rule` tests red inside the full suite
-  under the hook, TASK-50 T6) has NOT been reproduced yet this shift:
-  full pytest with `I5_NESTED=1` is green; a real commit exports
-  `GIT_INDEX_FILE=.git/index` (relative) to the hook — that variable
-  is the next suspect, evidence to be captured on the first red commit.
+  under the hook, TASK-50 T6) has NOT fired for the D5 pair this
+  shift. What DID fire, live: an «11, провалено 2» inside the I5
+  nested selfcheck — the failing pair was MY clock test against a
+  stale STATE.json, not the D5 pair (see the O0 REWORK bullet). The
+  capture technique (watcher on selfcheck-acc.* in TMPDIR) works and
+  is the tool for the next live red. A real commit exports
+  `GIT_INDEX_FILE=.git/index` (relative) to the hook — still the
+  suspect for the D5 pair.
 - One flake seen once, not reproduced: `test_m4_scale.py::
   test_c2_hundred_issuer_build_shape_stays_linear` failed inside one
   selfcheck run (half-ratio over 1.5 under load), green twice alone
@@ -113,11 +134,11 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
 ## HANDOFF
 
 Status: PARTIAL (shift in progress, interim block)
-Items done: baseline merge verified 13/13; O0 done (19bf38c); O1 done (e26d8ab); O2 done (0267926); O3 done (report-tracked guard + red case)
-Items not done: TASK-47 complete; TASK-48+ per queue next
+Items done: baseline merge 13/13; O0 (19bf38c) reworked to selfcheck placement after live evidence; O1 (e26d8ab); O2 (0267926); O3 (2d03609); TASK-48 Q1+Q1b+Q2 in the next commit
+Items not done: TASK-49..52 per queue
 Acceptance: baseline run on 2c6be05 printed «Итог: пройдено 13, провалено 0», exit 0; per-commit runs via selfcheck, see git notes
-Tests: arity guard 3 cases green before this commit; full suite green in this commit's selfcheck
-Guards: new tests/test_call_arity.py (O2), tests/test_state_report_tracked.py (O3) — no guard file weakened
+Tests: clock/tautology/tmp guards and I5 modules green before this commit; full suite green in this commit's selfcheck
+Guards: selfcheck.sh gained the commit-time clock check (O0); test_state_clock.py now synthetic-time only — no accepted check weakens, the wall-clock law moved to the commit gate where it is enforceable
 Schema: unchanged (44)
 Network: 0 requests of any budget
 Model: 0 llm_calls; fake clients only
