@@ -976,7 +976,19 @@ def cmd_status(args) -> int:
     """«Что у меня есть»: каталог, схема, инструменты, снапшоты,
     покрытие, сеть, окружение (TASK-8 U9). --json — один объект."""
     from rusterm import env as env_module
-    paths, conn = _open(args.root)
+    # B40: status отвечает «что есть» — отсутствующий каталог данных
+    # он называет по имени, а не создаёт пустой
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        message = (f"каталога данных нет: {args.root}; выполните "
+                   "rusterm init")
+        if getattr(args, "json", False):
+            print(json.dumps({"error": "no_data_dir", "data_dir":
+                              str(AppPaths.from_root(args.root).root)},
+                             ensure_ascii=False))
+        else:
+            print(message, file=sys.stderr)
+        return 1
     # BACKLOG B25: версия «как застали» снимается ДО тихой миграции —
     # база, отставшая от кода, видна в status, а не только в doctor
     observed = current_schema_version(conn)
@@ -1186,7 +1198,12 @@ def cmd_cadence(args) -> int:
     from rusterm.core import cadence
     from rusterm.providers import host_limit
 
-    paths, conn = _open(args.root)
+    # B40: каденция — планирование, только чтение; каталог не создаётся
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        print("каденция: каталога данных нет — нечего планировать; "
+              "начните с rusterm init")
+        return 0
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
     as_of = args.as_of or args_as_of_default()
@@ -1575,7 +1592,12 @@ def cmd_watchlist(args) -> int:
 
 
 def cmd_coverage(args) -> int:
-    paths, conn = _open(args.root)
+    # B40: покрытие — только чтение; каталог данных не создаётся
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        print("покрытия нет — каталога данных нет; начните с "
+              "rusterm init и rusterm ingest", file=sys.stderr)
+        return 1
     repos = RepoRegistry(conn, paths)
     instrument = args.instrument or args.target
     if (instrument is None) == (args.watchlist is None):
@@ -1648,7 +1670,20 @@ def cmd_metrics(args) -> int:
 
 
 def cmd_budget(args) -> int:
-    paths, conn = _open(args.root)
+    # B40: бюджет — только чтение; каталог данных не создаётся
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        payload = {"ceiling_per_night": 5000, "rate_per_second": 5,
+                   "provider_ran": False, "used": 0, "refused": 0,
+                   "samples": {}}
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return 0
+        print("потолок запросов за ночь: 5000 (Budget), 5 в секунду "
+              "(RateLimiter); лимитеры не хранят состояние между процессами")
+        print("сетевой провайдер не работал: использовано 0, отказано 0 "
+              "(записей в metric_sample нет)")
+        return 0
     repos = RepoRegistry(conn, paths)
     samples = {s[1]: s[3] for s in repos.metrics.samples()
                if s[1].startswith("provider_")}
