@@ -106,7 +106,15 @@ for _concept in CONCEPT_MAP:
 # lookalikes (см. тест) намеренно отсутствуют — они дают неверное число
 # там, где сейчас честная дыра.
 
-CONCEPT_MAP_VERSION_IFRS = "ifrs-full.v1"
+# ТЗ-49 R2: income_tax переименован в tax_expense (ifrs-full.v2).
+# Формулы мер читают tax_expense (us-gaap-словарь), а карта IFRS
+# называла тот же экономический концепт income_tax — effective_tax
+# отказывал «missing_data: tax_expense» при живом факте налоговых
+# расходов (перепись отказов ТЗ-49: RY/BMO/CNQ/NGGTF, все четыре).
+# Payload-доказательство тега (правило 9): IncomeTaxExpenseContinuingOperations —
+# RY 12 фактов до 2026-01-31, CNQ 6 до 2025-12-31, NGGTF 6 до
+# 2025-09-30 (companyfacts, tests/data/edgar/companyfacts_m6_*.json).
+CONCEPT_MAP_VERSION_IFRS = "ifrs-full.v2"
 
 CONCEPT_MAP_IFRS: dict[str, tuple[str, ...]] = {
     "revenue": ("Revenue", "RevenueFromContractsWithCustomers"),
@@ -114,7 +122,7 @@ CONCEPT_MAP_IFRS: dict[str, tuple[str, ...]] = {
     "operating_income": ("ProfitLossFromOperatingActivities",),
     "gross_profit": ("GrossProfit",),
     "pretax_income": ("ProfitLossBeforeTax",),
-    "income_tax": ("IncomeTaxExpenseContinuingOperations",),
+    "tax_expense": ("IncomeTaxExpenseContinuingOperations",),
     "d_and_a": ("DepreciationAndAmortisationExpense",
                 "AdjustmentsForDepreciationAndAmortisationExpense"),
     "total_assets": ("Assets",),

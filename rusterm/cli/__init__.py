@@ -1232,6 +1232,46 @@ def cmd_cadence(args) -> int:
     return 0
 
 
+def cmd_census(args) -> int:
+    """Перепись отказов (ТЗ-49 R1): мера × значение × причина по
+    последнему снапшоту инструмента — десять строк, у отказа причина
+    из rusterm/reasons.py с продолжением, называющим конкретный
+    отсутствующий концепт или период. Никакого ремонта: только
+    измерение; вход для решений о покрытии."""
+    from rusterm.core.snapshot import SnapshotBuilder
+
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    instrument = repos.instrument.get_instrument(args.instrument)
+    if instrument is None:
+        print(f"census: инструмента нет в базе: {args.instrument}",
+              file=sys.stderr)
+        conn.close()
+        return 1
+    as_of = args.as_of or args_as_of_default()
+    if args.rebuild or repos.snapshot.latest_snapshot_id(
+            instrument.instrument_id) is None:
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build(instrument.instrument_id, instrument.issuer_id, as_of)
+    sid = repos.snapshot.latest_snapshot_id(instrument.instrument_id)
+    rows = [{"measure": m[3], "value": m[4], "reason": m[10]}
+            for m in repos.snapshot.get_measures(sid)]
+    conn.close()
+    if args.json:
+        print(json.dumps({"instrument_id": instrument.instrument_id,
+                          "snapshot_id": sid, "measures": rows},
+                         ensure_ascii=False))
+        return 0
+    print(f"перепись отказов {instrument.instrument_id} (снапшот {sid}):")
+    for r in rows:
+        cell = r["value"] if r["value"] is not None \
+            else f"отказ ({r['reason']})"
+        print(f"  {r['measure']:18s} {cell}")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     paths, conn = _open(args.root)
     report = doctor_report(paths, conn)
@@ -1881,6 +1921,14 @@ def main(argv: list[str] | None = None) -> int:
                        help="машиночитаемая форма с закреплёнными ключами")
     p_cad.add_argument("--as-of", dest="as_of", default=None,
                        help="дата расчёта (по умолчанию сегодня)")
+    p_census = sub.add_parser("census",
+                              help="перепись отказов: мера × значение × "
+                                   "причина (ТЗ-49 R1)")
+    p_census.add_argument("--instrument", required=True)
+    p_census.add_argument("--as-of", dest="as_of", default=None)
+    p_census.add_argument("--rebuild", action="store_true",
+                          help="пересобрать снапшот перед переписью")
+    p_census.add_argument("--json", action="store_true")
     p_mkt = sub.add_parser("markets",
                            help="реестр рынков: коды, провайдеры, доступ")
     p_mkt.add_argument("--json", action="store_true")
@@ -1906,6 +1954,7 @@ def main(argv: list[str] | None = None) -> int:
         "markets": cmd_markets,
         "import": cmd_import,
         "cadence": cmd_cadence,
+        "census": cmd_census,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "

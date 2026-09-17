@@ -46,7 +46,7 @@ def test_every_named_ifrs_tag_maps_to_its_concept():
         "ProfitLossFromOperatingActivities": "operating_income",
         "GrossProfit": "gross_profit",
         "ProfitLossBeforeTax": "pretax_income",
-        "IncomeTaxExpenseContinuingOperations": "income_tax",
+        "IncomeTaxExpenseContinuingOperations": "tax_expense",
         "DepreciationAndAmortisationExpense": "d_and_a",
         "AdjustmentsForDepreciationAndAmortisationExpense": "d_and_a",
         "Assets": "total_assets",
@@ -64,7 +64,7 @@ def test_every_named_ifrs_tag_maps_to_its_concept():
         assert canonical_for(tag, "ifrs-full") == concept, tag
     assert set(expected) == {t for tags in CONCEPT_MAP_IFRS.values()
                              for t in tags}, "карта != таблица §0.2"
-    assert CONCEPT_MAP_VERSION_IFRS == "ifrs-full.v1"
+    assert CONCEPT_MAP_VERSION_IFRS == "ifrs-full.v2"
 
 
 def test_forbidden_lookalikes_map_to_none():
