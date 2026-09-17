@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import json
 from collections import Counter
 from typing import Protocol
 
@@ -85,17 +86,101 @@ def make_intent_client(environ=None, gate=None):
 class _ChatAdapter:
     """LlmApiClient -> протокол chat(prompt, history), который зовёт
     ChatSession.ask. Ошибка клиента приходит значением в поле error:
-    разговор обязан сказать, почему молчит, а не упасть."""
+    разговор обязан сказать, почему молчит, а не упасть.
+
+    B36 (ТЗ-53 W3): модель получает инструменты ТЕКСТОВЫМ протоколом —
+    системная инструкция описывает read-only набор и форму запроса
+    (ровно одна строка JSON {"tool": ..., "arguments": {...}});
+    ответ модели, распознанный как запрос известного инструмента,
+    возвращается как tool_calls — вызовы делает ChatSession (read-only
+    реестр, страж чисел, отказ значением). Распознанный запрос не
+    показывается пользователю как ответ. Каждая модельная итерация —
+    один complete() (бюджет «не больше двух вызовов на вопрос»
+    держится петлёй ChatSession)."""
 
     def __init__(self, client):
         self._client = client
 
+    @staticmethod
+    def _json_dumps(obj) -> str:
+        return json.dumps(obj, ensure_ascii=False, sort_keys=True,
+                          default=str)
+
+    def _instructions(self) -> str:
+        from . import tools as tools_module
+        import inspect
+
+        lines = [
+            "Ты отвечаешь на вопросы об эмитентах, опираясь ТОЛЬКО на",
+            "данные, которые вернули инструменты. Чтобы запросить данные,",
+            "ответь ровно одной JSON-строкой вида",
+            '{"tool": "имя", "arguments": {...}} — без другого текста.',
+            "Доступные инструменты:",
+        ]
+        for name, fn in tools_module.TOOLS.items():
+            params = list(inspect.signature(fn).parameters)[1:]
+            lines.append(f"- {name}({', '.join(params)})")
+        lines += [
+            "Данных нет или вопрос вне данных — откажись словами, называя",
+            "причину из словаря: missing_data, unknown_issuer,",
+            "concept_not_mapped, manual_import_required. НИКОГДА не",
+            "выдумывай чисел; каждое число финального ответа обязано",
+            "происходить из результата инструмента.",
+        ]
+        return "\n".join(lines)
+
+    def _history_messages(self, prompt: str, history) -> list[dict]:
+        messages: list[dict] = [{"role": "system",
+                                 "content": self._instructions()}]
+        for entry in history:
+            if entry.role == "user":
+                messages.append({"role": "user", "content": entry.text})
+            elif entry.role == "assistant":
+                messages.append({"role": "assistant",
+                                 "content": entry.text or ""})
+            elif entry.role == "tool":
+                outcome = (entry.tool_calls or [{}])[0].get("outcome", {})
+                messages.append({"role": "user",
+                                 "content": f"результат инструмента "
+                                            f"{entry.text}: "
+                                            f"{self._json_dumps(outcome)}"})
+            elif entry.role == "system-note":
+                messages.append({"role": "user",
+                                 "content": f"(заметка системы: "
+                                            f"{entry.text})"})
+        messages.append({"role": "user", "content": prompt})
+        return messages
+
     def chat(self, prompt, history):
-        raw = self._client.complete(prompt)
+        messages = self._history_messages(prompt, history)
+        raw = self._client.complete(self._json_dumps(messages))
         reason = getattr(raw, "reason", None)
         if reason is not None and not isinstance(raw, str):
             return {"text": None, "tool_calls": [], "error": reason}
-        return {"text": str(raw), "tool_calls": []}
+        text = str(raw)
+        candidate = text.strip()
+        # модель может обернуть JSON в слова или ```-забор: берём от
+        # первой { до последней }
+        first, last = candidate.find("{"), candidate.rfind("}")
+        if first != -1 and last > first:
+            candidate = candidate[first:last + 1]
+        else:
+            candidate = ""
+        if candidate:
+            from . import tools as tools_module
+            try:
+                request = json.loads(candidate)
+            except ValueError:
+                request = None
+            if isinstance(request, dict):
+                name = request.get("tool")
+                arguments = request.get("arguments") or {}
+                if name in tools_module.TOOLS and \
+                        isinstance(arguments, dict):
+                    return {"text": None,
+                            "tool_calls": [{"name": name,
+                                            "arguments": arguments}]}
+        return {"text": text, "tool_calls": []}
 
 
 class _RefusingChatClient:
