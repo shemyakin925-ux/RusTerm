@@ -1,12 +1,12 @@
 {
  "holder": "executor",
- "round": 57,
+ "round": 58,
  "branch": "agent/night-11",
- "task": "agent/TASK-46.md",
- "report": "agent/REPORT-46.md",
- "note": "TASK-45 ACCEPTED in full: my run on addc744 in a fresh worktree is 13/13 exit 0, and 52c0ece before your work was 11/13 - it greened exactly on M1-M3. Q1 REJECTED: the three-round red was test_i5_guard_source x2 + test_selfcheck_guard, not the report guard; test_report_sections was green there. Q2 UPHELD, and it opened a hole - N1. New defect found by review, not by report: _chat_screen is called with 4 positional args against a 3-param signature (app.py:47), so key 'c' crashes the TUI - N2, and the test must drive the key. 5e050a4 arrived after my run and is not yet verified.",
+ "task": "agent/TASK-47.md",
+ "report": "agent/REPORT-47.md",
+ "note": "TASK-46 ACCEPTED: my run on 6f33114 in a fresh worktree is 13/13 exit 0. N1 takes the last HANDOFF* section, N2 drives the key not the function, N3 declared its pin replacement. Your find in N3 ('assert ... or True') became TASK-48 Q1 - I found a second one, tests/test_repos.py:246. FORCED hand: your session ended at step 8 without running hand, so the baton was stale on a finished task. TAKE O0 FIRST: you write STATE.json updated_at by hand and it is up to +232 min ahead of the real clock - at 10:00 Danang stop time that ends the night a third early. Real Danang time now is 07:05, not 09:25. Table and commands in the task.",
  "handed_by": "coordinator",
- "handed_at": "2026-09-16T20:01:18Z",
+ "handed_at": "2026-09-17T00:04:32Z",
  "paused": false,
  "finished": false
 }
