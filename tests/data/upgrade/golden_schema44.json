@@ -1,0 +1,150 @@
+{
+ "comment": "ТЗ-51 U2: значения мер из экспорта старого кода (8cce46c, schema 44) до обновления; fixture: tests/data/upgrade/schema44.sqlite, собрана кодом коммита 8cce46c (init+demo+ingest+snapshot+watchlist v2)",
+ "source_commit": "8cce46c",
+ "schema_at_capture": 44,
+ "counts": {
+  "fact": 6,
+  "snapshot": 1,
+  "measure": 27,
+  "watchlist": 1,
+  "watchlist_version": 2,
+  "watchlist_member": 1
+ },
+ "measures": [
+  {
+   "concept": "asset_turnover",
+   "value": null,
+   "null_reason": "missing_data: total_assets"
+  },
+  {
+   "concept": "div_yield",
+   "value": null,
+   "null_reason": "missing_data: price_close"
+  },
+  {
+   "concept": "drawdown",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "ebitda",
+   "value": null,
+   "null_reason": "missing_data: d_and_a"
+  },
+  {
+   "concept": "effective_tax",
+   "value": "0.16666666666666666",
+   "null_reason": null
+  },
+  {
+   "concept": "ev",
+   "value": null,
+   "null_reason": "missing_data: price_close"
+  },
+  {
+   "concept": "ev_ebitda",
+   "value": null,
+   "null_reason": "missing_data: price_close"
+  },
+  {
+   "concept": "fcf",
+   "value": null,
+   "null_reason": "missing_data: capex, ocf"
+  },
+  {
+   "concept": "fcf_yield",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "gross_margin",
+   "value": null,
+   "null_reason": "missing_data: gross_profit"
+  },
+  {
+   "concept": "hhi",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "interest_coverage",
+   "value": null,
+   "null_reason": "missing_data: interest_expense"
+  },
+  {
+   "concept": "invested_capital",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "market_cap",
+   "value": null,
+   "null_reason": "missing_data: price_close"
+  },
+  {
+   "concept": "market_cap_total",
+   "value": null,
+   "null_reason": "missing_data: price_close"
+  },
+  {
+   "concept": "net_debt",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "net_debt_ebitda",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "net_margin",
+   "value": "0.1",
+   "null_reason": null
+  },
+  {
+   "concept": "nopat",
+   "value": "166.66666666666669",
+   "null_reason": null
+  },
+  {
+   "concept": "operating_margin",
+   "value": "0.2",
+   "null_reason": null
+  },
+  {
+   "concept": "pb",
+   "value": null,
+   "null_reason": "missing_data: price_close"
+  },
+  {
+   "concept": "pe",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "price_adj",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "ps",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  },
+  {
+   "concept": "roe",
+   "value": null,
+   "null_reason": "missing_data: total_equity"
+  },
+  {
+   "concept": "roic",
+   "value": null,
+   "null_reason": "missing_data: price_close"
+  },
+  {
+   "concept": "total_return",
+   "value": null,
+   "null_reason": "concept_not_mapped"
+  }
+ ]
+}

@@ -1274,7 +1274,24 @@ def cmd_census(args) -> int:
 
 def cmd_doctor(args) -> int:
     paths, conn = _open(args.root)
+    # ТЗ-51 U2: путь «база старой версии → схема 45» идёт через тот же
+    # apply_migrations, что и init, — но только с --fix. По умолчанию
+    # doctor остаётся диагностикой (булавки набора закрепляют:
+    # test_cli_doctor_detects_schema_gap и соседние ловят разрыв схемы
+    # на НЕмигрирующем прогоне), база не меняется.
+    schema_before = None
+    migrations_now: list = []
+    schema_after = None
+    if getattr(args, "fix", False):
+        from rusterm.store.db import apply_migrations as _apply_migrations, \
+            current_schema_version as _schema_version
+        schema_before = _schema_version(conn)
+        migrations_now = _apply_migrations(conn)
+        schema_after = _schema_version(conn)
     report = doctor_report(paths, conn)
+    report["migrations_applied"] = {"before": schema_before,
+                                    "applied": migrations_now,
+                                    "after": schema_after}
     # B24: к счётчикам хостов из базы добавляются потолки из объявлений
     # реестра — used/ceiling видны рядом, без ручного свода
     from rusterm.providers import all_host_limits
@@ -1834,7 +1851,10 @@ def main(argv: list[str] | None = None) -> int:
     p_ver.add_argument("--expected", required=True, help="правильное значение")
     p_ver.add_argument("--document", default="",
                        help="ссылка на документ (секреты из URL стираются)")
-    sub.add_parser("doctor", help="самопроверка базы и store")
+    p_doc = sub.add_parser("doctor", help="самопроверка базы и store")
+    p_doc.add_argument("--fix", action="store_true",
+                       help="применить ожидающие миграции (ТЗ-51 U2); "
+                            "без флага doctor — только диагностика")
     p_bak = sub.add_parser("backup",
                            help="резервная копия каталога данных (ТЗ-22 J4)")
     p_bak.add_argument("archive", help="путь zip-архива")
