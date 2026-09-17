@@ -60,6 +60,15 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
   with file, line and «ожидалось 3, передано 4». The narrowed guard
   found nothing else on the current tree — the merge's N2 fix is the
   only call of that class, already consistent.
+- O3: new guard `tests/test_state_report_tracked.py` — reds when
+  `agent/STATE.json` names a `report` absent from `git ls-files` of
+  this commit, with a message that says exactly that (the rule plus
+  the fix: name the new report in the same commit that switches
+  STATE.json to it) instead of the old bare FileNotFoundError from
+  test_report_sections.py. Red case proven by run: report pointed at
+  `agent/REPORT-99.md` → «agent/STATE.json называет отчёт
+  'agent/REPORT-99.md', которого нет в git ls-files этого коммита
+  …»; byte-exact restore, green after.
 
 ## Blocked
 
@@ -104,11 +113,11 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
 ## HANDOFF
 
 Status: PARTIAL (shift in progress, interim block)
-Items done: baseline merge verified 13/13; O0 done (19bf38c); O1 done (e26d8ab); O2 done (arity guard + measurement + red case)
-Items not done: O3 of TASK-47, then TASK-48+ per queue
+Items done: baseline merge verified 13/13; O0 done (19bf38c); O1 done (e26d8ab); O2 done (0267926); O3 done (report-tracked guard + red case)
+Items not done: TASK-47 complete; TASK-48+ per queue next
 Acceptance: baseline run on 2c6be05 printed «Итог: пройдено 13, провалено 0», exit 0; per-commit runs via selfcheck, see git notes
 Tests: arity guard 3 cases green before this commit; full suite green in this commit's selfcheck
-Guards: new tests/test_call_arity.py (O2) — no guard file weakened
+Guards: new tests/test_call_arity.py (O2), tests/test_state_report_tracked.py (O3) — no guard file weakened
 Schema: unchanged (44)
 Network: 0 requests of any budget
 Model: 0 llm_calls; fake clients only
