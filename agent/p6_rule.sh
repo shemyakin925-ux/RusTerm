@@ -110,3 +110,5 @@ if [ -n "$FAIL" ]; then
     exit 1
 fi
 exit 0
+
+# i5 green case: staged widening
