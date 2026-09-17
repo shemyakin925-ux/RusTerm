@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-47.md",
  "report": "agent/REPORT-47.md",
- "item": "O0",
- "step": "guard written",
+ "item": "O1",
+ "step": "I2 asserts strengthened, green control added",
  "status": "working",
  "last_commit": "dac57a9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-17T15:46:43Z"
+ "updated_at": "2026-09-17T16:03:01Z"
 }

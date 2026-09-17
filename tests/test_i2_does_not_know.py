@@ -12,6 +12,7 @@ import sqlite3
 import pytest
 
 from rusterm.core.chat import ChatSession
+from rusterm.reasons import is_known_reason
 from rusterm.store.db import apply_migrations
 from rusterm.store.paths import AppPaths, ensure_app_dir
 from rusterm.store.repos import (Instrument, Issuer, PeerSetRepo,
@@ -65,6 +66,21 @@ def _session(repos, script):
     return ChatSession(repos, Fake(script))
 
 
+def _assert_refused(result, expected_reason: str, fabricated: str):
+    """ТЗ-47 O1: отказ проверяется случай за случаем, отдельными
+    assert-ами. Причина — из живого словаря rusterm/reasons.py, ответа
+    нет, выдуманное число не просачивается ни в одно поле результата
+    (включая rejected_text и расшифровку)."""
+    assert result["rejected"] is True
+    assert result["answer"] is None
+    assert result["reason"] == f"no_data:{expected_reason}", result["reason"]
+    token = result["reason"].split(":", 1)[1]
+    assert is_known_reason(token), (
+        f"причина {token!r} вне словаря rusterm/reasons.py")
+    assert fabricated not in json.dumps(result, ensure_ascii=False), (
+        f"выдуманное число {fabricated!r} просочилось в результат")
+
+
 def test_no_such_issuer_refusal_names_reason(env):
     """Случай 1: инструмент отвечает not_found — выдуманный ответ
     модели заменяется отказом unknown_issuer."""
@@ -75,9 +91,7 @@ def test_no_such_issuer_refusal_names_reason(env):
         {"text": "У эмитента US-NOPE net_margin равен 42.7 процента."},
     ])
     result = session.ask("каков net_margin у US-NOPE?")
-    assert result["rejected"] is True
-    assert result["reason"] == "no_data:unknown_issuer"
-    assert result["answer"] is None
+    _assert_refused(result, "unknown_issuer", "42.7")
     conn.close()
 
 
@@ -93,14 +107,14 @@ def test_grey_measure_refusal_names_the_reason(env):
         {"text": "net_margin Tanker Corp за 2024 год — 19.4 процента."},
     ])
     result = session.ask("каков net_margin у US-T за 2024?")
-    assert result["rejected"] is True
-    assert result["reason"] == "no_data:missing_data", result["reason"]
+    _assert_refused(result, "missing_data", "19.4")
     conn.close()
 
 
 def test_stale_measure_refusal_names_stale_reason(env):
-    """Случай 3: мера устарела (причина price_close_stale) — отказ
-    называет её; число из ответа модели не проходит."""
+    """Случай 3: мера устарела — в данных это продолжение причины
+    missing_data: price_close_stale:<дата> (так пишет snapshot.py:806);
+    отказ называет причину из словаря, число модели не проходит."""
     conn, repos, paths = env
     repos.snapshot.insert_measure(
         "m-stale", "s1", "instrument", "i1", "price_adj", None,
@@ -113,6 +127,33 @@ def test_stale_measure_refusal_names_stale_reason(env):
         {"text": "Цена с поправкой — 12.5 доллара."},
     ])
     result = session.ask("какова цена US-T с поправкой?")
-    assert result["rejected"] is True
-    assert result["reason"] == "no_data:missing_data", result["reason"]
+    _assert_refused(result, "missing_data", "12.5")
+    conn.close()
+
+
+def test_green_measure_still_answers(env):
+    """ТЗ-47 O1, контроль: та же петля на ЗЕЛЁНОЙ мере отвечает, а не
+    отказывает — отказ вызван причиной отсутствия данных, а не самим
+    фактом вызова инструмента."""
+    conn, repos, paths = env
+    repos.snapshot.create_snapshot("s2", "US-T", 2, "2024-12-31",
+                                   None, "none", "ready")
+    repos.snapshot.insert_measure(
+        "m-green", "s2", "issuer", "i1", "net_margin", "0.194",
+        "ratio", "2024-01-01", "2024-12-31", "net_margin", "v2",
+        None, None)
+    session = _session(repos, [
+        {"tool_calls": [{"name": "get_snapshot_block",
+                         "arguments": {"instrument_id": "US-T",
+                                       "block": "fundamentals"}}]},
+        # ответ называет ТОЛЬКО число из результата инструмента: год
+        # периода инструмент не отдаёт, и страж чисел бракует ответ с
+        # «за 2024» (см. Disputed в отчёте) — здесь проверяется ровно
+        # сеть отказа, а не страж.
+        {"text": "net_margin Tanker Corp — 0.194."},
+    ])
+    result = session.ask("каков net_margin у US-T за 2024?")
+    assert result["rejected"] is False
+    assert result["answer"] == "net_margin Tanker Corp — 0.194."
+    assert result["citations"] == ["0.194"]
     conn.close()

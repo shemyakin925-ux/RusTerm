@@ -32,13 +32,36 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
   open(p,'w').write(json.dumps(d, indent=1) + '\n')"
   ```
 
+- O1 (I2 does-not-know): the refusal machinery and the three cases
+  were already in place from TASK-42 (`tests/test_i2_does_not_know.py`,
+  `unknown_reason_from_tools` in `rusterm/core/chat.py`) and passed —
+  CONTEXT.md's "open debt" was stale about the machinery, but the
+  done-when was NOT proven: cases 2-3 never asserted `answer is None`,
+  nothing asserted the fabricated number stays out of the result, and
+  no assert tied the refusal reason to the LIVE
+  `rusterm/reasons.py` dictionary. Strengthened case by case with a
+  shared `_assert_refused` (rejected / answer None / exact reason /
+  `is_known_reason` on the token / fabricated number absent from the
+  whole returned dict), plus a green control case proving the refusal
+  net is caused by the data reason, not by the tool call itself.
+
 ## Blocked
 
 - Nothing yet.
 
 ## Disputed
 
-- (empty so far)
+- Found by the new green control case: an answer that names the
+  reporting YEAR is bricked by the number guard. Reproduction: measure
+  value `0.194`, model answers «net_margin Tanker Corp за 2024 год —
+  0.194.» → `guard_rejected_uncited_number`, because
+  `get_snapshot_block` returns measures WITHOUT period dates
+  (`rusterm/core/tools.py:82-84`), so «2024» is an uncited number by
+  construction. The guard's law (ADR-0016) is right; the tool outcome
+  is too thin for honest phrasing. Cheapest fix: carry
+  period_start/period_end in the measures of `get_snapshot_block`.
+  NOT fixed this shift — tool output shape is a product decision
+  (TUI/CLI chat and reverify consume it); left to the coordinator.
 
 ## What not to trust
 
@@ -55,15 +78,15 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
 ## HANDOFF
 
 Status: PARTIAL (shift in progress, interim block)
-Items done: baseline merge verified 13/13; O0 guard in tests, red cases proven, updated_at command-generated
-Items not done: O1 O2 O3 of TASK-47, then TASK-48+ per queue
-Acceptance: baseline run on 2c6be05 printed «Итог: пройдено 13, провалено 0», exit 0
-Tests: full suite green before this commit, see selfcheck output of this commit
-Guards: new tests/test_state_clock.py (clock drift, TASK-47 O0); no guard file weakened
+Items done: baseline merge verified 13/13; O0 done (guard, red cases, command-generated updated_at, commit 19bf38c); O1 done (case-by-case asserts strengthened, green control added)
+Items not done: O2 O3 of TASK-47, then TASK-48+ per queue
+Acceptance: baseline run on 2c6be05 printed «Итог: пройдено 13, провалено 0», exit 0; per-commit runs via selfcheck, see git notes
+Tests: I2 suite 4 cases green before this commit; full suite green in this commit's selfcheck
+Guards: new tests/test_state_clock.py (O0); I2 asserts strengthened — no guard file weakened
 Schema: unchanged (44)
 Network: 0 requests of any budget
 Model: 0 llm_calls; fake clients only
 Secrets: nothing new introduced; no key values in this report
 Pushed: no (will push after hand)
 Questions for the coordinator:
-1. none yet
+1. year-in-answer vs number guard: is carrying period dates in get_snapshot_block the wanted fix? (see Disputed)
