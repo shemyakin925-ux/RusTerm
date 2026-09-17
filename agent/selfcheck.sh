@@ -23,6 +23,9 @@ fail() {
 # коммит (случай 95b669a). Незастейдженная правка стража — красная
 # сама по себе, с именем файла.
 GUARD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/selfcheck-guards.XXXXXX")
+# ТЗ-50 T6 / BACKLOG B37: каталог извлечённых сторожей убирается своим
+# trap — раньше каждый коммит оставлял по каталогу (накопилось 400+).
+trap 'rm -rf "$GUARD_DIR"' EXIT
 for guard in agent/p1_rule.sh agent/p6_rule.sh; do
     base=$(basename "$guard")
     if ! git diff --quiet -- "$guard"; then
@@ -134,15 +137,23 @@ if [ -n "$P34" ]; then
 fi
 
 # Приёмка: статус читается из файла, не из пайпа; последние строки
-# печатаются только когда статус известен.
+# печатаются только когда статус известен. ТЗ-50 T6: при провале файл
+# приёмки НЕ удаляется, его путь печатается, и сразу названы строки
+# ПРОВАЛ/FAILED — семь попыток коммита не дали имени ни одной проверки,
+# потому что tail -4 оставался единственным свидетелем.
 ACC=$(mktemp "${TMPDIR:-/tmp}/selfcheck-acc.XXXXXX") \
     || fail "acceptance" "cannot create temp file"
-trap 'rm -f "$ACC"' EXIT
+ACC_STATUS=1
+trap 'rm -rf "$GUARD_DIR"; if [ "$ACC_STATUS" -eq 0 ]; then rm -f "$ACC"; fi' EXIT
 bash agent/acceptance.sh > "$ACC" 2>&1
 ACC_STATUS=$?
 tail -4 "$ACC"
-[ "$ACC_STATUS" -eq 0 ] \
-    || fail "acceptance" "exit status $ACC_STATUS"
+if [ "$ACC_STATUS" -ne 0 ]; then
+    printf 'полный вывод приёмки: %s (файл сохранён)\n' "$ACC" >&2
+    grep -nE 'ПРОВАЛ|FAILED|ERROR|Traceback' "$ACC" \
+        | head -40 >&2 || true
+    fail "acceptance" "exit status $ACC_STATUS"
+fi
 # ТЗ-27 N6: ожидаемое число проверок читается из acceptance.sh, а не
 # захардкожено — добавление четырнадцатой проверки не делает селфчек лжецом
 EXPECTED_CHECKS=$(grep -cE "^head_ '" agent/acceptance.sh)
