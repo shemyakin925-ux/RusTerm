@@ -173,7 +173,7 @@ $ RUSTERM_ENV_FILE=/nonexistent/env python3 -m rusterm.cli --root /tmp/rusterm-g
 
 ```console
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide refresh --watchlist demo-list --dry-run
-US-CLI-DEMO: ошибка (у эмитента нет CIK)
+US-CLI-DEMO: ошибка (unknown_issuer: registry_id is empty)
 ```
 
 Ожидаемо: у демо-эмитента нет CIK, реальный проход ему не нужен. На

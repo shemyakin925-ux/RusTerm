@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-50.md",
  "report": "agent/REPORT-50.md",
- "item": "T6",
- "step": "failure diagnostics + guard-dir trap + proofs",
+ "item": "B39",
+ "step": "refresh errors carry reason tokens",
  "status": "working",
  "last_commit": "dac57a9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-17T19:52:37Z"
+ "updated_at": "2026-09-17T20:13:52Z"
 }
