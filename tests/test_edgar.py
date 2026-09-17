@@ -275,3 +275,42 @@ def test_z1_conditional_get_304_is_not_modified_and_still_counts():
         conn.close()
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── Отказ вендора — значение, а не трассировка (координатор, 17.09.2026)
+
+def _raising_transport(code: int):
+    """Транспорт, который поднимает HTTPError, как настоящий urllib."""
+    import io
+    import urllib.error
+
+    def transport(url, headers):
+        raise urllib.error.HTTPError(url, code, "refused", {}, io.BytesIO(b""))
+
+    return transport
+
+
+@pytest.mark.parametrize("code", [403, 429])
+def test_vendor_refusal_is_a_value_not_an_exception(code):
+    """403 и 429 от SEC приходили исключением: `RequestGate.request` их
+    не ловит, и до пользователя они доходили «внутренней ошибкой» с
+    трассировкой и кодом 2. Словарь причин общий с Twelve Data."""
+    gate = RequestGate(gate=NetworkGate({"RUSTERM_SEC_UA": FAKE_UA}))
+    provider = EdgarProvider(gate=gate, cik=320193,
+                             transport=_raising_transport(code))
+    outcome = provider.fetch_companyfacts()
+    assert isinstance(outcome, ProviderError), outcome
+    assert outcome.reason == f"source_unreachable:http_{code}"
+
+
+def test_transport_failure_is_a_named_value():
+    """Обрыв связи — та же дверь: причина названа, исключения нет."""
+
+    def transport(url, headers):
+        raise OSError("connection reset")
+
+    gate = RequestGate(gate=NetworkGate({"RUSTERM_SEC_UA": FAKE_UA}))
+    provider = EdgarProvider(gate=gate, cik=320193, transport=transport)
+    outcome = provider.fetch_companyfacts()
+    assert isinstance(outcome, ProviderError), outcome
+    assert outcome.reason.startswith("source_unreachable:transport")

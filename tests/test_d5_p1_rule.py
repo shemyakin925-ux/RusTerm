@@ -24,10 +24,20 @@ BASE = '''def check(x):
 def _repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
+    # Окружение собирается с нуля и НАЗЫВАЕТ песочницу явно.
+    # Отсутствия переменных недостаточно (координатор, 17.09.2026):
+    # под настоящим pre-commit-хуком те же два теста уходили в зелёное,
+    # хотя вне хука с теми же GIT_DIR/GIT_INDEX_FILE, выставленными
+    # руками, были красными. Явные GIT_DIR, GIT_WORK_TREE и
+    # GIT_INDEX_FILE не оставляют места ничему внешнему: чем бы хук ни
+    # накрыл окружение, git песочницы работает с индексом песочницы.
     env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
            "PATH": "/usr/bin:/bin:/usr/local/bin",
-           "HOME": str(tmp_path)}
+           "HOME": str(tmp_path),
+           "GIT_DIR": str(repo / ".git"),
+           "GIT_WORK_TREE": str(repo),
+           "GIT_INDEX_FILE": str(repo / ".git" / "index")}
     src = repo / "pkg_pin.py"
     src.write_text(BASE, encoding="utf-8")
     def git(*argv):
@@ -39,14 +49,23 @@ def _repo(tmp_path: Path) -> Path:
     return repo, env, git
 
 
-def _stage_edit(repo: Path, removed: int, added_block: str) -> None:
-    """Снять `removed` assert-строк и добавить `added_block` новых."""
+def _stage_edit(repo: Path, env: dict, removed: int,
+                added_block: str) -> None:
+    """Снять `removed` assert-строк и добавить `added_block` новых.
+
+    Окружение песочницы обязательно (координатор, 17.09.2026): голый
+    `git add` наследует os.environ, а pre-commit-хук в линкованном
+    worktree держит там АБСОЛЮТНЫЙ GIT_DIR настоящего репозитория —
+    файл песочницы уезжал в настоящий индекс, а `git diff --cached`
+    сторожа смотрел не туда и молча зеленел. Та же порода, что
+    закрыта в ТЗ-46 для песочниц j1 и e6.
+    """
     body = BASE
     for _ in range(removed):
         body = body.replace("    assert x > 0\n", "", 1)
     body += added_block
     (repo / "pkg_pin.py").write_text(body, encoding="utf-8")
-    subprocess.run(["git", "add", "pkg_pin.py"], cwd=repo,
+    subprocess.run(["git", "add", "pkg_pin.py"], cwd=repo, env=env,
                    capture_output=True, text=True, check=True)
 
 
@@ -67,7 +86,7 @@ def _run(repo: Path, env: dict) -> subprocess.CompletedProcess:
 
 def test_p1_removal_without_declaration_is_red(tmp_path):
     repo, env, git = _repo(tmp_path)
-    _stage_edit(repo, removed=1, added_block="")
+    _stage_edit(repo, env, removed=1, added_block="")
     result = _run(repo, env)
     assert result.returncode != 0
     assert "pkg_pin.py" in result.stdout + result.stderr
@@ -75,7 +94,8 @@ def test_p1_removal_without_declaration_is_red(tmp_path):
 
 def test_p1_declared_but_fewer_asserts_added_is_red(tmp_path):
     repo, env, git = _repo(tmp_path)
-    _stage_edit(repo, removed=1, added_block="def extra():\n    return 1\n")
+    _stage_edit(repo, env, removed=1,
+                added_block="def extra():\n    return 1\n")
     _declare(repo)
     result = _run(repo, env)
     assert result.returncode != 0
@@ -84,7 +104,7 @@ def test_p1_declared_but_fewer_asserts_added_is_red(tmp_path):
 
 def test_p1_declared_replacement_with_enough_asserts_is_green(tmp_path):
     repo, env, git = _repo(tmp_path)
-    _stage_edit(repo, removed=1, added_block="assert True\n")
+    _stage_edit(repo, env, removed=1, added_block="assert True\n")
     _declare(repo)
     result = _run(repo, env)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -94,7 +114,7 @@ def test_p1_no_removals_is_always_green(tmp_path):
     repo, env, git = _repo(tmp_path)
     (repo / "pkg_pin.py").write_text(BASE + "# comment change\n",
                                      encoding="utf-8")
-    subprocess.run(["git", "add", "pkg_pin.py"], cwd=repo,
+    subprocess.run(["git", "add", "pkg_pin.py"], cwd=repo, env=env,
                    capture_output=True, text=True, check=True)
     result = _run(repo, env)
     assert result.returncode == 0

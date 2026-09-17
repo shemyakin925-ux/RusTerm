@@ -106,14 +106,27 @@ def test_rejected_turn_is_marked(env):
 
 
 def test_app_screen_constructs_client_through_the_door():
-    """I4: экран не строит клиент сам — клиент приходит из
-    make_intent_client; прямой конструкции RuleClient/LlmApiClient
-    в app.py нет."""
+    """I4: экран не строит клиент сам — клиент приходит из двери
+    разговора; прямой конструкции RuleClient/LlmApiClient в app.py нет.
+
+    ЗАМЕНА БУЛАВКИ (координатор, 17.09.2026): прежняя булавка искала в
+    исходнике подстроку «make_intent_client» и была зелёной, пока
+    экран звал дверь, отдающую клиента БЕЗ метода chat, — первый же
+    вопрос ронял программу. Новая булавка сильнее: она называет дверь
+    разговора и проверяет, что клиент этой двери умеет то, что зовёт
+    ChatSession.ask, а не только то, как дверь называется.
+    """
     import inspect
+
+    from rusterm.core.llm import make_chat_client
+
     source = inspect.getsource(app)
-    assert "make_intent_client" in source
+    assert "make_chat_client" in source
     assert "LlmApiClient(" not in source
     assert "RuleClient(" not in source
+    assert hasattr(make_chat_client(environ={}), "chat"), (
+        "дверь разговора отдаёт клиента без chat() — экран упадёт на "
+        "первом вопросе")
 
 
 class _KeyStdscr:
@@ -131,6 +144,11 @@ class _KeyStdscr:
 
     def erase(self):
         pass
+
+    def getmaxyx(self):
+        """Экран обязан знать размер окна: настоящий curses роняет
+        программу за его краем (находка координатора 17.09.2026)."""
+        return 24, 80
 
     def addstr(self, row, col, text, *rest):
         self.history.append((row, str(text)))
@@ -158,7 +176,7 @@ def test_key_c_opens_the_conversation_from_the_list(env, monkeypatch):
         door_calls.append(1)
         return Fake([])
 
-    monkeypatch.setattr(llm_module, "make_intent_client", _fake_door)
+    monkeypatch.setattr(llm_module, "make_chat_client", _fake_door)
     stdscr = _KeyStdscr([ord("c"), 27])
     outcome = app._list_screen(stdscr, repos, None)
     assert outcome is None

@@ -754,6 +754,13 @@ class PeerSetRepo:
             "SELECT 1 FROM peer_set WHERE peer_set_id=?",
             (peer_set_id,)).fetchone() is not None
 
+    def all_ids(self) -> list[str]:
+        """Все известные наборы по алфавиту — чтобы отказ «сектор не
+        найден» мог назвать, какие секторы всё-таки есть (координатор,
+        17.09.2026: пустой отказ заставлял читать исходники)."""
+        return [row[0] for row in self.conn.execute(
+            "SELECT peer_set_id FROM peer_set ORDER BY peer_set_id")]
+
     def composition(self, peer_set_version_id: str) -> dict:
         """Состав набора: рынки и валюты участников (ТЗ-22 J2).
 

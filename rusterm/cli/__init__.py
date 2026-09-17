@@ -54,6 +54,22 @@ def _open(root: str):
     return paths, open_connection(paths)
 
 
+def _open_readonly(root: str):
+    """Открыть каталог данных, НЕ создавая его (BACKLOG B35).
+
+    Дефект (измерено координатором 17.09.2026): `rusterm markets` —
+    команда, которая только читает реестр рынков, — создавала в
+    ТЕКУЩЕМ каталоге rusterm.db, exports/, logs/ и raw/. Запуск из
+    корня репозитория ронял приёмку пунктом 13 у того, кто её запустил.
+    Базы нет — возвращается (paths, None): читать нечего, и это не
+    ошибка. Команды, которые пишут, по-прежнему идут через _open.
+    """
+    paths = AppPaths.from_root(root)
+    if not paths.db_path.exists():
+        return paths, None
+    return paths, open_connection(paths)
+
+
 def cmd_init(args) -> int:
     paths, conn = _open(args.root)
     applied = apply_migrations(conn)
@@ -851,6 +867,9 @@ def cmd_ops(args) -> int:
             "watchlist_id": args.watchlist,
             "intent": intent_name,
             "outcome": outcome,
+            # причина отказа не зависит от формата вывода: в
+            # человеческом выводе она печаталась, в машинном терялась
+            "reason": reason,
             "rows": rows,
             "version": version,
         }, ensure_ascii=False))
@@ -883,8 +902,14 @@ def cmd_industry(args) -> int:
 
     if repos.peer_set.version_at(args.sector, as_of) is None:
         exists = repos.peer_set.exists(args.sector)
-        reason = (f"сектор {args.sector!r} не найден" if not exists else
-                  f"у сектора {args.sector!r} нет версии на {as_of}")
+        if exists:
+            reason = f"у сектора {args.sector!r} нет версии на {as_of}"
+        else:
+            known = repos.peer_set.all_ids()
+            have = ("известные секторы: " + ", ".join(known)
+                    if known else "в базе нет ни одного сектора — "
+                    "секторы появляются вместе с наборами (ADR-0015)")
+            reason = f"сектор {args.sector!r} не найден; {have}"
         print(reason, file=sys.stderr)
         if args.json:
             print(json.dumps({"sector": args.sector, "as_of": as_of,
@@ -1315,6 +1340,7 @@ def cmd_chat(args) -> int:
     ответ, где каждое число доказуемо. Чат никогда не пишет.
     Без RUSTERM_LLM_API_KEY — внятное сообщение и код 1, не падение."""
     from rusterm.core.chat import ChatSession, save_transcript
+    from rusterm.core.llm import make_chat_client
     from rusterm.providers.budget import ConfigError, RequestGate
     client = get_provider("llm-api", gate=RequestGate())
     if isinstance(client, ConfigError):
@@ -1328,18 +1354,11 @@ def cmd_chat(args) -> int:
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
 
-    class _Adapter:
-        """LlmApiClient -> протокол chat(prompt, history)."""
-
-        def chat(self, prompt, history):
-            raw = client.complete(prompt)
-            if isinstance(raw, ConfigError):
-                return {"text": None,
-                        "tool_calls": [],
-                        "error": raw.reason}
-            return {"text": str(raw), "tool_calls": []}
-
-    session = ChatSession(repos, _Adapter(),
+    # Адаптер «complete -> chat» живёт за дверью make_chat_client, а не
+    # локальным классом здесь: экран разговора звал ту же дверь и падал
+    # AttributeError, потому что дверь отдавала клиента без chat
+    # (находка координатора 17.09.2026).
+    session = ChatSession(repos, make_chat_client(),
                           max_total=args.max_calls)
     print("чат: пустая строка — выход; модель отвечает только "
           "цитированными числами")
@@ -1615,7 +1634,9 @@ def _provider_status(provider: str) -> str:
 def _issuer_count(conn, paths) -> str:
     """Эмитентов в локальной базе; схемы нет — честное «—». Сам
     запрос живёт в репозитории (приёмка, пункт 7: SQL только в слое
-    хранилища)."""
+    хранилища). Базы нет вовсе (B35) — тоже «—», без её создания."""
+    if conn is None:
+        return "—"
     try:
         return str(RepoRegistry(conn, paths).instrument.issuer_count())
     except Exception:
@@ -1629,7 +1650,8 @@ def cmd_markets(args) -> int:
     потребления. Ответ на вопрос «достанет ли программа корейские
     данные?» — без чтения исходников."""
     from rusterm.markets import MARKETS
-    paths, conn = _open(args.root)
+    # только чтение реестра: каталог данных не создаётся (B35)
+    paths, conn = _open_readonly(args.root)
     rows = []
     for m in MARKETS:
         rows.append({"code": m.code, "jurisdiction": m.jurisdiction,
@@ -1639,7 +1661,8 @@ def cmd_markets(args) -> int:
                      "access": m.access,
                      "provider_status": _provider_status(m.provider),
                      "issuers": _issuer_count(conn, paths)})
-    conn.close()
+    if conn is not None:
+        conn.close()
     if args.json:
         print(json.dumps({"markets": rows}, ensure_ascii=False))
         return 0

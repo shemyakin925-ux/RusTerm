@@ -14,6 +14,7 @@ companyfacts/CIK — facts.us-gaap.<concept>.units.<unit>[].
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -72,14 +73,33 @@ class EdgarProvider:
     _submissions: Optional[dict] = None
     _venues: Optional[dict] = None   # {ticker: exchange} (TASK-18 G2)
 
-    def _fetch_json(self, url: str) -> dict | ConfigError | NotModified:
+    def _guarded(self, send):
+        """Гейт плюс правило «ошибки — значения» (инвариант 5).
+
+        Дефект, ради которого это заведено (находка координатора
+        17.09.2026): 403 и 429 от SEC поднимались исключением из
+        `_default_transport`, `RequestGate.request` их не ловит, и до
+        пользователя они доходили «внутренней ошибкой» с трассировкой и
+        кодом 2. У Twelve Data тот же отказ давно приходит значением —
+        словарь причин общий: `source_unreachable`.
+        """
+        try:
+            return self.gate.request(send)
+        except urllib.error.HTTPError as e:
+            return ProviderError(f"source_unreachable:http_{e.code}")
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            return ProviderError(
+                f"source_unreachable:transport:{type(e).__name__}")
+
+    def _fetch_json(self, url: str) -> dict | ConfigError | NotModified \
+            | ProviderError:
         def send(headers: dict):
             status, body, resp_headers = self.transport(url, headers)
             if status == 304:
                 return NotModified(url)
             return json.loads(body.decode("utf-8"))
 
-        return self.gate.request(send)
+        return self._guarded(send)
 
     def _fetch_json_conditional(self, url: str,
                                 validators: Optional[dict] = None):
@@ -105,7 +125,7 @@ class EdgarProvider:
                      if resp_headers.get(key)}
             return doc, fresh
 
-        return self.gate.request(send)
+        return self._guarded(send)
 
     def fetch_companyfacts_conditional(self, validators=None):
         """companyfacts условным запросом (TASK-13 Z1/Z2). Форма
@@ -236,7 +256,7 @@ class EdgarProvider:
                 return NotModified(url)
             return body
 
-        outcome = self.gate.request(send)
+        outcome = self._guarded(send)
         if isinstance(outcome, (ConfigError, NotModified)):
             return outcome
         if not isinstance(outcome, bytes):
@@ -293,7 +313,7 @@ class EdgarProvider:
                 return NotModified(COMPANYFACTS_URL.format(cik=self.cik))
             return json.loads(body.decode("utf-8"))
 
-        return self.gate.request(send)
+        return self._guarded(send)
 
     # ── владение: Forms 3/4/5 (ТЗ-32 D2, ТЗ-25 P4) ──────────────────────
 

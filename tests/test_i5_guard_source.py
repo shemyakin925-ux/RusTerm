@@ -46,7 +46,8 @@ def _snapshot(path: Path):
     worktree = path.read_bytes()
     meta = subprocess.run(
         ["git", "ls-files", "-s", "--", path.relative_to(ROOT).as_posix()],
-        cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+        cwd=ROOT, capture_output=True, text=True, check=True,
+        env=_hermetic_env()).stdout.split()
     if meta:
         return worktree, meta[0], meta[1]
     return worktree, None, None
@@ -62,7 +63,8 @@ def _restore(path: Path, worktree: bytes, mode: str | None,
         subprocess.run(
             ["git", "update-index", "--cacheinfo",
              f"{mode},{index_sha},{path.relative_to(ROOT).as_posix()}"],
-            cwd=ROOT, capture_output=True, text=True, check=True)
+            cwd=ROOT, capture_output=True, text=True, check=True,
+            env=_hermetic_env())
 
 
 # Расширение для зелёного случая: поведение то же (красные случаи
@@ -81,16 +83,38 @@ PRE_STAGED_EDIT = ("\n# ТЗ-45 M1: правка, застейдженная Д�
 _PRE_MODULE = None
 
 
+# Окружение pre-commit-хука (находка координатора 17.09.2026): git
+# отдаёт хуку GIT_INDEX_FILE, указывающий на .lock индекса коммита, а в
+# линкованном worktree ещё и АБСОЛЮТНЫЙ GIT_DIR. Модуль стейджит и
+# возвращает НАСТОЯЩЕГО стража: под этими переменными снимок брался из
+# одного индекса, а возврат писался в другой — agent/p6_rule.sh
+# оставался изменённым в дереве, и два теста модуля краснели на
+# собственном мусоре (под хуком приёмка 11 из 13 при 13 из 13 в
+# обычном прогоне). Все git-вызовы модуля идут с обычным индексом
+# дерева. Та же порода, что ТЗ-46 закрыло для песочниц j1 и e6.
+_LEAKED_GIT_ENV = ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE",
+                   "GIT_OBJECT_DIRECTORY",
+                   "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+
+
+def _hermetic_env(extra: dict | None = None) -> dict:
+    env = dict(os.environ)
+    for leaked in _LEAKED_GIT_ENV:
+        env.pop(leaked, None)
+    env.update(extra or {})
+    return env
+
+
 def _git(*argv: str, check: bool = True):
     return subprocess.run(["git", *argv], cwd=ROOT,
-                          capture_output=True, text=True, check=check)
+                          capture_output=True, text=True, check=check,
+                          env=_hermetic_env())
 
 
 def _selfcheck(extra: dict | None = None):
-    env = dict(os.environ)
-    env.update(extra or {})
     return subprocess.run(["bash", "agent/selfcheck.sh"], cwd=ROOT,
-                          env=env, capture_output=True, text=True)
+                          env=_hermetic_env(extra),
+                          capture_output=True, text=True)
 
 
 def _nested() -> bool:
@@ -105,7 +129,8 @@ def _marker_path() -> Path:
     в соседнем connected-дереве красила sentinel чужим session)."""
     out = subprocess.run(
         ["git", "rev-parse", "--git-path", "i5-demo-ran.json"],
-        cwd=ROOT, capture_output=True, text=True, check=True)
+        cwd=ROOT, capture_output=True, text=True, check=True,
+        env=_hermetic_env())
     path = Path(out.stdout.strip())
     return path if path.is_absolute() else (ROOT / path)
 
@@ -117,7 +142,7 @@ def _editmsg_read():
     path = Path(subprocess.run(
         ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
         cwd=ROOT, capture_output=True, text=True,
-        check=True).stdout.strip())
+        check=True, env=_hermetic_env()).stdout.strip())
     saved = path.read_text(encoding="utf-8") if path.exists() else None
     return path, saved
 
@@ -236,7 +261,7 @@ def test_stale_single_flight_lock_does_not_skip_the_module(tmp_path):
         out = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q",
              "tests/test_i5_guard_source.py"], cwd=ROOT,
-            capture_output=True, text=True)
+            capture_output=True, text=True, env=_hermetic_env())
         assert out.returncode == 0, out.stdout + out.stderr
         # все тесты модуля собираются к исполнению — ни замок, ни
         # skipif ни на что не влияют: 2 случая I5 + уборочный ТЗ-45 M1
@@ -255,7 +280,7 @@ def test_module_returns_guard_exactly_as_found():
     столбце."""
     staged_bytes = subprocess.run(
         ["git", "cat-file", "blob", ":agent/p6_rule.sh"], cwd=ROOT,
-        capture_output=True, check=True).stdout
+        capture_output=True, check=True, env=_hermetic_env()).stdout
     assert PRE_STAGED_EDIT.encode("utf-8") in staged_bytes
     _restore(P6_GUARD, *_PRE_MODULE)
     out = _git("status", "--porcelain", "--", "agent/p6_rule.sh")

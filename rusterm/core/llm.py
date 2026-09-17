@@ -47,7 +47,7 @@ class LlmClient(Protocol):
 
 
 
-def make_intent_client(environ=None):
+def make_intent_client(environ=None, gate=None):
     """Выбор клиента классификации по ключу модели (TASK-19 F6; ответ
     на вопрос 1 REPORT-16, ruling §0.1): RUSTERM_LLM_API_KEY задан —
     API-клиент (ADR-0011 ②), не задан или пуст — детерминированный
@@ -55,13 +55,24 @@ def make_intent_client(environ=None):
     приходят значениями. HTTP при этом остаётся в rusterm/providers/
     (проверка 8) — здесь только выбор, без импорта транспорта.
 
-    environ — точка инъекции тестов; реальный вызов читает os.environ.
+    environ и gate — точки инъекции тестов; реальный вызов читает
+    os.environ и строит гейт сам.
+
+    Гейт обязателен (находка координатора 17.09.2026): без него
+    complete() у API-клиента сразу отдаёт
+    ConfigError("llm_provider_requires_gate"), и `ops` с заданным ключом
+    не работал вовсе — то есть у всякого настоящего пользователя.
     """
     import os
     env = os.environ if environ is None else environ
     if env.get("RUSTERM_LLM_API_KEY"):
+        from rusterm.providers import host_limit
+        from rusterm.providers.budget import NetworkGate, RequestGate
         from rusterm.providers.llm_api import LlmApiClient
-        client = LlmApiClient.from_env(environ=env)
+        client = LlmApiClient.from_env(
+            environ=env,
+            gate=RequestGate(gate=NetworkGate(env)) if gate is None else gate,
+            limit=host_limit("llm-api"))
         # ошибка сборки API-клиента (нет контакта SEC_UA и пр.) —
         # не ошибка команды: дверь падает на правило, работая офлайн.
         # ConfigError — значение-датаclass, не исключение.
@@ -69,6 +80,71 @@ def make_intent_client(environ=None):
             return client
     from rusterm.core.intent import RuleClient
     return RuleClient()
+
+
+class _ChatAdapter:
+    """LlmApiClient -> протокол chat(prompt, history), который зовёт
+    ChatSession.ask. Ошибка клиента приходит значением в поле error:
+    разговор обязан сказать, почему молчит, а не упасть."""
+
+    def __init__(self, client):
+        self._client = client
+
+    def chat(self, prompt, history):
+        raw = self._client.complete(prompt)
+        reason = getattr(raw, "reason", None)
+        if reason is not None and not isinstance(raw, str):
+            return {"text": None, "tool_calls": [], "error": reason}
+        return {"text": str(raw), "tool_calls": []}
+
+
+class _RefusingChatClient:
+    """Клиента модели нет — разговор отвечает названной причиной.
+    Молчание и падение одинаково запрещены."""
+
+    def __init__(self, reason: str):
+        self._reason = reason
+
+    def chat(self, prompt, history):
+        return {"text": None, "tool_calls": [], "error": self._reason}
+
+
+def make_chat_client(environ=None, gate=None):
+    """Дверь разговора: клиент, умеющий ровно то, что зовёт
+    ChatSession.ask — chat(prompt, history) -> {text, tool_calls, error}.
+
+    Дефект, ради которого дверь заведена (находка координатора
+    17.09.2026): экран разговора строил клиента make_intent_client, у
+    которого есть только complete(), и первый же вопрос падал
+    AttributeError — и с ключом, и без. Единственная реализация
+    протокола жила локальным классом внутри cmd_chat и экрану была
+    недоступна. Теперь клиента строят одинаково CLI и экран.
+
+    Ключа нет, тариф платный, гейт отказал — возвращается клиент,
+    отвечающий названной причиной значением (ConfigError.reason).
+    """
+    import os
+
+    from rusterm.providers import channel_tier, host_limit
+    from rusterm.providers.budget import NetworkGate, RequestGate
+    from rusterm.providers.llm_api import LlmApiClient
+
+    env = os.environ if environ is None else environ
+    # Те же два условия реестра, что у get_provider (инвариант 12):
+    # канал без объявленного тарифа и платный канал не выдаются.
+    tier = channel_tier("llm-api")
+    if tier is None:
+        return _RefusingChatClient("provider_declares_no_tier:llm-api")
+    if tier == "paid":
+        return _RefusingChatClient("paid_channel_refused")
+    if gate is None:
+        gate = RequestGate(gate=NetworkGate(env))
+    client = LlmApiClient.from_env(environ=env, gate=gate,
+                                   limit=host_limit("llm-api"))
+    if not hasattr(client, "complete"):
+        reason = getattr(client, "reason", "llm_provider_unavailable")
+        return _RefusingChatClient(str(reason))
+    return _ChatAdapter(client)
 
 
 class LlmSummarizer:

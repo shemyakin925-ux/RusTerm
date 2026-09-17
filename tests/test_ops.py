@@ -386,8 +386,15 @@ def test_d7_d8_ops_command_audit_rows_confirm_and_json_keys():
                 "--request", "добавь MSFT", "--json")
         assert r.returncode == 0
         payload = json.loads(r.stdout)
+        # ЗАМЕНА БУЛАВКИ (координатор, 17.09.2026): ключ reason добавлен
+        # намеренно — без него машинный потребитель получал «отказ» без
+        # причины. Булавка сильнее прежней: набор ключей по-прежнему
+        # закрыт, и теперь в нём есть место для названной причины.
         assert set(payload) == {"watchlist_id", "intent", "outcome",
-                                "rows", "version"}, sorted(payload)
+                                "reason", "rows", "version"}, sorted(payload)
+        assert payload["reason"] is None, (
+            "у успешного сухого прогона причины нет: reason — только "
+            "для исходов, которые надо объяснить")
         assert payload["outcome"] == "dry-run" and payload["rows"]
         assert payload["rows"][0]["status"] == "будет добавлена"
 
@@ -458,3 +465,31 @@ def test_d7_d8_ops_command_audit_rows_confirm_and_json_keys():
             (Path(root) / "logs").chmod(0o755)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── Причина отказа не зависит от формата вывода (координатор, 17.09.2026)
+
+def test_ops_json_carries_the_reason(tmp_path):
+    """`--json` печатал outcome без причины: человеку причина уходила в
+    stderr, машине — ничего. «Отказ обязан быть назван» формату вывода
+    не подчиняется."""
+    import subprocess
+    import sys
+
+    root = tmp_path / "data"
+
+    def run(*argv):
+        return subprocess.run(
+            [sys.executable, "-m", "rusterm.cli", "--root", str(root), *argv],
+            capture_output=True, text=True, env=dict(os.environ))
+
+    assert run("init").returncode == 0
+    assert run("watchlist", "create", "json-list",
+               "--name", "Список").returncode == 0
+    done = run("ops", "--watchlist", "json-list",
+               "--request", "сделай мне красиво", "--json")
+    payload = json.loads(done.stdout)
+    assert payload["outcome"] != "dry-run", payload
+    assert "reason" in payload, payload
+    assert payload["reason"], (
+        f"машинный вывод назвал исход {payload['outcome']} без причины")

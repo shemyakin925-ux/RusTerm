@@ -35,17 +35,19 @@ def _base() -> str:
         return override
     staged = subprocess.run(
         ["git", "diff", "--cached", "--name-only", "--",
-         "agent/p6_rule.sh"], cwd=ROOT, capture_output=True, text=True)
+         "agent/p6_rule.sh"], cwd=ROOT, capture_output=True, text=True,
+        env=_hermetic_env())
     if staged.stdout.strip():
         # worktree требует коммит: дерево индекса заворачивается во
         # временный висячий коммит — ссылки не двигаются
         tree = subprocess.run(["git", "write-tree"], cwd=ROOT,
                               capture_output=True, text=True,
-                              check=True).stdout.strip()
+                              check=True,
+                              env=_hermetic_env()).stdout.strip()
         return subprocess.run(
             ["git", "commit-tree", tree, "-p", "HEAD", "-m",
              "i7 temporary base"], cwd=ROOT, capture_output=True,
-            text=True, check=True).stdout.strip()
+            text=True, check=True, env=_hermetic_env()).stdout.strip()
     return "HEAD"
 
 
@@ -54,9 +56,27 @@ pytestmark = pytest.mark.skipif(
     reason="вложенная приёмка пропускает демонстрации I5/I7")
 
 
+# Протечки хука: pre-commit в линкованном worktree держит в окружении
+# АБСОЛЮТНЫЙ GIT_DIR настоящего репозитория, и голый `git add` во
+# временном worktree уезжал в настоящий индекс — agent/CONTEXT.md,
+# agent/BATON.json и scratch-task.md оказывались застейджены в рабочей
+# копии координатора (находка 17.09.2026, та же порода, что закрыта в
+# ТЗ-46 для песочниц j1 и e6).
+_LEAKED_GIT_ENV = ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE",
+                   "GIT_OBJECT_DIRECTORY",
+                   "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+
+
+def _hermetic_env() -> dict:
+    env = dict(os.environ)
+    for leaked in _LEAKED_GIT_ENV:
+        env.pop(leaked, None)
+    return env
+
+
 def _git(*argv: str, cwd: Path, check: bool = True):
     return subprocess.run(["git", *argv], cwd=cwd, capture_output=True,
-                          text=True, check=check)
+                          text=True, check=check, env=_hermetic_env())
 
 
 @pytest.fixture()
@@ -66,7 +86,8 @@ def worktree(tmp_path: Path):
     _git("worktree", "add", "--detach", str(wt), base, cwd=ROOT)
     yield wt, base
     subprocess.run(["git", "worktree", "remove", "--force", str(wt)],
-                   cwd=ROOT, capture_output=True, text=True)
+                   cwd=ROOT, capture_output=True, text=True,
+                   env=_hermetic_env())
 
 
 def _authorise_and_stage(wt: Path) -> None:
