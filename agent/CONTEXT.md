@@ -5,18 +5,28 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 17.09.2026, after round 58 on `agent/night-11`. Accepted:
+Last updated: 17.09.2026 evening, after the coordinator's **full
+project check** of `agent/night-11` at `dac57a9` (machine acceptance
+plus a hands-on run of the CLI and the curses screens). Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-46. Acceptance at
-`6f33114` in a fresh linked worktree is «пройдено 13, провалено 0»,
-exit 0 — three green heads in a row, each verified by the coordinator's
-own run. The guard machinery that ate rounds 47-56 is closed, and the
-chat screen is reachable again (TASK-46 N2).
+`dac57a9` in a fresh linked worktree is «пройдено 13, провалено 0»,
+exit 0, 720 tests collected — the report's numbers hold.
+
+**And the product still does not work where a person touches it.** The
+same green tree has two blockers found in the first minutes of the
+manual run: the conversation screen dies on the first question
+(`AttributeError: 'LlmApiClient' object has no attribute 'chat'`), and
+the instrument card kills the whole program on a normal 80x24 terminal
+(`_curses.error: addwstr() returned ERR`). Both are in **TASK-50**,
+with four more findings. This is the third time running that a place
+was built, covered by tests and never correctly called — and TASK-46 N2
+declared the chat screen fixed two rounds before it was measured.
 
 **Open product debt: TASK-37 I2** (does-not-know) — TASK-47 O1. I1
 (question vs order) landed with TASK-46 N3, I3 and I4 are done. The
 shift branch is `agent/night-11` and the turn is passed by the relay —
 `agent/PROTOCOL.md` §12, driver `agent/relay.py`, baton
-`agent/BATON.json`.
+`agent/BATON.json`. Queue: TASK-47, 48, 49, **50**, all READY.
 
 ## 1. What the program is
 
@@ -104,6 +114,46 @@ git directory via `git rev-parse --git-path` (`5e050a4`). Tests use
 pytest's `tmp_path`, or the git directory — never a bare `/tmp` path.
 TASK-48 Q2 turns this into a guard.
 
+**On `main` the pre-commit hook is not red but inapplicable (full
+check, 17.09.2026).** `core.hooksPath` points at the main checkout's
+`agent/githooks`, whose selfcheck insists on `agent/p1_rule.sh` from
+HEAD — and that guard exists only on the shift branch. A coordinator
+commit to `main` therefore fails with `SELFCHECK FAIL (I5):
+agent/p1_rule.sh нет в HEAD` regardless of its content. Until the
+guards are merged to `main`, coordinator commits there are made with
+the hook disabled for that one command, and the commit message says so.
+
+**A test that fakes the door proves nothing about the door (full
+check, 17.09.2026).** `tests/test_i3_chat_screen.py` drove the key «c»
+with `make_intent_client` monkeypatched to a `Fake` that has `chat`,
+and its neighbour asserted the **source text** contains the door's
+name. Both were green while every real client the door returns lacks
+`chat`. A door is checked by what its consumer calls, on the object the
+door actually returns — never on a stand-in, and never by grepping the
+source. The same night showed `ops` is dead for every user who has the
+model key set: the door builds the client without a gate, and the
+error-value is stringified into «ответ модели не JSON», which also
+costs a second model call. TASK-50 T1 and T3.
+
+**A screen is checked at a terminal size (full check, 17.09.2026).**
+`curses` raises `addwstr() returned ERR` past the window edge and the
+whole program dies. The card is 44 lines; 80x24 is a normal terminal.
+A test calling the screen function directly cannot see this: drive
+`python3 -m rusterm.cli tui` in a pty whose size is set with `ioctl
+TIOCSWINSZ` (`LINES`/`COLUMNS` do not reach curses). TASK-50 T2.
+
+**The hook hides what failed, and the guard sandboxes leak into the
+real index (full check, 17.09.2026).** `agent/selfcheck.sh` writes the
+acceptance output to a temp file, prints `tail -4` and deletes it, so a
+red run inside the pre-commit hook says «пройдено 11, провалено 2» and
+nothing else — seven twenty-minute attempts named no check. Meanwhile
+git hands hooks `GIT_INDEX_FILE` and, in a linked worktree, an absolute
+`GIT_DIR`: a bare `git add` inside a sandbox lands in the real index
+(`pkg_pin.py` from the P1 sandbox), `tests/test_i7_p6_worktree.py`
+overwrote the real `COMMIT_EDITMSG` (so declared pin replacements
+vanished between preparation and commit), and the I5 module left
+`agent/p6_rule.sh` modified in the tree. TASK-50 T6.
+
 **Acceptance proves structure, not connectivity (TASK-46 N2).** Twice
 now a place was built, covered by tests and never correctly called:
 `make_intent_client` (TASK-27 N1) and the chat screen — `_chat_screen`
@@ -167,7 +217,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M6 CA + OTC | both collected through EDGAR |
 | M7 industry aggregate | done |
 | M8 six markets, manual import | registry of six; US/CA/OTC collect, KR needs its key, BR/AU have providers but **no `ingest` channel** |
-| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **44** |
+| M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **45** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |
 | M12 chat (TASK-35, 36, 42, 46) | three free models measured, default by numbers; transcripts survive the process (migration 45), export and re-verify, cost counters in `status`, no key or content leak; **the chat screen is reachable** — key «c» opens it and a test drives the key, not the function (TASK-46 N2); order vs question produces a proposal that applies nothing until confirmed, both audit rows asserted (TASK-46 N3). **I2, does-not-know, is the last open item of TASK-37** |

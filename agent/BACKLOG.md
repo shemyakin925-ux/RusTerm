@@ -207,6 +207,35 @@ that is red by default teaches people to ignore it.
 
 ## Queue
 
+Coordinator, 17.09.2026, after the full project check. Three notes on
+items already here, then two new ones:
+
+- **B35 and B37 are now inside TASK-50** (T6 and its Done-when). B35 is
+  also implemented on the coordinator's `fix/connectivity` branch —
+  `rusterm markets` no longer creates `rusterm.db`, `exports/`, `logs/`
+  and `raw/` in the current directory, with a test that runs the command
+  from a foreign directory and asserts it stays empty.
+- **B36 (the live model path) is worth taking only after TASK-50 T1.**
+  Until the chat door returns a client that implements what
+  `ChatSession.ask` calls, a live-model test measures a fake.
+
+- [ ] B39 — `rusterm refresh --dry-run` prints `US-CLI-DEMO: ошибка (у
+  эмитента нет CIK)`. «Ошибка» is not a reason: rule 2 of
+  `agent/CONTEXT.md` §3 wants a token from `rusterm/reasons.py`, and a
+  planning command that will never resolve an issuer should say so in
+  the closed vocabulary — accept: the line carries a reason token and
+  `is_known_reason` accepts its first token, asserted by a test —
+  size: S
+
+- [ ] B40 — audit the remaining read-only commands the way B35 fixed
+  `markets`: `budget`, `cadence`, `status` and `coverage` open the data
+  directory through `_open`, which creates it. Decide per command
+  whether it must create anything at all when the directory is absent —
+  accept: each command that only reads is listed in the report with its
+  verdict, and the ones that should not create anything are covered by
+  the B35-style test — size: M
+
+
 Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
