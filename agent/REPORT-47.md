@@ -44,6 +44,22 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
   `is_known_reason` on the token / fabricated number absent from the
   whole returned dict), plus a green control case proving the refusal
   net is caused by the data reason, not by the tool call itself.
+- O2: new guard `tests/test_call_arity.py` — static (ast) check that
+  every call resolvable to a declaration in `rusterm/` fits its
+  signature's positional bounds. Resolution is package-bounded:
+  same-file defs, `from rusterm.. import` bindings, `self.method(...)`
+  to same-file methods, dotted module receivers through package
+  imports. Calls with `*args` unchecked; with `keywords` only the
+  excess-positional side; dynamic registry calls (`TOOLS[name](...)`)
+  are Subscripts and green by construction. Measurement recorded in
+  the header: the naive global-name pass flags 61 of 1590 call sites,
+  ALL false positives (Path/set/decimal method names shadow package
+  methods); after narrowing 0 findings over 695 resolved calls on the
+  current tree. Red case proven by run on a temp copy: the restored
+  `_chat_screen(stdscr, repos, make_intent_client(), None)` is named
+  with file, line and «ожидалось 3, передано 4». The narrowed guard
+  found nothing else on the current tree — the merge's N2 fix is the
+  only call of that class, already consistent.
 
 ## Blocked
 
@@ -65,11 +81,21 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
 
 ## What not to trust
 
+- O2's blind spot, by design and measured: calls on object-typed
+  receivers (`repos.snapshot.insert_measure(...)`, builders) are NOT
+  resolved by the arity guard — a plain ast guard has no type
+  inference; they are counted as unresolved, not green-checked. The
+  covered classes are same-file functions, package imports and
+  `self.*` methods.
 - The hook trap (two `test_d5_p1_rule` tests red inside the full suite
   under the hook, TASK-50 T6) has NOT been reproduced yet this shift:
   full pytest with `I5_NESTED=1` is green; a real commit exports
   `GIT_INDEX_FILE=.git/index` (relative) to the hook — that variable
   is the next suspect, evidence to be captured on the first red commit.
+- One flake seen once, not reproduced: `test_m4_scale.py::
+  test_c2_hundred_issuer_build_shape_stays_linear` failed inside one
+  selfcheck run (half-ratio over 1.5 under load), green twice alone
+  and green in the next selfcheck. Load-sensitive ratio, not touched.
 - The venv is broken on this machine: `.venv/bin/python` symlinks to a
   nonexistent `/usr/bin/python`, so acceptance silently falls back to
   framework `python3` (3.14). Same tree, but the interpreter differs
@@ -78,11 +104,11 @@ Real clock read, never typed: `TZ=Asia/Bangkok date`.
 ## HANDOFF
 
 Status: PARTIAL (shift in progress, interim block)
-Items done: baseline merge verified 13/13; O0 done (guard, red cases, command-generated updated_at, commit 19bf38c); O1 done (case-by-case asserts strengthened, green control added)
-Items not done: O2 O3 of TASK-47, then TASK-48+ per queue
+Items done: baseline merge verified 13/13; O0 done (19bf38c); O1 done (e26d8ab); O2 done (arity guard + measurement + red case)
+Items not done: O3 of TASK-47, then TASK-48+ per queue
 Acceptance: baseline run on 2c6be05 printed «Итог: пройдено 13, провалено 0», exit 0; per-commit runs via selfcheck, see git notes
-Tests: I2 suite 4 cases green before this commit; full suite green in this commit's selfcheck
-Guards: new tests/test_state_clock.py (O0); I2 asserts strengthened — no guard file weakened
+Tests: arity guard 3 cases green before this commit; full suite green in this commit's selfcheck
+Guards: new tests/test_call_arity.py (O2) — no guard file weakened
 Schema: unchanged (44)
 Network: 0 requests of any budget
 Model: 0 llm_calls; fake clients only

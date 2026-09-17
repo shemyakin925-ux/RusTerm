@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-47.md",
  "report": "agent/REPORT-47.md",
- "item": "O1",
- "step": "I2 asserts strengthened, green control added",
+ "item": "O2",
+ "step": "arity guard written, measured, red case proven",
  "status": "working",
  "last_commit": "dac57a9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-17T16:03:01Z"
+ "updated_at": "2026-09-17T16:27:17Z"
 }
