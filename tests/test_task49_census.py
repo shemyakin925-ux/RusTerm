@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from rusterm.core.snapshot import SnapshotBuilder
+from rusterm.normalize.concepts import canonical_for
 from rusterm.parsers import CompanyFactsParser
 from rusterm.pipeline import apply_concept_map
 from rusterm.store.db import apply_migrations
@@ -167,3 +168,21 @@ def test_remaining_refusals_stay_honest(census_env):
                 token = row["reason"].split(":", 1)[0]
                 assert is_known_reason(token), (ticker, measure, token)
                 assert row["reason"] != "missing_data", (ticker, measure)
+
+
+def test_cnq_operating_income_absence_is_proven():
+    """ТЗ-54 X1(б): ни один тег сохранённого companyfacts CNQ не
+    отображается в operating_income — отказ
+    «missing_data: operating_income» точен, а не общий. Если эмитент
+    подаст операционную прибыль под новым тегом, canonical_for начнёт
+    отображение и этот тест зажёл бы: сигнал пересмотреть перепись.
+    Перечень всех 14 проверенных тегов с числом фактов и периодами —
+    agent/REPORT-54.md."""
+    doc = json.loads((DATA / "edgar"
+                      / "companyfacts_m6_CNQ.json").read_text())
+    mapped = {f"{tax}:{tag}": canonical_for(tag, tax)
+              for tax in ("ifrs-full", "us-gaap")
+              for tag in doc["facts"].get(tax, {})}
+    assert "operating_income" not in mapped.values(), (
+        "в payload CNQ появился тег операционной прибыли — перепись "
+        "ТЗ-54 устарела, пересмотри четыре меры")
