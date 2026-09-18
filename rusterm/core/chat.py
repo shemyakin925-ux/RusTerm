@@ -186,14 +186,21 @@ class ChatSession:
             # Смотрятся только результаты инструментов ЭТОГО вопроса.
             reason_from_tools = unknown_reason_from_tools(
                 this_question_results, [question])
-            if reason_from_tools is not None:
-                refusal = f"no_data:{reason_from_tools}"
-                self.transcript.append(TranscriptEntry(
-                    "system-note", f"отказ: {refusal}"))
-                return {"answer": None, "reason": refusal,
-                        "tool_calls": used_tools, "rejected": True}
             guarded = self.guard_answer(answer, allowed_values)
             if guarded is None:
+                # ТЗ-53 W3: ответ с неподкреплённым числом при
+                # известной причине данных получает ПРИЧИНУ ДАННЫХ,
+                # а не общее «число не процитировано» — и не перекрывает
+                # зелёный ответ: серая мера в блоке не отменяет
+                # ответенную по зелёным (перебор снят живым прогоном
+                # круга 60: net_margin зелёный, блок серый целиком не
+                # отказывает).
+                if reason_from_tools is not None:
+                    refusal = f"no_data:{reason_from_tools}"
+                    self.transcript.append(TranscriptEntry(
+                        "system-note", f"отказ: {refusal}"))
+                    return {"answer": None, "reason": refusal,
+                            "tool_calls": used_tools, "rejected": True}
                 self.transcript.append(TranscriptEntry(
                     "assistant", answer, rejected=True))
                 return {"answer": None,
