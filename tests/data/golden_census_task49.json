@@ -1,5 +1,5 @@
 {
- "comment": "ТЗ-49 R1/R2: перепись отказов CNQ (Канада) и NGGTF (OTC), офлайн на tests/data/edgar/companyfacts_m6_*.json; значения = точные строки из БД, отказы = точные причины (ТЗ-49, прогон 2026-09-17)",
+ "comment": "ТЗ-49 R1/R2: перепись отказов CNQ (Канада) и NGGTF (OTC), офлайн на tests/data/edgar/companyfacts_m6_*.json; значения = точные строки из БД, отказы = точные причины (ТЗ-49, прогон 2026-09-17; ТЗ-56 Z1: + roe_incl_nci — своя мера на total_equity_incl_nci, CNQ считает, roe не подменяется)",
  "as_of": "2026-09-09",
  "census": {
   "CNQ": {
@@ -34,6 +34,10 @@
    "roe": {
     "value": null,
     "reason": "missing_data: total_equity"
+   },
+   "roe_incl_nci": {
+    "value": "0.25812916000667985",
+    "reason": null
    },
    "asset_turnover": {
     "value": "0.4375215165726992",
@@ -75,6 +79,10 @@
    },
    "roe": {
     "value": "0.01689693417863647",
+    "reason": null
+   },
+   "roe_incl_nci": {
+    "value": "0.01688468064145367",
     "reason": null
    },
    "asset_turnover": {

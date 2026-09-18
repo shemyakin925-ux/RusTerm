@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 
 from rusterm.core.snapshot import SnapshotBuilder
-from rusterm.normalize.concepts import canonical_for
+from rusterm.normalize.concepts import canonical_for, strip_taxonomy
 from rusterm.parsers import CompanyFactsParser
 from rusterm.pipeline import apply_concept_map
 from rusterm.store.db import apply_migrations
@@ -47,7 +47,7 @@ GOLDEN = json.loads(
     (DATA / "golden_census_task49.json").read_text(encoding="utf-8"))
 MEASURES = ("net_margin", "operating_margin", "effective_tax", "fcf",
             "ebitda", "interest_coverage", "nopat", "roe",
-            "asset_turnover", "gross_margin")
+            "roe_incl_nci", "asset_turnover", "gross_margin")
 
 
 @pytest.fixture()
@@ -186,3 +186,39 @@ def test_cnq_operating_income_absence_is_proven():
     assert "operating_income" not in mapped.values(), (
         "в payload CNQ появился тег операционной прибыли — перепись "
         "ТЗ-54 устарела, пересмотри четыре меры")
+
+
+def test_z1_roe_refusal_and_incl_nci_value_coexist(census_env):
+    """ТЗ-56 Z1: в переписи CNQ обе строки рядом — roe отказывает
+    ТОЧНО тем же токеном (missing_data: total_equity, никакой
+    подстановки), а roe_incl_nci по тому же payload считает."""
+    repos, _ = census_env
+    rows = _census_rows(repos, "CNQ")
+    assert rows["roe"] == {"value": None,
+                           "reason": "missing_data: total_equity"}
+    assert rows["roe_incl_nci"]["reason"] is None
+    assert float(rows["roe_incl_nci"]["value"]) > 0
+
+
+def test_z1_roe_incl_nci_lineage_names_concept(census_env):
+    """ТЗ-56 Z1: в lineage roe_incl_nci видно, какой концепт взят.
+    Входы разрешаются в факты сохранённого ответа EDGAR
+    (source_ref), теги которых канонизируются в
+    total_equity_incl_nci (ifrs-full:Equity — капитал С НКД, не
+    EquityAttributableToOwnersOfParent) и net_income."""
+    repos, urls = census_env
+    sid = repos.snapshot.latest_snapshot_id("in-CNQ")
+    mid = {m[3]: m[0] for m in repos.snapshot.get_measures(sid)}
+    lineage = repos.conn.execute(
+        "SELECT fact_id FROM measure_lineage WHERE measure_id=?",
+        (mid["roe_incl_nci"],)).fetchall()
+    canonicals = set()
+    for row in lineage:
+        fact = repos.conn.execute(
+            "SELECT concept, source_ref FROM fact WHERE fact_id=?",
+            (row["fact_id"],)).fetchone()
+        assert fact["source_ref"] == urls["CNQ"]["sha256"]
+        _taxonomy, local = strip_taxonomy(fact["concept"])
+        canonicals.add(canonical_for(local, _taxonomy))
+    assert canonicals == {"total_equity_incl_nci", "net_income"}, \
+        canonicals

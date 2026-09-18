@@ -35,8 +35,11 @@ _MEASURE_FORMULAS: dict[str, dict[str, str]] = {
 }
 
 # Двухпериодные: поток + сток (начало = предыдущий период стока).
+# ТЗ-56 Z1: roe_incl_nci — своя мера на стоке total_equity_incl_nci;
+# roe не получает подстановку и отказывает missing_data: total_equity.
 _TWO_PERIOD_MEASURES: dict[str, tuple[str, str]] = {
     "roe": ("net_income", "total_equity"),
+    "roe_incl_nci": ("net_income", "total_equity_incl_nci"),
     "asset_turnover": ("revenue", "total_assets"),
 }
 

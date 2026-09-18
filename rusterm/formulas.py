@@ -41,6 +41,7 @@ MEASURE_UNIT_KINDS: dict[str, str] = {
     "invested_capital": "money",
     "roic": "ratio",
     "roe": "ratio",
+    "roe_incl_nci": "ratio",
     "asset_turnover": "ratio",
     "nopat": "money",
     "eps_diluted": "per_share",
@@ -139,8 +140,32 @@ def roe(net_income: float, total_equity_begin: float, total_equity_end: float) -
         return None, "denominator_zero"
     if avg_te < 0:
         return None, "negative_denominator"
-    
+
     return net_income / avg_te, None
+
+
+def roe_incl_nci(net_income: float,
+                 total_equity_incl_nci_begin: float,
+                 total_equity_incl_nci_end: float
+                 ) -> Tuple[Optional[float], Optional[NullReason]]:
+    """Рентабельность капитала, ВКЛЮЧАЮЩЕГО неконтролирующие доли:
+    net_income / avg(total_equity_incl_nci_начало, ..._конец).
+
+    Не синоним roe и не подстановка: roe требует total_equity — долю
+    владельцев (ТЗ-56 Z1); здесь знаменатель — весь капитал с долями
+    миноритариев (total_equity_incl_nci). Правила null те же.
+    """
+    if total_equity_incl_nci_begin is None or \
+            total_equity_incl_nci_end is None:
+        return None, "missing_data"
+
+    avg_eq = (total_equity_incl_nci_begin + total_equity_incl_nci_end) / 2
+    if avg_eq == 0:
+        return None, "denominator_zero"
+    if avg_eq < 0:
+        return None, "negative_denominator"
+
+    return net_income / avg_eq, None
 
 
 def asset_turnover(revenue: float, total_assets_begin: float, total_assets_end: float) -> Tuple[Optional[float], Optional[NullReason]]:
@@ -510,6 +535,21 @@ def calculate_measure(
         te_end = kwargs.get("total_equity_end")
         if ni is not None and te_begin is not None and te_end is not None:
             val, reason = roe(ni, te_begin, te_end)
+            value = val
+            null_reason = reason
+        else:
+            null_reason = "missing_data"
+
+    elif concept == "roe_incl_nci":
+        # ТЗ-56 Z1: своя мера для капитала с неконтролирующими долями;
+        # roe при том же payload по-прежнему отказывает
+        # missing_data: total_equity — подстановки нет
+        ni = kwargs.get("net_income")
+        tei_begin = kwargs.get("total_equity_incl_nci_begin")
+        tei_end = kwargs.get("total_equity_incl_nci_end")
+        if ni is not None and tei_begin is not None \
+                and tei_end is not None:
+            val, reason = roe_incl_nci(ni, tei_begin, tei_end)
             value = val
             null_reason = reason
         else:
