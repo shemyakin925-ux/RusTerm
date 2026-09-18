@@ -140,3 +140,39 @@ Items done: P0 (15c854f), Z1 (a271c69), Z2 (3afd477); BACKLOG B34 + B37 verifica
 Items not done: nothing from the main queue
 Acceptance: 13/0 exit 0 on 15c854f, a271c69 and 3afd477
 Tests: full suite via acceptance hook on each commit (arrival baseline 767 passed, 1 skipped, 4 xfailed)
+
+## HANDOFF (FINAL — supersedes the interim values above)
+
+Status:          DONE
+Arrival state:   selfcheck 13/13 exit 0; full pytest 767 passed, 1 skipped, 9 deselected, 4 xfailed
+Items done:      P0 (orphan chat.py change documented, committed 15c854f);
+                 Z1 (roe_incl_nci, own measure on capital incl NCI, CNQ
+                 golden 0.25812916000667985, roe refusal unchanged,
+                 a271c69);
+                 Z2 (BR/CVM ingest channel: cvm-dfp.v1 map, parser,
+                 resolving locator, `rusterm ingest --source cvm`,
+                 incremental, budget named by `rusterm budget`, honest
+                 channel column in `rusterm markets`, 3afd477);
+                 BACKLOG B34 (OTC tolerance band in REPORT-MARKETS) and
+                 B37 verified as already satisfied by ТЗ-50 T6 (71d6fa9)
+Items not done:  none from TASK-56; BACKLOG B38 not taken (its target
+                 agent/PROTOCOL.md is coordinator-owned and TASK-56 does
+                 not authorize it); B36 not taken (needs the live model
+                 key and network the task budget does not grant)
+Acceptance:      "Итог: пройдено 13, провалено 0", exit 0 on every
+                 commit; final full pytest before handoff:
+                 777 passed, 1 skipped, 9 deselected, 4 xfailed (6:45)
+Tests:           777 passed, 1 skipped, 9 deselected, 4 xfailed
+Network:         Z1 0 requests; Z2 0 live requests — the whole channel
+                 is exercised offline on recorded bytes; the 3-request
+                 fresh-load count is asserted through the real gate and
+                 printed by `rusterm budget` inside the test; EDGAR 0;
+                 model 0
+Minutes left:    ~480 at 02:40 Danang (Y0 command in the interim block
+                 above); stopping with the task list exhausted, not by
+                 the clock
+Open question:   see the Disputed section — the P0 pinning question
+                 for the coordinator
+For the reader:  the two CNQ lines in census — roe refuses, roe_incl_nci
+                 0.2581 — differ as "profit on the owners' share" vs
+                 "profit on all capital including the minority slice"
