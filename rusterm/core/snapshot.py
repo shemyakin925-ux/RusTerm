@@ -512,6 +512,11 @@ class SnapshotBuilder:
             anchor_date = date.fromisoformat(anchor) if anchor else None
         except (TypeError, ValueError):
             anchor_date = None
+        # ТЗ-55 Y1: концепт, вычищенный фильтром давности, — не то же
+        # самое, что никогда не поданный: факт был и перестал
+        # приходить. Последний известный период запоминается, и отказ
+        # по такому входу зовёт stale_data, а не missing_data.
+        stale: dict[str, str] = {}
         if anchor_date is not None:
             for key in list(by_concept):
                 fresh = [r for r in by_concept[key]
@@ -519,7 +524,22 @@ class SnapshotBuilder:
                 if fresh:
                     by_concept[key] = fresh
                 else:
+                    stale[key] = max(r["end"] for r in by_concept[key])
                     del by_concept[key]
+
+        def absent_reason(concepts: list[str]) -> str:
+            """Отказ по отсутствующим входам: вычищенные давностью —
+            stale_data с последним известным периодом, никогда не
+            поданные — missing_data (ТЗ-55 Y1)."""
+            stale_parts = [f"{c}: last {stale[c]}"
+                           for c in concepts if c in stale]
+            missing_parts = [c for c in concepts if c not in stale]
+            parts = []
+            if stale_parts:
+                parts.append("stale_data: " + ", ".join(stale_parts))
+            if missing_parts:
+                parts.append("missing_data: " + ", ".join(missing_parts))
+            return "; ".join(parts)
 
         def pick(concept: str, key: tuple) -> Optional[dict]:
             candidates = [r for r in by_concept.get(concept, [])
@@ -543,7 +563,7 @@ class SnapshotBuilder:
             absent = sorted(a for a in needed if a not in by_concept)
             if absent:
                 # причина называет концепты, которых не было (X3)
-                reasons[concept] = "missing_data: " + ", ".join(absent)
+                reasons[concept] = absent_reason(sorted(absent))
                 continue
             key_sets = [{(r["unit"], r["start"], r["end"])
                          for r in by_concept[a]} for a in needed]
@@ -576,7 +596,7 @@ class SnapshotBuilder:
             if absent:
                 # A4: пропуск называет отсутствующую сторону, как
                 # однопериодная ветка (X3)
-                reasons[concept] = "missing_data: " + ", ".join(absent)
+                reasons[concept] = absent_reason(sorted(absent))
                 continue
             chosen = max((k for k in
                           {(r["unit"], r["start"], r["end"])
@@ -631,7 +651,7 @@ class SnapshotBuilder:
         if not oi_rows:
             absent.append("operating_income")
         if absent:
-            reasons["nopat"] = "missing_data: " + ", ".join(absent)
+            reasons["nopat"] = absent_reason(sorted(absent))
         else:
             et_end = et_period[1]
             oi_candidates = [r for r in oi_rows if r["end"] == et_end]

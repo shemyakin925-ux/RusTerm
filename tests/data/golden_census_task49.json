@@ -17,7 +17,7 @@
    },
    "fcf": {
     "value": null,
-    "reason": "missing_data: capex"
+    "reason": "stale_data: capex: last 2018-12-31"
    },
    "ebitda": {
     "value": null,
@@ -63,7 +63,7 @@
    },
    "ebitda": {
     "value": null,
-    "reason": "missing_data: d_and_a"
+    "reason": "stale_data: d_and_a: last 2018-09-30"
    },
    "interest_coverage": {
     "value": "1.611404435058078",
