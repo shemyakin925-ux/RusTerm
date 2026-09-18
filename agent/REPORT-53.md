@@ -121,6 +121,7 @@ worktree (ветка снята, ветка-проба доказала связ
 
 ## HANDOFF
 
+Local Danang clock at the stop decision: **07:23** (`TZ=Asia/Bangkok date +%H:%M`).
 Status: DONE
 Arrival state: selfcheck SELFCHECK OK on the first run of the round, acceptance «пройдено 13, провалено 0»
 Items done: W1 (C2+M4 on statement counts, 10/10 stability runs incl. 3 under load, full timing audit); W2 (T6 closed as observed — see the W2 section for the ten-commit enumeration); W3 (chat tool protocol B36, live suite 4 passed, 6 of 20 model calls, verbatim Q&A above)
