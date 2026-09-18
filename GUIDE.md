@@ -75,7 +75,7 @@ US-CLI-DEMO: заданий закрыто: 2; фактов: 6; дублей sha
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide snapshot --instrument US-CLI-DEMO
 US-CLI-DEMO: снапшот v1: 5c202d7f-12c0-42f4-92b9-8ebb516a783a
-US-CLI-DEMO: мер: 27 — со значением 4, пусто 23; перцентилей: 0
+US-CLI-DEMO: мер: 28 — со значением 4, пусто 24; перцентилей: 0
 ```
 
 Пустая мера — не ошибка: у неё есть причина, и она видна.
@@ -139,12 +139,12 @@ $ python3 -m rusterm.cli --root /tmp/rusterm-guide budget
 сетевой провайдер не работал: использовано 0, отказано 0 (записей в metric_sample нет)
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide markets
-US	US	exchange	edgar	cik	us-gaap	auto	implemented	1
-CA	CA	exchange	edgar	cik	ifrs-full	auto	implemented	1
-OTC	US	otc	edgar	cik	us-gaap	partial	implemented	1
-KR	KR	exchange	dart	corp_code	ifrs-full	auto	implemented	1
-BR	BR	exchange	cvm	cvm_code	ifrs-full	auto	implemented	1
-AU	AU	exchange	asx	asx_code	ifrs-full	partial	implemented	1
+US	US	exchange	edgar	cik	us-gaap	auto	implemented	edgar	1
+CA	CA	exchange	edgar	cik	ifrs-full	auto	implemented	edgar	1
+OTC	US	otc	edgar	cik	us-gaap	partial	implemented	edgar	1
+KR	KR	exchange	dart	corp_code	ifrs-full	auto	implemented	-	1
+BR	BR	exchange	cvm	cvm_code	ifrs-full	auto	implemented	cvm	1
+AU	AU	exchange	asx	asx_code	ifrs-full	partial	implemented	-	1
 ```
 
 `markets` — реестр рынков: провайдер, схема идентификатора, уровень

@@ -60,6 +60,25 @@ MARKETS: tuple[Market, ...] = (
 MARKET_CODES: tuple[str, ...] = tuple(m.code for m in MARKETS)
 DEFAULT_MARKET: str = MARKET_CODES[0]
 
+# Канал сбора CLI (ТЗ-56 Z2): у какого провайдера есть дверь
+# `rusterm ingest --source <имя>`. Модуль провайдера без двери — «место
+# построено и не вызывается» (ТЗ-20): реестр называет это прямо, а не
+# provider_status=implemented при мёртвом канале. Отсутствия названы:
+PROVIDER_CHANNELS: dict[str, str | None] = {
+    "edgar": "edgar",   # companyfacts: US/CA/OTC
+    "cvm": "cvm",       # годовые наборы DFP: BR (ТЗ-56 Z2)
+    "dart": None,       # без ключа провайдер не строится (ТЗ-21 H8)
+    "asx": None,        # тела документов машинно недостижимы
+                        # (ADR-0010 §5): только manual import
+}
+
+
+def provider_channel(provider: str) -> str | None:
+    """Имя --source для `rusterm ingest`, если канал есть; None —
+    провайдер построить можно, собрать им нельзя ничего."""
+    return PROVIDER_CHANNELS.get(provider)
+
+
 _KNOWN: dict[str, Market] = {m.code: m for m in MARKETS}
 
 

@@ -205,6 +205,17 @@ def cmd_ingest(args) -> int:
                 exit_code = code
         conn.close()
         return exit_code
+    if args.source == "cvm":
+        # Фундаментал Бразилии (ТЗ-56 Z2): годовые наборы DFP; дверь
+        # только по явному --source, как у edgar
+        exit_code = 0
+        for instrument_id, issuer_id in targets:
+            code = _ingest_cvm_dfp(repos, instrument_id,
+                                   issuer_id, args_as_of_default())
+            if code != 0:
+                exit_code = code
+        conn.close()
+        return exit_code
     if args.source == "ownership":
         # Владение Forms 3/4/5 (ТЗ-32 D2): реальный сбор никогда не
         # дефолт; metadata из submissions, тела — с Archives
@@ -426,6 +437,136 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     repos.coverage.upsert(instrument_id, "fundamentals", "ready")
     print(f"{instrument_id}: companyfacts загружены; фактов: "
           f"{len(fact_dicts)}; неотображённых концептов: {unmapped}")
+    return 0
+
+
+def _record_cvm_budget(repos, gate) -> None:
+    """Счётчик гейта — в metric_sample: rusterm budget называет число
+    израсходованных запросов, а не память (ТЗ-56 Z2)."""
+    import time as _time
+    repos.metrics.record_sample(_time.time(), "provider_requests_used",
+                                "cvm", float(gate.calls_made))
+
+
+def _ingest_cvm_dfp(repos, instrument_id: str, issuer_id: str,
+                    as_of: str) -> int:
+    """CVM-сбор фундаментала (ТЗ-56 Z2): годовой набор DFP за последний
+    закрытый год, консолидированные DRE+BPP -> строки эмитента -> факты
+    с провенансом (сырьё — ZIP целиком в raw store).
+
+    Инкрементальность по Last-Modified из issuer_ingest_state
+    (source='cvm'): неизменный набор — один HEAD, GET не выполняется.
+    Бюджет: 1 запрос при неизменности, до 3 на свежую загрузку
+    (HEAD + HEAD+GET: публичная поверхность провайдера), потолок хоста
+    по объявлению CvmProvider; счёт — в rusterm budget.
+    """
+    import hashlib
+    import uuid as _uuid
+
+    from rusterm.parsers.cvm_dfp import CvmDfpParser
+    from rusterm.pipeline import apply_concept_map
+    from rusterm.providers.base import ProviderError as _PE
+    from rusterm.providers.budget import BudgetExceeded, ConfigError
+    from rusterm.providers.cvm import DFP_URL, DatasetState
+    from rusterm.store.repos import persist_ingestion_results
+
+    instrument = repos.instrument.get_instrument(instrument_id)
+    issuer = repos.instrument.get_issuer(instrument.issuer_id) \
+        if instrument else None
+    if issuer is None or not (issuer.registry_id or "").isdigit():
+        print(f"у эмитента {issuer_id!r} нет кода CD_CVM — выполните "
+              f"rusterm add --ticker ... --market BR", file=sys.stderr)
+        return 1
+    gate = RequestGate()
+    provider = get_provider("cvm", gate=gate)
+    if isinstance(provider, ConfigError):
+        print(f"cvm-провайдер недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+
+    year = int(as_of[:4]) - 1
+    url = DFP_URL.format(year=year)
+    state_row = repos.issuer_state.get(issuer_id, source="cvm")
+    known = state_row.get("last_modified") if state_row else None
+
+    head = provider.dataset_state(url)
+    if isinstance(head, _PE) and head.reason.startswith("cvm_not_found"):
+        repos.coverage.upsert(instrument_id, "fundamentals", "missing",
+                              reason=head.reason)
+        print(f"{instrument_id}: набора DFP {year} нет у источника "
+              f"({head.reason}) — покрытие missing")
+        _record_cvm_budget(repos, gate)
+        return 0
+    if isinstance(head, (ConfigError, BudgetExceeded, _PE)):
+        reason = getattr(head, "reason", "budget_exceeded")
+        print(f"cvm недоступен: {reason}", file=sys.stderr)
+        _record_cvm_budget(repos, gate)
+        return 1
+    if known is not None and head.last_modified == known:
+        print(f"{instrument_id}: набор DFP {year} не изменился — "
+              f"пропущено (HEAD, GET не выполнялся)")
+        _record_cvm_budget(repos, gate)
+        return 0
+
+    outcome = provider.dataset_if_changed(url, None)
+    _record_cvm_budget(repos, gate)
+    if isinstance(outcome, DatasetState):
+        # набор изменился между HEAD и GET-решением: честный пропуск,
+        # следующий прогон сравнит метку заново
+        print(f"{instrument_id}: набор DFP {year} изменился в ходе "
+              f"прогона — пропущено")
+        return 0
+    if isinstance(outcome, (ConfigError, BudgetExceeded, _PE)):
+        print(f"cvm недоступен: {outcome.reason}", file=sys.stderr)
+        return 1
+    raw = outcome
+
+    sha = hashlib.sha256(raw).hexdigest()
+    if repos.raw.has(sha):
+        repos.issuer_state.put(issuer_id, last_filing_date=None,
+                               last_modified=head.last_modified,
+                               source="cvm")
+        print(f"{instrument_id}: набор DFP уже в store — пропущено")
+        return 0
+    obj = repos.raw.put(raw, provider="cvm", block="fundamentals",
+                        url=url, instrument_id=instrument_id)
+
+    members = provider.dfp_members(raw)
+    dre_member = next((n for n in members if "_DRE_con_" in n), None)
+    bpp_member = next((n for n in members if "_BPP_con_" in n), None)
+    if dre_member is None or bpp_member is None:
+        repos.coverage.upsert(instrument_id, "fundamentals", "missing",
+                              reason="cvm_no_consolidated_members")
+        print(f"{instrument_id}: в наборе нет консолидированных "
+              f"DRE/BPP — покрытие missing")
+        return 0
+
+    parser = CvmDfpParser()
+    fact_dicts: list[dict] = []
+    unmapped = 0
+    unparsed = 0
+    for member, statement in ((dre_member, "DRE"),
+                              (bpp_member, "BPP")):
+        rows = provider.rows_for(members[member],
+                                 str(issuer.registry_id))
+        facts, skipped = parser.parse_rows(
+            rows, statement,
+            {"issuer_id": issuer_id, "source_ref": obj.sha256,
+             "csv_member": member})
+        unparsed += skipped
+        for fact in facts:
+            fact = dict(fact)
+            fact["fact_id"] = str(_uuid.uuid4())
+            unmapped += apply_concept_map(fact)
+            fact_dicts.append(fact)
+    persist_ingestion_results(repos.conn, fact_dicts, [])
+    repos.coverage.upsert(instrument_id, "fundamentals", "ready")
+    repos.issuer_state.put(issuer_id, last_filing_date=None,
+                           last_modified=head.last_modified,
+                           source="cvm")
+    print(f"{instrument_id}: DFP {year} загружен; фактов: "
+          f"{len(fact_dicts)}; неразобрано: {unparsed}; "
+          f"неотображённых концептов: {unmapped}")
     return 0
 
 
@@ -1741,7 +1882,7 @@ def cmd_markets(args) -> int:
     сколько эмитентов в локальной базе; --json для машинного
     потребления. Ответ на вопрос «достанет ли программа корейские
     данные?» — без чтения исходников."""
-    from rusterm.markets import MARKETS
+    from rusterm.markets import MARKETS, provider_channel
     # только чтение реестра: каталог данных не создаётся (B35)
     paths, conn = _open_readonly(args.root)
     rows = []
@@ -1752,6 +1893,7 @@ def cmd_markets(args) -> int:
                      "default_taxonomy": m.default_taxonomy,
                      "access": m.access,
                      "provider_status": _provider_status(m.provider),
+                     "channel": provider_channel(m.provider),
                      "issuers": _issuer_count(conn, paths)})
     if conn is not None:
         conn.close()
@@ -1763,7 +1905,7 @@ def cmd_markets(args) -> int:
               f"{row['venue_kind']}\t{row['provider']}\t"
               f"{row['identifier']}\t{row['default_taxonomy']}\t"
               f"{row['access']}\t{row['provider_status']}\t"
-              f"{row['issuers']}")
+              f"{row['channel'] or '-'}\t{row['issuers']}")
     return 0
 
 
@@ -1853,7 +1995,7 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--ticker", default=None)
     p_ing.add_argument("--market", default=None)
     p_ing.add_argument("--watchlist", default=None)
-    p_ing.add_argument("--source", choices=("synthetic", "edgar",
+    p_ing.add_argument("--source", choices=("synthetic", "edgar", "cvm",
                                             "twelvedata", "ownership"),
                        default="synthetic")
     sub.add_parser("demo", help="создать синтетический демо-инструмент")

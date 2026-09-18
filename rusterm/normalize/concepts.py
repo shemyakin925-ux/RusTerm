@@ -148,6 +148,46 @@ _IFRS_PRIORITY: dict[str, dict[str, int]] = {
 }
 
 
+# ── Третий словарь: строки CVM DFP (ТЗ-56 Z2) ───────────────────────────
+# Бразильский регулятор публикует годовые наборы DFP не XBRL-тегами, а
+# строками CD_CONTA внутри CSV (dados.cvm.gov.br). Каждое имя взято по
+# живой нарезке tests/data/cvm/dfp_2024_{dre,bpp}_slice.csv (выкачка
+# 11.09: Petrobras 9512, Vale 4170, Ambev 23264; FY2024 + FY2023).
+# Отсутствия НАМЕРЕННЫ, те же правила, что у IFRS выше:
+#  - 3.05 «Resultado Antes do Resultado Financeiro» — EBIT-подобная
+#    величина: под имя operating_income не ставится (вердикт ТЗ-55) —
+#    operating_margin/ebitda/nopat/interest_coverage по BR отказывают
+#    missing_data: operating_income;
+#  - net_income только 3.11 «Lucro/Prejuízo Consolidado do Período» —
+#    прибыль периода ВКЛЮЧАЯ доли НКД (аналог ProfitLoss); 3.09
+#    (продолжающаяся деятельность) — не net_income;
+#  - 2.03 «Patrimônio Líquido Consolidado» — капитал ВКЛЮЧАЯ
+#    неконтролирующие доли: это total_equity_incl_nci, НЕ total_equity
+#    (правило ТЗ-56 Z1): roe по BR отказывает missing_data:
+#    total_equity, roe_incl_nci считает.
+CONCEPT_MAP_VERSION_CVM = "cvm-dfp.v1"
+
+CONCEPT_MAP_CVM: dict[str, tuple[str, ...]] = {
+    "revenue": ("3.01",),
+    "gross_profit": ("3.03",),
+    "pretax_income": ("3.07",),
+    "tax_expense": ("3.08",),
+    "net_income": ("3.11",),
+    "total_equity_incl_nci": ("2.03",),
+}
+
+_CVM_TAG_TO_CONCEPT: dict[str, str] = {
+    tag: concept
+    for concept, tags in CONCEPT_MAP_CVM.items()
+    for tag in tags
+}
+
+_CVM_PRIORITY: dict[str, dict[str, int]] = {
+    concept: {tag: rank for rank, tag in enumerate(tags)}
+    for concept, tags in CONCEPT_MAP_CVM.items()
+}
+
+
 def canonical_for(local_tag: str, taxonomy: str = "us-gaap") -> str | None:
     """Каноническое имя для локального тега данной таксономии; None —
     тег вне карты: такой факт не выбрасывается, а остаётся
@@ -157,13 +197,18 @@ def canonical_for(local_tag: str, taxonomy: str = "us-gaap") -> str | None:
         return None
     if taxonomy == "ifrs-full":
         return _IFRS_TAG_TO_CONCEPT.get(local_tag)
+    if taxonomy == "cvm-dfp":
+        return _CVM_TAG_TO_CONCEPT.get(local_tag)
     return _TAG_TO_CONCEPT.get(local_tag)
 
 
 def map_version(taxonomy: str = "us-gaap") -> str:
     """Версия карты таксономии — для concept_map_version факта."""
-    return CONCEPT_MAP_VERSION_IFRS if taxonomy == "ifrs-full" \
-        else CONCEPT_MAP_VERSION
+    if taxonomy == "ifrs-full":
+        return CONCEPT_MAP_VERSION_IFRS
+    if taxonomy == "cvm-dfp":
+        return CONCEPT_MAP_VERSION_CVM
+    return CONCEPT_MAP_VERSION
 
 
 def priority_rank_ifrs(concept: str, local_tag: str) -> int:
@@ -184,7 +229,9 @@ def priority_rank(concept: str, local_tag: str,
                   taxonomy: str = "us-gaap") -> int:
     """Ранг тега внутри концепта (0 — самый приоритетный). Неизвестный
     тег получает ранг за пределами таблицы. Таксономия выбирает таблицу
-    приоритетов (us-gaap / ifrs-full, TASK-18 G3)."""
+    приоритетов (us-gaap / ifrs-full / cvm-dfp, TASK-18 G3, ТЗ-56 Z2)."""
     if taxonomy == "ifrs-full":
         return _IFRS_PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
+    if taxonomy == "cvm-dfp":
+        return _CVM_PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
     return _PRIORITY.get(concept, {}).get(local_tag, 1 << 30)

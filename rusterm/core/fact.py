@@ -88,9 +88,30 @@ class LocatorDerived:
     schema: str = "derived.v1"
 
 
+@dataclass(frozen=True)
+class LocatorCvmDfp:
+    """Строка ведомого CSV набора CVM DFP (schema cvm-dfp.v1, ТЗ-56 Z2).
+
+    Сырьё — ZIP-набор целиком (doc_sha256); строка находится заново по
+    члену архива и ключу (CD_CONTA, ORDEM_EXERC, период) и
+    перемасштабируется тем же правилом, что при извлечении: resolve
+    обязан вернуть то же значение, что записано в факте.
+    """
+    kind: Literal["cvm-dfp"] = "cvm-dfp"
+    doc_sha256: str = ""
+    csv_member: str = ""
+    cd_conta: str = ""
+    ordem_exerc: str = ""
+    period_start: str = ""
+    period_end: str = ""
+    escala_moeda: str = "UNID"
+    raw_value: str = ""
+    schema: str = "cvm-dfp.v1"
+
+
 Locator = (
     LocatorXBRL | LocatorTable | LocatorPDF |
-    LocatorHTML | LocatorAPI | LocatorDerived
+    LocatorHTML | LocatorAPI | LocatorDerived | LocatorCvmDfp
 )
 
 
@@ -126,6 +147,8 @@ def locator_from_json(data: dict) -> Locator:
         return LocatorAPI(**{k: v for k, v in data.items() if k != "kind"})
     elif kind == "derived":
         return LocatorDerived(**{k: v for k, v in data.items() if k != "kind"})
+    elif kind == "cvm-dfp":
+        return LocatorCvmDfp(**{k: v for k, v in data.items() if k != "kind"})
     else:
         raise ValueError(f"Unknown locator kind: {kind}")
 
@@ -367,7 +390,38 @@ def resolve_locator(
         # Derived: не разрешается к сырью, а пересчитывается по формуле
         # Здесь просто возвращаем None — проверяется иначе
         return None
-    
+
+    elif kind == "cvm-dfp":
+        # Строка DFP: zip из store, член архива в память, строка по
+        # ключу, перемасштабирование тем же правилом ESCALA_MOEDA
+        # (ТЗ-56 Z2)
+        import csv as _csv
+        import io as _io
+        import zipfile as _zipfile
+        raw = raw_store_getter(locator.doc_sha256)
+        with _zipfile.ZipFile(_io.BytesIO(raw)) as zf:
+            data = zf.read(locator.csv_member)
+        scale = {"UNID": 1.0, "MIL": 1_000.0,
+                 "MILHOES": 1_000_000.0}.get(
+                     (locator.escala_moeda or "UNID").upper())
+        if scale is None:
+            raise ValueError(
+                f"Unknown ESCALA_MOEDA: {locator.escala_moeda}")
+        for row in _csv.DictReader(
+                _io.StringIO(data.decode("latin-1")), delimiter=";"):
+            if (row.get("CD_CONTA", "").strip() == locator.cd_conta
+                    and (row.get("ORDEM_EXERC") or "")
+                    == locator.ordem_exerc
+                    and (row.get("DT_INI_EXERC")
+                         or row.get("DT_FIM_EXERC") or "")
+                    == locator.period_start
+                    and (row.get("DT_FIM_EXERC") or "")
+                    == locator.period_end):
+                return repr(float(locator.raw_value) * scale)
+        raise ValueError(
+            f"DFP row {locator.cd_conta}/{locator.ordem_exerc} "
+            f"not found in {locator.csv_member}")
+
     else:
         raise ValueError(f"Unknown locator kind: {kind}")
 
