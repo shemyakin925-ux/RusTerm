@@ -104,6 +104,15 @@ documentation, not mixed into Z1. Coordinator decides keep-or-revert
     nopat/interest_coverage refuse naming their absent inputs;
     asset_turnover and fcf likewise; provenance + locator resolution
     asserted; second run costs one HEAD; parser + locator unit tests.
+- BACKLOG B34 (S): REPORT-MARKETS now states the OTC universe-count
+  tolerance band (±1% of the last recorded count, 12,867 ± ~129)
+  with the dates of both live counts (12,867 on 2026-09-10; 12,794
+  on 2026-09-11 = 0.57%, inside the band) and the date of the last
+  live count — the drift stops being a nightly finding.
+- BACKLOG B37 verified, no code needed: after six selfcheck runs
+  today `ls -d "$TMPDIR"/selfcheck-guards.*` prints nothing — the
+  trap required by the item already exists (ТЗ-50 T6 comment in
+  agent/selfcheck.sh). Accept criterion of the item holds.
 
 ## Blocked
 
@@ -125,9 +134,9 @@ documentation, not mixed into Z1. Coordinator decides keep-or-revert
 ## HANDOFF
 
 Status: working
-Minutes to stop: 529 at 01:39 Danang, Y0 command:
+Minutes to stop: 501 at 02:07 Danang, Y0 command:
 `python3 -c "from datetime import datetime,timezone,timedelta as T; n=datetime.now(timezone(T(hours=7))); s=n.replace(hour=10,minute=0,second=0,microsecond=0); print(int((s-n).total_seconds()//60))"`
-Items done: P0 (15c854f), Z1 (recommitted), Z2 (commit pending acceptance)
-Items not done: nothing from the main queue; final HANDOFF after Z2 commit
-Acceptance: 13/0 exit 0 on 15c854f; targeted suites before the rewrite: 119 passed + 7 new Z2
-Tests: full suite runs via acceptance hook on each commit (arrival baseline 767 passed, 1 skipped, 4 xfailed)
+Items done: P0 (15c854f), Z1 (a271c69), Z2 (3afd477); BACKLOG B34 + B37 verification in the next commit
+Items not done: nothing from the main queue
+Acceptance: 13/0 exit 0 on 15c854f, a271c69 and 3afd477
+Tests: full suite via acceptance hook on each commit (arrival baseline 767 passed, 1 skipped, 4 xfailed)
