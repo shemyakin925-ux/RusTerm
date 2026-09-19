@@ -13,20 +13,68 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import (QApplication, QComboBox, QGroupBox,
                                    QHBoxLayout, QHeaderView, QLabel,
-                                   QLineEdit, QMainWindow, QSplitter,
-                                   QTableWidget, QTableWidgetItem,
-                                   QTreeWidget, QTreeWidgetItem,
-                                   QVBoxLayout, QWidget)
+                                   QLineEdit, QMainWindow, QPushButton,
+                                   QSplitter, QTableWidget,
+                                   QTableWidgetItem, QTreeWidget,
+                                   QTreeWidgetItem, QVBoxLayout,
+                                   QWidget)
     QT_AVAILABLE = True
 except ImportError:  # приёмка №1: ядро и тесты живут без PySide6
     QT_AVAILABLE = False
 
+from rusterm.desktop import actions as desktop_actions
 from rusterm.desktop import data
 from rusterm.markets import MARKET_CODES
 from rusterm.tui import model as tui_model
 
 if QT_AVAILABLE:  # без PySide6 имя не существует, окно честно откажет
     from rusterm.desktop.charts import ChartArea
+
+    from PySide6.QtCore import QThread
+    from PySide6.QtCore import Signal as _QtSignal
+
+    class _MainWindow(QMainWindow):
+        """Главное окно с гарантией потока сбора: при закрытии живой
+        воркер отменяется и ДОЖИДАЕТСЯ — QThread, уничтоженный под
+        работающим потоком, роняет процесс (краш, пойманный прогоном)."""
+
+        def __init__(self):
+            super().__init__()
+            self._worker = None
+
+        def set_worker(self, worker) -> None:
+            self._worker = worker
+
+        def closeEvent(self, event) -> None:
+            worker = self._worker
+            if worker is not None and worker.isRunning():
+                worker.cancel_flag.cancel()
+                worker.wait(10000)
+            event.accept()
+
+    class _CollectWorker(QThread):
+        """Сбор в рабочем потоке (ADR-0004 §3): UI не мёрзнет, стадии
+        и итог приходят сигналами, отмена — кооперативная, через флаг.
+
+        Соединение с базой открывается внутри collect_synthetic — в
+        ЭТОМ потоке: sqlite-соединение не переезжает между потоками.
+        """
+
+        stage = _QtSignal(str)
+        finished_run = _QtSignal(object)
+
+        def __init__(self, root, instrument_id, parent=None):
+            super().__init__(parent)
+            self._root = root
+            self._instrument_id = instrument_id
+            self.cancel_flag = desktop_actions.CancelFlag()
+
+        def run(self) -> None:
+            outcome = desktop_actions.collect_synthetic(
+                self._root, self._instrument_id,
+                cancel=self.cancel_flag,
+                on_stage=self.stage.emit)
+            self.finished_run.emit(outcome)
 
 WINDOW_TITLE = "EquityLab"
 # ответ модели прижат влево и не шире ~3/4 окна (макет, C1.4)
@@ -35,7 +83,7 @@ ANSWER_MAX_WIDTH = 960
 
 def _build_window(repos, paths, watchlist_id=None):
     """Собрать окно поверх открытого (возможно пустого) каталога."""
-    window = QMainWindow()
+    window = _MainWindow()
     window.setWindowTitle(WINDOW_TITLE)
     central = QWidget()
     window.setCentralWidget(central)
@@ -72,6 +120,16 @@ def _build_window(repos, paths, watchlist_id=None):
     center_layout = QVBoxLayout(center)
     company_header = QLabel(objectName="company_header")
     center_layout.addWidget(company_header)
+    collect_row = QHBoxLayout()
+    collect_button = QPushButton(objectName="collect_button")
+    collect_button.setEnabled(False)
+    cancel_button = QPushButton(objectName="cancel_button")
+    cancel_button.setEnabled(False)
+    collect_row.addWidget(collect_button)
+    collect_row.addWidget(cancel_button)
+    collect_status = QLabel(objectName="collect_status")
+    collect_row.addWidget(collect_status, 1)
+    center_layout.addLayout(collect_row)
     controls = QHBoxLayout()
     kind_box = QComboBox(objectName="kind_box")
     for kind in data.CHART_KINDS:
@@ -110,7 +168,10 @@ def _build_window(repos, paths, watchlist_id=None):
 
     state = {"companies": [], "selected": None, "table": None,
              "industry": None, "pinned": set(), "session": None,
-             "chat_reason": None}
+             "chat_reason": None, "worker": None}
+
+    collect_button.setText("Собрать")
+    cancel_button.setText("Отменить")
 
     # ── жизнь окна ─────────────────────────────────────────────────
     def repaint_header() -> None:
@@ -118,9 +179,12 @@ def _build_window(repos, paths, watchlist_id=None):
             status.setText("")
             return
         info = data.header_info(repos)
+        budget = desktop_actions.budget_view(repos)
         schema = info["schema_version"]
-        status.setText(f"схема {schema if schema is not None else '—'}"
-                       f" · запросов сегодня {info['requests_today']}")
+        status.setText(
+            f"схема {schema if schema is not None else '—'}"
+            f" · запросов сегодня {budget['used_today']}"
+            f" · потолок {budget['ceiling_per_night']}")
 
     def repaint_sidebar(query: str = "") -> None:
         tree.clear()
@@ -172,6 +236,7 @@ def _build_window(repos, paths, watchlist_id=None):
         _repaint_measures(measure_box, info)
         apply_chart()
         source_panel.setText("клик по ячейке — панель источника")
+        collect_button.setEnabled(state["worker"] is None)
 
     def apply_chart() -> None:
         if state["table"] is None:
@@ -257,6 +322,57 @@ def _build_window(repos, paths, watchlist_id=None):
         answer_label.setText(text + ("\n" + citations if citations else ""))
         question_line.clear()
 
+    def on_collect() -> None:
+        """Кнопка «Собрать»: демо-конвейер в рабочем потоке; для
+        остальных инструментов — слова с командой CLI, без копии тела
+        cmd_ingest (C2.1)."""
+        if state["worker"] is not None or repos is None:
+            return
+        company = state["selected"]
+        if company is None:
+            return
+        instrument_id = company["instrument_id"]
+        if instrument_id != desktop_actions.demo_instrument_id():
+            # отказ синтетического сбора возвращается до всякого ввода-
+            # вывода — безопасно позвать прямо в UI-потоке
+            outcome = desktop_actions.collect_synthetic(
+                paths.root, instrument_id)
+            collect_status.setText(f"сбор не удался: {outcome.detail}")
+            return
+        worker = _CollectWorker(paths.root, instrument_id,
+                                parent=window)
+        window.set_worker(worker)
+        state["worker"] = worker
+        collect_button.setEnabled(False)
+        cancel_button.setEnabled(True)
+        worker.stage.connect(collect_status.setText)
+        worker.finished_run.connect(on_collect_done)
+        collect_status.setText("сбор запущен")
+        worker.start()
+
+    def on_collect_cancel() -> None:
+        worker = state["worker"]
+        if worker is not None:
+            worker.cancel_flag.cancel()
+            collect_status.setText("отмена…")
+
+    def on_collect_done(outcome) -> None:
+        state["worker"] = None
+        window.set_worker(None)
+        collect_button.setEnabled(state["selected"] is not None)
+        cancel_button.setEnabled(False)
+        if outcome.cancelled:
+            collect_status.setText(f"отменено: {outcome.detail}")
+        elif outcome.ok:
+            collect_status.setText(f"готово: {outcome.detail}")
+        else:
+            collect_status.setText(
+                f"сбор не удался: {outcome.reason} — {outcome.detail}")
+        # карточка и бюджет перечитываются из базы теми же дверями
+        if state["selected"] is not None:
+            load_company(state["selected"])
+        repaint_header()
+
     # соединения
     search.textChanged.connect(on_search)
     tree.itemExpanded.connect(on_item_expanded)
@@ -266,6 +382,8 @@ def _build_window(repos, paths, watchlist_id=None):
     measure_box.currentIndexChanged.connect(lambda _i: apply_chart())
     table.cellClicked.connect(on_cell_clicked)
     question_line.returnPressed.connect(on_ask)
+    collect_button.clicked.connect(on_collect)
+    cancel_button.clicked.connect(on_collect_cancel)
 
     # стартовое состояние
     if repos is None:

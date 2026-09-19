@@ -79,6 +79,21 @@ def env(tmp_path):
         "m-roe", "s-1", "issuer", "i-AAA", "roe", None,
         "ratio", "2024-01-01", "2024-12-31", "f-roe", "v1",
         "missing_prior_period", None)
+    # демо-инструмент теми же дверями, что rusterm demo: только он
+    # честно собирается синтетическим конвейером из окна (C2.1)
+    from rusterm.cli import DEMO_INSTRUMENT, DEMO_ISSUER
+    repos.instrument.upsert_issuer(Issuer(
+        DEMO_ISSUER, "CLI Demo Corp (synthetic)", "US", None, None,
+        "us_gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        DEMO_INSTRUMENT, DEMO_ISSUER, None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        f"{DEMO_INSTRUMENT}-listing", DEMO_INSTRUMENT, "XNAS", "USD",
+        1, None, None))
+    repos.instrument.add_ticker_history(
+        f"{DEMO_INSTRUMENT}-listing", "DEMO", "2020-01-01", None,
+        None, None)
+    repos.watchlist.add_member(version_id, DEMO_INSTRUMENT, None)
     yield repos, paths
     conn.close()
 
@@ -103,7 +118,7 @@ def test_search_filters_live_and_counts(qapp, env):
     search = _widget(window, QLineEdit, "search")
     tree = _widget(window, QTreeWidget, "tree")
     counter = _widget(window, QLabel, "match_count")
-    assert counter.text() == "компаний: 3"
+    assert counter.text() == "компаний: 4"
     search.setText("cn")
     assert counter.text() == "совпадений: 1"
     top = tree.topLevelItemCount()
@@ -218,3 +233,102 @@ def test_backend_reported_honestly(qapp):
     assert backend in ("pyqtgraph", "qtcharts")
     area = charts.ChartArea()
     assert area.backend() == backend
+
+
+# ── C2: кнопка сбора, прогресс, отмена, бюджет ──────────────────────────
+
+def _collect_button(window):
+    return _widget(window, desktop_window.QPushButton, "collect_button")
+
+
+def _wait_for_collect(window, status, timeout_ms=20000):
+    """Ждать итога сбора, НЕ голодая воркер: QTest.qWait-цикл в главном
+    потоке не отдаёт GIL Python-потоку (замерено: воркер не завершается
+    вообще), поэтому чередуем БЛОКИРУЮЩИЙ worker.wait(50) — GIL
+    отпускается целиком — с processEvents, который доставляет
+    накопленные сигналы. В живом окне этой проблемы нет: app.exec()
+    блокируется по-настоящему (воркер завершается за сотые доли
+    секунды — замер в REPORT-C2)."""
+    import time
+    from PySide6.QtCore import QThread
+    from PySide6.QtWidgets import QApplication
+    worker = window.findChild(QThread)
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        text = status.text()
+        if text.startswith(("готово", "отменено", "сбор не удался")):
+            return text
+        if worker is not None:
+            worker.wait(50)
+        QApplication.processEvents()
+    return status.text()
+
+
+def test_header_shows_budget_numbers(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    status = _widget(window, QLabel, "status")
+    assert "потолок 5000" in status.text()
+    assert "запросов сегодня 0" in status.text()
+
+
+def test_collect_refuses_non_demo_with_cli_words(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    tree = _widget(window, QTreeWidget, "tree")
+    tree.setCurrentItem(tree.topLevelItem(0).child(0))  # AAA: не демо
+    button = _collect_button(window)
+    assert button.isEnabled()
+    button.click()
+    status_line = _widget(window, QLabel, "collect_status")
+    assert "rusterm ingest --source edgar" in status_line.text()
+    cancel = _widget(window, desktop_window.QPushButton, "cancel_button")
+    assert not cancel.isEnabled(), "отмена не могла быть запущена"
+
+
+def test_collect_runs_pipeline_and_refreshes_window(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    tree = _widget(window, QTreeWidget, "tree")
+    sectorless = tree.topLevelItem(1)
+    demo_item = None
+    for i in range(sectorless.childCount()):
+        if "DEMO" in sectorless.child(i).text(0):
+            demo_item = sectorless.child(i)
+    assert demo_item is not None, "демо-инструмент в дереве"
+    tree.setCurrentItem(demo_item)
+    button = _collect_button(window)
+    button.click()
+    status_line = _widget(window, QLabel, "collect_status")
+    text = _wait_for_collect(window, status_line)
+    assert text.startswith("готово:"), text
+    assert "снапшот" in text
+    # снапшот реально в базе; окно перечитало карточку и бюджет
+    from rusterm.cli import DEMO_INSTRUMENT
+    assert repos.snapshot.latest_snapshot_id(DEMO_INSTRUMENT)
+    header = _widget(window, QLabel, "status")
+    assert "потолок 5000" in header.text()
+    cancel = _widget(window, desktop_window.QPushButton, "cancel_button")
+    assert not cancel.isEnabled(), "по завершении отмена погашена"
+    assert button.isEnabled(), "кнопка сбора вернулась"
+
+
+def test_collect_cancel_button_wires_flag(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    tree = _widget(window, QTreeWidget, "tree")
+    sectorless = tree.topLevelItem(1)
+    demo_item = None
+    for i in range(sectorless.childCount()):
+        if "DEMO" in sectorless.child(i).text(0):
+            demo_item = sectorless.child(i)
+    tree.setCurrentItem(demo_item)
+    button = _collect_button(window)
+    cancel = _widget(window, desktop_window.QPushButton, "cancel_button")
+    assert not cancel.isEnabled()
+    button.click()
+    assert cancel.isEnabled(), "на время сбора отмена доступна"
+    cancel.click()  # флаг выставлен; итог придёт сигналом
+    status_line = _widget(window, QLabel, "collect_status")
+    text = _wait_for_collect(window, status_line)
+    assert text.startswith(("отменено", "готово")), text

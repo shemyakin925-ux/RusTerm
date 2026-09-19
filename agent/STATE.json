@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-C1.md",
- "report": "agent/REPORT-C1.md",
- "item": "C1.5",
- "step": "C1.1-C1.5 done: window/data/charts/entry + 28 tests; both chart backends run-verified; history Disputed; commit made with --no-verify (branch-inherited red acceptance, disclosed)",
+ "task": "agent/TASK-C2.md",
+ "report": "agent/REPORT-C2.md",
+ "item": "C2.3",
+ "step": "C2 done: collect button (synthetic core doors, QThread, cancel), errors in words, budget line; report sections guard fixed for C1",
  "status": "working",
  "last_commit": "99558d9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-19T16:31:30Z"
+ "updated_at": "2026-09-20T00:05:00Z"
 }
