@@ -5,12 +5,14 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 17.09.2026, after round 58 on `agent/night-11`. Accepted:
-TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-46. Acceptance at
-`6f33114` in a fresh linked worktree is «пройдено 13, провалено 0»,
-exit 0 — three green heads in a row, each verified by the coordinator's
-own run. The guard machinery that ate rounds 47-56 is closed, and the
-chat screen is reachable again (TASK-46 N2).
+Last updated: 19.09.2026, after round 67 on `agent/night-11`. Accepted:
+TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-56. Acceptance on
+`fdb8070` in a fresh linked worktree: **13/0, exit 0** — but the
+coordinator's FIRST run of the same command gave 12/1 on check 11
+(three tests flickered; the no-zstd suite is green in a separate
+tree). The flicker is TASK-57 A5 and is not a missing gzip fallback.
+Round 67 verdict on REPORT-56 Disputed: **P0 (15c854f) stays**, pinned
+by TASK-57 A1 — no revert.
 
 **Open product debt: TASK-37 I2** (does-not-know) — TASK-47 O1. I1
 (question vs order) landed with TASK-46 N3, I3 and I4 are done. The
