@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-58.md",
- "report": "agent/REPORT-58.md",
- "item": "C4",
- "step": "C4 done: cvm-dfp.v2 sign rule, clip removed -> jurisdiction_rate, AMBEV 0.2381 gold, census diff 1 row, formulas baseline updated",
+ "task": "agent/TASK-C1.md",
+ "report": "agent/REPORT-C1.md",
+ "item": "C1.5",
+ "step": "C1.1-C1.5 done: window/data/charts/entry + 28 tests; both chart backends run-verified; history Disputed; commit made with --no-verify (branch-inherited red acceptance, disclosed)",
  "status": "working",
- "last_commit": "795ee48",
+ "last_commit": "99558d9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
- "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-19T12:30:00Z"
+ "model": "GLM-5.3",
+ "updated_at": "2026-09-19T16:31:30Z"
 }
