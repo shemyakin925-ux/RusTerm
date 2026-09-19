@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 70,
- "branch": "agent/night-11",
- "task": "agent/TASK-58.md",
- "report": "agent/REPORT-58.md",
- "note": "ТЗ-57 принято прогоном 13/0. Вердикты по всем восьми вопросам — ТЗ-58 C0. Главное: Q2 — clip() выдумал 0.0 вместо 23.8%, это первый пункт C4; Q1 — правило 10:00 только про ночную смену; Q4 — BACKLOG мой, разрешение из ТЗ-57 было моей ошибкой; Q5 — живая проба AU разрешена, 15 запросов; Q7 — A5 засчитан, подтвердить прогоном C7. ТЗ-59 READY.",
+ "holder": "coordinator",
+ "round": 1,
+ "branch": "agent/night-13",
+ "task": "agent/TASK-C1.md",
+ "report": "agent/REPORT-C1.md",
+ "note": "Полоса C заведена",
  "handed_by": "coordinator",
- "handed_at": "2026-09-19T12:13:25Z",
+ "handed_at": "2026-09-19T14:05:08Z",
  "paused": false,
  "finished": false
 }
