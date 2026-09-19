@@ -182,3 +182,101 @@ census-golden value 0.2791393632939477 and citations; both gray
 questions (roe, fcf) rejected by the guard
 (guard_rejected_uncited_number); the empty issuer answered with an
 honest resolve_ticker not_found refusal.
+
+## Done (C2) — live model under the citation guard (marker run)
+
+Marker: `live` (pyproject deselection) + `RUSTERM_LIVE=1`; the default
+suite skips (no network, no key). Data offline on the recorded EDGAR
+answers (tests/data/edgar); the ONLY network is to the model.
+Five questions, outcomes as returned (also
+/tmp/b36_results.json written by the test before its assertions):
+
+| # | kind | question | outcome |
+|---|---|---|---|
+| 1 | full | CNQ net_margin | ANSWER with citation: 0.2791393632939477 — exactly the census golden value |
+| 2 | full | CNQ roe_incl_nci | guard rejection: guard_rejected_uncited_number (the model tried to state the number without a citation) |
+| 3 | gray | CNQ roe (missing_data: total_equity) | guard rejection: guard_rejected_uncited_number |
+| 4 | gray | CNQ fcf (stale_data) | guard rejection: guard_rejected_uncited_number |
+| 5 | void | revenue for VOID (no snapshot) | honest refusal: resolve_ticker not_found, no number |
+
+No number passed without a source — asserted in the test, not
+eyeballed: every rejected result carries a dictionary reason or the
+guard token, and every answered result's numbers are covered by the
+guard's citations. Counters after the run, from the same place as
+`rusterm status` (`chat_transcript.calls_totals()`):
+`{"calls_total": 3, "calls_today": 3, "per_model": {"unknown": 3}}`
+— 3 of the 40-call budget.
+
+Fixture notes: the live fixture reads the REAL ~/.rusterm.env
+(conftest's hermetic empty env otherwise hides the key — the marker
+run is the one sanctioned exception, disclosed here), and registers
+listings + ticker history so resolve_ticker can actually resolve.
+
+## Done (C5) — AU announcement→body chain probed live; exact refusal named
+
+Marker-gated probe (`tests/test_c5_asx_body_live.py`, `live` +
+`RUSTERM_LIVE=1`), budget ≤15 requests through the provider's gate for
+its own calls; the probe spent 1 announcements request + 3 body
+attempts = 4 of 15.
+
+Measured:
+
+- announcements live: 200, real items (documentKey
+  `2924-03136601-2A1697711`, headline «Ceasing to be a substantial
+  holder from CBA», 2026-09-11) — the first chain step WORKS live;
+- body attempts (all from this network): `…/asx/1/file/<key>`,
+  `…/asxpdf/<key>/pdf/0x0<key>.pdf`, `…/asx/1/file/<key>.pdf` —
+  each **URLError TimeoutError after 30 s** (the www.asx.com.au file
+  host is unreachable from this network; no HTTP status was returned
+  at all);
+- the provider's honest refusal therefore stands and was re-verified:
+  `fetch_document("asxdoc:<key>")` →
+  `manual_import_required:asxdoc:<key>` (dictionary reason).
+
+The chain is completed up to the last step and pinned by the probe
+test; the body stays a manual import (ADR-0011) until someone probes
+the file host from an AU-friendly network. Attempts JSON:
+/tmp/c5_attempts.json.
+
+## C1 — BLOCKED on the key: measured, the ТЗ premise does not hold
+
+The ТЗ premise «RUSTERM_DART_KEY в окружении есть с 13.09.2026» is
+FALSE on this machine, measured by the env door
+(`env_module.load_env()` + `report()`, the same door doctor uses):
+
+    env file: /Users/anton/.rusterm.env exists: True
+    RUSTERM_SEC_UA: НАЙДЕН; RUSTERM_LLM_API_KEY: НАЙДЕН;
+    RUSTERM_LLM_MODEL: НАЙДЕН; RUSTERM_TWELVEDATA_KEY: НАЙДЕН;
+    RUSTERM_DART_KEY: нет (—)
+
+Without the key no DART request can be made, so nothing can be
+recorded for the offline part either. The code door already exists
+(DartProvider resolve/ticker_venues landed with C6); when the key
+lands, this item's recipe applies as written. CONTEXT.md M8 line
+updated to this measured fact (РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md).
+Item → Blocked/Disputed with the measurement above.
+
+NOW: C1 blocked (measured), C5 done, C7 done, C2 done
+
+## HANDOFF (FINAL — TASK-58 state after this session)
+
+- Status: DONE except C1 — BLOCKED on the environment (measured).
+- Items done: C4 (earlier), C3, C6 (earlier commits), C7 (496a19c:
+  O0 red reproduced, three-test red does not reproduce — Disputed
+  with measurements), C2 (eaa91d7 + this file: live model, 5
+  questions, 3 calls of 40, guard caught both gray numbers), C5
+  (this commit: AU chain probed live to the last step; body host
+  times out from this network; manual_import_required stands).
+- C1: BLOCKED — `RUSTERM_DART_KEY` is absent from the environment
+  (measured via the env door; the ТЗ premise «есть с 13.09.2026»
+  does not hold on this machine). CONTEXT.md M8 line updated to the
+  measured fact with the task's explicit permission. When the key
+  lands, the item's recipe applies as written.
+- BACKLOG item S/M: not taken — BACKLOG is the coordinator's (Q4
+  verdict).
+- Questions for the coordinator: (1) where should RUSTERM_DART_KEY
+  come from — the §5 record needs correcting or the key needs
+  adding; (2) the three named flickering tests stay unreproduced —
+  accepted as environment-specific per Q7?
+
+NOW: HANDOFF, handing to coordinator

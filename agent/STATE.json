@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-58.md",
  "report": "agent/REPORT-58.md",
- "item": "C2",
- "step": "C2 done by live run: 5 questions (2 full, 2 gray, 1 void), 3 model calls of 40, guard rejected both uncited gray numbers, full data answered with citation; marker-gated live test",
+ "item": "C1",
+ "step": "C5 done (AU chain probed live: announcements OK, body host times out, manual_import_required stands); C1 BLOCKED measured: RUSTERM_DART_KEY absent from env despite the ТЗ premise; M8 line updated to fact",
  "status": "working",
  "last_commit": "795ee48",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-19T18:31:02Z"
+ "updated_at": "2026-09-19T18:49:13Z"
 }
