@@ -375,3 +375,147 @@ def chat_unavailable_reason(client) -> Optional[str]:
     """
     reason = getattr(client, "_reason", None)
     return str(reason) if reason else None
+
+
+# ── Peer set и отрасль (TASK-C3) ────────────────────────────────────────
+
+def peer_screen(repos, instrument_id: str,
+                as_of: Optional[str] = None) -> dict:
+    """Peer set выбранной компании с правилом отбора словами (C3.1).
+
+    Слова правила собираются из констант и evaluate() ядра
+    (rusterm/core/peers.py) — пороги импортируются, не копируются.
+    Компании без набора — слова об этом, не пустота.
+    """
+    from rusterm.core import peers as peers_core
+    peer = repos.peer_set.peer_set_for_instrument(instrument_id)
+    if peer is None:
+        return {"has_peer_set": False,
+                "message": ("у компании нет peer set — сравнение с "
+                            "конкурентами недоступно; наборы появляются "
+                            "вручную или классификатором (ADR-0002)")}
+    composition = repos.peer_set.composition(peer["peer_set_version_id"])
+    status = peers_core.evaluate(peer["origin"], peer["approved"],
+                                 [], composition["members"])
+    verified = "подтверждён" if status.verified else "не подтверждён"
+    rule = (f"правило: происхождение {peer['origin']}, {verified}; "
+            f"перцентиль от {peers_core.PERCENTILE_MIN_PEERS} участников,"
+            f" отраслевой агрегат от "
+            f"{peers_core.AGGREGATE_MIN_PEERS}, дрейф состава больше "
+            f"{peers_core.DRIFT_SUSPECT_THRESHOLD:.0%} — подозрение")
+    members = []
+    for iid in composition["members"]:
+        ref = repos.instrument.ticker_for_instrument(
+            iid, as_of or _today())
+        members.append({"instrument_id": iid,
+                        "ticker": ref["ticker"] if ref else iid,
+                        "is_self": iid == instrument_id})
+    return {"has_peer_set": True,
+            "peer_set_id": peer["peer_set_id"],
+            "version": peer["version"],
+            "scope": composition["scope"],
+            "markets": composition["markets"],
+            "currencies": composition["currencies"],
+            "rule": rule,
+            "members": members,
+            "verified": status.verified}
+
+
+def industry_table_rows(screen: dict) -> list[dict]:
+    """Строки таблицы отрасли (C3.3): квартили, n, пометка отказа.
+
+    Строка с отказом получает явную пометку «отказ: причина» — при
+    любой сортировке видно, почему у неё нет чисел; молчаливого
+    провала вниз нет.
+    """
+    rows = []
+    for r in screen.get("rows", []):
+        if r.get("null_reason"):
+            counts = ", ".join(f"{k}={v}" for k, v
+                               in sorted(r.get("reason_counts", {})
+                                         .items()))
+            mark = f"отказ: {r['null_reason']}"
+            if counts:
+                mark += f" ({counts})"
+            rows.append({"concept": r["concept"], "p25": NO_DATA,
+                         "median": NO_DATA, "p75": NO_DATA, "n": r["n"],
+                         "mark": mark, "refused": True})
+        else:
+            rows.append({"concept": r["concept"],
+                         "p25": format_value(r["p25"]),
+                         "median": format_value(r["median"]),
+                         "p75": format_value(r["p75"]), "n": r["n"],
+                         "mark": "", "refused": False})
+    return rows
+
+
+def industry_chart_spec(screen: dict,
+                        concept: str | None = None) -> dict:
+    """Одна диаграмма отрасли (C3.3): box-plot выбранной меры по
+    квартилям экрана; мера не выбрана — первая чистая. Отказ меры —
+    слова с причиной, не пустое полотно."""
+    if screen.get("version") is None:
+        return {"kind": "message",
+                "text": f"нет данных: у сектора "
+                        f"{screen.get('sector', '—')} нет версии на "
+                        f"{screen.get('as_of', _today())}"}
+    rows = screen.get("rows", [])
+    chosen = None
+    if concept is not None:
+        chosen = next((r for r in rows if r["concept"] == concept), None)
+        if chosen is None:
+            return {"kind": "message",
+                    "text": f"нет данных: {concept} не агрегируется "
+                            f"по сектору {screen['sector']}"}
+    else:
+        chosen = next((r for r in rows if not r.get("null_reason")),
+                      None)
+        if chosen is None:
+            return {"kind": "message",
+                    "text": "нет данных: все меры отрасли под отказом"}
+    if chosen.get("null_reason"):
+        return {"kind": "message",
+                "text": f"нет данных: {chosen['null_reason']}"}
+    return {"kind": "box", "concept": chosen["concept"],
+            "p25": chosen["p25"], "median": chosen["median"],
+            "p75": chosen["p75"], "n": chosen["n"]}
+
+
+def radar_vs_group_spec(table: dict, industry_screen: dict | None) -> dict:
+    """Радар «компания против медианы группы» (C3.2).
+
+    Ось — мера со значением у компании И с медианой группы; мера без
+    данных компании не занижает медиану — она исключена (счётчик
+    excluded_company), мера без агрегата группы — исключена тоже
+    (excluded_group). Оба счётчика возвращаются словами в окно.
+    """
+    base = {"excluded_company": 0, "excluded_group": 0}
+    if not industry_screen or industry_screen.get("version") is None:
+        return {"kind": "message",
+                "text": "нет данных: группа без версии агрегата",
+                **base}
+    group = {r["concept"]: r for r in industry_screen.get("rows", [])
+             if not r.get("null_reason")}
+    axes = []
+    for row in table["measures"]:
+        if row["unit"] != RATIO_UNIT:
+            continue
+        if not row["has_value"]:
+            base["excluded_company"] += 1
+            continue
+        g = group.get(row["concept"])
+        if g is None:
+            base["excluded_group"] += 1
+            continue
+        axes.append({"concept": row["concept"],
+                     "value": float(row["current"]),
+                     "median": float(g["median"])})
+    if not axes:
+        return {"kind": "message",
+                "text": ("нет данных: нет мер, сравнимых с группой "
+                         f"(исключены — без данных компании: "
+                         f"{base['excluded_company']},"
+                         " без данных группы: "
+                         f"{base['excluded_group']})"),
+                **base}
+    return {"kind": "radar_vs", "axes": axes, **base}

@@ -15,9 +15,9 @@ try:
                                    QHBoxLayout, QHeaderView, QLabel,
                                    QLineEdit, QMainWindow, QPushButton,
                                    QSplitter, QTableWidget,
-                                   QTableWidgetItem, QTreeWidget,
-                                   QTreeWidgetItem, QVBoxLayout,
-                                   QWidget)
+                                   QTableWidgetItem, QTabWidget,
+                                   QTreeWidget, QTreeWidgetItem,
+                                   QVBoxLayout, QWidget)
     QT_AVAILABLE = True
 except ImportError:  # приёмка №1: ядро и тесты живут без PySide6
     QT_AVAILABLE = False
@@ -115,7 +115,8 @@ def _build_window(repos, paths, watchlist_id=None):
     left_layout.addWidget(markets_line)
     body.addWidget(left)
 
-    # ── центр: карточка, диаграмма, таблица (C1.2/C1.3) ────────────
+    # ── центр: вкладки «Компания» и «Отрасль» (C1.2/C1.3/C3) ───────
+    tabs = QTabWidget(objectName="tabs")
     center = QWidget()
     center_layout = QVBoxLayout(center)
     company_header = QLabel(objectName="company_header")
@@ -150,7 +151,42 @@ def _build_window(repos, paths, watchlist_id=None):
     source_panel = QLabel(objectName="source_panel")
     source_panel.setWordWrap(True)
     center_layout.addWidget(source_panel)
-    body.addWidget(center)
+    tabs.addTab(center, "Компания")
+
+    # ── вкладка «Отрасль» (TASK-C3) ────────────────────────────────
+    industry = QWidget()
+    industry_layout = QVBoxLayout(industry)
+    peer_line = QLabel(objectName="peer_line")
+    peer_line.setWordWrap(True)
+    industry_layout.addWidget(peer_line)
+    members_line = QLabel(objectName="members_line")
+    members_line.setWordWrap(True)
+    industry_layout.addWidget(members_line)
+    industry_table = QTableWidget(objectName="industry_table")
+    industry_table.setSelectionBehavior(
+        QTableWidget.SelectionBehavior.SelectRows)
+    industry_table.horizontalHeader().setSectionResizeMode(
+        QHeaderView.ResizeMode.Stretch)
+    industry_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    industry_table.setSortingEnabled(True)  # сортировка по любой мере
+    industry_layout.addWidget(industry_table, 3)
+    industry_controls = QHBoxLayout()
+    industry_controls.addWidget(QLabel("мера:"))
+    industry_measure_box = QComboBox(
+        objectName="industry_measure_box")
+    industry_controls.addWidget(industry_measure_box, 1)
+    industry_layout.addLayout(industry_controls)
+    industry_chart = ChartArea()
+    industry_chart.setObjectName("industry_chart")
+    industry_layout.addWidget(industry_chart, 2)
+    radar_chart = ChartArea()
+    radar_chart.setObjectName("radar_chart")
+    industry_layout.addWidget(radar_chart, 2)
+    excluded_label = QLabel(objectName="excluded_label")
+    excluded_label.setWordWrap(True)
+    industry_layout.addWidget(excluded_label)
+    tabs.addTab(industry, "Отрасль")
+    body.addWidget(tabs)
     body.setStretchFactor(1, 1)
 
     # ── низ: разговор (C1.4) ───────────────────────────────────────
@@ -167,8 +203,8 @@ def _build_window(repos, paths, watchlist_id=None):
     root_layout.addWidget(chat_box)
 
     state = {"companies": [], "selected": None, "table": None,
-             "industry": None, "pinned": set(), "session": None,
-             "chat_reason": None, "worker": None}
+             "industry": None, "peer": None, "pinned": set(),
+             "session": None, "chat_reason": None, "worker": None}
 
     collect_button.setText("Собрать")
     cancel_button.setText("Отменить")
@@ -232,9 +268,12 @@ def _build_window(repos, paths, watchlist_id=None):
         sector = company.get("sector")
         state["industry"] = (tui_model.industry_rows(repos, sector)
                              if sector else None)
+        state["peer"] = data.peer_screen(repos,
+                                         company["instrument_id"])
         _repaint_table(table, info)
         _repaint_measures(measure_box, info)
         apply_chart()
+        _repaint_industry()
         source_panel.setText("клик по ячейке — панель источника")
         collect_button.setEnabled(state["worker"] is None)
 
@@ -245,6 +284,83 @@ def _build_window(repos, paths, watchlist_id=None):
         spec = data.chart_spec(kind, state["table"], state["industry"],
                                measure_box.currentData())
         chart_area.set_spec(spec)
+
+    def apply_industry_chart() -> None:
+        screen = state["industry"]
+        if screen is None:
+            industry_chart.set_spec({
+                "kind": "message",
+                "text": "нет данных: у компании нет peer set"})
+            return
+        spec = data.industry_chart_spec(
+            screen, industry_measure_box.currentData())
+        industry_chart.set_spec(spec)
+
+    def _repaint_industry() -> None:
+        """Вкладка «Отрасль» (TASK-C3): peer set словами, таблица с
+        пометками отказов, box-plot и радар против медианы группы."""
+        peer = state["peer"]
+        screen = state["industry"]
+        if peer is None or not peer["has_peer_set"]:
+            peer_line.setText(peer["message"] if peer else
+                              "у компании нет peer set")
+            members_line.setText("")
+        else:
+            peer_line.setText(
+                f"peer set {peer['peer_set_id']} v{peer['version']}"
+                f" · {peer['scope']}"
+                f" ({', '.join(peer['markets']) or '—'})"
+                f" · {peer['rule']}")
+            members = ", ".join(
+                m["ticker"] + (" ← вы" if m["is_self"] else "")
+                for m in peer["members"])
+            members_line.setText(f"участники ({len(peer['members'])}):"
+                                 f" {members}")
+        rows = data.industry_table_rows(screen) if screen else []
+        industry_table.setSortingEnabled(False)  # на время заполнения
+        industry_table.setColumnCount(6)
+        industry_table.setHorizontalHeaderLabels(
+            ["мера", "p25", "медиана", "p75", "n", "отказ"])
+        industry_table.setRowCount(len(rows))
+        for row, r in enumerate(rows):
+            industry_table.setItem(row, 0, _sort_item(r["concept"],
+                                                      r["concept"]))
+            for column, key in ((1, "p25"), (2, "median"), (3, "p75")):
+                industry_table.setItem(
+                    row, column,
+                    _number_item(r[key], r["refused"]))
+            industry_table.setItem(row, 4,
+                                   _number_item(r["n"], r["refused"]))
+            industry_table.setItem(row, 5, _sort_item(r["mark"],
+                                                      r["mark"]))
+        industry_table.setSortingEnabled(True)
+        industry_measure_box.blockSignals(True)
+        industry_measure_box.clear()
+        if screen is not None:
+            for r in screen.get("rows", []):
+                mark = "" if not r.get("null_reason") \
+                    else " · отказ"
+                industry_measure_box.addItem(r["concept"] + mark,
+                                             userData=r["concept"])
+        industry_measure_box.blockSignals(False)
+        apply_industry_chart()
+        # радар «компания против группы» + исключённые счётчиком
+        if screen is not None and state["table"] is not None:
+            rspec = data.radar_vs_group_spec(state["table"], screen)
+            radar_chart.set_spec(rspec)
+            if rspec["kind"] == "radar_vs":
+                excluded_label.setText(
+                    "радар: компания (сплошная) против медианы группы"
+                    " (пунктир); исключены — без данных компании: "
+                    f"{rspec['excluded_company']},"
+                    " без данных группы: "
+                    f"{rspec['excluded_group']}")
+            else:
+                excluded_label.setText(rspec["text"])
+        else:
+            radar_chart.set_spec({
+                "kind": "message", "text": "нет данных"})
+            excluded_label.setText("")
 
     def on_search(text: str) -> None:
         repaint_sidebar(text)
@@ -380,6 +496,8 @@ def _build_window(repos, paths, watchlist_id=None):
     tree.itemSelectionChanged.connect(on_tree_selection)
     kind_box.currentIndexChanged.connect(lambda _i: apply_chart())
     measure_box.currentIndexChanged.connect(lambda _i: apply_chart())
+    industry_measure_box.currentIndexChanged.connect(
+        lambda _i: apply_industry_chart())
     table.cellClicked.connect(on_cell_clicked)
     question_line.returnPressed.connect(on_ask)
     collect_button.clicked.connect(on_collect)
@@ -402,6 +520,28 @@ def _build_window(repos, paths, watchlist_id=None):
         question_line.setPlaceholderText(
             f"модель недоступна: {state['chat_reason']}")
     return window
+
+
+def _sort_item(text: str, sort_key: str):
+    """Ячейка-строка: сортируется по своему тексту."""
+    item = QTableWidgetItem(text)
+    item.setData(Qt.ItemDataRole.DisplayRole, sort_key)
+    return item
+
+
+def _number_item(value, refused: bool):
+    """Ячейка числа: сортируется как число, показывается текстом;
+    отказ — «нет данных», при сортировке уходит по алфавиту и виден
+    по колонке «отказ», не молча."""
+    if refused:
+        return QTableWidgetItem(data.NO_DATA)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return QTableWidgetItem(str(value or data.NO_DATA))
+    item = QTableWidgetItem()
+    item.setData(Qt.ItemDataRole.DisplayRole, number)
+    return item
 
 
 def _repaint_table(table, info: dict) -> None:

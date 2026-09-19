@@ -162,6 +162,38 @@ if QT_AVAILABLE:
                         ys.append(axis["value"] * math.sin(angle))
                     self.plot(xs, ys, symbol="o", symbolSize=4)
                     self.setAspectLocked(True)
+                elif kind == "radar_vs":
+                    axes = spec["axes"]
+                    count = len(axes)
+                    scale = max(
+                        [a["value"] for a in axes]
+                        + [a["median"] for a in axes]) or 1.0
+
+                    def polygon(pick):
+                        xs, ys = [], []
+                        for i in range(count + 1):
+                            axis = axes[i % count]
+                            r = pick(axis) / scale
+                            angle = 2 * math.pi * i / count
+                            xs.append(r * math.cos(angle))
+                            ys.append(r * math.sin(angle))
+                        return xs, ys
+
+                    xs, ys = polygon(lambda a: a["value"])
+                    self.plot(xs, ys, symbol="o", symbolSize=5,
+                              pen=pg.mkPen("w", width=2))
+                    mxs, mys = polygon(lambda a: a["median"])
+                    self.plot(mxs, mys,
+                              pen=pg.mkPen("y", width=2, style=
+                                           Qt.PenStyle.DashLine))
+                    for i, axis in enumerate(axes):
+                        angle = 2 * math.pi * i / count
+                        r = axis["value"] / scale
+                        item = pg.TextItem(axis["concept"])
+                        item.setPos(r * math.cos(angle),
+                                    r * math.sin(angle))
+                        self.addItem(item)
+                    self.setAspectLocked(True)
 
     # ── QtCharts ────────────────────────────────────────────────────
 
@@ -224,27 +256,61 @@ if QT_AVAILABLE:
                                       spec["p75"]))
                 chart.addSeries(series)
                 chart.createDefaultAxes()
-            else:  # radar
-                series = QLineSeries()
-                axes = spec["axes"]
-                count = len(axes)
-                for i, axis in enumerate(axes + axes[:1]):
-                    series.append(360.0 * i / count, axis["value"])
-                chart = QPolarChart()
-                chart.addSeries(series)
-                angular = QValueAxis()
-                angular.setRange(0, 360)
-                chart.addAxis(
-                    angular,
-                    QPolarChart.PolarOrientation
-                    .PolarOrientationAngular)
-                radial = QValueAxis()
-                chart.addAxis(
-                    radial,
-                    QPolarChart.PolarOrientation
-                    .PolarOrientationRadial)
-                series.attachAxis(angular)
-                series.attachAxis(radial)
+            else:  # radar и radar_vs — полярные
+                from PySide6.QtGui import QPen
+                if kind == "radar_vs":
+                    series_company = QLineSeries()
+                    series_group = QLineSeries()
+                    axes = spec["axes"]
+                    count = len(axes)
+                    for i in range(count + 1):
+                        axis = axes[i % count]
+                        angle = 360.0 * i / count
+                        series_company.append(angle, axis["value"])
+                        series_group.append(angle, axis["median"])
+                    chart = QPolarChart()
+                    chart.addSeries(series_company)
+                    chart.addSeries(series_group)
+                    angular = QValueAxis()
+                    angular.setRange(0, 360)
+                    chart.addAxis(
+                        angular,
+                        QPolarChart.PolarOrientation
+                        .PolarOrientationAngular)
+                    radial = QValueAxis()
+                    chart.addAxis(
+                        radial,
+                        QPolarChart.PolarOrientation
+                        .PolarOrientationRadial)
+                    for s in chart.series():
+                        s.attachAxis(angular)
+                        s.attachAxis(radial)
+                    # QtCharts не подписывает вершины — состав осей
+                    # виден в таблице и в подписи исключённых
+                    pen = QPen()
+                    pen.setStyle(Qt.PenStyle.DashLine)
+                    series_group.setPen(pen)
+                else:
+                    series = QLineSeries()
+                    axes = spec["axes"]
+                    count = len(axes)
+                    for i, axis in enumerate(axes + axes[:1]):
+                        series.append(360.0 * i / count, axis["value"])
+                    chart = QPolarChart()
+                    chart.addSeries(series)
+                    angular = QValueAxis()
+                    angular.setRange(0, 360)
+                    chart.addAxis(
+                        angular,
+                        QPolarChart.PolarOrientation
+                        .PolarOrientationAngular)
+                    radial = QValueAxis()
+                    chart.addAxis(
+                        radial,
+                        QPolarChart.PolarOrientation
+                        .PolarOrientationRadial)
+                    series.attachAxis(angular)
+                    series.attachAxis(radial)
 
             view = QChartView(chart)
             view.setRenderHint(QPainter.RenderHint.Antialiasing)

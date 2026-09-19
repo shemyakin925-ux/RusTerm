@@ -332,3 +332,69 @@ def test_collect_cancel_button_wires_flag(qapp, env):
     status_line = _widget(window, QLabel, "collect_status")
     text = _wait_for_collect(window, status_line)
     assert text.startswith(("отменено", "готово")), text
+
+
+# ── C3: peer set и отрасль ──────────────────────────────────────────────
+
+def _select(window, ticker):
+    tree = _widget(window, QTreeWidget, "tree")
+    for g in range(tree.topLevelItemCount()):
+        group = tree.topLevelItem(g)
+        for i in range(group.childCount()):
+            if group.child(i).text(0).startswith(ticker + " "):
+                tree.setCurrentItem(group.child(i))
+                return
+    raise AssertionError(f"{ticker} нет в дереве")
+
+
+def test_industry_tab_shows_peer_set_with_rule(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    peer_line = _widget(window, QLabel, "peer_line")
+    assert "peer set energy" in peer_line.text()
+    assert "правило: происхождение manual" in peer_line.text()
+    members = _widget(window, QLabel, "members_line")
+    assert "AAA" in members.text() and "BBB" in members.text()
+
+
+def test_industry_tab_without_peer_set_says_words(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "DEMO")
+    peer_line = _widget(window, QLabel, "peer_line")
+    assert "нет peer set" in peer_line.text()
+
+
+def test_industry_table_marks_refusals_and_sorts(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    table = _widget(window, QTableWidget, "industry_table")
+    assert table.rowCount() > 0
+    # отказ помечен словами в своей колонке, а не молча
+    marks = [table.item(r, 5).text() for r in range(table.rowCount())]
+    assert any(m.startswith("отказ:") for m in marks)
+    assert all(m != "" or
+               table.item(r, 1).text() != desktop_data.NO_DATA
+               for r, m in enumerate(marks))
+    # сортировка по любой мере: по имени меры туда-обратно
+    table.sortItems(0)
+    first_asc = table.item(0, 0).text()
+    table.sortItems(0, __import__("PySide6.QtCore", fromlist=["Qt"])
+                    .Qt.SortOrder.DescendingOrder)
+    first_desc = table.item(0, 0).text()
+    assert first_asc != first_desc
+    assert first_desc == sorted(
+        table.item(r, 0).text() for r in range(table.rowCount()))[-1]
+
+
+def test_radar_excluded_counts_shown(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    excluded = _widget(window, QLabel, "excluded_label")
+    assert "исключены" in excluded.text()
+    radar = window.findChild(ChartArea, "radar_chart")
+    assert radar is not None
+    assert radar.current_text() != "", "без агрегатов радар говорит словами"
