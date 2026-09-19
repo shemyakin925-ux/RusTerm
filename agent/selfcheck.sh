@@ -13,6 +13,17 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
+# ТЗ-B1: хук (agent/githooks/pre-commit) получает от git GIT_INDEX_FILE,
+# GIT_DIR и GIT_WORK_TREE — указатель на .lock индекса коммита. Весь
+# прогон дальше (приёмка, pytest, вложенные selfcheck) наследует их, и
+# любой тест, зовущий git в ЧУЖОМ репозитории (b35: git init во
+# временном дереве; вложенный selfcheck стража P3/P4), читает чужой
+# индекс и краснеет только под хуком, оставаясь зелёным снаружи.
+# Санация возвращает тестам честное окружение; стражи ниже читают
+# настоящий индекс коммита через discovery по cwd — содержимое то же.
+unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
+
 fail() {
     printf 'SELFCHECK FAIL (%s): %s\n' "$1" "$2" >&2
     exit 1
