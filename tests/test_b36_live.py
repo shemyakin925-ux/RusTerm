@@ -117,7 +117,7 @@ def live_env(tmp_path_factory):
     conn.close()
 
 
-def test_b36_live_five_questions(live_env):
+def test_b36_live_five_questions(live_env, tmp_path):
     repos, paths, conn = live_env
     from rusterm import env as env_module
     env_module.load_env()
@@ -160,9 +160,10 @@ def test_b36_live_five_questions(live_env):
                             "citations": citations[:3]})
         save_transcript(repos, session, session_id)
     # результаты пишутся ДО ассертов: падение не прячет измерения
-    (Path("/tmp") / "b36_results.json").write_text(
+    (tmp_path / "b36_results.json").write_text(
         json.dumps(results, ensure_ascii=False, indent=1),
         encoding="utf-8")
+    print("B36_RESULTS:", tmp_path / "b36_results.json")
     assert len(results) == 5
     for r in results:
         if r["kind"] == "full" and r["outcome"] == "answer":

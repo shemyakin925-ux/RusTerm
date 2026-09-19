@@ -13,6 +13,15 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
+# Перенос fix с agent/night-12 (ТЗ-B1 B1.1): хук отдаёт selfcheck'у
+# GIT_INDEX_FILE/GIT_DIR/GIT_WORK_TREE — весь прогон наследует их, и
+# любой тест, зовущий git в чужом репозитории (b35-family: git init во
+# временном дереве), читает чужой индекс и краснеет только под хуком.
+# Санация возвращает тестам честное окружение; стражи ниже читают
+# настоящий индекс через discovery по cwd.
+unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
+
 fail() {
     printf 'SELFCHECK FAIL (%s): %s\n' "$1" "$2" >&2
     exit 1

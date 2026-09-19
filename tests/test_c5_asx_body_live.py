@@ -76,7 +76,7 @@ def test_c5_asx_announcement_body_chain(tmp_path):
         if status == 200 and head.startswith(b"%PDF"):
             body = payload
             break
-    (Path("/tmp") / "c5_attempts.json").write_text(
+    (tmp_path / "c5_attempts.json").write_text(
         json.dumps(attempts, ensure_ascii=False, indent=1),
         encoding="utf-8")
     assert gate.calls_made <= 15, gate.calls_made

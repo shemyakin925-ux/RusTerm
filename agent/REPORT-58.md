@@ -235,8 +235,7 @@ Measured:
 
 The chain is completed up to the last step and pinned by the probe
 test; the body stays a manual import (ADR-0011) until someone probes
-the file host from an AU-friendly network. Attempts JSON:
-/tmp/c5_attempts.json.
+the file host from an AU-friendly network. Attempts JSON: written by the probe into its tmp_path.
 
 ## C1 — BLOCKED on the key: measured, the ТЗ premise does not hold
 
