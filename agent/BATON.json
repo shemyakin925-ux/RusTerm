@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 1,
+ "holder": "executor",
+ "round": 2,
  "branch": "agent/night-12",
  "task": "agent/TASK-B1.md",
  "report": "agent/REPORT-B1.md",
- "note": "Полоса B заведена",
+ "note": "Полоса B, круг 1: B1.1 перепись честности формул, B1.2 словарь причин, B1.3 ноль против нет-данных. Сеть 0. Территория в ТЗ: markets/providers/parsers/concepts/db/cli/chat/CONTEXT/BACKLOG — чужие, правку в них оформлять строкой в Disputed, а не коммитом.",
  "handed_by": "coordinator",
- "handed_at": "2026-09-19T14:03:29Z",
+ "handed_at": "2026-09-19T14:03:35Z",
  "paused": false,
  "finished": false
 }
