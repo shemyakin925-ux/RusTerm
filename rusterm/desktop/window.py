@@ -744,9 +744,13 @@ def _build_window(repos, paths, watchlist_id=None):
         переживают перезапуск окна — читаются из базы."""
         chat_sessions_box.blockSignals(True)
         chat_sessions_box.clear()
-        chat_sessions_box.addItem("прошлые разговоры", userData=None)
-        if repos is not None:
-            for session in data.chat_sessions(repos):
+        sessions = data.chat_sessions(repos) if repos else None
+        if sessions is None:
+            chat_sessions_box.addItem(
+                "прошлые разговоры: ждёт двери list_sessions в store "
+                "(Disputed REPORT-C7)", userData=None)
+        else:
+            for session in sessions:
                 chat_sessions_box.addItem(
                     f"{session['session_id'][:8]}… · "
                     f"{session['calls']} вызов.",
@@ -971,6 +975,7 @@ def _repaint_measures(box, info: dict) -> None:
 
 def run(root, watchlist_id=None) -> int:
     """Точка входа python3 -m rusterm.desktop: только чтение."""
+    import os as _os
     if not QT_AVAILABLE:
         print("PySide6 не установлен: pip install 'rusterm[desktop]'",
               flush=True)
@@ -984,6 +989,11 @@ def run(root, watchlist_id=None) -> int:
     window = _build_window(repos, paths, watchlist_id)
     window.resize(1280, 800)
     window.show()
+    if _os.environ.get("RUSTERM_APP_SMOKE"):
+        # C10.4: smoke-прогон сборки — окно стартовало и закрывается
+        # само; в обычной работе переменной нет и окно живёт
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1200, window.close)
     code = app.exec()
     if conn is not None:
         conn.close()

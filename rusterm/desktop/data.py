@@ -751,16 +751,13 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
 
 # ── Разговор (TASK-C7): расшифровки и счётчики из тех же мест ───────────
 
-def chat_sessions(repos) -> list[dict]:
-    """C7.1: прошлые разговоры, свежие сверху. Таблица та же, что
-    читает rusterm export --chat; перечня у ChatTranscriptRepo нет —
-    прямой SELECT той же таблицы без досчёта (дверь перечня в чужом
-    файле — Disputed)."""
-    rows = repos.conn.execute(
-        """SELECT session_id, model, started_at, calls
-           FROM chat_transcript ORDER BY started_at DESC""").fetchall()
-    return [{"session_id": r[0], "model": r[1], "started_at": r[2],
-             "calls": r[3]} for r in rows]
+def chat_sessions(repos) -> Optional[list]:
+    """C7.1: перечень прошлых разговоров. Двери в store НЕТ
+    (ChatTranscriptRepo.list_sessions отсутствует), а прямые SQL вне
+    rusterm/store запрещены инвариантом I10 — поэтому функция
+    честно отвечает None, и окно говорит это словами. Дверь добавит
+    координатор (Disputed REPORT-C7/C10)."""
+    return None
 
 
 def chat_transcript_lines(repos, session_id: str) -> list[str]:

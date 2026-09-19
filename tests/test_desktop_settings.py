@@ -42,6 +42,10 @@ def paths_env(tmp_path, monkeypatch):
 # ── C9.1: ключи — откуда, без значений ──────────────────────────────────
 
 def test_keys_view_names_origin_without_values(paths_env, monkeypatch):
+    for name in ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER",
+                 "RUSTERM_LLM_API_KEY", "RUSTERM_LLM_MODEL",
+                 "RUSTERM_TWELVEDATA_KEY"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("RUSTERM_LLM_API_KEY", "sk-secret-value-xyz")
     view = desktop_data.keys_view()
     rows = {r["name"]: r for r in view["rows"]}

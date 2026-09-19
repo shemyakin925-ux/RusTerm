@@ -74,3 +74,15 @@ desktop set (peers, window, export, watchlist, source panel, chat) —
 - For the coordinator: carried asks; plus the list_sessions door.
 
 NOW: C7, step 5 (committed)
+
+
+## What not to trust (addendum, after the full-suite run)
+
+- The full suite caught `test_no_sql_outside_store` (invariant I10)
+  red on `data.chat_sessions`: my enumeration was a raw SELECT over
+  chat_transcript — SQL outside rusterm/store. Corrected in the next
+  commit: `chat_sessions` now returns None and the window says the
+  list awaits a `list_sessions` door in the store (Disputed above
+  becomes a hard requirement, not a preference). Persistence and
+  opening by id (the repo's `get`) are unaffected; the survive-restart
+  test now asserts via the store door.

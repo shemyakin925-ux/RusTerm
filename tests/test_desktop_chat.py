@@ -73,10 +73,14 @@ import json  # noqa: E402
 
 # ── C7.1: история разговоров ─────────────────────────────────────────────
 
-def test_sessions_listed_fresh_first_and_openable(with_transcripts):
+def test_sessions_listing_is_honest_about_missing_door(with_transcripts):
+    """I10: перечня без SQL вне store нет — функция честно None."""
     repos, _conn, _paths = with_transcripts
-    sessions = desktop_data.chat_sessions(repos)
-    assert [s["session_id"] for s in sessions] == ["s-bbb", "s-aaa"]
+    assert desktop_data.chat_sessions(repos) is None
+
+
+def test_sessions_openable(with_transcripts):
+    repos, _conn, _paths = with_transcripts
     lines = desktop_data.chat_transcript_lines(repos, "s-aaa")
     assert any("вы: почему roe пустой?" in line for line in lines)
     assert any("модель: roe нет" in line for line in lines)
@@ -96,18 +100,15 @@ def test_sessions_survive_window_restart(with_transcripts, monkeypatch,
 
     window = desktop_window._build_window(repos, paths, "wl-1")
     combo = window.findChild(QComboBox, "chat_sessions_box")
-    assert combo.count() == 3  # заголовок + два разговора
-    combo.setCurrentIndex(2)  # s-aaa — свежайший
+    assert combo.count() == 1  # двери перечня нет — слова (I10/Disputed)
     answer = window.findChild(QLabel := __import__(
         "PySide6.QtWidgets", fromlist=["QLabel"]).QLabel,
         "answer_label")
-    assert "почему roe пустой?" in answer.text()
     window.close()
 
-    # перезапуск окна: разговоры на месте, ключ в тексте не светится
+    # перезапуск окна: разговоры живы в store, ключ не светится
     window2 = desktop_window._build_window(repos, paths, "wl-1")
-    combo2 = window2.findChild(QComboBox, "chat_sessions_box")
-    assert combo2.count() == 3
+    assert repos.chat_transcript.get("s-aaa")["calls"] == 3
     texts = " ".join(label.text() for label in
                      window2.findChildren(__import__(
                          "PySide6.QtWidgets",
