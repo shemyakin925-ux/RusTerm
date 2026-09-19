@@ -87,3 +87,13 @@ imports without PySide6 (acceptance check 1 holds).
   home for the version-dance helper and the bulk-remove audit token).
 
 NOW: C5, step 5 (committed)
+
+## What not to trust (addendum)
+
+- The C5 commit (e08783c) accidentally carried a gitlink for
+  `.wt-exec2/` — an embedded clone left inside the main checkout by
+  the earlier (crashed) session; my `git add -A` swept it in. The
+  follow-up commit removes the gitlink from the index; the directory
+  itself is left on disk untouched (not lane C property — its owner
+  should delete it). Lesson applied: stage named files, not `-A`, in
+  this checkout.
