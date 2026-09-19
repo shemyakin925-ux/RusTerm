@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-57.md",
  "report": "agent/REPORT-57.md",
- "item": "A4",
- "step": "A4 done: AU announcements channel (resolve/raw/cache/manual_import_required/zero facts), markets channel asx, budget by number; BR add-resolve defect reported; A3+A5.1 disclosed as ffeb518",
- "status": "working",
+ "item": "done",
+ "step": "TASK-57 done: A1 (920d299), A2 (5271ff8), A3+A5.1 (ffeb518), A4 (6fd5996); A5 three named tests not reproduced in 2 attempts -> Disputed Q7; final HANDOFF in REPORT-57",
+ "status": "awaiting_review",
  "last_commit": "5271ff8",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-19T07:22:00Z"
+ "updated_at": "2026-09-19T11:21:00Z"
 }

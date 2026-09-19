@@ -166,8 +166,32 @@ independent of the ambient index and wall clock. After the fix:
 `python3 -m pytest tests/test_selfcheck_guard.py -q` → 3 passed.
 
 This is NOT one of the three tests named in the ТЗ; those three are
-still under investigation (pending a standalone check-11 reproduction
-run on this machine).
+covered below.
+
+**The three ТЗ-named tests: not reproduced — attempts counted.**
+
+Reproduction attempts on `6fd5996` (this machine, clean index, after
+the A1–A4 landings):
+
+1. Exact check-11 command standalone:
+   `PYTHONPATH=/tmp/block57 python3 -m pytest -q` (block dir with a
+   raising `zstandard.py`, same wording as acceptance) → all green,
+   exit 0.
+2. The coordinator's exact sequence, back-to-back:
+   `python3 -m pytest -q` (check 3) followed immediately by the
+   blocked-PYTHONPATH full run (check 11) → both all green,
+   chain exit 0.
+3. Incidental coverage: every selfcheck of this shift runs the suite
+   TWICE (executor + pre-commit hook) — 8 full pytest passes across
+   A1–A4, all green, including both passes on the A5.1 commit itself.
+
+Measured statements (not guesses): the failure is not a missing
+gzip-fallback (confirmed by the coordinator), and it did not reproduce
+on this machine under the two documented conditions. It fired once in
+the coordinator's attached tree on `fdb8070` and not in their second
+run — the remaining variables are that tree/commit, their concurrent
+workload, and the pre-A1 code state. Verdict: question 7 below, with
+these attempts named; per ТЗ the item is not silently closed.
 
 ## A4. AU: the last market without a door — announcements channel, Z2 shape
 
@@ -230,6 +254,15 @@ in this task; BR's is a two-line candidate for the next task.
   recorded ASX bodies, honest manual_import_required per filing, zero
   facts, markets channel named, budget by number); BR add-resolve
   defect reported as a candidate.
+- A5: three named tests — 2 targeted reproduction attempts + 8
+  incidental full passes, all green on `6fd5996`; moved to question 7
+  with the attempts counted, not silently closed.
+- Backlog item NOT taken, with the reason: the only open S/M items are
+  B36 (size M, needs live model calls — a fresh multi-commit item,
+  not a tail-of-shift item) and B38 (touches PROTOCOL.md —
+  coordinator-owned, P6-blocked for this executor); B34/B37 are
+  already closed per the round-68 baton note. Per the ТЗ rule
+  «ничего, на что не хватает времени» — skipped, named here.
 
 ## Blocked
 
@@ -243,53 +276,87 @@ in this task; BR's is a two-line candidate for the next task.
   guard-source test (cascade, same root). Fixed in this commit; the
   red run's pytest line: 11 passed checks / 2 failed checks (check 3
   and check 11, same three FAILED tests).
+- The user's pause killed a selfcheck mid-run; the I5 test module had
+  STAGED the widened `agent/p6_rule.sh` (+2 duplicated comment lines)
+  and was killed before its restore. Found by index plumbing
+  (`git diff --cached` showed the +2 lines) BEFORE the final commit,
+  unstaged and restored byte-exact; no commit carried it, CONTEXT.md
+  verified clean. Lesson recorded: kill nothing while an I5 test is
+  mid-module.
 
 ## Disputed
 
-- Q1 (for the coordinator): §10 says the shift ends 10:00 Danang, but
-  the round-68 baton was handed at 11:19 Danang with TASK-57 READY.
-  Treated the hand as the instruction to run a daytime round; the Y0
-  line is negative. Confirm the stop-time convention for daytime
-  relay rounds (this report reprints the number but cannot compute a
-  meaningful countdown against a stop already in the past).
+- Q1: §10 says the shift ends 10:00 Danang, but the round-68 baton
+  was handed at 11:19 Danang with TASK-57 READY. Treated the hand as
+  the instruction to run a daytime round; the Y0 line is negative.
+  Confirm the stop-time convention for daytime relay rounds.
+- Q2 (A2 candidate, no code written per ТЗ): CVM DRE line 3.08 is
+  filed as a SIGNED deduction; `effective_tax = clip(tax/pretax, 0,
+  0.5)` turns AMBEV's −0.2381 into a green 0.0 (true rate ≈ 23.8%).
+  Decide: sign normalization at the map layer (cvm-dfp.v2) or a
+  separate measure.
+- Q3 (A3 sweep): `metrics`, `doctor` (both read-only by default) and
+  borderline `census` open via `_open` and create a data dir on an
+  absent root; `tui` is documented read-only but creates the dir and
+  migrates in `run()`. Same breed as B35 — next-task material, not
+  fixed per ТЗ.
+- Q4 (BACKLOG vs P6): ТЗ-57 says «РАЗРЕШЕНО ПРАВИТЬ:
+  agent/BACKLOG.md» and A3 says «B35 помечена закрытой в
+  agent/BACKLOG.md», but the committed P6 guard has no authorization
+  path for BACKLOG at all (markers cover only PROTOCOL/CONTEXT; the
+  only legal BACKLOG commits in history are «Эстафета» relay
+  commits). Followed the guard, not the ТЗ line: the B35 closure text
+  sits in the working tree and rides your relay commit. The ТЗ line
+  and the guard disagree — the guard wins until you rule.
+- Q5 (A4): the AU channel stops at the document BODIES (two-step PDF
+  chain, «не проверена живьём», ADR-0010 §5) — not a key, not a paid
+  tariff. Spend a few live requests probing that chain? If free and
+  open, AU graduates from announcements-only to real documents; if
+  not, the refusal stands named. Network-budget call, yours.
+- Q6 (A4 side-finding): CvmProvider lacks `resolve` — a real
+  `add --market BR` dies with AttributeError today (Z2's adapter
+  masked it). Candidate two-liner for the next task.
+- Q7 (A5): the three named flickering tests (export-transcript,
+  tui-grep, venue-404) did not reproduce in 2 targeted attempts +
+  8 incidental passes on this machine and commit (evidence in the A5
+  section). The one reproduced flicker of this shift (dirty-tree/O0)
+  is fixed (ffeb518). Rule: accept A5 as PARTIAL with the counted
+  attempts, or name the coordinator-side conditions (their tree,
+  workload, fdb8070) for one more targeted attempt.
 
 ## HANDOFF
 
-Status:          working (interim)
+Interim value kept for the record: the shift is closed, see the FINAL
+block below — it supersedes this section.
+
+## HANDOFF (FINAL — supersedes the interim values above)
+
+Status:          DONE (A5 partial for the three named tests — Q7)
 Arrival state:   selfcheck STATUS=OK on clean tree at 91e41ef, exit 0
 Items done:      A1 (920d299), A2 (5271ff8), A3+A5.1 (ffeb518),
-                 A4 (this commit) — all pushed
-Items not done:  A5 for the three ТЗ-named tests (investigation
-                 pending), backlog item
-Acceptance:      previous commits: 13/0, Принято, exit 0 (both runs);
-                 this commit re-runs the same command
-Tests:           test_task57_au_channel.py 5 passed, test_task56_z2.py
-                 7 passed (AU channel assert updated to new truth)
-Guards:          none touched
-Schema:          unchanged
-Network:         0 requests used
+                 A4 (6fd5996), final report (this commit) — all pushed
+Items not done:  A5 for the three ТЗ-named tests — not reproduced in
+                 2 attempts (question 7); backlog item skipped with
+                 the reason named in Done
+Acceptance:      every landed commit ran acceptance twice (executor +
+                 pre-commit hook), all 13/0, «Принято», exit 0:
+                 920d299, 5271ff8, ffeb518, 6fd5996
+Tests:           final suite 13/0 twice; new tests this shift:
+                 test_i2 3, test_task57_br_census 5,
+                 test_b35_markets_readonly 3, test_task57_au_channel 5,
+                 test_task56_z2 updated to the new channel truth
+Guards:          none weakened; test_selfcheck_guard now independent
+                 of the ambient index (I5_NESTED=1, A5.1); P1 pin
+                 declaration carried in the A4 commit message
+Schema:          unchanged (44→45 done in ТЗ-56; no new migration)
+Network:         0 requests of the A2/A3 budgets; A4 offline on
+                 recorded ASX bodies; 0 live calls all shift
 Model:           app llm_calls 0; runner model GLM-5.3-Flash
-Secrets:         no key material in new tests or the report
-Pushed:          this commit — yes, right after selfcheck passes
-Questions for the coordinator:
-1. Stop-time convention for daytime relay rounds (see Disputed Q1).
-2. A2 candidate: CVM 3.08 sign normalization (see the candidate item).
-3. A3 divergences: metrics/doctor/census/tui open-mode candidates
-   (see A3) — next-task material.
-4. ТЗ-57 says «РАЗРЕШЕНО ПРАВИТЬ: agent/BACKLOG.md» and A3 says
-   «B35 помечена закрытой в agent/BACKLOG.md», but the committed P6
-   guard has no authorization path for BACKLOG at all (its marker
-   branch covers only PROTOCOL/CONTEXT; the only legal BACKLOG commits
-   in history are «Эстафета» relay commits). Followed the guard, not
-   the ТЗ line: the BACKLOG closure text is prepared in the working
-   tree and rides the coordinator's relay commit. The ТЗ line and the
-   guard disagree — the guard wins until you rule.
-5. A4: the AU channel stops at the document BODIES (two-step PDF
-   chain, «не проверена живьём», ADR-0010 §5) — not a key, not a paid
-   tariff. Spend a few live requests on probing that chain? If it is
-   free and open, AU graduates from announcements-only to real
-   documents; if not, the refusal stands named. Network-budget call,
-   yours.
-6. A4 side-finding: CvmProvider lacks `resolve` — real
-   `add --market BR` dies with AttributeError today (Z2's adapter
-   masked it). Candidate two-liner for the next task.
+Secrets:         grepped new tests, GUIDE.md and this report for
+                 RUSTERM keys — hits 0 (only the FAKE-KEY fixture in
+                 pre-existing tests)
+Pushed:          yes (6fd5996 and this commit right after selfcheck)
+Questions for the coordinator: see Disputed Q1 and Q7, plus numbered
+1–6 above (Y0 stop-time convention; CVM 3.08 sign candidate; A3
+open-mode divergences; BACKLOG/P6 ruling; AU PDF-chain live probe;
+CvmProvider.resolve defect).
