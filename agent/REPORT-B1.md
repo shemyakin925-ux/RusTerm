@@ -134,3 +134,33 @@ tests/test_industry_maritime.py tests/test_n2_industry_view.py` —
 62 passed.
 
 NOW: B1.2, step 6 (committed)
+
+## Done (B1.3) — zero vs no-data boundary (commit 3)
+
+Measures where 0 is reachable BOTH ways (genuine zero inputs vs
+missing input), each shown by run (probe B1.1 + boundary tests +
+census CLI here); distinguishable in output after the B1.1 closures:
+invested_capital (all-zero → 0.0 vs refusal naming missing concepts —
+was a TypeError crash), nopat (oi=0 → 0.0 vs missing tax_rate →
+missing_data — was (None, None)), drawdown (rising series → 0.0 vs
+empty → missing_data vs nonpositive prices → refusal — was silent 0.0),
+fcf (0−0 → 0.0 vs missing_data), ebitda (oi=0,d&a=0 → 0.0 vs refusal
+naming d_and_a), gross/operating/net_margin, ttm, market_cap(_total),
+ev, total_return, cagr, pe/pb/ps/ev_ebitda/div_yield,
+interest_coverage. hhi: 0 unreachable (shares sum to 1). No remaining
+indistinguishable pair; all closures live in formulas.py (own
+territory) — nothing needed for Disputed here.
+
+Pair test on the snapshot pipeline: `tests/test_b1_zero_vs_missing.py`
+— two synthetic offline issuers, same period: ZERO files
+operating_income=0 with live tax and cash flow; NODATA files the same
+tax and cash flow but no operating_income. Result in measure rows and
+in live `census --instrument … --json`: ZERO nopat = 0.0 (reason
+None), NODATA nopat = refusal `missing_data: operating_income` (chain
+names the missing link); both effective_tax = 0.2 and fcf = 0.0
+(genuine zeros). export --json renders the same measure rows
+(value/reason), so no extra run was needed.
+
+Verification: `pytest tests/test_b1_zero_vs_missing.py -q` — 2 passed.
+
+NOW: B1.3, step 4 (committed)

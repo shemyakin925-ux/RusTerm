@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-B1.md",
  "report": "agent/REPORT-B1.md",
- "item": "B1.2",
- "step": "reason census: peer_set_not_confirmed added to dictionary, 50 non-measure tokens allowlisted with scopes, guard test landed",
+ "item": "B1.3",
+ "step": "zero vs no-data pair on snapshot pipeline: census --json shows 0.0 vs missing_data: operating_income; enumeration in report",
  "status": "working",
  "last_commit": "pending",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-19T16:41:08Z"
+ "updated_at": "2026-09-19T16:53:56Z"
 }
