@@ -238,3 +238,91 @@ def budget_view(repos) -> dict:
     return {"ceiling_per_night": 5000, "rate_per_second": 5,
             "provider_ran": bool(samples), "samples": samples,
             "used_today": header_info(repos)["requests_today"]}
+
+
+# ── TASK-C4: экспорт того, что на экране ────────────────────────────────
+
+def _snapshot_measures(repos, instrument_id: str):
+    """Меры последнего снапшота — та же дверь, что у rusterm export."""
+    snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)
+    if snapshot_id is None:
+        return None, []
+    return snapshot_id, repos.snapshot.get_measures(snapshot_id)
+
+
+def _lineage_facts(repos, measures) -> dict:
+    """measure_id -> входные факты (FactRepo.get_fact) — та же цепочка,
+    которую панель источника показывает по клику."""
+    lineage: dict = {}
+    for m in measures:
+        facts = [repos.fact.get_fact(fid)
+                 for fid in repos.snapshot.lineage_fact_ids(m[0])]
+        lineage[m[0]] = [f for f in facts if f is not None]
+    return lineage
+
+
+def _source_cell(facts: list) -> str:
+    """Ячейка источника: вид источника, хэш ответа (укороченный),
+    дата периода факта. Строка со значением без источника уйти не
+    должна — это проверяет тест."""
+    parts = []
+    for f in facts:
+        kind = f.get("source_kind") or "provider"
+        parts.append(f"{kind}:{str(f.get('source_ref'))[:12]}"
+                     f"@{f.get('period_end')}")
+    return "; ".join(parts)
+
+
+def export_snapshot_csv(repos, instrument_id: str) -> str:
+    """CSV таблицы: базовые колонки — тем же кодом, что
+    `rusterm export --format csv` (snapshot_to_csv ядра, байт в байт),
+    плюс колонка «источник» из lineage фактов (C4.3). Отказ несёт
+    причину в колонке null_reason — те же слова, что на экране.
+    Ячейка источника не содержит запятых и кавычек по построению
+    (вид:hex@дата, разделитель «;»), поэтому дописывается без
+    перекавычивания строки ядра."""
+    from rusterm.core.export import snapshot_to_csv
+    _sid, measures = _snapshot_measures(repos, instrument_id)
+    base = snapshot_to_csv(measures)
+    lineage = _lineage_facts(repos, measures)
+    lines = base.rstrip("\n").splitlines()
+    out = [lines[0], lines[1] + ",источник"]
+    for i, m in enumerate(measures):
+        out.append(lines[2 + i] + "," + _source_cell(lineage.get(m[0], [])))
+    return "\n".join(out) + "\n"
+
+
+def export_snapshot_md(repos, instrument_id: str) -> str:
+    """Markdown — в точности код ядра (snapshot_to_md): отказ — прочерк
+    со сноской и причиной, те же слова, что на экране (C4.1)."""
+    from rusterm.core.export import snapshot_to_md
+    _sid, measures = _snapshot_measures(repos, instrument_id)
+    return snapshot_to_md(measures)
+
+
+def export_snapshot_json(repos, instrument_id: str) -> str:
+    """JSON — код ядра (snapshot_to_json) с провенансом (ТЗ-20 L9:
+    attach_provenance по lineage) и валютами мер (ТЗ-22 J1): документ,
+    дата и хэш ответа едут в файл вместе с числом (C4.3)."""
+    import json as _json
+
+    from rusterm.core.export import snapshot_to_json
+    sid, measures = _snapshot_measures(repos, instrument_id)
+    if sid is None:
+        return ""
+    snapshot = repos.snapshot.get_snapshot(sid)
+    lineage = _lineage_facts(repos, measures)
+    currencies = {m[0]: repos.snapshot.measure_currency(m[0], m[3])
+                  for m in measures}
+    return snapshot_to_json(snapshot, measures, provenance=lineage,
+                            currencies=currencies)
+
+
+def chart_caption(table: dict, concept: str | None) -> str:
+    """Подпись под картинкой (C4.2): эмитент, мера, период, дата
+    выгрузки — из данных таблицы, без досчёта."""
+    years = table.get("years") or []
+    period = f"{years[-1]}–{years[0]}" if years else "—"
+    return (f"{table.get('ticker', '—')} · {table.get('name') or '—'}"
+            f" · мера {concept or '—'} · период {period}"
+            f" · выгружено {_today()}")

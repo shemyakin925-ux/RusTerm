@@ -14,7 +14,8 @@ from __future__ import annotations
 import math
 
 try:
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QRect
+    from PySide6.QtGui import QColor, QImage, QPainter
     from PySide6.QtWidgets import QLabel, QWidget
     QT_AVAILABLE = True
 except ImportError:  # приёмка №1: модуль обязан импортироваться без Qt
@@ -97,6 +98,39 @@ if QT_AVAILABLE:
             if self._view is not None:
                 self._view.setGeometry(self.rect())
             self._label.setGeometry(self.rect())
+
+        def save_png(self, path: str, caption: str = "") -> bool:
+            """C4.2: текущий график в png; подпись припечатана снизу
+            к снимку виджета. Сообщению-заглушке тоже можно сохранить
+            png — подпись честно скажет, что на экране было."""
+            image = self.grab().toImage()
+            if not caption:
+                return image.save(path)
+            margin = 8
+            probe = QPainter(image)
+            font = probe.font()
+            font.setPointSize(10)
+            probe.setFont(font)
+            text_rect = probe.boundingRect(
+                QRect(0, 0, image.width() - 2 * margin, 60),
+                Qt.TextWordWrap, caption)
+            probe.end()
+            canvas = QImage(
+                image.width(),
+                image.height() + text_rect.height() + 2 * margin,
+                QImage.Format_ARGB32_Premultiplied)
+            canvas.fill(QColor("white"))
+            painter = QPainter(canvas)
+            painter.drawImage(0, 0, image)
+            painter.setPen(QColor("black"))
+            painter.setFont(font)
+            painter.drawText(
+                QRect(margin, image.height() + margin,
+                      canvas.width() - 2 * margin,
+                      text_rect.height() + margin),
+                Qt.TextWordWrap, caption)
+            painter.end()
+            return canvas.save(path)
 
         def _drop_view(self) -> None:
             if self._view is not None:

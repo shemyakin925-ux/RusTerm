@@ -15,11 +15,15 @@
 """
 from __future__ import annotations
 
+import csv
 import datetime
+import io
+import json
 import sqlite3
 from pathlib import Path
 from typing import Optional
 
+from rusterm.core.export import snapshot_to_csv, snapshot_to_md
 from rusterm.store.db import current_schema_version, open_connection
 from rusterm.store.paths import AppPaths
 from rusterm.tui import model as tui_model
@@ -519,3 +523,84 @@ def radar_vs_group_spec(table: dict, industry_screen: dict | None) -> dict:
                          f"{base['excluded_group']})"),
                 **base}
     return {"kind": "radar_vs", "axes": axes, **base}
+
+
+# ── Экспорт (TASK-C4): тот же код ядра, что у rusterm export ────────────
+
+def export_snapshot_measures(repos, instrument_id: str) -> Optional[list]:
+    """Меры последнего снапшота — те же записи, что читает
+    `rusterm export`; экспорт не пересчитывает и не досчитывает.
+    Снапшота нет — None, и это честный отказ, а не пустой файл."""
+    sid = repos.snapshot.latest_snapshot_id(instrument_id)
+    if sid is None:
+        return None
+    return repos.snapshot.get_measures(sid)
+
+
+def _source_cell(repos, measure_row) -> str:
+    """Колонка источника (C4.3): канал или документ, локатор входного
+    факта, хэш сохранённого ответа, конец периода. У меры без входов
+    ячейка пуста — значения без источника не бывает."""
+    cells = []
+    for fact_id in repos.snapshot.lineage_fact_ids(measure_row[0]):
+        fact = repos.fact.get_fact(fact_id)
+        if fact is None:
+            continue
+        locator = fact["locator"]
+        if isinstance(locator, str):
+            try:
+                locator = json.loads(locator)
+            except ValueError:
+                locator = {"locator": locator}
+        kind = fact.get("source_kind") or "provider"
+        if kind == "manual":
+            where = (locator or {}).get("locator", "") or "файл"
+        else:
+            where = ((locator or {}).get("endpoint")
+                     or (locator or {}).get("locator", ""))
+        sha = (fact.get("source_ref") or "")[:12]
+        period = fact["period_end"] or ""
+        cells.append(f"{kind} {where} #{sha} {period}".strip())
+    return "; ".join(cells)
+
+
+def export_table_csv(repos, instrument_id: str) -> Optional[str]:
+    """C4.1+C4.3: csv видимой таблицы. Значения и отказы — байт-в-байт
+    snapshot_to_csv ядра (тот же вызов, что у rusterm export: та же
+    запись меры, те же слова отказа в колонке null_reason); колонка
+    «источник» дописана desktop-слоем из lineage фактов. Снапшота
+    нет — None."""
+    measures = export_snapshot_measures(repos, instrument_id)
+    if measures is None:
+        return None
+    base = snapshot_to_csv(measures)
+    rows = list(csv.reader(io.StringIO(base)))
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(rows[0])
+    writer.writerow(rows[1] + ["источник"])
+    for row, measure in zip(rows[2:], measures):
+        writer.writerow(row + [_source_cell(repos, measure)])
+    return out.getvalue()
+
+
+def export_table_md(repos, instrument_id: str) -> Optional[str]:
+    """C4.1+C4.3: md — текст ядра snapshot_to_md как есть (отказы —
+    его сноски с теми же null_reason, что на панели источника
+    экрана), плюс раздел «Источники» по мерам. Снапшота нет — None."""
+    measures = export_snapshot_measures(repos, instrument_id)
+    if measures is None:
+        return None
+    text = snapshot_to_md(measures)
+    sources = [f"- {m[3]}: {_source_cell(repos, m) or 'входов нет'}"
+               for m in measures]
+    return text + "\nИсточники:\n" + "\n".join(sources) + "\n"
+
+
+def chart_caption(table: dict, concept: str, period: str = "",
+                  exported_at: str | None = None) -> str:
+    """Подпись png (C4.2): эмитент, мера, период, дата выгрузки."""
+    who = " · ".join(part for part in (table.get("ticker"),
+                                       table.get("name")) if part)
+    return (f"{who} — {concept}; период {period or '—'}; "
+            f"выгружено {exported_at or _today()}")

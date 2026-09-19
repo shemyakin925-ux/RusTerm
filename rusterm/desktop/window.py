@@ -11,16 +11,18 @@ from __future__ import annotations
 
 try:
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import (QApplication, QComboBox, QGroupBox,
-                                   QHBoxLayout, QHeaderView, QLabel,
-                                   QLineEdit, QMainWindow, QPushButton,
-                                   QSplitter, QTableWidget,
+    from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog,
+                                   QGroupBox, QHBoxLayout, QHeaderView,
+                                   QLabel, QLineEdit, QMainWindow,
+                                   QPushButton, QSplitter, QTableWidget,
                                    QTableWidgetItem, QTabWidget,
                                    QTreeWidget, QTreeWidgetItem,
                                    QVBoxLayout, QWidget)
     QT_AVAILABLE = True
 except ImportError:  # приёмка №1: ядро и тесты живут без PySide6
     QT_AVAILABLE = False
+
+from pathlib import Path as _Path
 
 from rusterm.desktop import actions as desktop_actions
 from rusterm.desktop import data
@@ -131,6 +133,18 @@ def _build_window(repos, paths, watchlist_id=None):
     collect_status = QLabel(objectName="collect_status")
     collect_row.addWidget(collect_status, 1)
     center_layout.addLayout(collect_row)
+    export_row = QHBoxLayout()
+    export_csv_button = QPushButton(objectName="export_csv_button")
+    export_csv_button.setText("экспорт csv")
+    export_md_button = QPushButton(objectName="export_md_button")
+    export_md_button.setText("экспорт md")
+    save_png_button = QPushButton(objectName="save_png_button")
+    save_png_button.setText("график в png")
+    for button in (export_csv_button, export_md_button, save_png_button):
+        button.setEnabled(False)
+        export_row.addWidget(button)
+    export_row.addStretch(1)
+    center_layout.addLayout(export_row)
     controls = QHBoxLayout()
     kind_box = QComboBox(objectName="kind_box")
     for kind in data.CHART_KINDS:
@@ -276,6 +290,9 @@ def _build_window(repos, paths, watchlist_id=None):
         _repaint_industry()
         source_panel.setText("клик по ячейке — панель источника")
         collect_button.setEnabled(state["worker"] is None)
+        for button in (export_csv_button, export_md_button,
+                       save_png_button):
+            button.setEnabled(True)
 
     def apply_chart() -> None:
         if state["table"] is None:
@@ -493,6 +510,47 @@ def _build_window(repos, paths, watchlist_id=None):
     search.textChanged.connect(on_search)
     tree.itemExpanded.connect(on_item_expanded)
     tree.itemCollapsed.connect(on_item_collapsed)
+    def _export_table(fmt: str) -> None:
+        """C4.1+C4.3: видимая таблица уходит в файл тем же кодом ядра,
+        что rusterm export (значения и слова отказа не пересобираются);
+        адрес спрашивает диалог, каталог по умолчанию — exports/."""
+        selected = state.get("selected")
+        if not selected:
+            return
+        text = (data.export_table_csv(repos, selected["instrument_id"])
+                if fmt == "csv" else
+                data.export_table_md(repos, selected["instrument_id"]))
+        if text is None:
+            return
+        target, _filter = QFileDialog.getSaveFileName(
+            window, f"экспорт {fmt}", str(paths.root / "exports"),
+            f"*.{fmt}")
+        if not target:
+            return
+        _Path(target).write_text(text, encoding="utf-8")
+
+    def on_save_png() -> None:
+        """C4.2: текущий график в png с подписью (эмитент, мера,
+        период, дата выгрузки)."""
+        if not state.get("table"):
+            return
+        concept = measure_box.currentData() or ""
+        period = ""
+        for row in state["table"]["measures"]:
+            if row["concept"] == concept:
+                period = row["measure"].get("period") or ""
+                break
+        caption = data.chart_caption(state["table"], concept, period)
+        target, _filter = QFileDialog.getSaveFileName(
+            window, "сохранить график", str(paths.root / "exports"),
+            "*.png")
+        if not target:
+            return
+        chart_area.save_png(target, caption)
+
+    export_csv_button.clicked.connect(lambda: _export_table("csv"))
+    export_md_button.clicked.connect(lambda: _export_table("md"))
+    save_png_button.clicked.connect(on_save_png)
     tree.itemSelectionChanged.connect(on_tree_selection)
     kind_box.currentIndexChanged.connect(lambda _i: apply_chart())
     measure_box.currentIndexChanged.connect(lambda _i: apply_chart())

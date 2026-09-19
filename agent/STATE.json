@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-C3.md",
- "report": "agent/REPORT-C3.md",
- "item": "C3",
- "step": "C3 done: peer screen with rule in words, box+radar vs group with exclusion counters, industry table with refusal marks and sorting; inherited WIP reviewed and green",
+ "task": "agent/TASK-C4.md",
+ "report": "agent/REPORT-C4.md",
+ "item": "C4",
+ "step": "C4 done: csv/md via core export calls (byte-identical values, refusal words kept), png with caption, source column from lineage",
  "status": "working",
  "last_commit": "99558d9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-19T17:16:46Z"
+ "updated_at": "2026-09-19T17:25:42Z"
 }
