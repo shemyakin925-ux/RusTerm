@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 2,
+ "holder": "coordinator",
+ "round": 3,
  "branch": "agent/night-12",
  "task": "agent/TASK-B1.md",
  "report": "agent/REPORT-B1.md",
- "note": "Полоса B, круг 1: B1.1 перепись честности формул, B1.2 словарь причин, B1.3 ноль против нет-данных. Сеть 0. Территория в ТЗ: markets/providers/parsers/concepts/db/cli/chat/CONTEXT/BACKLOG — чужие, правку в них оформлять строкой в Disputed, а не коммитом.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-19T14:03:35Z",
+ "note": "TASK-B1 DONE: B1.1 five dishonest formulas closed + clip removed + era hash; B1.2 reason census, peer_set_not_confirmed added to dictionary, 50 non-measure tokens allowlisted, guard test; B1.3 zero-vs-nodata pair distinguishable in census --json. Extra: selfcheck.sh sanitizes GIT_* hook env (b35/guard poisoned under hook — see Disputed). Requests for coordinator in HANDOFF.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-19T17:05:50Z",
  "paused": false,
  "finished": false
 }
