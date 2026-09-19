@@ -188,13 +188,10 @@ class ChatSession:
                 this_question_results, [question])
             guarded = self.guard_answer(answer, allowed_values)
             if guarded is None:
-                # ТЗ-53 W3: ответ с неподкреплённым числом при
-                # известной причине данных получает ПРИЧИНУ ДАННЫХ,
-                # а не общее «число не процитировано» — и не перекрывает
-                # зелёный ответ: серая мера в блоке не отменяет
-                # ответенную по зелёным (перебор снят живым прогоном
-                # круга 60: net_margin зелёный, блок серый целиком не
-                # отказывает).
+                # Отказ бракованного стражем ответа несёт причину
+                # данных, а зелёный ответ серую меру в блоке не
+                # отменяет: test_green_answer_survives_gray_measure_
+                # in_block (tests/test_i2_does_not_know.py).
                 if reason_from_tools is not None:
                     refusal = f"no_data:{reason_from_tools}"
                     self.transcript.append(TranscriptEntry(

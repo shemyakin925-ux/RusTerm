@@ -157,3 +157,87 @@ def test_green_measure_still_answers(env):
     assert result["answer"] == "net_margin Tanker Corp — 0.194."
     assert result["citations"] == ["0.194"]
     conn.close()
+
+
+# ── ТЗ-57 A1: порядок «страж → отказ с причиной данных» закреплён ──
+# Хвост круга 60 (15c854f): серая мера в блоке не отменяет зелёный
+# ответ, а отказ бракованного стражем ответа несёт ПРИЧИНУ ДАННЫХ.
+
+
+def _mixed_block(repos):
+    """Снапшот с зелёной И серой мерой в одном блоке — как в живом
+    прогоне круга 60 (net_margin зелёный, блок серый целиком)."""
+    repos.snapshot.create_snapshot("s-mix", "US-T", 3, "2024-12-31",
+                                   None, "none", "ready")
+    repos.snapshot.insert_measure(
+        "m-mix-nm", "s-mix", "issuer", "i1", "net_margin", "0.194",
+        "ratio", "2024-01-01", "2024-12-31", "net_margin", "v3",
+        None, None)
+    repos.snapshot.insert_measure(
+        "m-mix-roe", "s-mix", "issuer", "i1", "roe", None,
+        "ratio", "2024-01-01", "2024-12-31", "roe", "v3",
+        "missing_data: total_equity", None)
+
+
+def test_green_answer_survives_gray_measure_in_block(env):
+    """Случай (а): ответ прошёл страж, причина данных известна (в блоке
+    есть серая мера) — ответ ВЫДАЁТСЯ, rejected ложь. Краснеет при
+    откате 15c854f: там отказ no_data стрелял до стража."""
+    conn, repos, paths = env
+    _mixed_block(repos)
+    session = _session(repos, [
+        {"tool_calls": [{"name": "get_snapshot_block",
+                         "arguments": {"instrument_id": "US-T",
+                                       "block": "fundamentals"}}]},
+        {"text": "net_margin Tanker Corp — 0.194."},
+    ])
+    result = session.ask("каков net_margin у US-T?")
+    assert result["rejected"] is False, result
+    assert result["answer"] == "net_margin Tanker Corp — 0.194."
+    assert result["citations"] == ["0.194"]
+    conn.close()
+
+
+def test_guard_failure_with_known_reason_carries_data_reason(env):
+    """Случай (б): ответ НЕ прошёл страж, причина данных известна —
+    отказ несёт причину данных (no_data:<токен из словаря>), а не
+    общее «число не процитировано»."""
+    conn, repos, paths = env
+    _mixed_block(repos)
+    session = _session(repos, [
+        {"tool_calls": [{"name": "get_snapshot_block",
+                         "arguments": {"instrument_id": "US-T",
+                                       "block": "fundamentals"}}]},
+        {"text": "roe Tanker Corp — 42.7 процента."},
+    ])
+    result = session.ask("каков roe у US-T?")
+    assert result["rejected"] is True
+    assert result["answer"] is None
+    assert result["reason"] == "no_data:missing_data", result["reason"]
+    token = result["reason"].split(":", 1)[1]
+    assert is_known_reason(token), token
+    conn.close()
+
+
+def test_guard_failure_without_data_reason_stays_generic(env):
+    """Случай (в): страж не прошёл, причины данных нет (в блоке только
+    зелёные меры) — отказ прежний, общий, на конкретный текст."""
+    conn, repos, paths = env
+    repos.snapshot.create_snapshot("s-green-only", "US-T", 4,
+                                   "2024-12-31", None, "none", "ready")
+    repos.snapshot.insert_measure(
+        "m-go-nm", "s-green-only", "issuer", "i1", "net_margin",
+        "0.194", "ratio", "2024-01-01", "2024-12-31", "net_margin",
+        "v4", None, None)
+    session = _session(repos, [
+        {"tool_calls": [{"name": "get_snapshot_block",
+                         "arguments": {"instrument_id": "US-T",
+                                       "block": "fundamentals"}}]},
+        {"text": "net_margin Tanker Corp — 42.7 процента."},
+    ])
+    result = session.ask("каков net_margin у US-T?")
+    assert result["rejected"] is True
+    assert result["answer"] is None
+    assert result["reason"] == "guard_rejected_uncited_number", \
+        result["reason"]
+    conn.close()
