@@ -252,15 +252,16 @@ def test_facts_carry_cvm_provenance_and_resolve(app, cvm_channel,
 
 
 def test_markets_shows_channel_honestly(app, cvm_channel, capsys):
-    """rusterm markets: у BR канал назван, у AU — честное отсутствие
-    вместо provider_status=implemented при мёртвом канале."""
+    """rusterm markets: у BR канал назван; с ТЗ-57 A4 канал есть и у
+    AU (анонсы ASX), KR — честное отсутствие вместо
+    provider_status=implemented при мёртвом канале."""
     root, paths = app
     assert cli.main(["--root", str(root), "markets", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     by_code = {row["code"]: row for row in payload["markets"]}
     assert by_code["BR"]["channel"] == "cvm"
     assert by_code["BR"]["provider_status"] == "implemented"
-    assert by_code["AU"]["channel"] is None
+    assert by_code["AU"]["channel"] == "asx"
     assert by_code["AU"]["provider_status"] == "implemented"
     assert by_code["KR"]["channel"] is None
     assert by_code["US"]["channel"] == "edgar"

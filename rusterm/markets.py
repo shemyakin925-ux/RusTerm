@@ -68,8 +68,9 @@ PROVIDER_CHANNELS: dict[str, str | None] = {
     "edgar": "edgar",   # companyfacts: US/CA/OTC
     "cvm": "cvm",       # годовые наборы DFP: BR (ТЗ-56 Z2)
     "dart": None,       # без ключа провайдер не строится (ТЗ-21 H8)
-    "asx": None,        # тела документов машинно недостижимы
-                        # (ADR-0010 §5): только manual import
+    "asx": "asx",       # анонсы эмитента: AU (ТЗ-57 A4); тела PDF
+                        # машинно недостижимы (ADR-0010 §5) — каждая
+                        # подача называется, manual import
 }
 
 

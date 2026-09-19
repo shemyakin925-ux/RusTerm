@@ -216,6 +216,18 @@ def cmd_ingest(args) -> int:
                 exit_code = code
         conn.close()
         return exit_code
+    if args.source == "asx":
+        # Анонсы Австралии (ТЗ-57 A4): дверь только по явному
+        # --source, как у edgar/cvm
+        exit_code = 0
+        for instrument_id, issuer_id in targets:
+            code = _ingest_asx_announcements(repos, instrument_id,
+                                             issuer_id,
+                                             args_as_of_default())
+            if code != 0:
+                exit_code = code
+        conn.close()
+        return exit_code
     if args.source == "ownership":
         # Владение Forms 3/4/5 (ТЗ-32 D2): реальный сбор никогда не
         # дефолт; metadata из submissions, тела — с Archives
@@ -446,6 +458,76 @@ def _record_cvm_budget(repos, gate) -> None:
     import time as _time
     repos.metrics.record_sample(_time.time(), "provider_requests_used",
                                 "cvm", float(gate.calls_made))
+
+
+def _ingest_asx_announcements(repos, instrument_id: str, issuer_id: str,
+                              as_of: str) -> int:
+    """ASX-канал (ТЗ-57 A4, форма ТЗ-56 Z2): список анонсов эмитента —
+    сырьё с провенансом в raw store (кеш по каноническому URL без
+    ключа, неизменный список — ноль запросов). ТЕЛА документов
+    бесплатным каналом недостижимы (двухшаговая PDF-цепочка не
+    проверена живьём, ADR-0010 §5): каждая подача честно называется
+    manual_import_required:asxdoc:<ключ> — фактов канал не приносит,
+    ни одна мера не возникает из воздуха. Рыночного индекса у канала
+    нет (asx_no_marketwide_index) — инкрементальность по эмитенту:
+    повторный прогон переиспользует тело по URL-кешу."""
+    import json as _json
+    import time as _time
+
+    from rusterm.providers.base import ProviderError as _PE
+    from rusterm.providers.budget import BudgetExceeded, ConfigError
+
+    instrument = repos.instrument.get_instrument(instrument_id)
+    if instrument is None:
+        print(f"инструмента нет в базе: {instrument_id}", file=sys.stderr)
+        return 1
+    tick = repos.instrument.ticker_for_instrument(instrument_id, as_of)
+    if tick is None:
+        print(f"у {instrument_id!r} нет тикера на {as_of}",
+              file=sys.stderr)
+        return 1
+    code = str(tick["ticker"]).upper()
+    gate = RequestGate()
+    provider = get_provider("asx", gate=gate)
+    if isinstance(provider, ConfigError):
+        print(f"asx-провайдер недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+
+    url = (f"https://asx.api.markitdigital.com/asx-research/1.0/"
+           f"companies/{code}/announcements")
+    cached_sha = repos.raw.find_by_provider_url("asx", url)
+    requests_spent = 0
+    if cached_sha is not None:
+        raw = repos.raw.get(cached_sha)
+    else:
+        raw = provider.announcements_raw(code)
+        if isinstance(raw, (ConfigError, BudgetExceeded, _PE)):
+            reason = getattr(raw, "reason", "budget_exceeded")
+            print(f"asx недоступен: {reason}", file=sys.stderr)
+            repos.metrics.record_sample(_time.time(),
+                                        "provider_requests_used",
+                                        "asx", float(gate.calls_made))
+            return 1
+        repos.raw.put(raw, provider="asx", block="disclosures",
+                      url=url, instrument_id=instrument_id)
+        requests_spent = 1
+    repos.metrics.record_sample(_time.time(), "provider_requests_used",
+                                "asx", float(gate.calls_made))
+
+    items = ((_json.loads(raw.decode("utf-8")).get("data") or {})
+             .get("items") or [])
+    named = 0
+    for item in items:
+        key = item.get("documentKey", "")
+        outcome = provider.fetch_document(f"asxdoc:{key}")
+        if isinstance(outcome, _PE) and outcome.reason.startswith(
+                "manual_import_required"):
+            named += 1
+    print(f"{instrument_id}: анонсов: {len(items)}; тел машинно "
+          f"недостижимо: {named} (manual_import_required); фактов: 0; "
+          f"запросов: {requests_spent}")
+    return 0
 
 
 def _ingest_cvm_dfp(repos, instrument_id: str, issuer_id: str,
@@ -1996,7 +2078,8 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--market", default=None)
     p_ing.add_argument("--watchlist", default=None)
     p_ing.add_argument("--source", choices=("synthetic", "edgar", "cvm",
-                                            "twelvedata", "ownership"),
+                                            "asx", "twelvedata",
+                                            "ownership"),
                        default="synthetic")
     sub.add_parser("demo", help="создать синтетический демо-инструмент")
     p_add = sub.add_parser("add", help="добавить настоящую компанию")

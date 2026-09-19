@@ -144,7 +144,7 @@ CA	CA	exchange	edgar	cik	ifrs-full	auto	implemented	edgar	1
 OTC	US	otc	edgar	cik	us-gaap	partial	implemented	edgar	1
 KR	KR	exchange	dart	corp_code	ifrs-full	auto	implemented	-	1
 BR	BR	exchange	cvm	cvm_code	ifrs-full	auto	implemented	cvm	1
-AU	AU	exchange	asx	asx_code	ifrs-full	partial	implemented	-	1
+AU	AU	exchange	asx	asx_code	ifrs-full	partial	implemented	asx	1
 ```
 
 `markets` — реестр рынков: провайдер, схема идентификатора, уровень

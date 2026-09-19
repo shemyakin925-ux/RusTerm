@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-57.md",
  "report": "agent/REPORT-57.md",
- "item": "A5.1",
- "step": "A5 cause 1 fixed: dirty-tree test now I5_NESTED=1 (O0 on stale staged STATE.json fired before P3/P4 in second pass); three named tests still pending",
+ "item": "A4",
+ "step": "A4 done: AU announcements channel (resolve/raw/cache/manual_import_required/zero facts), markets channel asx, budget by number; BR add-resolve defect reported; A3+A5.1 disclosed as ffeb518",
  "status": "working",
  "last_commit": "5271ff8",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-19T06:35:00Z"
+ "updated_at": "2026-09-19T07:22:00Z"
 }

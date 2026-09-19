@@ -169,6 +169,44 @@ This is NOT one of the three tests named in the ТЗ; those three are
 still under investigation (pending a standalone check-11 reproduction
 run on this machine).
 
+## A4. AU: the last market without a door — announcements channel, Z2 shape
+
+`rusterm add --ticker CBA --market AU` → `ingest --instrument AU-CBA
+--source asx` → `snapshot` now runs end-to-end OFFLINE on the
+recorded ASX bodies (`tests/data/asx/header_CBA.json`,
+`announcements_CBA.json`, live crawl of 11.09), through the REAL
+`AsxProvider` — no adapter this time (Z2's BR test needed one because
+its provider lacked `resolve`; see the defect note below).
+
+Code: `AsxProvider.resolve` (header → name; code = ASX ticker, the
+market identifier is `asx_code`), `ticker_venues()` (honest `{}` — no
+exchange file), `announcements_raw` (raw bytes for provenance);
+`_ingest_asx_announcements` in cli (raw store by canonical URL, cache:
+unchanged list — 0 requests); `PROVIDER_CHANNELS["asx"] = "asx"`.
+
+Tests `tests/test_task57_au_channel.py` (5 passed): full path; raw
+object provenance (`provider='asx'`, URL `.../CBA/announcements`,
+block `disclosures`) and cache rerun with 0 requests; no measure from
+thin air (EVERY snapshot measure of AU-CBA refuses, all reason tokens
+dictionary-checked, all 11 census measures present as refusals);
+markets names the AU channel `asx` (the Z2 honesty test updated to the
+new truth — KR stays honestly `None`); budget named by number from
+`rusterm budget` (fresh ingest = 1 request, cached rerun = 0).
+
+The channel's refusal point, named precisely: **the document BODIES**
+— a two-step PDF chain «не проверена нами живьём» (ADR-0010 §5). It is
+NOT a key and NOT a paid tariff: header/announcements are open and
+free, and the channel is honest about every filing
+(`manual_import_required:asxdoc:<ключ>`, count printed per ingest).
+Whether to probe the PDF chain live is a network-budget question for
+the coordinator (Disputed Q5).
+
+**Defect found on the way (candidate, not fixed):** `CvmProvider` has
+no `resolve` — a REAL `rusterm add --ticker X --market BR` would die
+with AttributeError; the Z2 tests masked this with a `_BR` adapter
+supplying resolve/can_auto_ingest/ticker_venues. ASX got its resolve
+in this task; BR's is a two-line candidate for the next task.
+
 ## Done
 
 - A1: circle-60 tail pinned in both directions
@@ -181,7 +219,17 @@ run on this machine).
   (test in a temp git tree, git status asserted), init/ingest positive
   control; full CLI sweep table + 4 unfixed divergences (metrics,
   doctor, census, tui) reported. BACKLOG edit is in the working tree
-  for the coordinator's relay commit (Disputed Q4).
+  for the coordinator's relay commit (question 4). NOTE: the A3 test
+  and report sections landed inside commit ffeb518 together with the
+  A5.1 fix — the A3 files were still staged in the index when the
+  A5.1 commit was made; disclosed here, no content was lost.
+- A5.1: first flicker cause named and fixed
+  (test_selfcheck_cannot_exit_zero_with_dirty_tree now runs the
+  nested selfcheck with I5_NESTED=1; repro in the A5 section).
+- A4: AU announcements channel landed (add/ingest/snapshot offline on
+  recorded ASX bodies, honest manual_import_required per filing, zero
+  facts, markets channel named, budget by number); BR add-resolve
+  defect reported as a candidate.
 
 ## Blocked
 
@@ -209,11 +257,14 @@ run on this machine).
 
 Status:          working (interim)
 Arrival state:   selfcheck STATUS=OK on clean tree at 91e41ef, exit 0
-Items done:      A1 (920d299), A2 (5271ff8), A3 (this commit) — pushed
-Items not done:  A4, A5, backlog item — A4 in progress
-Acceptance:      A1 and A2 commits: 13/0, Принято, exit 0 (both runs);
+Items done:      A1 (920d299), A2 (5271ff8), A3+A5.1 (ffeb518),
+                 A4 (this commit) — all pushed
+Items not done:  A5 for the three ТЗ-named tests (investigation
+                 pending), backlog item
+Acceptance:      previous commits: 13/0, Принято, exit 0 (both runs);
                  this commit re-runs the same command
-Tests:           test_b35_markets_readonly.py 3 passed (new)
+Tests:           test_task57_au_channel.py 5 passed, test_task56_z2.py
+                 7 passed (AU channel assert updated to new truth)
 Guards:          none touched
 Schema:          unchanged
 Network:         0 requests used
@@ -233,3 +284,12 @@ Questions for the coordinator:
    the ТЗ line: the BACKLOG closure text is prepared in the working
    tree and rides the coordinator's relay commit. The ТЗ line and the
    guard disagree — the guard wins until you rule.
+5. A4: the AU channel stops at the document BODIES (two-step PDF
+   chain, «не проверена живьём», ADR-0010 §5) — not a key, not a paid
+   tariff. Spend a few live requests on probing that chain? If it is
+   free and open, AU graduates from announcements-only to real
+   documents; if not, the refusal stands named. Network-budget call,
+   yours.
+6. A4 side-finding: CvmProvider lacks `resolve` — real
+   `add --market BR` dies with AttributeError today (Z2's adapter
+   masked it). Candidate two-liner for the next task.
