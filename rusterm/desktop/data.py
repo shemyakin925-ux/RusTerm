@@ -223,6 +223,7 @@ def measure_table_rows(repos, instrument_id: str,
             point = history.get(measure["concept"], {}).get(year)
             year_cells[year] = (format_value(point["value"])
                                 if point else NO_DATA)
+        period_end = measure.get("period") or ""
         rows.append({
             "concept": measure["concept"],
             "current": format_value(current) if has_value else NO_DATA,
@@ -231,6 +232,7 @@ def measure_table_rows(repos, instrument_id: str,
             "null_reason": measure.get("null_reason"),
             "unit": measure.get("unit"),
             "measure": measure,
+            "stale_mark": staleness_mark(period_end),
         })
     instrument = repos.instrument.get_instrument(instrument_id)
     name = None
@@ -787,3 +789,60 @@ def llm_usage_line(repos) -> str:
     line = (f"вызовы: {totals['calls_total']}"
             f" (сегодня {totals['calls_today']})")
     return f"{line}; {per}" if per else line
+
+
+# ── Качество данных (TASK-C8): порог — константа ядра ───────────────────
+
+def measure_coverage(repos, instrument_id: str) -> dict:
+    """C8.1: сколько мер зелёные из скольких и чем красные красны —
+    из тех же строк снапшота, из которых rusterm coverage --json
+    считает measure_reason_counts; число совпадает с CLI по
+    построению. Снапшота нет — has_snapshot False, не пустота."""
+    sid = repos.snapshot.latest_snapshot_id(instrument_id)
+    if sid is None:
+        return {"has_snapshot": False, "green": 0, "total": 0,
+                "reasons": {}}
+    measures = repos.snapshot.get_measures(sid)
+    reasons: dict[str, int] = {}
+    green = 0
+    for m in measures:
+        if m[4] is not None:
+            green += 1
+            continue
+        token = (m[10] or "missing_data").split(":", 1)[0]
+        reasons[token] = reasons.get(token, 0) + 1
+    return {"has_snapshot": True, "green": green, "total": len(measures),
+            "reasons": reasons}
+
+
+def staleness_mark(period_end: str, as_of: str | None = None) -> str:
+    """C8.2: период старше порога давности снапшота — пометка словами.
+    Порог — имя константы ядра (_STALE_LOOKBACK_DAYS, TASK-12 Y2),
+    не число в коде окна."""
+    from datetime import date as _date
+    from rusterm.core.snapshot import _STALE_LOOKBACK_DAYS
+    if not period_end:
+        return ""
+    try:
+        anchor = _date.fromisoformat(as_of or _today())
+        end = _date.fromisoformat(period_end)
+    except (TypeError, ValueError):
+        return ""
+    if (anchor - end).days > _STALE_LOOKBACK_DAYS:
+        return (f"устаревшая: период {period_end} старше порога "
+                f"давности снапшота ({_STALE_LOOKBACK_DAYS} дн.)")
+    return ""
+
+
+def governance_view(card: dict) -> dict:
+    """C8.3: governance — пять отдельных показателей, каждый со своим
+    цветом без свёртки; цвет и расшифровка серых причин берутся из
+    ядра (GREY_REASONS), окно цвет не вычисляет."""
+    from rusterm.core.governance import GREY_REASONS
+    rows = []
+    for g in card.get("governance", []):
+        rows.append({"indicator": g["indicator"], "color": g["color"],
+                     "reason": g.get("reason") or "",
+                     "note": GREY_REASONS.get(g.get("reason") or "", ""),
+                     "lineage_ref": g.get("lineage_ref") or ""})
+    return {"rows": rows}

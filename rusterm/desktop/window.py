@@ -234,6 +234,23 @@ def _build_window(repos, paths, watchlist_id=None):
     excluded_label.setWordWrap(True)
     industry_layout.addWidget(excluded_label)
     tabs.addTab(industry, "Отрасль")
+
+    # ── вкладка «Качество» (TASK-C8) ───────────────────────────────
+    quality = QWidget()
+    quality_layout = QVBoxLayout(quality)
+    coverage_label = QLabel(objectName="coverage_label")
+    coverage_label.setWordWrap(True)
+    quality_layout.addWidget(coverage_label)
+    governance_table = QTableWidget(objectName="governance_table")
+    governance_table.setColumnCount(3)
+    governance_table.setHorizontalHeaderLabels(
+        ["показатель", "цвет", "расшифровка"])
+    governance_table.horizontalHeader().setSectionResizeMode(
+        QHeaderView.ResizeMode.Stretch)
+    governance_table.setEditTriggers(QTableWidget.EditTrigger
+                                     .NoEditTriggers)
+    quality_layout.addWidget(governance_table, 1)
+    tabs.addTab(quality, "Качество")
     body.addWidget(tabs)
     body.setStretchFactor(1, 1)
 
@@ -421,10 +438,12 @@ def _build_window(repos, paths, watchlist_id=None):
                              if sector else None)
         state["peer"] = data.peer_screen(repos,
                                          company["instrument_id"])
+        state["card"] = info["card"]
         _repaint_table(table, info)
         _repaint_measures(measure_box, info)
         apply_chart()
         _repaint_industry()
+        repaint_quality()
         source_panel.setText("клик по ячейке — панель источника")
         collect_button.setEnabled(state["worker"] is None)
         for button in (export_csv_button, export_md_button,
@@ -540,6 +559,36 @@ def _build_window(repos, paths, watchlist_id=None):
         payload = item.data(0, Qt.ItemDataRole.UserRole)
         if payload and payload[0] == "company":
             load_company(payload[1])
+
+    def repaint_quality() -> None:
+        """C8: покрытие мер (те же строки, что rusterm coverage),
+        пометки устаревания и governance пятью цветами с расшифровкой
+        из ядра; цвет в окне не вычисляется."""
+        if repos is None or state["table"] is None:
+            coverage_label.setText("качества нет — базы нет")
+            governance_table.setRowCount(0)
+            return
+        instrument_id = state["selected"]["instrument_id"]
+        coverage = data.measure_coverage(repos, instrument_id)
+        if not coverage["has_snapshot"]:
+            coverage_label.setText("снапшота нет — качество мер не "
+                                   "измерить; сначала rusterm ingest")
+        else:
+            reasons = ", ".join(f"{token}: {count}" for token, count
+                                in sorted(coverage["reasons"].items()))
+            tail = f"; отказы — {reasons}" if reasons else ""
+            coverage_label.setText(
+                f"покрытие мер: {coverage['green']} из "
+                f"{coverage['total']}{tail}")
+        governance = data.governance_view(state["card"])
+        governance_table.setRowCount(len(governance["rows"]))
+        for row, g in enumerate(governance["rows"]):
+            note = g["note"] or (f"причина: {g['reason']}"
+                                 if g["reason"] else "")
+            for column, text in enumerate((g["indicator"], g["color"],
+                                           note)):
+                governance_table.setItem(
+                    row, column, QTableWidgetItem(text))
 
     def on_open_raw() -> None:
         """C6.2: сохранённый ответ открывают средства системы; файла
