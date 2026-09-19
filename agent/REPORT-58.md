@@ -173,3 +173,12 @@ REPORT-57 A5 already narrowed). Item goes to Disputed with these
 measurements; nothing was weakened anywhere.
 
 NOW: C7, step 4 (measured and written)
+
+## B36 закрыта коммитом eaa91d7
+
+Live run measured: 3 model calls (budget 40), five outcomes recorded
+above in this file's C2 run — full net_margin answered with the
+census-golden value 0.2791393632939477 and citations; both gray
+questions (roe, fcf) rejected by the guard
+(guard_rejected_uncited_number); the empty issuer answered with an
+honest resolve_ticker not_found refusal.
