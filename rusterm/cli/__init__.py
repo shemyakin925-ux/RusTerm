@@ -54,6 +54,22 @@ def _open(root: str):
     return paths, open_connection(paths)
 
 
+def _open_readonly(root: str):
+    """Открыть каталог данных, НЕ создавая его (BACKLOG B35).
+
+    Дефект (измерено координатором 17.09.2026): `rusterm markets` —
+    команда, которая только читает реестр рынков, — создавала в
+    ТЕКУЩЕМ каталоге rusterm.db, exports/, logs/ и raw/. Запуск из
+    корня репозитория ронял приёмку пунктом 13 у того, кто её запустил.
+    Базы нет — возвращается (paths, None): читать нечего, и это не
+    ошибка. Команды, которые пишут, по-прежнему идут через _open.
+    """
+    paths = AppPaths.from_root(root)
+    if not paths.db_path.exists():
+        return paths, None
+    return paths, open_connection(paths)
+
+
 def cmd_init(args) -> int:
     paths, conn = _open(args.root)
     applied = apply_migrations(conn)
@@ -171,6 +187,12 @@ def cmd_ingest(args) -> int:
                                              args_as_of_default())
             if code != 0:
                 exit_code = code
+            # Корпоративные действия (ТЗ-31 C3): тот же вендор, свои
+            # два payload'а со своим кешем; отказ не топит котировки
+            code = _ingest_twelvedata_actions(repos, instrument_id,
+                                              args_as_of_default())
+            if code != 0:
+                exit_code = code
         conn.close()
         return exit_code
     if args.source == "edgar":
@@ -179,6 +201,40 @@ def cmd_ingest(args) -> int:
         for instrument_id, issuer_id in targets:
             code = _ingest_edgar_companyfacts(repos, instrument_id,
                                               issuer_id, args_as_of_default())
+            if code != 0:
+                exit_code = code
+        conn.close()
+        return exit_code
+    if args.source == "cvm":
+        # Фундаментал Бразилии (ТЗ-56 Z2): годовые наборы DFP; дверь
+        # только по явному --source, как у edgar
+        exit_code = 0
+        for instrument_id, issuer_id in targets:
+            code = _ingest_cvm_dfp(repos, instrument_id,
+                                   issuer_id, args_as_of_default())
+            if code != 0:
+                exit_code = code
+        conn.close()
+        return exit_code
+    if args.source == "asx":
+        # Анонсы Австралии (ТЗ-57 A4): дверь только по явному
+        # --source, как у edgar/cvm
+        exit_code = 0
+        for instrument_id, issuer_id in targets:
+            code = _ingest_asx_announcements(repos, instrument_id,
+                                             issuer_id,
+                                             args_as_of_default())
+            if code != 0:
+                exit_code = code
+        conn.close()
+        return exit_code
+    if args.source == "ownership":
+        # Владение Forms 3/4/5 (ТЗ-32 D2): реальный сбор никогда не
+        # дефолт; metadata из submissions, тела — с Archives
+        exit_code = 0
+        for instrument_id, issuer_id in targets:
+            code = _ingest_edgar_ownership(repos, instrument_id,
+                                           issuer_id, args_as_of_default())
             if code != 0:
                 exit_code = code
         conn.close()
@@ -253,6 +309,79 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
     return 0
 
 
+def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
+                               provider=None) -> int:
+    """Корпоративные действия с вендора (ТЗ-31 C3): /splits и
+    /dividends тем же каналом, что котировки; каждый payload кешируется
+    по каноническому URL без ключа (ADR-0003), события пишутся в
+    corporate_action (I7: уникальность (инструмент, ex_date, вид)).
+    Суммы пишутся КАК ОТДАЛ ВЕНДОР — в сегодняшней базе акций, той же,
+    в которой вендорский close (ADR-0020): отношение дивиденд/close
+    инвариантно к базе, и пересчёт в объявленную сумму на дату в
+    хранилище не делается. Сплиты пишутся как есть: фактор
+    k = from_factor/to_factor."""
+    from rusterm.providers.base import ProviderError
+    from rusterm.providers.budget import (
+        BudgetExceeded,
+        ConfigError,
+        RequestGate,
+    )
+
+    tick = repos.instrument.ticker_for_instrument(instrument_id, as_of)
+    if tick is None:
+        print(f"у {instrument_id!r} нет тикера на {as_of}",
+              file=sys.stderr)
+        return 1
+    symbol = tick["ticker"]
+    if provider is None:
+        provider = get_provider("twelvedata", gate=RequestGate())
+    if isinstance(provider, ConfigError):
+        print(f"twelvedata недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+
+    payloads: dict[str, dict] = {}
+    requests_spent = 0
+    for kind, fetch in (("splits", provider.splits),
+                        ("dividends", provider.dividends)):
+        cache_url = provider.cache_url_ca(kind, symbol)
+        cached_sha = repos.raw.find_by_provider_url("twelvedata", cache_url)
+        if cached_sha is not None:
+            payloads[kind] = json.loads(
+                repos.raw.get(cached_sha).decode("utf-8"))
+            continue
+        outcome = fetch(symbol)
+        if isinstance(outcome, (ProviderError, ConfigError,
+                                BudgetExceeded)):
+            print(f"twelvedata: {kind}: {outcome.reason}", file=sys.stderr)
+            return 1
+        payloads[kind] = outcome
+        requests_spent += 1
+        raw = json.dumps(outcome, sort_keys=True,
+                         ensure_ascii=False).encode("utf-8")
+        repos.raw.put(raw, provider="twelvedata",
+                      block="corporate_actions", url=cache_url,
+                      instrument_id=instrument_id)
+
+    splits, splits_skipped = provider.parse_splits(payloads["splits"])
+    dividends, currency, div_skipped = provider.parse_dividends(
+        payloads["dividends"])
+    written = 0
+    for s in splits:
+        if repos.corp_action.put(instrument_id, s["ex_date"], "split",
+                                 factor=s["factor"]):
+            written += 1
+    for d in dividends:
+        if repos.corp_action.put(instrument_id, d["ex_date"], "dividend",
+                                 amount=d["amount"], currency=currency):
+            written += 1
+    skipped = splits_skipped + div_skipped
+    print(f"{instrument_id}: корп.действия: сплитов {len(splits)}; "
+          f"дивидендов {len(dividends)}; записано новых: {written}; "
+          f"запросов: {requests_spent}; неразобрано: {skipped}")
+    return 0
+
+
 def _ingest_edgar_companyfacts(repos, instrument_id: str,
                                issuer_id: str, as_of: str) -> int:
     """Edgar-сбор (TASK-11 X1): карта тикеров (1 запрос на рынок) +
@@ -323,6 +452,299 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     return 0
 
 
+def _record_cvm_budget(repos, gate) -> None:
+    """Счётчик гейта — в metric_sample: rusterm budget называет число
+    израсходованных запросов, а не память (ТЗ-56 Z2)."""
+    import time as _time
+    repos.metrics.record_sample(_time.time(), "provider_requests_used",
+                                "cvm", float(gate.calls_made))
+
+
+def _ingest_asx_announcements(repos, instrument_id: str, issuer_id: str,
+                              as_of: str) -> int:
+    """ASX-канал (ТЗ-57 A4, форма ТЗ-56 Z2): список анонсов эмитента —
+    сырьё с провенансом в raw store (кеш по каноническому URL без
+    ключа, неизменный список — ноль запросов). ТЕЛА документов
+    бесплатным каналом недостижимы (двухшаговая PDF-цепочка не
+    проверена живьём, ADR-0010 §5): каждая подача честно называется
+    manual_import_required:asxdoc:<ключ> — фактов канал не приносит,
+    ни одна мера не возникает из воздуха. Рыночного индекса у канала
+    нет (asx_no_marketwide_index) — инкрементальность по эмитенту:
+    повторный прогон переиспользует тело по URL-кешу."""
+    import json as _json
+    import time as _time
+
+    from rusterm.providers.base import ProviderError as _PE
+    from rusterm.providers.budget import BudgetExceeded, ConfigError
+
+    instrument = repos.instrument.get_instrument(instrument_id)
+    if instrument is None:
+        print(f"инструмента нет в базе: {instrument_id}", file=sys.stderr)
+        return 1
+    tick = repos.instrument.ticker_for_instrument(instrument_id, as_of)
+    if tick is None:
+        print(f"у {instrument_id!r} нет тикера на {as_of}",
+              file=sys.stderr)
+        return 1
+    code = str(tick["ticker"]).upper()
+    gate = RequestGate()
+    provider = get_provider("asx", gate=gate)
+    if isinstance(provider, ConfigError):
+        print(f"asx-провайдер недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+
+    url = (f"https://asx.api.markitdigital.com/asx-research/1.0/"
+           f"companies/{code}/announcements")
+    cached_sha = repos.raw.find_by_provider_url("asx", url)
+    requests_spent = 0
+    if cached_sha is not None:
+        raw = repos.raw.get(cached_sha)
+    else:
+        raw = provider.announcements_raw(code)
+        if isinstance(raw, (ConfigError, BudgetExceeded, _PE)):
+            reason = getattr(raw, "reason", "budget_exceeded")
+            print(f"asx недоступен: {reason}", file=sys.stderr)
+            repos.metrics.record_sample(_time.time(),
+                                        "provider_requests_used",
+                                        "asx", float(gate.calls_made))
+            return 1
+        repos.raw.put(raw, provider="asx", block="disclosures",
+                      url=url, instrument_id=instrument_id)
+        requests_spent = 1
+    repos.metrics.record_sample(_time.time(), "provider_requests_used",
+                                "asx", float(gate.calls_made))
+
+    items = ((_json.loads(raw.decode("utf-8")).get("data") or {})
+             .get("items") or [])
+    named = 0
+    for item in items:
+        key = item.get("documentKey", "")
+        outcome = provider.fetch_document(f"asxdoc:{key}")
+        if isinstance(outcome, _PE) and outcome.reason.startswith(
+                "manual_import_required"):
+            named += 1
+    print(f"{instrument_id}: анонсов: {len(items)}; тел машинно "
+          f"недостижимо: {named} (manual_import_required); фактов: 0; "
+          f"запросов: {requests_spent}")
+    return 0
+
+
+def _ingest_cvm_dfp(repos, instrument_id: str, issuer_id: str,
+                    as_of: str) -> int:
+    """CVM-сбор фундаментала (ТЗ-56 Z2): годовой набор DFP за последний
+    закрытый год, консолидированные DRE+BPP -> строки эмитента -> факты
+    с провенансом (сырьё — ZIP целиком в raw store).
+
+    Инкрементальность по Last-Modified из issuer_ingest_state
+    (source='cvm'): неизменный набор — один HEAD, GET не выполняется.
+    Бюджет: 1 запрос при неизменности, до 3 на свежую загрузку
+    (HEAD + HEAD+GET: публичная поверхность провайдера), потолок хоста
+    по объявлению CvmProvider; счёт — в rusterm budget.
+    """
+    import hashlib
+    import uuid as _uuid
+
+    from rusterm.parsers.cvm_dfp import CvmDfpParser
+    from rusterm.pipeline import apply_concept_map
+    from rusterm.providers.base import ProviderError as _PE
+    from rusterm.providers.budget import BudgetExceeded, ConfigError
+    from rusterm.providers.cvm import DFP_URL, DatasetState
+    from rusterm.store.repos import persist_ingestion_results
+
+    instrument = repos.instrument.get_instrument(instrument_id)
+    issuer = repos.instrument.get_issuer(instrument.issuer_id) \
+        if instrument else None
+    if issuer is None or not (issuer.registry_id or "").isdigit():
+        print(f"у эмитента {issuer_id!r} нет кода CD_CVM — выполните "
+              f"rusterm add --ticker ... --market BR", file=sys.stderr)
+        return 1
+    gate = RequestGate()
+    provider = get_provider("cvm", gate=gate)
+    if isinstance(provider, ConfigError):
+        print(f"cvm-провайдер недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+
+    year = int(as_of[:4]) - 1
+    url = DFP_URL.format(year=year)
+    state_row = repos.issuer_state.get(issuer_id, source="cvm")
+    known = state_row.get("last_modified") if state_row else None
+
+    head = provider.dataset_state(url)
+    if isinstance(head, _PE) and head.reason.startswith("cvm_not_found"):
+        repos.coverage.upsert(instrument_id, "fundamentals", "missing",
+                              reason=head.reason)
+        print(f"{instrument_id}: набора DFP {year} нет у источника "
+              f"({head.reason}) — покрытие missing")
+        _record_cvm_budget(repos, gate)
+        return 0
+    if isinstance(head, (ConfigError, BudgetExceeded, _PE)):
+        reason = getattr(head, "reason", "budget_exceeded")
+        print(f"cvm недоступен: {reason}", file=sys.stderr)
+        _record_cvm_budget(repos, gate)
+        return 1
+    if known is not None and head.last_modified == known:
+        print(f"{instrument_id}: набор DFP {year} не изменился — "
+              f"пропущено (HEAD, GET не выполнялся)")
+        _record_cvm_budget(repos, gate)
+        return 0
+
+    outcome = provider.dataset_if_changed(url, None)
+    _record_cvm_budget(repos, gate)
+    if isinstance(outcome, DatasetState):
+        # набор изменился между HEAD и GET-решением: честный пропуск,
+        # следующий прогон сравнит метку заново
+        print(f"{instrument_id}: набор DFP {year} изменился в ходе "
+              f"прогона — пропущено")
+        return 0
+    if isinstance(outcome, (ConfigError, BudgetExceeded, _PE)):
+        print(f"cvm недоступен: {outcome.reason}", file=sys.stderr)
+        return 1
+    raw = outcome
+
+    sha = hashlib.sha256(raw).hexdigest()
+    if repos.raw.has(sha):
+        repos.issuer_state.put(issuer_id, last_filing_date=None,
+                               last_modified=head.last_modified,
+                               source="cvm")
+        print(f"{instrument_id}: набор DFP уже в store — пропущено")
+        return 0
+    obj = repos.raw.put(raw, provider="cvm", block="fundamentals",
+                        url=url, instrument_id=instrument_id)
+
+    members = provider.dfp_members(raw)
+    dre_member = next((n for n in members if "_DRE_con_" in n), None)
+    bpp_member = next((n for n in members if "_BPP_con_" in n), None)
+    if dre_member is None or bpp_member is None:
+        repos.coverage.upsert(instrument_id, "fundamentals", "missing",
+                              reason="cvm_no_consolidated_members")
+        print(f"{instrument_id}: в наборе нет консолидированных "
+              f"DRE/BPP — покрытие missing")
+        return 0
+
+    parser = CvmDfpParser()
+    fact_dicts: list[dict] = []
+    unmapped = 0
+    unparsed = 0
+    for member, statement in ((dre_member, "DRE"),
+                              (bpp_member, "BPP")):
+        rows = provider.rows_for(members[member],
+                                 str(issuer.registry_id))
+        facts, skipped = parser.parse_rows(
+            rows, statement,
+            {"issuer_id": issuer_id, "source_ref": obj.sha256,
+             "csv_member": member})
+        unparsed += skipped
+        for fact in facts:
+            fact = dict(fact)
+            fact["fact_id"] = str(_uuid.uuid4())
+            unmapped += apply_concept_map(fact)
+            fact_dicts.append(fact)
+    persist_ingestion_results(repos.conn, fact_dicts, [])
+    repos.coverage.upsert(instrument_id, "fundamentals", "ready")
+    repos.issuer_state.put(issuer_id, last_filing_date=None,
+                           last_modified=head.last_modified,
+                           source="cvm")
+    print(f"{instrument_id}: DFP {year} загружен; фактов: "
+          f"{len(fact_dicts)}; неразобрано: {unparsed}; "
+          f"неотображённых концептов: {unmapped}")
+    return 0
+
+
+def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
+                            as_of: str, limit_per_form: int = 2,
+                            provider=None) -> int:
+    """Владение: Forms 3/4/5 -> document + raw (ТЗ-32 D2, ТЗ-25 P4).
+
+    Метаданные — из уже загруженного submissions (ноль запросов);
+    тела сырых XML тянутся с Archives по одному, sha256-идемпотентно.
+    Эмитент без форм владения получает coverage missing с именованной
+    причиной (D3) — пустой успех запрещён. Разбор сделок —
+    rusterm.parsers.ownership.parse_form4, чистый по записанному
+    сырью; хранение сделок — P5, здесь только сбор с провенансом."""
+    import hashlib as _hashlib
+    import xml.etree.ElementTree as _ET
+
+    from rusterm.parsers.ownership import parse_form4
+    from rusterm.providers.base import ProviderError as _PE
+    from rusterm.providers.budget import ConfigError, RequestGate
+
+    instrument = repos.instrument.get_instrument(instrument_id)
+    issuer = repos.instrument.get_issuer(instrument.issuer_id) \
+        if instrument else None
+    if issuer is None or not (issuer.registry_id or "").isdigit():
+        print(f"у эмитента {issuer_id!r} нет CIK — выполните "
+              f"rusterm add --ticker ... --market ...", file=sys.stderr)
+        return 1
+    if provider is None:
+        provider = get_provider("edgar", gate=RequestGate())
+    if isinstance(provider, ConfigError):
+        print(f"edgar-провайдер недоступен: {provider.reason}",
+              file=sys.stderr)
+        return 1
+    provider.cik = int(issuer.registry_id)
+
+    listed = provider.list_ownership(instrument_id,
+                                     limit_per_form=limit_per_form)
+    if isinstance(listed, _PE):
+        print(f"edgar: {listed.reason}", file=sys.stderr)
+        repos.coverage.upsert(instrument_id, "ownership", "missing",
+                              reason=listed.reason)
+        return 1
+    if not listed.documents:
+        # D3: отказ — не пустой успех
+        reason = "source_has_no_disclosure"
+        repos.coverage.upsert(instrument_id, "ownership", "missing",
+                              reason=reason)
+        print(f"{instrument_id}: форм владения 3/4/5 в ленте нет — "
+              f"покрытие missing: {reason}")
+        return 0
+
+    newest = listed.documents  # лимит уже по видам в list_ownership
+    collected = 0
+    transactions = 0
+    for meta in newest:
+        url = provider.raw_document_url(meta.url)
+        # кеш по каноническому URL без ключа (ADR-0003, как у котировок):
+        # тело уже в сырьё-хранилище — ноль запросов на повторе
+        cached_sha = repos.raw.find_by_provider_url("edgar", url)
+        if cached_sha is not None:
+            raw = repos.raw.get(cached_sha)
+            sha = cached_sha
+        else:
+            fetched = provider.fetch_document(url)
+            if isinstance(fetched, _PE):
+                print(f"edgar: {fetched.reason}", file=sys.stderr)
+                return 1
+            raw = fetched.content
+            sha = _hashlib.sha256(raw).hexdigest()
+            repos.raw.put(raw, provider="edgar", block="ownership",
+                          url=url, instrument_id=instrument_id)
+            filename = url.rsplit("/", 1)[-1]
+            repos.document.put(sha, filename=filename, format="xml",
+                               page_count=1, byte_len=len(raw),
+                               issuer_id=issuer.issuer_id)
+            collected += 1
+        try:
+            filing = parse_form4(raw)
+        except (_ET.ParseError, ValueError) as e:
+            print(f"edgar: {filename}: неразобрано: {e}",
+                  file=sys.stderr)
+            return 1
+        # сделки хранятся (миграция 44): вход insider_net считался бы
+        # из сохранённого, а не пересобирался из воздуха (ТЗ-33 E1)
+        repos.ownership.replace_for_document(sha, issuer.issuer_id,
+                                             filing.transactions)
+        transactions += len(filing.transactions)
+    repos.coverage.upsert(instrument_id, "ownership", "ready")
+    print(f"{instrument_id}: форм владения в ленте "
+          f"{len(listed.documents)}; собрано документов {collected} "
+          f"(по {limit_per_form} свежих на вид); сделок разобрано: "
+          f"{transactions}")
+    return 0
+
+
 def cmd_refresh(args) -> int:
     """Инкрементальный проход по списку наблюдения (TASK-13 Z4).
     Одну команду ставят в cron; демона, службы и фонового потока в
@@ -358,19 +780,24 @@ def cmd_refresh(args) -> int:
 
     from rusterm.core.industry.inputs import industry_metrics_for
     from rusterm.core.governance import (governance_inputs_from_records,
+                                         insider_net_inputs_from_store,
                                          produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
+                              corp_action_repo=repos.corp_action,
                               industry=lambda iid, _issuer:
                                   industry_metrics_for(repos, iid),
                               governance=lambda iid, issuer:
                                   produce_assessments(
                                       repos.governance, iid,
                                       args_as_of_default(),
-                                      governance_inputs_from_records(
+                                      {**governance_inputs_from_records(
                                           repos.manual_extraction,
-                                          issuer)))
+                                          issuer),
+                                       **insider_net_inputs_from_store(
+                                           repos, iid, issuer,
+                                           args_as_of_default())}))
     gate = RequestGate()
 
     def provider_factory(cik: int):
@@ -446,19 +873,24 @@ def cmd_snapshot(args) -> int:
         return 1
     from rusterm.core.industry.inputs import industry_metrics_for
     from rusterm.core.governance import (governance_inputs_from_records,
+                                         insider_net_inputs_from_store,
                                          produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
+                              corp_action_repo=repos.corp_action,
                               industry=lambda iid, _issuer:
                                   industry_metrics_for(repos, iid),
                               governance=lambda iid, issuer:
                                   produce_assessments(
                                       repos.governance, iid,
                                       args_as_of_default(),
-                                      governance_inputs_from_records(
+                                      {**governance_inputs_from_records(
                                           repos.manual_extraction,
-                                          issuer)))
+                                          issuer),
+                                       **insider_net_inputs_from_store(
+                                           repos, iid, issuer,
+                                           args_as_of_default())}))
     as_of = args.as_of or args_as_of_default()
     for instrument_id, issuer_id in targets:
         result = builder.build(instrument_id, issuer_id, as_of)
@@ -483,7 +915,23 @@ def cmd_snapshot(args) -> int:
 
 def cmd_export(args) -> int:
     paths, conn = _open(args.root)
+    if getattr(args, "chat", None):
+        # ТЗ-36 H2: расшифровка разговора экспортируется как данные
+        repos = RepoRegistry(conn, paths)
+        transcript = repos.chat_transcript.get(args.chat)
+        if transcript is None:
+            print(f"расшифровки {args.chat!r} нет", file=sys.stderr)
+            conn.close()
+            return 1
+        print(json.dumps(transcript, ensure_ascii=False, indent=1))
+        conn.close()
+        return 0
     repo = SnapshotRepo(conn)
+    if not args.instrument:
+        print("укажите --instrument ИНСТРУМЕНТ или --chat SESSION_ID",
+              file=sys.stderr)
+        conn.close()
+        return 1
     snapshot_id = repo.latest_snapshot_id(args.instrument)
     if snapshot_id is None:
         print(f"для {args.instrument!r} снапшотов нет — сначала "
@@ -535,19 +983,24 @@ def cmd_verify(args) -> int:
     # пересборка снапшотов инструментов, чей lineage ссылался на факт
     from rusterm.core.industry.inputs import industry_metrics_for
     from rusterm.core.governance import (governance_inputs_from_records,
+                                         insider_net_inputs_from_store,
                                          produce_assessments)
     builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                               coverage_repo=repos.coverage,
                               price_repo=repos.price,
+                              corp_action_repo=repos.corp_action,
                               industry=lambda iid, _issuer:
                                   industry_metrics_for(repos, iid),
                               governance=lambda iid, issuer:
                                   produce_assessments(
                                       repos.governance, iid,
                                       args_as_of_default(),
-                                      governance_inputs_from_records(
+                                      {**governance_inputs_from_records(
                                           repos.manual_extraction,
-                                          issuer)))
+                                          issuer),
+                                       **insider_net_inputs_from_store(
+                                           repos, iid, issuer,
+                                           args_as_of_default())}))
     rebuilds = service.recompute(args.fact, builder)
     rebuilt = "; ".join(f"{r.snapshot_id} v{r.version}" for r in rebuilds) \
         or "нет мер с lineage на этот факт"
@@ -637,6 +1090,9 @@ def cmd_ops(args) -> int:
             "watchlist_id": args.watchlist,
             "intent": intent_name,
             "outcome": outcome,
+            # причина отказа не зависит от формата вывода: в
+            # человеческом выводе она печаталась, в машинном терялась
+            "reason": reason,
             "rows": rows,
             "version": version,
         }, ensure_ascii=False))
@@ -669,8 +1125,14 @@ def cmd_industry(args) -> int:
 
     if repos.peer_set.version_at(args.sector, as_of) is None:
         exists = repos.peer_set.exists(args.sector)
-        reason = (f"сектор {args.sector!r} не найден" if not exists else
-                  f"у сектора {args.sector!r} нет версии на {as_of}")
+        if exists:
+            reason = f"у сектора {args.sector!r} нет версии на {as_of}"
+        else:
+            known = repos.peer_set.all_ids()
+            have = ("известные секторы: " + ", ".join(known)
+                    if known else "в базе нет ни одного сектора — "
+                    "секторы появляются вместе с наборами (ADR-0015)")
+            reason = f"сектор {args.sector!r} не найден; {have}"
         print(reason, file=sys.stderr)
         if args.json:
             print(json.dumps({"sector": args.sector, "as_of": as_of,
@@ -737,7 +1199,19 @@ def cmd_status(args) -> int:
     """«Что у меня есть»: каталог, схема, инструменты, снапшоты,
     покрытие, сеть, окружение (TASK-8 U9). --json — один объект."""
     from rusterm import env as env_module
-    paths, conn = _open(args.root)
+    # B40: status отвечает «что есть» — отсутствующий каталог данных
+    # он называет по имени, а не создаёт пустой
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        message = (f"каталога данных нет: {args.root}; выполните "
+                   "rusterm init")
+        if getattr(args, "json", False):
+            print(json.dumps({"error": "no_data_dir", "data_dir":
+                              str(AppPaths.from_root(args.root).root)},
+                             ensure_ascii=False))
+        else:
+            print(message, file=sys.stderr)
+        return 1
     # BACKLOG B25: версия «как застали» снимается ДО тихой миграции —
     # база, отставшая от кода, видна в status, а не только в doctor
     observed = current_schema_version(conn)
@@ -767,6 +1241,9 @@ def cmd_status(args) -> int:
             "samples": budget_samples,
         },
         "env": env_module.report(),
+        # ТЗ-36 H3: стоимость разговора видна до счёта — вызовы по
+        # моделям из расшифровок
+        "chat": repos.chat_transcript.calls_totals(),
     }
     conn.close()
     if args.json:
@@ -934,9 +1411,127 @@ def cmd_add(args) -> int:
     return 0
 
 
+def cmd_cadence(args) -> int:
+    """Кадентность котировок — на поверхность (ТЗ-31 C5, ruling
+    REPORT-30 Q1: «да, команда»). По каждому инструменту: состояние
+    (incomplete/complete), последняя сохранённая дата, число дыр,
+    срок следующего опроса. Правило обхода перестаёт быть
+    непрозрачным: пользователь видит, что сделает следующий проход и
+    сколько он стоит против дневного потолка вендора."""
+    from rusterm.core import cadence
+    from rusterm.providers import host_limit
+
+    # B40: каденция — планирование, только чтение; каталог не создаётся
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        print("каденция: каталога данных нет — нечего планировать; "
+              "начните с rusterm init")
+        return 0
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    as_of = args.as_of or args_as_of_default()
+    plan = cadence.plan_pass(repos, as_of)
+    rows = []
+    for entry in plan:
+        hole_count = len(cadence.gaps(
+            repos.price.dates(entry.instrument_id)))
+        last_poll = repos.job.last_poll_date(entry.instrument_id,
+                                             "prices")
+        rows.append({
+            "instrument_id": entry.instrument_id,
+            "state": entry.state,
+            "action": entry.action,
+            "reason": entry.reason,
+            "gaps": hole_count,
+            "last_date": entry.last_date,
+            "next_poll_due": cadence.next_poll_due(
+                last_poll, entry.last_date, as_of, entry.state),
+        })
+    incomplete = sum(1 for r in rows if r["state"] == "incomplete")
+    next_pass_requests = sum(1 for e in plan if e.action != "skip")
+    limit = host_limit("twelvedata")
+    ceiling = limit.nightly_max if limit is not None else None
+    conn.close()
+    if args.json:
+        print(json.dumps({
+            "as_of": as_of,
+            "instruments": rows,
+            "incomplete": incomplete,
+            "next_pass_requests": next_pass_requests,
+            "daily_ceiling": ceiling,
+        }, ensure_ascii=False))
+        return 0
+    print(f"каденция на {as_of}: инструментов {len(rows)}; неполных "
+          f"{incomplete}; следующий проход ≈ {next_pass_requests} "
+          f"запросов из {ceiling}/день")
+    for r in rows:
+        print(f"  {r['instrument_id']}: {r['state']}; дыр "
+              f"{r['gaps']}; последняя дата "
+              f"{r['last_date'] or '—'}; опрос к "
+              f"{r['next_poll_due']}; ({r['action']}: {r['reason']})")
+    return 0
+
+
+def cmd_census(args) -> int:
+    """Перепись отказов (ТЗ-49 R1): мера × значение × причина по
+    последнему снапшоту инструмента — десять строк, у отказа причина
+    из rusterm/reasons.py с продолжением, называющим конкретный
+    отсутствующий концепт или период. Никакого ремонта: только
+    измерение; вход для решений о покрытии."""
+    from rusterm.core.snapshot import SnapshotBuilder
+
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    instrument = repos.instrument.get_instrument(args.instrument)
+    if instrument is None:
+        print(f"census: инструмента нет в базе: {args.instrument}",
+              file=sys.stderr)
+        conn.close()
+        return 1
+    as_of = args.as_of or args_as_of_default()
+    if args.rebuild or repos.snapshot.latest_snapshot_id(
+            instrument.instrument_id) is None:
+        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                                  coverage_repo=repos.coverage)
+        builder.build(instrument.instrument_id, instrument.issuer_id, as_of)
+    sid = repos.snapshot.latest_snapshot_id(instrument.instrument_id)
+    rows = [{"measure": m[3], "value": m[4], "reason": m[10]}
+            for m in repos.snapshot.get_measures(sid)]
+    conn.close()
+    if args.json:
+        print(json.dumps({"instrument_id": instrument.instrument_id,
+                          "snapshot_id": sid, "measures": rows},
+                         ensure_ascii=False))
+        return 0
+    print(f"перепись отказов {instrument.instrument_id} (снапшот {sid}):")
+    for r in rows:
+        cell = r["value"] if r["value"] is not None \
+            else f"отказ ({r['reason']})"
+        print(f"  {r['measure']:18s} {cell}")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     paths, conn = _open(args.root)
+    # ТЗ-51 U2: путь «база старой версии → схема 45» идёт через тот же
+    # apply_migrations, что и init, — но только с --fix. По умолчанию
+    # doctor остаётся диагностикой (булавки набора закрепляют:
+    # test_cli_doctor_detects_schema_gap и соседние ловят разрыв схемы
+    # на НЕмигрирующем прогоне), база не меняется.
+    schema_before = None
+    migrations_now: list = []
+    schema_after = None
+    if getattr(args, "fix", False):
+        from rusterm.store.db import apply_migrations as _apply_migrations, \
+            current_schema_version as _schema_version
+        schema_before = _schema_version(conn)
+        migrations_now = _apply_migrations(conn)
+        schema_after = _schema_version(conn)
     report = doctor_report(paths, conn)
+    report["migrations_applied"] = {"before": schema_before,
+                                    "applied": migrations_now,
+                                    "after": schema_after}
     # B24: к счётчикам хостов из базы добавляются потолки из объявлений
     # реестра — used/ceiling видны рядом, без ручного свода
     from rusterm.providers import all_host_limits
@@ -977,6 +1572,30 @@ def cmd_doctor(args) -> int:
             "key_present": present,
         }
     report["free_channels"] = channels
+    # ТЗ-31 C5: каденция видна доктору — сколько инструментов неполны
+    # и сколько запросов стоит следующий проход против потолка вендора.
+    # База может быть не инициализирована — раздел честно называет это.
+    import sqlite3 as _sqlite3
+    from rusterm.core import cadence as cadence_mod
+    tw_limit = all_host_limits().get("twelvedata")
+    ceiling = tw_limit.nightly_max if tw_limit else None
+    try:
+        repos = RepoRegistry(conn, paths)
+        plan = cadence_mod.plan_pass(repos, args_as_of_default())
+        report["cadence"] = {
+            "incomplete": sum(1 for e in plan
+                              if e.state == "incomplete"),
+            "next_pass_requests": sum(1 for e in plan
+                                      if e.action != "skip"),
+            "daily_ceiling": ceiling,
+        }
+    except _sqlite3.DatabaseError:
+        report["cadence"] = {
+            "incomplete": None,
+            "next_pass_requests": None,
+            "daily_ceiling": ceiling,
+            "reason": "schema_not_ready",
+        }
     print(json.dumps(report, ensure_ascii=False, indent=2))
     conn.close()
     return 0 if report["ok"] else 1
@@ -1017,7 +1636,8 @@ def cmd_chat(args) -> int:
     """Чат с цитатами (ТЗ-26 Q1): вопрос -> read-only инструменты ->
     ответ, где каждое число доказуемо. Чат никогда не пишет.
     Без RUSTERM_LLM_API_KEY — внятное сообщение и код 1, не падение."""
-    from rusterm.core.chat import ChatSession
+    from rusterm.core.chat import ChatSession, save_transcript
+    from rusterm.core.llm import make_chat_client
     from rusterm.providers.budget import ConfigError, RequestGate
     client = get_provider("llm-api", gate=RequestGate())
     if isinstance(client, ConfigError):
@@ -1031,18 +1651,11 @@ def cmd_chat(args) -> int:
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
 
-    class _Adapter:
-        """LlmApiClient -> протокол chat(prompt, history)."""
-
-        def chat(self, prompt, history):
-            raw = client.complete(prompt)
-            if isinstance(raw, ConfigError):
-                return {"text": None,
-                        "tool_calls": [],
-                        "error": raw.reason}
-            return {"text": str(raw), "tool_calls": []}
-
-    session = ChatSession(repos, _Adapter(),
+    # Адаптер «complete -> chat» живёт за дверью make_chat_client, а не
+    # локальным классом здесь: экран разговора звал ту же дверь и падал
+    # AttributeError, потому что дверь отдавала клиента без chat
+    # (находка координатора 17.09.2026).
+    session = ChatSession(repos, make_chat_client(),
                           max_total=args.max_calls)
     print("чат: пустая строка — выход; модель отвечает только "
           "цитированными числами")
@@ -1059,6 +1672,12 @@ def cmd_chat(args) -> int:
         else:
             print(result["answer"])
     print(f"вызовов модели/инструментов за сессию: {session.calls_made}")
+    # ТЗ-36 H2: расшифровка — данные, переживает процесс
+    session_id = f"chat-{int(time.time()*1000)}"
+    save_transcript(repos, session, session_id,
+                    instrument_id=args.instrument
+                    if hasattr(args, "instrument") else None)
+    print(f"расшифровка сохранена: {session_id}")
     conn.close()
     return 0
 
@@ -1196,7 +1815,12 @@ def cmd_watchlist(args) -> int:
 
 
 def cmd_coverage(args) -> int:
-    paths, conn = _open(args.root)
+    # B40: покрытие — только чтение; каталог данных не создаётся
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        print("покрытия нет — каталога данных нет; начните с "
+              "rusterm init и rusterm ingest", file=sys.stderr)
+        return 1
     repos = RepoRegistry(conn, paths)
     instrument = args.instrument or args.target
     if (instrument is None) == (args.watchlist is None):
@@ -1269,7 +1893,20 @@ def cmd_metrics(args) -> int:
 
 
 def cmd_budget(args) -> int:
-    paths, conn = _open(args.root)
+    # B40: бюджет — только чтение; каталог данных не создаётся
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        payload = {"ceiling_per_night": 5000, "rate_per_second": 5,
+                   "provider_ran": False, "used": 0, "refused": 0,
+                   "samples": {}}
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return 0
+        print("потолок запросов за ночь: 5000 (Budget), 5 в секунду "
+              "(RateLimiter); лимитеры не хранят состояние между процессами")
+        print("сетевой провайдер не работал: использовано 0, отказано 0 "
+              "(записей в metric_sample нет)")
+        return 0
     repos = RepoRegistry(conn, paths)
     samples = {s[1]: s[3] for s in repos.metrics.samples()
                if s[1].startswith("provider_")}
@@ -1312,7 +1949,9 @@ def _provider_status(provider: str) -> str:
 def _issuer_count(conn, paths) -> str:
     """Эмитентов в локальной базе; схемы нет — честное «—». Сам
     запрос живёт в репозитории (приёмка, пункт 7: SQL только в слое
-    хранилища)."""
+    хранилища). Базы нет вовсе (B35) — тоже «—», без её создания."""
+    if conn is None:
+        return "—"
     try:
         return str(RepoRegistry(conn, paths).instrument.issuer_count())
     except Exception:
@@ -1325,8 +1964,9 @@ def cmd_markets(args) -> int:
     сколько эмитентов в локальной базе; --json для машинного
     потребления. Ответ на вопрос «достанет ли программа корейские
     данные?» — без чтения исходников."""
-    from rusterm.markets import MARKETS
-    paths, conn = _open(args.root)
+    from rusterm.markets import MARKETS, provider_channel
+    # только чтение реестра: каталог данных не создаётся (B35)
+    paths, conn = _open_readonly(args.root)
     rows = []
     for m in MARKETS:
         rows.append({"code": m.code, "jurisdiction": m.jurisdiction,
@@ -1335,8 +1975,10 @@ def cmd_markets(args) -> int:
                      "default_taxonomy": m.default_taxonomy,
                      "access": m.access,
                      "provider_status": _provider_status(m.provider),
+                     "channel": provider_channel(m.provider),
                      "issuers": _issuer_count(conn, paths)})
-    conn.close()
+    if conn is not None:
+        conn.close()
     if args.json:
         print(json.dumps({"markets": rows}, ensure_ascii=False))
         return 0
@@ -1345,7 +1987,7 @@ def cmd_markets(args) -> int:
               f"{row['venue_kind']}\t{row['provider']}\t"
               f"{row['identifier']}\t{row['default_taxonomy']}\t"
               f"{row['access']}\t{row['provider_status']}\t"
-              f"{row['issuers']}")
+              f"{row['channel'] or '-'}\t{row['issuers']}")
     return 0
 
 
@@ -1435,8 +2077,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--ticker", default=None)
     p_ing.add_argument("--market", default=None)
     p_ing.add_argument("--watchlist", default=None)
-    p_ing.add_argument("--source", choices=("synthetic", "edgar",
-                                            "twelvedata"),
+    p_ing.add_argument("--source", choices=("synthetic", "edgar", "cvm",
+                                            "asx", "twelvedata",
+                                            "ownership"),
                        default="synthetic")
     sub.add_parser("demo", help="создать синтетический демо-инструмент")
     p_add = sub.add_parser("add", help="добавить настоящую компанию")
@@ -1456,7 +2099,9 @@ def main(argv: list[str] | None = None) -> int:
     p_snap.add_argument("--watchlist", default=None)
     p_snap.add_argument("--as-of", default=None)
     p_exp = sub.add_parser("export", help="экспорт последнего снапшота")
-    p_exp.add_argument("--instrument", required=True)
+    p_exp.add_argument("--instrument", required=False, default=None)
+    p_exp.add_argument("--chat", default=None,
+                       help="экспорт расшифровки разговора (ТЗ-36 H2)")
     p_exp.add_argument("--format", choices=("json", "csv", "md"),
                        default="json")
     p_exp.add_argument("--out", default=None)
@@ -1466,7 +2111,10 @@ def main(argv: list[str] | None = None) -> int:
     p_ver.add_argument("--expected", required=True, help="правильное значение")
     p_ver.add_argument("--document", default="",
                        help="ссылка на документ (секреты из URL стираются)")
-    sub.add_parser("doctor", help="самопроверка базы и store")
+    p_doc = sub.add_parser("doctor", help="самопроверка базы и store")
+    p_doc.add_argument("--fix", action="store_true",
+                       help="применить ожидающие миграции (ТЗ-51 U2); "
+                            "без флага doctor — только диагностика")
     p_bak = sub.add_parser("backup",
                            help="резервная копия каталога данных (ТЗ-22 J4)")
     p_bak.add_argument("archive", help="путь zip-архива")
@@ -1546,6 +2194,21 @@ def main(argv: list[str] | None = None) -> int:
                        help="извлечь и проверить, ничего не записывая")
     sub.add_parser("chat",
                    help="чат с цитатами (ТЗ-26 Q1); нужен ключ модели")
+    p_cad = sub.add_parser("cadence",
+                           help="кадентность котировок: состояние, дыры,"
+                                " срок опроса (ТЗ-31 C5)")
+    p_cad.add_argument("--json", action="store_true",
+                       help="машиночитаемая форма с закреплёнными ключами")
+    p_cad.add_argument("--as-of", dest="as_of", default=None,
+                       help="дата расчёта (по умолчанию сегодня)")
+    p_census = sub.add_parser("census",
+                              help="перепись отказов: мера × значение × "
+                                   "причина (ТЗ-49 R1)")
+    p_census.add_argument("--instrument", required=True)
+    p_census.add_argument("--as-of", dest="as_of", default=None)
+    p_census.add_argument("--rebuild", action="store_true",
+                          help="пересобрать снапшот перед переписью")
+    p_census.add_argument("--json", action="store_true")
     p_mkt = sub.add_parser("markets",
                            help="реестр рынков: коды, провайдеры, доступ")
     p_mkt.add_argument("--json", action="store_true")
@@ -1570,6 +2233,8 @@ def main(argv: list[str] | None = None) -> int:
         "industry": cmd_industry,
         "markets": cmd_markets,
         "import": cmd_import,
+        "cadence": cmd_cadence,
+        "census": cmd_census,
     }
     if args.command is None:
         print(f"RusTerm — локальный терминал по ценным бумагам. "

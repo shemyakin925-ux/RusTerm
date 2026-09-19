@@ -7,12 +7,20 @@
 только внутри `## Disputed`; в `## HANDOFF` не осталось шаблонных
 заполнителей. Пустой `## Disputed` легитимен — ловится перемещённый
 спор, а не его отсутствие.
+
+ТЗ-46 N1: заполнители ищутся в ПОСЛЕДНЕЙ секции, чей заголовок
+начинается с HANDOFF, — финальный блок может называться
+«## HANDOFF (FINAL …)», и именно он решает; промежуточный блок без
+суффикса стража не устраивает.
 """
 from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -39,6 +47,19 @@ def _sections(text: str) -> dict[str, list[str]]:
         elif current is not None:
             sections[current].append(line)
     return sections
+
+
+def _handoff_section(text: str) -> list[str]:
+    """ТЗ-46 N1: последняя секция, чей заголовок НАЧИНАЕТСЯ с HANDOFF
+    (регистр как есть). Финальный HANDOFF может нести суффикс
+    «(FINAL …)» — проверять надо именно его, а не промежуточный блок
+    без суффикса: иначе смена может закончиться блоком из одних
+    заполнителей, и страж этого не увидит."""
+    found: list[str] = []
+    for name, lines in _sections(text).items():
+        if name.startswith("HANDOFF"):
+            found = lines
+    return found
 
 
 def test_report_carries_every_required_section():
@@ -70,8 +91,47 @@ def test_disputed_lines_live_only_in_disputed_section():
 
 
 def test_handoff_carries_real_values_not_placeholders():
-    handoff = "\n".join(_sections(_report_text()).get("HANDOFF", []))
+    handoff = "\n".join(_handoff_section(_report_text()))
     assert handoff.strip(), "секция ## HANDOFF пуста"
     for placeholder in ("N passed", "M skipped", "<"):
         assert placeholder not in handoff, (
             f"шаблонный заполнитель {placeholder!r} остался в HANDOFF")
+
+
+def test_final_handoff_full_of_placeholders_reds_the_guard(monkeypatch):
+    """ТЗ-46 N1, красный случай (временный текст, не живой отчёт):
+    промежуточный ## HANDOFF заполнен честно, финальный
+    ## HANDOFF (FINAL …) — из одних заполнителей. Страж обязан
+    краснеть по финальному блоку и называть заполнитель."""
+    text = (
+        "# REPORT\n"
+        "## Done\n"
+        "- ok\n"
+        "## HANDOFF\n"
+        "Status: PARTIAL, всё честно, 12 passed\n"
+        "## HANDOFF (FINAL — supersedes the interim values above)\n"
+        "Status: N passed, M skipped\n"
+        "Items done: <fill me>\n"
+    )
+    monkeypatch.setattr(sys.modules[__name__], "_report_text",
+                        lambda: text)
+    with pytest.raises(AssertionError) as exc:
+        test_handoff_carries_real_values_not_placeholders()
+    message = str(exc.value)
+    # страж падает на ПЕРВОМ заполнителе финального блока и зовёт его
+    assert "N passed" in message, message
+
+
+def test_honest_final_handoff_after_interim_passes(monkeypatch):
+    """ТЗ-46 N1, зелёный случай того же разреза: промежуточный блок и
+    честный финальный — страж зеленеет, interim-блок не проверяется."""
+    text = (
+        "# REPORT\n"
+        "## HANDOFF\n"
+        "Status: PARTIAL\n"
+        "## HANDOFF (FINAL — supersedes the interim values above)\n"
+        "Status: DONE, всё доведено до коммита\n"
+    )
+    monkeypatch.setattr(sys.modules[__name__], "_report_text",
+                        lambda: text)
+    test_handoff_carries_real_values_not_placeholders()

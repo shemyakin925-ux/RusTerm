@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from rusterm.manual import Document, Page, Record, extract_text, verify
+from pathlib import Path
+
+from rusterm.manual import (Document, Page, Record, extract_text,
+                            verify)
 from rusterm.providers.base import ProviderError
 
 _SHA = "ab" * 32
@@ -88,14 +91,32 @@ def test_verify_is_string_law_not_rounding():
                           quote="exactly 42.0 units"), doc) is True
 
 
-def test_extract_text_seat_refuses_every_format_as_value(tmp_path):
-    """① — место: до полосы L5 место отвечает format_unsupported
-    значением на любой вход, не исключением и не молчанием."""
-    path = tmp_path / "report.txt"
-    path.write_text("обычный текст", encoding="utf-8")
-    result = extract_text(path)
-    assert isinstance(result, ProviderError)
-    assert result.reason.startswith("format_unsupported")
+def test_extract_text_door_delegates_to_implementation(tmp_path):
+    """ТЗ-34 F5: место ПРОВОДНОЕ и сильнее прежнего пина отказа —
+    дверь отвечает ровно то, что отвечает реализация, на зафиксированном
+    фикстуре (разбор успешен и совпадает по всем полям), а подмена
+    входа форматом-без-реализации по-прежнему честный отказ значением.
+    Прежний пин: extract_text(.txt) -> ProviderError
+    format_unsupported:manual_extract_not_implemented — он прятал
+    готовую реализацию за обходной дверью."""
+    import hashlib
+
+    from rusterm.manual import extract as implementation
+
+    fixture = (Path(__file__).resolve().parents[1] / "tests" / "data"
+               / "n4_fleet_tables" / "table1_clean_two_column.html")
+    through_door = extract_text(fixture)
+    direct = implementation.extract_text(fixture)
+    assert type(through_door) is type(direct)
+    if isinstance(direct, ProviderError):
+        assert through_door.reason == direct.reason
+    else:
+        assert through_door.sha256 == direct.sha256 == \
+            hashlib.sha256(fixture.read_bytes()).hexdigest()
+        assert through_door.pages == direct.pages
+        assert through_door.pages, "фикстура разбилась в пустоту"
+        assert any("Off-hire days" in page.text
+                   for page in through_door.pages)
 
 
 # ── BACKLOG B23: near-miss как отдельный исход verify ──────────────────

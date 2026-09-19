@@ -35,14 +35,25 @@ def test_selfcheck_captures_acceptance_status_before_piping():
 def test_selfcheck_cannot_exit_zero_with_dirty_tree():
     """Поведенчески: неотслеживаемый файл — ненулевой выход и имя
     проверки, БЕЗ полного прогона приёмки (страж P3 срабатывает
-    раньше)."""
+    раньше).
+
+    ТЗ-57 A5: прогон — вложенный (I5_NESTED=1), и это не запах: у
+    вложенного прогона нет своих часов, O0-страж по ЧУЖОМУ застейдженному
+    STATE.json срабатывает раньше P3/P4, как только index прожил
+    дольше 15 минут (мерцание проверено живьём: check 3 зелёный, check 11
+    красный на той же команде — REPORT-57 A5). Тест проверяет P3/P4,
+    а не часы: вложенный режим делает его независимым от состояния
+    индекса."""
+    import os
+
     junk = ROOT / "h7-deliberate-junk.txt"
     junk.write_text("deliberate untracked file for H7\n",
                     encoding="utf-8")
     try:
+        env = dict(os.environ, I5_NESTED="1")
         result = subprocess.run(
             ["bash", str(SELFCHECK)], capture_output=True, text=True,
-            cwd=ROOT)
+            cwd=ROOT, env=env)
         assert result.returncode != 0
         combined = result.stdout + result.stderr
         assert "P3/P4" in combined

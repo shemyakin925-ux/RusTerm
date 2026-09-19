@@ -146,3 +146,21 @@ def test_v4_nopat_chain_uses_computed_effective_tax():
     finally:
         conn.close()
         shutil.rmtree(tmpdir)
+
+
+def test_z1_roe_incl_nci_formula_rules():
+    """ТЗ-56 Z1: roe_incl_nci — та же арифметика, что roe, но по
+    стоку total_equity_incl_nci; на одном и том же доходе и разных
+    стоках меры дают разные числа — не синонимы. Правила null те же."""
+    from rusterm.formulas import roe, roe_incl_nci
+
+    val, reason = roe_incl_nci(10.0, 100.0, 120.0)
+    assert reason is None
+    assert val == pytest.approx(10.0 / 110.0)
+    roe_val, roe_reason = roe(10.0, 80.0, 90.0)
+    assert roe_reason is None
+    assert roe_val != val
+    assert roe_incl_nci(10.0, None, 120.0) == (None, "missing_data")
+    assert roe_incl_nci(10.0, 0.0, 0.0) == (None, "denominator_zero")
+    assert roe_incl_nci(10.0, -50.0, -30.0) == \
+        (None, "negative_denominator")

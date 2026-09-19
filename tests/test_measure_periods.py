@@ -146,9 +146,12 @@ def test_absent_concept_still_gives_missing_data():
 
 
 def test_stale_input_is_missing_data_not_period_mismatch():
-    """TASK-12 Y2: operating_income за 2012 при остальных входах 2025 —
-    это отсутствующее раскрытие (missing_data: operating_income),
-    а не period_mismatch; 1100-дневное правило давности."""
+    """TASK-12 Y2 (уточнено ТЗ-55 Y1): operating_income за 2012 при
+    остальных входах 2025 — не period_mismatch; 1100-дневное правило
+    давности вычищает факт, и отказ называет stale_data с последним
+    известным периодом: «подавали давно», а не «никогда не подавали».
+    Ядро старого закона цело: в меру устаревший факт не идёт
+    (value остаётся None)."""
     tmpdir, conn, repos = _registry()
     try:
         obj = repos.raw.put(b'{"synthetic": "y2a"}', provider="synthetic",
@@ -163,7 +166,8 @@ def test_stale_input_is_missing_data_not_period_mismatch():
         snap = repos.snapshot.latest_snapshot_id("ins1")
         margin = _measure(repos, snap, "operating_margin")
         assert margin["value"] is None
-        assert margin["null_reason"] == "missing_data: operating_income", \
+        assert margin["null_reason"] == \
+            "stale_data: operating_income: last 2012-12-31", \
             margin["null_reason"]
     finally:
         conn.close()

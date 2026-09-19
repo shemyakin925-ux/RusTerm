@@ -73,12 +73,16 @@ def doctor_report(paths: AppPaths, conn) -> dict:
         if orphans:
             problems.append(f"фактов со ссылкой на отсутствующее сырьё: {orphans}")
 
-        # меры без lineage при непустом значении (I4)
+        # меры без lineage при непустом значении (I4); миграция 42
+        # добавила канал на корпоративные действия — он тоже считается
         bad_measures = conn.execute(
             """SELECT COUNT(*) FROM measure m
                WHERE m.value IS NOT NULL AND NOT EXISTS (
                      SELECT 1 FROM measure_lineage l
-                     WHERE l.measure_id = m.measure_id)""").fetchone()[0]
+                     WHERE l.measure_id = m.measure_id)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM measure_lineage_ca c
+                     WHERE c.measure_id = m.measure_id)""").fetchone()[0]
         if bad_measures:
             problems.append(f"мер с значением, но без lineage: {bad_measures}")
 

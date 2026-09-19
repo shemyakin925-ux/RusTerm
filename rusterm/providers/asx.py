@@ -106,6 +106,54 @@ class AsxProvider:
             return announcements
         return bool((announcements.get("data") or {}).get("items"))
 
+    def resolve(self, ticker: str, market: str, as_of: str) -> dict:
+        """add (ADR-0010 §3): имя и код эмитента из header-эндпойнта.
+        Код здесь — тикер ASX (identifier='asx_code' реестра рынков):
+        числового реестрового id у канала нет. До создания эмитента —
+        тот же закон, что у can_auto_ingest."""
+        code = (ticker or "").strip().upper()
+        if not code:
+            return ProviderError(reason="unknown_issuer")
+        header = self._get(code, "header")
+        if isinstance(header, (ProviderError, ConfigError,
+                               BudgetExceeded)):
+            return header
+        name = ((header.get("data") or {}).get("displayName")
+                or "").strip()
+        if not name:
+            return ProviderError(reason="unknown_issuer")
+        return {"ticker": code, "cik": code, "title": name}
+
+    def ticker_venues(self) -> dict:
+        """Биржевого файла у канала нет: площадка unknown, без догадок
+        (TASK-18 G2)."""
+        return {}
+
+    def announcements_raw(self, code: str):
+        """Сырое тело announcements для ingest AU (ТЗ-57 A4): байты
+        КАК ОТДАЛ ИСТОЧНИК — их и кладёт в raw store вызывающий;
+        разбор и отказы по подачам — там же. 400/404 — ответ источника
+        значением; не-JSON — asx_bad_response."""
+        def send(headers: dict):
+            status, body, _hdr = self.transport(
+                f"{_BASE}/{code}/announcements", headers)
+            return status, body
+
+        outcome = self.gate.request(send, limit=_LIMIT)
+        if isinstance(outcome, (ConfigError, BudgetExceeded)):
+            return outcome
+        status, body = outcome
+        if status in (400, 404):
+            return ProviderError(reason="unknown_issuer")
+        if status != 200:
+            return ProviderError(
+                reason=f"source_unreachable:http_{status}")
+        try:
+            json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return ProviderError(reason="asx_bad_response")
+        return body
+
     def poll_index(self, cursor: str) -> IndexPoll | ProviderError | ConfigError:
         return ProviderError(reason="asx_no_marketwide_index")
 

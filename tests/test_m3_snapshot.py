@@ -164,6 +164,9 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
             "missing_data", "period_mismatch", "missing_prior_period",
             "concept_not_mapped", "denominator_zero",
             "negative_denominator",
+            # ТЗ-55 Y1: AMZN-фикстура несёт gross_profit до 2009-12-31 —
+            # вычищен окном давности, отказ стал stale_data
+            "stale_data",
         }
         table: dict[str, dict] = {}
         for snapshot in snapshots:
@@ -187,13 +190,16 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
                     row["reasons"][m[10]] = row["reasons"].get(m[10], 0) + 1
 
         # TASK-14 A4: у V и UNH нет свежего тега total_equity — их roe
-        # обязан называть отсутствующий знаменатель, а не голый пропуск
+        # обязан называть отсутствующий знаменатель, а не голый пропуск.
+        # ТЗ-55 Y1: причина стала точнее — stale_data с последним
+        # известным периодом (факт был и перестал приходить)
         for snapshot in snapshots:
             if snapshot["instrument_id"] not in ("in-V", "in-UNH"):
                 continue
             for m in repos.snapshot.get_measures(snapshot["snapshot_id"]):
                 if m[3] == "roe" and m[4] is None:
-                    assert m[10] == "missing_data: total_equity", (
+                    assert m[10].startswith(
+                        "stale_data: total_equity: last "), (
                         f"{snapshot['instrument_id']}/roe: {m[10]!r}")
 
         # таблица печатается до ассертов — она нужна отчёту в любом случае
@@ -234,10 +240,21 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
                         gm_values += 1
         assert set(om_null) == {"BRKB", "CVX", "JNJ", "JPM", "PFE", "XOM"}, \
             f"состав пробела operating_margin уехал: {sorted(om_null)}"
-        assert set(om_null.values()) == {"missing_data: operating_income"}
+        # ТЗ-55 Y1: BRKB и JNJ подавали operating_income, но давно —
+        # их отказ стал stale_data с последним известным периодом
+        assert set(om_null.values()) == {
+            "missing_data: operating_income",
+            "stale_data: operating_income: last 2012-12-31",
+            "stale_data: operating_income: last 2014-12-28",
+        }
         assert gm_values == 7, f"gross_margin со значением: {gm_values}"
         assert len(gm_null) == 13
-        assert set(gm_null.values()) == {"missing_data: gross_profit"}
+        # ТЗ-55 Y1: часть эмитентов подавала gross_profit давно —
+        # отказ stale_data с последним периодом (AMZN — 2009-12-31)
+        assert set(gm_null.values()) == {
+            "missing_data: gross_profit",
+            "stale_data: gross_profit: last 2009-12-31",
+        }
 
         # W3: неотображённых фактов нет — тег Including… закрыт картой
         null_canonical = conn.execute(

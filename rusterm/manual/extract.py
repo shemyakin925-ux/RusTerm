@@ -295,6 +295,12 @@ def _html_to_text(html: str) -> str:
                 self._skip += 1
             if tag in ("p", "br", "tr", "div", "li", "h1", "h2", "h3"):
                 self.chunks.append("\n")
+            # ТЗ-35 G5: ячейки таблицы разделяются табуляцией — граница
+            # ячейки переживает снятие тегов, и дословная цитата ЯЧЕЙКИ
+            # находится в тексте прежним строковым законом (закон не
+            # тронут; та же конвенция, что в docx/xlsx-путях).
+            if tag in ("td", "th"):
+                self.chunks.append("\t")
 
         def handle_endtag(self, tag):
             if tag in ("script", "style") and self._skip:

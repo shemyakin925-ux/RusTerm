@@ -101,6 +101,16 @@ queue; it does NOT enter the TASK-14 / REPORT-14A chain. STATE.json untouched
   - `otcapi/company/OTCM/financial-report?symbol=OTCM&statusId=A&pageSize=2` → **200 JSON**, `"totalRecords":132` — the OTC Disclosure & News list with full per-document metadata: id, name ("Quarterly Report - Second Quarter 2026"), reportType, releaseDate, periodDate, tierCode "QX", isCaveatEmptor, edgarSECFiling flag. That is `poll_index` + `list_documents` of the provider contract, free.
   - `otcapi/company/profile/full/OTCM` → still soft-block HTML even with headers (endpoint-specific gating).
   - Document bytes: `otcapi/company/financial-report/{id}/content` AND `www.otcmarkets.com/file/company/financial-report/{id}/content` → both return the 2 KB soft-block HTML for our client. `fetch_document` therefore needs a browser-tier client (IAB renders the docs) or the paid OTC Disclosure API. Free tier of this channel = index + metadata only.
+  - **Universe-count tolerance (written 2026-09-19, BACKLOG B34):** the
+    tradable-universe `totalRecords` drifts by design — listings,
+    delistings and tier moves are daily events on OTC (TLSS vanished
+    mid-session during this very probe). Tolerance band: a live count
+    within **±1% of the last recorded count** (12,867 ± ~129 records)
+    is background noise, not a finding; a count outside the band is
+    re-reported as a finding with its own date. Live counts so far:
+    12,867 (2026-09-10, the re-probe above) and 12,794 (2026-09-11,
+    ТЗ-19 F5 — 0.57% below, inside the band). Last live count:
+    **2026-09-11**.
   - Community corroboration: `chiefsmurph/otc-playground` README — "Node's fetch is blocked (403/412), so scan.js shells out to curl", pageSize now capped at 50 (server-side, records volume-sorted); document URL pattern `financial-report/{id}/content` confirmed by `roihala/stocker` code and multiple independent datasets; a 2026-08 run log shows the `www.otcmarkets.com/file/...` variant in active use.
 - Official/licensed route: **OTC Disclosure API** (launched 2025-09; near-real-time disclosure updates, query by Symbol/CompID/CUSIP and filing type; commercial, also resold via Edgar Online). Market data licensing separately (Security Data File, non-display fees ~$1.5–2.5k/month). Academic access via WRDS.
 - ToS: scraping otcmarkets.com is outside their Terms of Service; the licensed API is the sanctioned path. GitHub ecosystem is thin and mostly confirms the endpoint set (`oyekamal/otcmarkets-api-scraper` — uses `otcmarkets.com/research/stock-screener/api` for the symbol universe + official EDGAR APIs for filings, last successful run 2026-02; `kwhitehall/otcmarketsScraper` ★1 Java).

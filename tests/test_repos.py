@@ -222,28 +222,42 @@ def test_audit_repo_log(conn_and_registry):
 
 
 def test_no_sql_outside_store():
-    """Проверка: вне rusterm.store нет прямых SQL-запросов."""
+    """Вне rusterm/store/ нет прямых SQL-вызовов — инвариант I10.
+
+    ЗАМЕНА БУЛАВКИ (координатор, 17.09.2026): тест печатал
+    `WARNING: Direct SQL in …` и заканчивался `assert True`, то есть
+    был зелёным при любом нарушении — три ночи подряд его строка
+    мелькала прямо в выводе приёмки. Теперь нарушения собираются и
+    тест краснеет, называя файл и строку. Путь берётся от файла
+    теста, а не от текущего каталога: прогон из чужого каталога больше
+    не делает проверку пустой.
+    """
     import ast
-    import pathlib
-    
-    store_root = pathlib.Path("rusterm/store")
-    for py_file in pathlib.Path("rusterm").rglob("*.py"):
-        try:
-            rel = py_file.relative_to(store_root)
+    from pathlib import Path
+
+    pkg = Path(__file__).resolve().parents[1] / "rusterm"
+    store_root = pkg / "store"
+    violations: list[str] = []
+    for py_file in sorted(pkg.rglob("*.py")):
+        if store_root in py_file.parents:
             continue
-        except ValueError:
-            pass
-        
         content = py_file.read_text(encoding="utf-8")
         tree = ast.parse(content)
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    if node.func.attr in ("execute", "executescript", "executemany"):
-                        print(f"WARNING: Direct SQL in {py_file}: {ast.get_source_segment(content, node)}")
-                if isinstance(node.func, ast.Name) and node.func.id == "connect":
-                    print(f"WARNING: sqlite3.connect in {py_file}")
-    assert True
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in (
+                    "execute", "executescript", "executemany"):
+                violations.append(
+                    f"{py_file.name}:{node.lineno}: "
+                    f"{ast.get_source_segment(content, node)}")
+            if isinstance(func, ast.Name) and func.id == "connect":
+                violations.append(
+                    f"{py_file.name}:{node.lineno}: sqlite3.connect")
+    assert not violations, (
+        "SQL за пределами слоя хранилища (I10):\n  "
+        + "\n  ".join(violations))
 
 
 def test_raw_repo_compressed_large():

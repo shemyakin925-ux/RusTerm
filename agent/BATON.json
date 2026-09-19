@@ -1,0 +1,12 @@
+{
+ "holder": "executor",
+ "round": 68,
+ "branch": "agent/night-11",
+ "task": "agent/TASK-57.md",
+ "report": "agent/REPORT-57.md",
+ "note": "ТЗ-56 принято прогоном 13/0. Вердикт по Disputed: P0 остаётся, откат не делать — закрепляется тестом (A1). Находка приёмки: первый прогон дал 12/1 по пункту 11, три теста мигают — A5. Далее A2 перепись мер BR, A3 B35 markets, A4 канал AU. ТЗ-58 READY.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-19T04:19:47Z",
+ "paused": false,
+ "finished": false
+}

@@ -499,3 +499,35 @@ def test_c3_refresh_unknown_and_empty_watchlist_say_so():
         assert "обновлён" in r.stdout
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_b39_refresh_error_carries_reason_token(tmp_path):
+    """B39: «ошибка» — не причина. Проход по эмитенту без CIK даёт
+    отказ с токеном из rusterm/reasons.py (unknown_issuer) и
+    продолжением, называющим, что именно не задано; is_known_reason
+    принимает первый токен."""
+    from rusterm.reasons import is_known_reason
+
+    paths = AppPaths.from_root(str(tmp_path / "app"))
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-nocik", "No CIK Corp", "US", None, None, "us_gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-NOCIK", "i-nocik", None, "common", "active", None))
+    watchlist = WatchlistRepo(conn)
+    watchlist.create_watchlist("b39", "без CIK", None, None)
+    watchlist.new_version(str(uuid.uuid4()), "b39", 1, "create", None)
+    vid = watchlist.current_version("b39")["watchlist_version_id"]
+    watchlist.add_member(vid, "US-NOCIK", None)
+
+    results = refresh_watchlist(repos, lambda cik: None, "b39",
+                                "2026-09-18", dry_run=True)
+    conn.close()
+    assert results[0].action == "error"
+    token = results[0].reason.split(":", 1)[0]
+    assert is_known_reason(token), results[0].reason
+    assert results[0].reason == "unknown_issuer: registry_id is empty"

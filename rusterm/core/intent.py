@@ -102,14 +102,36 @@ def classify(client, message: str) -> Intent | Clarification:
     ни действий.
     """
     prompt = f"{_PROMPT}\nЗапрос: {message}"
-    raw = str(client.complete(prompt))
+    first = client.complete(prompt)
+    failure = _client_error(first)
+    if failure is not None:
+        return Clarification(f"llm_error:{failure}")
+    raw = str(first)
     intent, clarification, retryable = _try_parse(raw)
     if intent is None and retryable:
-        retry = str(client.complete(
+        again = client.complete(
             f"{_FORMAT_REMINDER}\nЗапрос: {message}\n"
-            f"Твой предыдущий ответ: {raw[:500]}"))
-        intent, clarification, retryable = _try_parse(retry)
+            f"Твой предыдущий ответ: {raw[:500]}")
+        failure = _client_error(again)
+        if failure is not None:
+            return Clarification(f"llm_error:{failure}")
+        intent, clarification, retryable = _try_parse(str(again))
     return intent if intent is not None else clarification
+
+
+def _client_error(reply) -> str | None:
+    """Названная причина, если клиент вернул ошибку значением.
+
+    Дефект, ради которого это заведено (находка координатора
+    17.09.2026): ConfigError('llm_provider_requires_gate') проходил
+    через str() и превращался в «ответ модели не JSON» — настоящая
+    причина терялась, и на неё тратился ещё один вызов модели.
+    Ошибки-значения проекта несут поле reason и строками не являются.
+    """
+    if isinstance(reply, str):
+        return None
+    reason = getattr(reply, "reason", None)
+    return None if reason is None else str(reason)
 
 
 def _try_parse(raw: str) -> tuple[Intent | None, Clarification | None,

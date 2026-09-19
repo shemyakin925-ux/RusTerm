@@ -69,13 +69,13 @@ class Record:
 def extract_text(path) -> Document | ProviderError:
     """Ступень ① (ADR-0011): файл -> Document со страницами и sha256.
 
-    Место (TASK-19 F8): реализацию привозит полоса L5 в
-    rusterm/manual/extract.py. До той ночи место отвечает
-    format_unsupported ЗНАЧЕНИЕМ на любой вход — формат без реализации
-    в проекте, а не молчание и не исключение (§7).
-    """
-    return ProviderError(
-        reason="format_unsupported:manual_extract_not_implemented")
+    ТЗ-34 F5: место ПРОВОДНОЕ — делегирует единственной реализации
+    в rusterm/manual/extract.py (лениво: extract сам импортирует
+    отсюда Document/Page). Обойдённая дверь закрыта тем же способом,
+    что TASK-19 F6: место отвечает ровно то, что отвечает реализация,
+    на любом входе."""
+    from .extract import extract_text as _implementation
+    return _implementation(path)
 
 
 def _merge_thousands(text: str) -> str:

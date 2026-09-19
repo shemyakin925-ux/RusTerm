@@ -1,0 +1,107 @@
+{
+ "comment": "ТЗ-49 R1/R2: перепись отказов CNQ (Канада) и NGGTF (OTC), офлайн на tests/data/edgar/companyfacts_m6_*.json; значения = точные строки из БД, отказы = точные причины (ТЗ-49, прогон 2026-09-17; ТЗ-56 Z1: + roe_incl_nci — своя мера на total_equity_incl_nci, CNQ считает, roe не подменяется)",
+ "as_of": "2026-09-09",
+ "census": {
+  "CNQ": {
+   "net_margin": {
+    "value": "0.2791393632939477",
+    "reason": null
+   },
+   "operating_margin": {
+    "value": null,
+    "reason": "missing_data: operating_income"
+   },
+   "effective_tax": {
+    "value": "0.18284117513782946",
+    "reason": null
+   },
+   "fcf": {
+    "value": null,
+    "reason": "stale_data: capex: last 2018-12-31"
+   },
+   "ebitda": {
+    "value": null,
+    "reason": "missing_data: operating_income"
+   },
+   "interest_coverage": {
+    "value": null,
+    "reason": "missing_data: operating_income"
+   },
+   "nopat": {
+    "value": null,
+    "reason": "missing_data: operating_income"
+   },
+   "roe": {
+    "value": null,
+    "reason": "missing_data: total_equity"
+   },
+   "roe_incl_nci": {
+    "value": "0.25812916000667985",
+    "reason": null
+   },
+   "asset_turnover": {
+    "value": "0.4375215165726992",
+    "reason": null
+   },
+   "gross_margin": {
+    "value": null,
+    "reason": "missing_data: gross_profit"
+   }
+  },
+  "NGGTF": {
+   "net_margin": {
+    "value": "0.08733191790516631",
+    "reason": null
+   },
+   "operating_margin": {
+    "value": "0.21599433828733192",
+    "reason": null
+   },
+   "effective_tax": {
+    "value": "0.25181598062953997",
+    "reason": null
+   },
+   "fcf": {
+    "value": null,
+    "reason": "missing_data: ocf"
+   },
+   "ebitda": {
+    "value": null,
+    "reason": "stale_data: d_and_a: last 2018-09-30"
+   },
+   "interest_coverage": {
+    "value": "1.611404435058078",
+    "reason": null
+   },
+   "nopat": {
+    "value": "1141728813.559322",
+    "reason": null
+   },
+   "roe": {
+    "value": "0.01689693417863647",
+    "reason": null
+   },
+   "roe_incl_nci": {
+    "value": "0.01688468064145367",
+    "reason": null
+   },
+   "asset_turnover": {
+    "value": "0.0687216699414431",
+    "reason": null
+   },
+   "gross_margin": {
+    "value": null,
+    "reason": "missing_data: gross_profit"
+   }
+  }
+ },
+ "golden": {
+  "CNQ": {
+   "effective_tax": "0.18284117513782946"
+  },
+  "NGGTF": {
+   "effective_tax": "0.25181598062953997",
+   "nopat": "1141728813.559322"
+  }
+ }
+}

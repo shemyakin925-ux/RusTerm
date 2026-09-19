@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 41  # 40 (TASK-19 F4) + 41: price и corporate_action — место котировок (ТЗ-23 K1, ADR-0014)
+_SCHEMA_VERSION = 45  # 44 (ТЗ-33 E1) + 45: chat_transcript/chat_turn — расшифровки разговоров (ТЗ-36 H1)
 
 
 def _checksum(text: str) -> str:
@@ -590,6 +590,102 @@ def _migrate_41_prices(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[41] = (_migrate_41_prices,
                           _PRICE_DDL + ";" + _CORPORATE_ACTION_DDL)
+
+
+_MEASURE_LINEAGE_CA_DDL = """CREATE TABLE IF NOT EXISTS measure_lineage_ca (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        ca_instrument_id TEXT NOT NULL,
+        ca_ex_date TEXT NOT NULL,
+        ca_kind TEXT NOT NULL,
+        role TEXT NOT NULL,
+        PRIMARY KEY (measure_id, ca_instrument_id, ca_ex_date, ca_kind,
+                     role),
+        FOREIGN KEY (ca_instrument_id, ca_ex_date, ca_kind)
+            REFERENCES corporate_action(instrument_id, ex_date, kind))"""
+
+
+def _migrate_42_ca_lineage(conn: sqlite3.Connection) -> None:
+    """Корпоративные действия как входы мер (ТЗ-31 C2): мера,
+    посчитанная по событиям corporate_action (dps_ttm по скользящему
+    окну), обязана нести lineage на ИМЕННО эти события — I4 без
+    канала на события выталкивал бы такие меры в отказ. Отдельная
+    таблица рядом с measure_lineage: прежняя таблица, её CHECK и её
+    индексы не трогаются."""
+    conn.execute(_MEASURE_LINEAGE_CA_DDL)
+
+
+_CUSTOM_MIGRATIONS[42] = (_migrate_42_ca_lineage,
+                          _MEASURE_LINEAGE_CA_DDL)
+
+
+def _migrate_43_period_basis(conn: sqlite3.Connection) -> None:
+    """База периода в lineage (ТЗ-32 D6): приближение по годовому
+    периоду (ev_ebitda, roic) и TTM-окно (dps_ttm по корпоративным
+    действиям) перестают быть невидимыми — каждая строка lineage
+    может нести ttm|annual; NULL — прямой однопериодный вход."""
+    conn.execute("ALTER TABLE measure_lineage ADD COLUMN period_basis"
+                 " TEXT CHECK (period_basis IS NULL OR period_basis"
+                 " IN ('ttm','annual'))")
+    conn.execute("ALTER TABLE measure_lineage_ca ADD COLUMN"
+                 " period_basis TEXT CHECK (period_basis IS NULL OR"
+                 " period_basis IN ('ttm','annual'))")
+
+
+_CUSTOM_MIGRATIONS[43] = (_migrate_43_period_basis,
+                          "ALTER TABLE measure_lineage;"
+                          " ALTER TABLE measure_lineage_ca")
+
+_OWNERSHIP_TX_DDL = """CREATE TABLE IF NOT EXISTS ownership_transaction (
+        document_sha256 TEXT NOT NULL REFERENCES document(sha256),
+        tx_index INTEGER NOT NULL,
+        issuer_id TEXT NOT NULL,
+        insider TEXT NOT NULL,
+        role TEXT,
+        date TEXT NOT NULL,
+        direction TEXT,
+        shares REAL,
+        price REAL,
+        tenb5_one INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (document_sha256, tx_index))"""
+
+
+def _migrate_44_ownership_tx(conn: sqlite3.Connection) -> None:
+    """Сделки инсайдеров из Forms 3/4/5 (ТЗ-33 E1, ТЗ-25 P5): вход
+    insider_net хранится, а не пересчитывается из воздуха; уникальность
+    (документ, индекс сделки) — повторный разбор не плодит дублей (I7)."""
+    conn.execute(_OWNERSHIP_TX_DDL)
+
+
+_CUSTOM_MIGRATIONS[44] = (_migrate_44_ownership_tx, _OWNERSHIP_TX_DDL)
+
+_CHAT_TRANSCRIPT_DDL = """CREATE TABLE IF NOT EXISTS chat_transcript (
+        session_id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        instrument_id TEXT,
+        started_at REAL NOT NULL,
+        calls INTEGER NOT NULL DEFAULT 0)"""
+_CHAT_TURN_DDL = """CREATE TABLE IF NOT EXISTS chat_turn (
+        session_id TEXT NOT NULL REFERENCES chat_transcript(session_id),
+        turn_index INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        text TEXT,
+        citations TEXT,
+        tool_calls TEXT,
+        rejected INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (session_id, turn_index))"""
+
+
+def _migrate_45_chat_transcripts(conn: sqlite3.Connection) -> None:
+    """Расшифровки разговоров (ТЗ-36 H1, Q8): сессия с моделью и
+    числом вызовов; ходы с цитатами и вызовами инструментов. Запись
+    только добавлением; экспорт и повторная верификация читают эти
+    таблицы, ничего не пересчитывая."""
+    conn.execute(_CHAT_TRANSCRIPT_DDL)
+    conn.execute(_CHAT_TURN_DDL)
+
+
+_CUSTOM_MIGRATIONS[45] = (_migrate_45_chat_transcripts,
+                          _CHAT_TRANSCRIPT_DDL + ";" + _CHAT_TURN_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

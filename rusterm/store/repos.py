@@ -472,6 +472,17 @@ class SnapshotRepo:
             (measure_id,)).fetchall()
         return [r[0] for r in rows]
 
+    def lineage_ca(self, measure_id: str) -> List[dict]:
+        """Корпоративные действия — входы меры (ТЗ-31 C2, миграция 42):
+        события окна dps_ttm для панели источника и проверки I4."""
+        rows = self.conn.execute(
+            """SELECT ca_instrument_id, ca_ex_date, ca_kind, role
+               FROM measure_lineage_ca WHERE measure_id=?
+               ORDER BY ca_ex_date""",
+            (measure_id,)).fetchall()
+        return [dict(zip(("instrument_id", "ex_date", "kind", "role"),
+                         r)) for r in rows]
+
     def instruments_for_fact(self, fact_id: str) -> List[str]:
         """Инструменты, чьи снапшоты содержат меры с lineage,
         ссылающимся на факт (процесс 5, узел recompute)."""
@@ -599,7 +610,11 @@ class SnapshotRepo:
         а null_reason обязателен и объясняет, чего не хватило (data-model §4).
 
         measure и lineage пишутся одной транзакцией — полусостояний нет.
-        lineage: [{"fact_id": ...}|{"peer_measure_id": ...}, "role": ...}]
+        lineage: [{"fact_id": ...}|{"peer_measure_id": ...}|"role": ...}]
+        ТЗ-31 C2: строка lineage может вместо fact_id/peer_measure_id
+        нести корпоративное действие — {"ca_instrument_id", "ca_ex_date",
+        "ca_kind", "role"}: она пишется в measure_lineage_ca (миграция
+        42) и тоже защищает I4.
         """
         value = measure.get("value")
         null_reason = measure.get("null_reason")
@@ -624,11 +639,25 @@ class SnapshotRepo:
                  measure.get("method_version"), null_reason,
                  measure.get("peer_set_version")))
             for l in lineage:
-                c.execute(
-                    """INSERT INTO measure_lineage(measure_id, fact_id,
-                      peer_measure_id, role) VALUES (?, ?, ?, ?)""",
-                    (measure["measure_id"], l.get("fact_id"),
-                     l.get("peer_measure_id"), l["role"]))
+                # ТЗ-32 D6: period_basis (ttm|annual) — база периода
+                # входа, NULL для прямого однопериодного
+                if l.get("ca_instrument_id") is not None:
+                    c.execute(
+                        """INSERT INTO measure_lineage_ca(measure_id,
+                          ca_instrument_id, ca_ex_date, ca_kind, role,
+                          period_basis)
+                          VALUES (?, ?, ?, ?, ?, ?)""",
+                        (measure["measure_id"], l["ca_instrument_id"],
+                         l["ca_ex_date"], l["ca_kind"], l["role"],
+                         l.get("period_basis")))
+                else:
+                    c.execute(
+                        """INSERT INTO measure_lineage(measure_id, fact_id,
+                          peer_measure_id, role, period_basis)
+                          VALUES (?, ?, ?, ?, ?)""",
+                        (measure["measure_id"], l.get("fact_id"),
+                         l.get("peer_measure_id"), l["role"],
+                         l.get("period_basis")))
         return measure["measure_id"]
 
 
@@ -724,6 +753,13 @@ class PeerSetRepo:
         return self.conn.execute(
             "SELECT 1 FROM peer_set WHERE peer_set_id=?",
             (peer_set_id,)).fetchone() is not None
+
+    def all_ids(self) -> list[str]:
+        """Все известные наборы по алфавиту — чтобы отказ «сектор не
+        найден» мог назвать, какие секторы всё-таки есть (координатор,
+        17.09.2026: пустой отказ заставлял читать исходники)."""
+        return [row[0] for row in self.conn.execute(
+            "SELECT peer_set_id FROM peer_set ORDER BY peer_set_id")]
 
     def composition(self, peer_set_version_id: str) -> dict:
         """Состав набора: рынки и валюты участников (ТЗ-22 J2).
@@ -1555,10 +1591,17 @@ class GovernanceRepo:
 
     def record(self, assessment) -> str:
         """Оценка — словарь или dataclass Assessment с полями строки
-        governance_assessment."""
+        governance_assessment. ТЗ-33 E3: цвет без lineage не
+        записывается вовсе — страж стоит и у записи, а не только у
+        продюсера."""
         if not isinstance(assessment, dict):
             from dataclasses import asdict
             assessment = asdict(assessment)
+        if assessment["color"] in ("green", "yellow", "red") \
+                and not (assessment.get("lineage_ref") or "").strip():
+            raise ValueError(
+                f"I-governance: {assessment['indicator']} цвета "
+                f"{assessment['color']!r} без lineage не записывается")
         assessment_id = str(uuid.uuid4())
         with writer_transaction(self.conn) as c:
             c.execute(
@@ -1727,6 +1770,8 @@ class RepoRegistry:
         self.audit = AuditRepo(conn, audit_log_path=paths.audit_log_path)
         self.document = DocumentRepo(conn)
         self.manual_extraction = ManualExtractionRepo(conn)
+        self.ownership = OwnershipRepo(conn)
+        self.chat_transcript = ChatTranscriptRepo(conn)
 
 
 class IndustryRepo:
@@ -1891,6 +1936,124 @@ class CorporateActionRepo:
                        amount, currency, source FROM corporate_action
                        WHERE instrument_id=? ORDER BY ex_date""",
                     (instrument_id,))]
+
+
+class ChatTranscriptRepo:
+    """Расшифровки разговоров (ТЗ-36 H1, Q8): сессия + ходы. Запись
+    только добавлением (повтор create той же сессии — обновляет счётчик
+    вызовов, ходы не переписываются). Ключ модели никогда не хранится —
+    только имя модели."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def create_session(self, session_id: str, model: str,
+                       instrument_id: Optional[str], started_at: float,
+                       calls: int) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT INTO chat_transcript(session_id, model,
+                   instrument_id, started_at, calls)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(session_id) DO UPDATE SET
+                     calls=excluded.calls""",
+                (session_id, model, instrument_id, started_at, calls))
+
+    def add_turn(self, session_id: str, turn_index: int, role: str,
+                 text: Optional[str], citations: Optional[list],
+                 tool_calls: Optional[list], rejected: bool) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """INSERT OR REPLACE INTO chat_turn(session_id, turn_index,
+                   role, text, citations, tool_calls, rejected)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (session_id, turn_index, role, text,
+                 json.dumps(citations or [], ensure_ascii=False),
+                 json.dumps(tool_calls or [], ensure_ascii=False),
+                 int(rejected)))
+
+    def get(self, session_id: str) -> Optional[dict]:
+        row = self.conn.execute(
+            """SELECT session_id, model, instrument_id, started_at, calls
+               FROM chat_transcript WHERE session_id=?""",
+            (session_id,)).fetchone()
+        if row is None:
+            return None
+        keys = ("session_id", "model", "instrument_id", "started_at",
+                "calls")
+        session = dict(zip(keys, row))
+        turns = self.conn.execute(
+            """SELECT turn_index, role, text, citations, tool_calls,
+                      rejected FROM chat_turn WHERE session_id=?
+               ORDER BY turn_index""", (session_id,)).fetchall()
+        session["turns"] = [
+            {"turn_index": t[0], "role": t[1], "text": t[2],
+             "citations": json.loads(t[3] or "[]"),
+             "tool_calls": json.loads(t[4] or "[]"),
+             "rejected": bool(t[5])} for t in turns]
+        return session
+
+    def calls_totals(self) -> dict:
+        """Вызовы по моделям и всего (ТЗ-36 H3): сумма по сессиям."""
+        per_model = {r[0]: r[1] for r in self.conn.execute(
+            "SELECT model, SUM(calls) FROM chat_transcript"
+            " GROUP BY model")}
+        total = self.conn.execute(
+            "SELECT COALESCE(SUM(calls), 0) FROM chat_transcript"
+        ).fetchone()[0]
+        today = self.conn.execute(
+            """SELECT COALESCE(SUM(calls), 0) FROM chat_transcript
+               WHERE started_at >= ?""",
+            (time.mktime(date.today().timetuple()),)).fetchone()[0]
+        return {"calls_total": total, "calls_today": today,
+                "per_model": per_model}
+
+
+class OwnershipRepo:
+    """Сделки инсайдеров из Forms 3/4/5 (ТЗ-33 E1, миграция 44).
+    Запись идемпотентна по (документ, индекс сделки) — I7."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def replace_for_document(self, document_sha256: str, issuer_id: str,
+                             transactions: list) -> int:
+        """Заменить разбор документа целиком: повторный разбор того же
+        sha даёт те же строки (детерминированный парсер)."""
+        with writer_transaction(self.conn) as c:
+            c.execute("DELETE FROM ownership_transaction"
+                      " WHERE document_sha256=?",
+                      (document_sha256,))
+            for idx, tx in enumerate(transactions):
+                c.execute(
+                    """INSERT OR REPLACE INTO ownership_transaction(
+                       document_sha256, tx_index, issuer_id, insider,
+                       role, date, direction, shares, price, tenb5_one)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (document_sha256, idx, issuer_id, tx.insider,
+                     tx.role, tx.date, tx.direction, tx.shares,
+                     tx.price, int(tx.tenb5_one)))
+            return len(transactions)
+
+    def for_issuer(self, issuer_id: str, since: str | None = None,
+                   until: str | None = None) -> list:
+        """Сделки эмитента по возрастанию даты; окно [since, until]."""
+        sql = """SELECT document_sha256, tx_index, issuer_id, insider,
+                        role, date, direction, shares, price, tenb5_one
+                 FROM ownership_transaction WHERE issuer_id=?"""
+        args: list = [issuer_id]
+        if since is not None:
+            sql += " AND date >= ?"
+            args.append(since)
+        if until is not None:
+            sql += " AND date <= ?"
+            args.append(until)
+        sql += " ORDER BY date"
+        keys = ("document_sha256", "tx_index", "issuer_id", "insider",
+                "role", "date", "direction", "shares", "price",
+                "tenb5_one")
+        return [dict(zip(keys, r))
+                for r in self.conn.execute(sql, args)]
 
 
 class DocumentRepo:

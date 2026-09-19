@@ -156,6 +156,7 @@ def import_document(conn, paths, file_path, issuer_id: str,
         dropped_bad_shape=parsed.dropped_bad_shape,
         records_verified=verified_count,
         records_unverified=unverified_count,
+        records_near_miss=near_miss_count,
         facts_stored=facts_stored, model=client.model,
         prompt_version=PROMPT_VERSION)
 

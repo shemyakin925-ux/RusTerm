@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 # Пороги каденции (ADR-0014 §2: «раз в неделю-две»).
 # Согласование: интервал опроса 10 дней ≤ запас сомкнутости 14 дней —
@@ -45,6 +45,15 @@ class PlanEntry:
     priority: int
 
 
+def gaps(price_dates: list[str]) -> list[tuple[str, str]]:
+    """Внутренние дыры ряда: соседние даты с разрывом больше
+    GAP_LIMIT_DAYS (ТЗ-31 C5: дыры считаются, а не только называются)."""
+    ordered = sorted(set(price_dates))
+    return [(prev, nxt) for prev, nxt in zip(ordered, ordered[1:])
+            if (date.fromisoformat(nxt) - date.fromisoformat(prev)).days
+            > GAP_LIMIT_DAYS]
+
+
 def instrument_state(price_dates: list[str],
                      as_of: str) -> tuple[str, str, str | None]:
     """Состояние истории цен: (state, reason, last_date).
@@ -56,14 +65,30 @@ def instrument_state(price_dates: list[str],
         return "incomplete", "no_history", None
     ordered = sorted(set(price_dates))
     last = ordered[-1]
-    for prev, nxt in zip(ordered, ordered[1:]):
-        gap = (date.fromisoformat(nxt) - date.fromisoformat(prev)).days
-        if gap > GAP_LIMIT_DAYS:
-            return "incomplete", f"gap:{prev}..{nxt}", last
+    holes = gaps(price_dates)
+    if holes:
+        prev, nxt = holes[0]
+        return "incomplete", f"gap:{prev}..{nxt}", last
     age = (date.fromisoformat(as_of) - date.fromisoformat(last)).days
     if age > CLOSED_GRACE_DAYS:
         return "incomplete", f"stale_history:{last}", last
     return "complete", "closed", last
+
+
+def next_poll_due(last_poll: str | None, last_date: str | None,
+                  as_of: str, state: str,
+                  poll_interval_days: int = POLL_INTERVAL_DAYS) -> str | None:
+    """Дата следующего опроса (ТЗ-31 C5): неполный добивается сейчас;
+    полный — на интервал после опорной точки (max из отметки последнего
+    обхода и последней даты данных — то же правило, что в plan_pass)."""
+    if state != "complete":
+        return as_of
+    reference = max((x for x in (last_poll, last_date) if x),
+                    default=None)
+    if reference is None:
+        return as_of
+    return (date.fromisoformat(reference)
+            + timedelta(days=poll_interval_days)).isoformat()
 
 
 def plan_pass(repos, as_of: str,

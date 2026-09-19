@@ -237,3 +237,60 @@ def test_sector_aggregate_carries_currency_or_refuses_mixture(env):
         and agg2.p75 is not None
     assert agg2.n == 8
     assert agg2.currency == "USD"
+
+
+# ── ТЗ-31 C4: цена не-USD рынка хранит свою валюту ─────────────────────
+
+def test_non_usd_price_row_keeps_currency_and_aggregate_refuses(env):
+    """Строка цены KR-рынка в KRW проходит в хранилище и в меру
+    БЕЗ конвертации: market_cap несёт валюту цены; валютный стоп-кран
+    (ТЗ-21 H3) отказывает абсолютному агрегату со смесью USD/KRW и
+    называет обе валюты."""
+    conn, repos = env
+    as_of = "2025-01-05"
+    peers = PeerSetRepo(conn)
+    peers.create_peer_set("ps", "industry", "mixed")
+    peers.add_version("v1", "ps", 1, "2024-01-01", None, "manual",
+                      "v1", True, None, None)
+    members = [("US-A", "u0", "USD", 10.0 + 0),
+               ("US-B", "u1", "USD", 11.0),
+               ("US-C", "u2", "USD", 12.0),
+               ("US-D", "u3", "USD", 13.0),
+               ("KR-E", "k0", "KRW", 50_000.0),
+               ("KR-F", "k1", "KRW", 51_000.0),
+               ("KR-G", "k2", "KRW", 52_000.0),
+               ("KR-H", "k3", "KRW", 53_000.0)]
+    builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
+                              coverage_repo=repos.coverage,
+                              price_repo=repos.price)
+    for iid, issuer, cur, price in members:
+        _add_issuer(repos, conn, iid, issuer, cur,
+                    [("shares_outstanding", "7000000")])
+        peers.add_member("v1", iid, None)
+        # строка цены в валюте СВОЕГО рынка
+        inserted = repos.price.put_rows(
+            iid, "twelvedata",
+            [{"date": as_of, "close": price, "currency": cur}])
+        assert inserted == 1
+        row = repos.price.series(iid)[0]
+        assert row["currency"] == cur, \
+            "валюта строки цены не дошла до хранилища"
+        builder.build(iid, issuer, as_of)
+
+    # market_cap KR-инструмента — в KRW цены, без приведения к USD
+    kr_rows = repos.snapshot.get_measures(
+        repos.snapshot.latest_snapshot_id("KR-E"))
+    mcap = next(m for m in kr_rows if m[3] == "market_cap")
+    assert float(mcap[4]) == pytest.approx(50_000.0 * 7_000_000.0)
+    assert mcap[5] == "KRW", f"валюта цены потеряна: {mcap[5]}"
+
+    # стоп-кран: абсолютный агрегат по набору со смесью валют — отказ
+    built = build_sector_aggregates(repos, "ps", as_of,
+                                    ("market_cap_total",))
+    mcap_agg = next(a for a in built["aggregates"]
+                    if a.concept == "market_cap_total")
+    assert mcap_agg.null_reason is not None
+    assert mcap_agg.null_reason.startswith("currency_mismatch"), \
+        mcap_agg.null_reason
+    assert "KRW" in mcap_agg.null_reason and "USD" in mcap_agg.null_reason
+    conn.close()

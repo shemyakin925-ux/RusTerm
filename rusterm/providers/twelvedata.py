@@ -38,6 +38,10 @@ _LIMIT = HostLimit(host="api.twelvedata.com", per_second=8.0 / 60.0,
 READ_TIMEOUT = 30
 INTERVAL = "1day"
 OUTPUTSIZE = 5000
+# Корпоративные действия (ТЗ-31 C3): /splits и /dividends на бесплатном
+# тарифе отвечают (замер 14.09.2026, REPORT-31), но по умолчанию отдают
+# один последний элемент; полная история — только range=full.
+CA_RANGE = "full"
 
 
 def _default_transport(url: str, headers: dict) -> tuple:
@@ -87,6 +91,12 @@ class TwelveDataProvider:
             params["end_date"] = end
         return params
 
+    @staticmethod
+    def ca_params(symbol: str) -> dict:
+        """Параметры /splits и /dividends: полная история (замер
+        REPORT-31: без range вендор отдаёт один последний элемент)."""
+        return {"symbol": symbol, "range": CA_RANGE}
+
     @classmethod
     def cache_url(cls, symbol: str, start: str | None = None,
                   end: str | None = None) -> str:
@@ -95,13 +105,20 @@ class TwelveDataProvider:
         тратит ноль запросов (K2, ADR-0003)."""
         return f"{DEFAULT_BASE_URL}/time_series?{urlencode(cls.params_for(symbol, start, end))}"
 
+    @classmethod
+    def cache_url_ca(cls, kind: str, symbol: str) -> str:
+        """Канонический URL без ключа для /splits и /dividends (C3)."""
+        if kind not in ("splits", "dividends"):
+            raise ValueError(f"kind {kind!r} вне ('splits','dividends')")
+        return f"{DEFAULT_BASE_URL}/{kind}?{urlencode(cls.ca_params(symbol))}"
+
     # ── один запрос через дверь ─────────────────────────────────────────
 
-    def time_series(self, symbol: str, start: str | None = None,
-                    end: str | None = None) -> dict | ConfigError | \
+    def _request(self, path: str, params: dict) -> dict | ConfigError | \
             BudgetExceeded | ProviderError:
-        params = self.params_for(symbol, start, end)
-        url = f"{DEFAULT_BASE_URL}/time_series?{urlencode(params)}" \
+        """Общая дверь /time_series, /splits и /dividends: один запрос
+        через гейт, отказ вендора — значение, не исключение (§7)."""
+        url = f"{DEFAULT_BASE_URL}{path}?{urlencode(params)}" \
               f"&apikey={self.api_key}"
 
         def send(headers: dict):
@@ -131,6 +148,20 @@ class TwelveDataProvider:
             return ProviderError(reason=f"twelvedata_error:{code}")
         return parsed
 
+    def time_series(self, symbol: str, start: str | None = None,
+                    end: str | None = None) -> dict | ConfigError | \
+            BudgetExceeded | ProviderError:
+        return self._request("/time_series",
+                             self.params_for(symbol, start, end))
+
+    def splits(self, symbol: str) -> dict | ConfigError | \
+            BudgetExceeded | ProviderError:
+        return self._request("/splits", self.ca_params(symbol))
+
+    def dividends(self, symbol: str) -> dict | ConfigError | \
+            BudgetExceeded | ProviderError:
+        return self._request("/dividends", self.ca_params(symbol))
+
     # ── чистый разбор записанного payload ───────────────────────────────
 
     @staticmethod
@@ -156,6 +187,51 @@ class TwelveDataProvider:
             rows.append(row)
         rows.sort(key=lambda r: r["date"])
         return rows
+
+    # ── корпоративные действия (ТЗ-31 C3): чистый разбор payload ────────
+
+    @staticmethod
+    def parse_splits(payload: dict) -> tuple[list[dict], int]:
+        """payload /splits -> [(строки corporate_action)] и счётчик
+        неразобранного. k (сплит 1:k) = from_factor/to_factor — целые
+        из payload; поле ratio не используется: у 7:1 вендор округляет
+        его до 0.14286 (замер REPORT-31)."""
+        out: list[dict] = []
+        skipped = 0
+        for s in payload.get("splits", []) or []:
+            try:
+                k = float(s["from_factor"]) / float(s["to_factor"])
+                ex_date = s["date"]
+            except (KeyError, TypeError, ZeroDivisionError, ValueError):
+                skipped += 1
+                continue
+            out.append({"ex_date": ex_date, "kind": "split", "factor": k,
+                        "amount": None})
+        out.sort(key=lambda r: r["ex_date"])
+        return out, skipped
+
+    @staticmethod
+    def parse_dividends(payload: dict) -> tuple[list[dict], str, int]:
+        """payload /dividends -> (строки, валюта из meta, счётчик
+        неразобранного). Суммы идут в хранилище КАК ОТДАЛ ВЕНДОР —
+        в сегодняшней базе акций, той же, что его close (ADR-0020);
+        отношение дивиденд/close инвариантно к базе, поэтому
+        dividend_factor корректен прямо на этих числах."""
+        meta = payload.get("meta", {}) or {}
+        currency = meta.get("currency") or None
+        out: list[dict] = []
+        skipped = 0
+        for d in payload.get("dividends", []) or []:
+            try:
+                amount = float(d["amount"])
+                ex_date = d["ex_date"]
+            except (KeyError, TypeError, ValueError):
+                skipped += 1
+                continue
+            out.append({"ex_date": ex_date, "kind": "dividend",
+                        "factor": None, "amount": amount})
+        out.sort(key=lambda r: r["ex_date"])
+        return out, currency, skipped
 
 
 def build(gate: RequestGate):

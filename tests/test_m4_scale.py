@@ -17,7 +17,6 @@ import os
 import shutil
 import sqlite3
 import tempfile
-import time
 import uuid
 from pathlib import Path
 
@@ -46,9 +45,14 @@ FAKE_UA = "Synthetic Test synthetic.invalid"
 # post-fix ~0.1-0.2 s/инструмент) с запасом x3. Контроль — на КАЖДОМ
 # инструменте против линейной доли бюджета: пока причина не устранена,
 # тест обязан падать за секунды, а не часы (приёмка гоняет suite дважды).
-M4_FIRST_PASS_BUDGET_S = 240.0
-_PER_ISSUER_SHARE = M4_FIRST_PASS_BUDGET_S / N_ISSUERS
-_FIXED_ALLOWANCE_S = 2.0  # разогрев: первый инструмент несёт константу
+#
+# ТЗ-53 W1: контроль переведён с секунд настенных часов на РАБОТУ —
+# число SQL-операций прохода (conn.set_trace_callback), величина не
+# зависит от загрузки машины. Границы = замер прогона 18.09.2026
+# (607 операций на инструмент ровно) с запасом x3.
+M4_FIRST_PASS_STATEMENTS_BUDGET = 607 * N_ISSUERS * 3 // 2
+_PER_INSTRUMENT_STATEMENTS = 607 * 3
+_FIXED_ALLOWANCE_STATEMENTS = 2000  # разогрев: первый инструмент несёт константу
 
 
 def test_m4_five_hundred_instruments_incremental():
@@ -88,23 +92,28 @@ def test_m4_five_hundred_instruments_incremental():
         builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                                   coverage_repo=repos.coverage)
 
-        # проход 1 с поинструментальным контролем времени: прошедшее
-        # время после n инструментов обязано быть в пределах линейной
-        # доли бюджета — квадратичная деградация вскрывается за секунды
-        started = time.monotonic()
-        seen = {"n": 0}
+        # проход 1 с поинструментальным контролем РАБОТЫ (ТЗ-53 W1):
+        # число SQL-операций после n инструментов обязано быть в
+        # пределах линейной доли бюджета операций — квадратичная
+        # деградация вскрывается счётчиком, а не секундами
+        seen = {"n": 0, "statements": 0}
         real_members = watchlist.members("m4")
+
+        def _count(statement: str) -> None:
+            seen["statements"] += 1
+
+        conn.set_trace_callback(_count)
 
         def members_chunked(_watchlist_id):
             for member in real_members:
                 seen["n"] += 1
-                elapsed = time.monotonic() - started
-                bound = _FIXED_ALLOWANCE_S + _PER_ISSUER_SHARE * seen["n"]
-                assert elapsed <= bound, (
+                bound = (_FIXED_ALLOWANCE_STATEMENTS
+                         + _PER_INSTRUMENT_STATEMENTS * seen["n"])
+                assert seen["statements"] <= bound, (
                     f"структурная находка Z3: {seen['n']} инструментов "
-                    f"за {elapsed:.1f} s при доле бюджета {bound:.1f} s — "
-                    f"полный проход не укладывается в "
-                    f"{M4_FIRST_PASS_BUDGET_S:.0f} s")
+                    f"за {seen['statements']} операций при доле бюджета "
+                    f"{bound} — полный проход не укладывается в "
+                    f"{M4_FIRST_PASS_STATEMENTS_BUDGET}")
                 yield member
 
         watchlist_members_orig = type(watchlist).members
@@ -115,10 +124,10 @@ def test_m4_five_hundred_instruments_incremental():
                 builder=builder)
         finally:
             type(watchlist).members = watchlist_members_orig
-        elapsed_first = time.monotonic() - started
-        assert elapsed_first <= M4_FIRST_PASS_BUDGET_S, (
-            f"первый проход {elapsed_first:.1f} s выше бюджета "
-            f"{M4_FIRST_PASS_BUDGET_S:.0f} s")
+            conn.set_trace_callback(None)
+        assert seen["statements"] <= M4_FIRST_PASS_STATEMENTS_BUDGET, (
+            f"первый проход {seen['statements']} операций выше бюджета "
+            f"{M4_FIRST_PASS_STATEMENTS_BUDGET}")
         assert len(first) == N_ISSUERS
         assert all(r.action == "updated" for r in first)
 
@@ -133,12 +142,9 @@ def test_m4_five_hundred_instruments_incremental():
 
         # проход 2: не изменилось — companyfacts не запрашивается,
         # ничего нового не создаётся
-        started_second = time.monotonic()
         second = refresh_watchlist(repos, provider_factory, "m4",
                                    "2026-09-09", builder=builder)
-        elapsed_second = time.monotonic() - started_second
-        print(f"M4 timings: first pass {elapsed_first:.2f} s, "
-              f"second pass {elapsed_second:.2f} s")
+        print(f"M4 first pass: {seen['statements']} операций")
         assert len(second) == N_ISSUERS
         assert all(r.action == "unchanged" for r in second)
         cf_second = sum(1 for u in transport.log
@@ -158,9 +164,10 @@ def test_m4_five_hundred_instruments_incremental():
 
 # ── TASK-15 C2: стражи линейности — не разовый замер, а охрана ──────────
 
-# Именованный бюджет сборки: измеренный средний чек по эмитенту на этой
-# машине (замер C2 в REPORT-15) с запасом x3. Рост среднего красит тест.
-C2_MEAN_PER_ISSUER_BUDGET_S = 0.30
+# ТЗ-53 W1: именованный секундный бюджет снят — он краснел от загрузки
+# машины (круг 59: ratio 1.65 в приёмке координатора при зелёном
+# одиночном прогоне). Линейность меряется РАБОТОЙ: числом SQL-операций
+# сборки, величина не зависит от настенных часов.
 C2_SHAPE_RATIO = 1.5          # вторая половина не дороже 1.5x первой
 C2_N_ISSUERS = 100
 C2_FAKE_UA = "Synthetic Test synthetic.invalid"
@@ -254,27 +261,33 @@ def test_c2_hundred_issuer_build_shape_stays_linear():
         builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                                   coverage_repo=repos.coverage)
 
-        started = time.monotonic()
-        for instrument_id in members[:half]:
-            builder.build(instrument_id, issuer_id := f"i-{members.index(instrument_id)}", as_of="2026-09-09")
-        first_half = time.monotonic() - started
+        def build_half_counting_statements(start: int, stop: int) -> int:
+            """Собрать половину, считая SQL-операции (ТЗ-53 W1: работа,
+            а не секунды настенных часов)."""
+            counter = {"statements": 0}
 
-        started = time.monotonic()
-        for instrument_id in members[half:]:
-            builder.build(instrument_id, issuer_id := f"i-{members.index(instrument_id)}", as_of="2026-09-09")
-        second_half = time.monotonic() - started
+            def trace(statement: str) -> None:
+                counter["statements"] += 1
 
-        mean_per_issuer = (first_half + second_half) / C2_N_ISSUERS
+            conn.set_trace_callback(trace)
+            try:
+                for n in range(start, stop):
+                    builder.build(members[n], issuer_id=f"i-{n}",
+                                  as_of="2026-09-09")
+            finally:
+                conn.set_trace_callback(None)
+            return counter["statements"]
+
+        first_half = build_half_counting_statements(0, half)
+        second_half = build_half_counting_statements(half,
+                                                     C2_N_ISSUERS)
+        assert first_half > 0 and second_half > 0
         ratio = second_half / first_half
-        print(f"C2 shape: mean {mean_per_issuer:.4f} s/issuer, "
-              f"halves {first_half:.2f} s / {second_half:.2f} s, "
+        print(f"C2 shape: statements {first_half} / {second_half}, "
               f"ratio {ratio:.2f}")
-        assert mean_per_issuer <= C2_MEAN_PER_ISSUER_BUDGET_S, (
-            f"средний чек {mean_per_issuer:.4f} s выше бюджета "
-            f"{C2_MEAN_PER_ISSUER_BUDGET_S} s")
         assert ratio <= C2_SHAPE_RATIO, (
-            f"вторая половина {second_half:.2f} s против первой "
-            f"{first_half:.2f} s:ratio {ratio:.2f} — кривая загнулась")
+            f"вторая половина {second_half} операций против первой "
+            f"{first_half}: ratio {ratio:.2f} — кривая загнулась")
         conn.close()
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

@@ -250,7 +250,8 @@ def test_v6_source_panel_names_source_tag_and_map_version():
 
 def test_c5_source_panel_lists_stale_excluded_fact_with_marker():
     """TASK-15 C5: у эмитента с operating_income от 2012 и revenue от
-    2025 мера operating_margin пуста с 'missing_data: operating_income';
+    2025 мера operating_margin пуста с 'stale_data: operating_income:
+    last 2012-12-31' (ТЗ-55 Y1);
     панель источника перечисляет факт 2012 с маркером и обеими датами —
     факт видим как устаревший, а не исчез. Причина меры не меняется."""
     from rusterm.core.snapshot import SnapshotBuilder
@@ -285,7 +286,8 @@ def test_c5_source_panel_lists_stale_excluded_fact_with_marker():
         measure = next(m for m in card["measures"]
                        if m["concept"] == "operating_margin")
         assert measure["value"] == model.NULL_MARK
-        assert measure["null_reason"] == "missing_data: operating_income", \
+        # ТЗ-55 Y1: факт операционной прибыли был, но вычищен окном
+        assert measure["null_reason"] == "stale_data: operating_income: last 2012-12-31", \
             measure["null_reason"]
 
         panel = model.source_panel(repos, measure)

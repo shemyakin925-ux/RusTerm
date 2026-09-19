@@ -75,15 +75,19 @@ def refresh_watchlist(repos, provider_factory: Callable,
         if instrument is None:
             results.append(RefreshResult(
                 instrument_id=member["instrument_id"], issuer_id="",
-                action="error", reason="инструмент не найден"))
+                action="error",
+                reason="unknown_issuer: instrument not found"))
             continue
         issuer = repos.instrument.get_issuer(instrument.issuer_id)
         cik_raw = (issuer.registry_id or "") if issuer else ""
         if not cik_raw.isdigit():
+            # B39: «ошибка» — не причина; словарь rusterm/reasons.py
+            # называет её unknown_issuer, продолжение — что именно
+            # не задано
             results.append(RefreshResult(
                 instrument_id=instrument.instrument_id,
                 issuer_id=instrument.issuer_id, action="error",
-                reason="у эмитента нет CIK"))
+                reason="unknown_issuer: registry_id is empty"))
             continue
         cik = int(cik_raw)
         state = repos.issuer_state.get(instrument.issuer_id)
