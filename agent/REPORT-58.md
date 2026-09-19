@@ -132,3 +132,44 @@ Secrets:         no key material in new tests or the report
 Pushed:          this commit — yes, right after selfcheck passes
 Questions for the coordinator:
 (none so far)
+
+## Done (C7) — the A5.1 cause confirmed by run, the three-test red does not reproduce
+
+Reproduction of the red run (measured, both commands with output):
+
+1. RED: a cooled staged `agent/STATE.json` (updated_at set 20 minutes
+   back, `git add`) + nested selfcheck WITHOUT `I5_NESTED`:
+
+   `bash agent/selfcheck.sh` → rc=1, output (3 lines total):
+   `I5: p1_rule.sh исполняется из HEAD` / `I5: p6_rule.sh исполняется из HEAD` /
+   `SELFCHECK FAIL (O0): updated_at=2026-09-19T17:57:36Z расходится с реальным 2026-09-19T18:17:56Z на +20.3 мин (допуск 15)`
+
+   The expected `P3/P4` substring NEVER appears (grep over the full
+   log: no match) — O0 kills the run before the P3/P4 check, exactly
+   the mechanism ffeb518 named for the flicker.
+
+2. GREEN, same scenario after ffeb518: the nested run inside
+   `test_selfcheck_cannot_exit_zero_with_dirty_tree` carries
+   `I5_NESTED=1` (O0 skipped), so
+   `python3 -m pytest tests/test_selfcheck_guard.py -q` → 3 passed.
+
+The three ТЗ-named tests — NOT reproduced, measured both ways:
+
+- plain run (check-3 equivalent):
+  `pytest tests/test_transcripts.py::test_export_chat_writes_transcript_json tests/test_tui_model.py::test_tui_has_no_sql_no_http tests/test_venue_filings.py::test_g2_g5_venue_from_exchange_file_and_404_is_an_answer`
+  → 3 passed;
+- blocked-zstd run (check-11 equivalent,
+  `PYTHONPATH=/tmp/block58` with a raising `zstandard.py`):
+  → 3 passed.
+
+Per the C7 rule («если картина не сходится — значит причина другая,
+и это пишется прямо»): the check-11 red with exactly these three
+tests did not reproduce under the O0 recipe or the blocked-zstd
+command on this machine and commit (6ce61d4) — the O0 mechanism is
+confirmed as cause 1 (the dirty-tree flicker), but the original
+three-test red had a DIFFERENT or additional cause (the coordinator's
+fdb8070 tree, their concurrent workload, the pre-A1 code state — as
+REPORT-57 A5 already narrowed). Item goes to Disputed with these
+measurements; nothing was weakened anywhere.
+
+NOW: C7, step 4 (measured and written)
