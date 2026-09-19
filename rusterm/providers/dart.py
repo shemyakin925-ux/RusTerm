@@ -132,6 +132,26 @@ class DartProvider:
             return answer
         return True
 
+    def resolve(self, ticker: str, market: str, as_of: str) -> dict:
+        """add (ADR-0010 §3, ТЗ-58 C6): identifier рынка KR — corp_code
+        (реестр рынков, identifier='corp_code'), поэтому resolve
+        ВАЛИДИРУЕТ corp_code запросом company.json и возвращает имя
+        компании. Ответ до создания эмитента; не-ответ — значением."""
+        ident = (ticker or "").strip()
+        if not ident:
+            return ProviderError(reason="unknown_issuer")
+        answer = self._get_json("company.json", {"corp_code": ident})
+        if isinstance(answer, (ProviderError, ConfigError,
+                               BudgetExceeded)):
+            return answer
+        return {"ticker": ident, "cik": ident,
+                "title": str(answer.get("corp_name", "")) or ident}
+
+    def ticker_venues(self) -> dict:
+        """Биржевого файла у канала нет: площадка unknown, без догадок
+        (TASK-18 G2)."""
+        return {}
+
     def poll_index(self, cursor: str) -> IndexPoll | ProviderError | ConfigError:
         """Индекс подач за окно дат: cursor — последняя видимая дата
         YYYYMMDD; сегодня, если пусто. Записей нет — курсор не движется."""

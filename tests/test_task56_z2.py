@@ -90,31 +90,13 @@ def cvm_channel(monkeypatch):
             return 200, _dfp_zip(), {}
         return 404, b"", {}
 
-    class _BR:
-        """add требует resolve/can_auto_ingest/ticker_venues; ingest —
-        методов настоящего CvmProvider под тем же транспортом
-        (dataset_state, dataset_if_changed, dfp_members, rows_for)."""
-
-        def __init__(self, gate=None):
-            self.gate = gate
-            self.cvm = CvmProvider(gate=gate or RequestGate(),
-                                   transport=transport)
-
-        def __getattr__(self, name):
-            return getattr(self.cvm, name)
-
-        def resolve(self, ticker, market, as_of):
-            return {"ticker": ticker.upper(), "cik": 23264,
-                    "title": "AMBEV S.A."}
-
-        def can_auto_ingest(self, identifier):
-            return self.cvm.can_auto_ingest(identifier, cadastro=CAD)
-
-        def ticker_venues(self):
-            return {}
-
-    monkeypatch.setattr(cli, "get_provider",
-                        lambda name, gate=None: _BR(gate=gate))
+    # ТЗ-58 C6: адаптер _BR убран — у настоящего CvmProvider есть
+    # resolve/ticker_venues; add ищет эмитента в записанном кадастре
+    # по подстроке DENOM_SOCIAL, ingest — методы того же провайдера
+    monkeypatch.setattr(
+        cli, "get_provider",
+        lambda name, gate=None: CvmProvider(
+            gate=gate or RequestGate(), transport=transport))
     return calls
 
 

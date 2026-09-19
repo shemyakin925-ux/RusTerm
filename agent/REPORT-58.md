@@ -49,11 +49,58 @@ own — it INVENTED 0.0 for a negative rate. Landed:
   test updated to the new truth — raw signed value in the locator,
   v2 on the fact (pin replacement declared in the commit message).
 
+## C6. CvmProvider.resolve — and no market provider without a door
+
+- `CvmProvider.resolve` (ТЗ-58 C6): the BR add path searches the
+  recorded CADASTRE by CD_CVM or by DENOM_SOCIAL substring (B3 tickers
+  are not in the cadastre — «AMBEV» finds AMBEV S.A.),
+  `cik` = CD_CVM; `unknown_issuer` is a value, not an exception.
+  `ticker_venues()` → honest `{}`.
+- The registry-wide test `test_every_market_provider_has_resolve_and_venues`
+  (red for cvm and dart before the fix) caught the NEXT same-breed
+  defect: `DartProvider` had no resolve either — a live
+  `add --market KR` would die with AttributeError the same way. Fixed:
+  dart's resolve validates the corp_code (the market identifier,
+  `identifier='corp_code'`) via company.json and returns corp_name.
+- The `_BR` adapter from ТЗ-56 is REMOVED — `tests/test_task56_z2.py`
+  now runs add/ingest through the real `CvmProvider` on the recorded
+  cadastre transport (7 passed).
+- Tests: tests/test_task58_c6.py 2 passed.
+
+## C3. Open-mode divergences fixed with the markets mechanics
+
+- `metrics` — readonly by default (absent dir → named refusal,
+  rc 1); `--record` keeps `_open` (positive control in the test).
+- `doctor` — readonly default WITHOUT a refusal: the pinned contract
+  (test_cli_doctor_detects_schema_gap) requires a JSON diagnosis even
+  on an absent dir, so the absence itself becomes a FINDING
+  (`schema_version=None`, `cadence.reason="no_data_dir"`), rc 1;
+  `--fix` keeps `_open`.
+- `census` — readonly; rebuild writes into the EXISTING catalog;
+  absent dir → named refusal, rc 1.
+- `tui` — documented read-only, now honest: absent dir → named
+  refusal, rc 1, nothing created (was: silent ensure_app_dir).
+- Tests: tests/test_task58_c3.py 5 passed (each named command leaves
+  `git status --porcelain` empty from a clean git tree; writing modes
+  still create — asserted). The tui fix also needed the cadence
+  section of the doctor report to survive conn=None (measured crash,
+  fixed; the log-path crash in the generic handler is pre-existing
+  behavior for genuinely unexpected errors).
+- NOTE: C6 and C3 land in one commit — the C3 code was in the working
+  tree when the C6 acceptance ran, so the validated state is the
+  union; both items are complete and their tests are green together.
+
 ## Done
 
 - C4: cvm-dfp.v2 sign normalization + clip removal + honest
   jurisdiction_rate; gold and formulas baseline updated in-commit;
-  census diff = 1 row.
+  census diff = 1 row (commit 35d9d62).
+- C6: resolve/ticker_venues for every market provider (cvm by
+  cadastre, dart by corp_code), registry-wide guard test, Z2 adapter
+  removed.
+- C3: metrics/doctor/census/tui readonly defaults fixed (B35
+  mechanics); writing modes unchanged; doctor keeps its JSON
+  diagnosis contract on absent dirs.
 
 ## Blocked
 

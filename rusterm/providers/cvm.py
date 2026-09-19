@@ -152,6 +152,22 @@ class CvmProvider:
                 return True
         return ProviderError(reason="unknown_issuer")
 
+    def resolve(self, ticker: str, market: str, as_of: str) -> dict:
+        """add (ADR-0010 §3, ТЗ-58 C6): эмитент ищется в кадастре — по
+        коду CD_CVM или подстрокой DENOM_SOCIAL (тикеров B3 в кадастре
+        нет, поэтому matching по имени: «AMBEV» находит AMBEV S.A.).
+        Ответ ДО создания эмитента; не-ответ источника — значением.
+        cik здесь — CD_CVM (identifier='cvm_code' реестра рынков)."""
+        data = self.dataset_if_changed(CAD_URL, None)
+        if isinstance(data, (ConfigError, ProviderError, BudgetExceeded)):
+            return data
+        return _match_cadastre(data, ticker)
+
+    def ticker_venues(self) -> dict:
+        """Биржевого файла у канала нет: площадка unknown, без догадок
+        (TASK-18 G2)."""
+        return {}
+
     # ── строки отчётности из набора DFP ─────────────────────────────────
 
     def dfp_members(self, zip_bytes: bytes) -> dict[str, bytes]:
@@ -204,6 +220,19 @@ class CvmProvider:
 def _read_csv(data: bytes) -> list[dict]:
     text = data.decode("latin-1")
     return list(csv.DictReader(io.StringIO(text), delimiter=";"))
+
+
+def _match_cadastre(cadastro: bytes, ident: str) -> dict:
+    """Строка кадастра для ident (CD_CVM или подстрока DENOM_SOCIAL);
+    unknown_issuer — значением, не исключением (ADR-0010 §3)."""
+    ident = (ident or "").strip().upper()
+    for row in _read_csv(cadastro):
+        cd_cvm = (row.get("CD_CVM") or "").lstrip("0")
+        denom = (row.get("DENOM_SOCIAL") or "").upper()
+        if cd_cvm == ident.lstrip("0") or (ident and ident in denom):
+            return {"ticker": ident, "cik": int(cd_cvm),
+                    "title": (row.get("DENOM_SOCIAL") or "").strip()}
+    return ProviderError(reason="unknown_issuer")
 
 
 def _today_year() -> str:

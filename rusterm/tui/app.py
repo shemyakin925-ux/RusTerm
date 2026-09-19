@@ -233,11 +233,16 @@ def _chat_screen(stdscr, repos, session_id: str | None):
 
 def run(root: str, watchlist_id: str | None = None) -> int:
     from rusterm.store.db import apply_migrations, open_connection
-    from rusterm.store.paths import AppPaths, ensure_app_dir
+    from rusterm.store.paths import AppPaths
     from rusterm.store.repos import RepoRegistry
 
     paths = AppPaths.from_root(root)
-    ensure_app_dir(paths)
+    # ТЗ-58 C3 (расхождение A3): экран задокументирован «только
+    # чтение» — отсутствующий каталог данных называется по имени, а
+    # не создаётся молча
+    if not paths.db_path.exists():
+        print(f"каталога данных нет: {root}; выполните rusterm init")
+        return 1
     conn = open_connection(paths)
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
