@@ -251,6 +251,29 @@ def _build_window(repos, paths, watchlist_id=None):
                                      .NoEditTriggers)
     quality_layout.addWidget(governance_table, 1)
     tabs.addTab(quality, "Качество")
+
+    # ── вкладка «Настройки» (TASK-C9) ──────────────────────────────
+    settings = QWidget()
+    settings_layout = QVBoxLayout(settings)
+    keys_label = QLabel(objectName="keys_label")
+    keys_label.setWordWrap(True)
+    settings_layout.addWidget(keys_label)
+    limits_table = QTableWidget(objectName="limits_table")
+    limits_table.setColumnCount(4)
+    limits_table.setHorizontalHeaderLabels(
+        ["хост", "потолок за ночь", "запросов/сек", "правка"])
+    limits_table.horizontalHeader().setSectionResizeMode(
+        QHeaderView.ResizeMode.Stretch)
+    limits_table.setEditTriggers(QTableWidget.EditTrigger
+                                 .NoEditTriggers)
+    settings_layout.addWidget(limits_table, 1)
+    catalog_label = QLabel(objectName="catalog_label")
+    catalog_label.setWordWrap(True)
+    settings_layout.addWidget(catalog_label)
+    switch_root_button = QPushButton(objectName="switch_root_button")
+    switch_root_button.setText("сменить каталог данных")
+    settings_layout.addWidget(switch_root_button)
+    tabs.addTab(settings, "Настройки")
     body.addWidget(tabs)
     body.setStretchFactor(1, 1)
 
@@ -444,6 +467,7 @@ def _build_window(repos, paths, watchlist_id=None):
         apply_chart()
         _repaint_industry()
         repaint_quality()
+        repaint_settings()
         source_panel.setText("клик по ячейке — панель источника")
         collect_button.setEnabled(state["worker"] is None)
         for button in (export_csv_button, export_md_button,
@@ -589,6 +613,95 @@ def _build_window(repos, paths, watchlist_id=None):
                                            note)):
                 governance_table.setItem(
                     row, column, QTableWidgetItem(text))
+
+    def repaint_settings() -> None:
+        """C9: ключи без значений (откуда и зачем), лимиты из
+        реестра с оверрайдами config.toml, каталог данных."""
+        if repos is None:
+            keys_label.setText("настроек нет — базы нет")
+            limits_table.setRowCount(0)
+            catalog_label.setText("")
+            return
+        keys = data.keys_view()
+        lines = [f"ключи (файл: {keys['file']}):"]
+        for row in keys["rows"]:
+            state_word = f"найден, {row['origin']}" if row["found"] \
+                else f"нет — {row['purpose']}"
+            lines.append(f"  {row['name']}: {state_word}")
+        keys_label.setText("\n".join(lines))
+        limits = data.host_limits_view(paths)
+        limits_table.setRowCount(len(limits["rows"]))
+        for row, entry in enumerate(limits["rows"]):
+            override = (f"{entry['override']}/сек"
+                        if entry["override"] is not None else "—")
+            for column, text in enumerate(
+                    (entry["host"], str(entry["nightly_max"]),
+                     str(entry["per_second"]), override)):
+                limits_table.setItem(row, column,
+                                     QTableWidgetItem(text))
+        catalog = data.catalog_view(paths)
+        if catalog["exists"]:
+            catalog_label.setText(
+                f"каталог: {catalog['root']}\nбаза: "
+                f"{catalog['db_path']} ({catalog['size_bytes']} байт,"
+                f" обновлялась {catalog['updated_at']})")
+        else:
+            catalog_label.setText(
+                f"каталог: {catalog['root']} — базы нет; "
+                "начните с rusterm init")
+
+    def on_switch_root() -> None:
+        """C9.3: смена каталога. Молчаливого создания нет: каталога
+        данных нет — вопрос, и только подтверждение запускает новое
+        окно поверх выбранного корня."""
+        chosen = QFileDialog.getExistingDirectory(
+            window, "каталог данных", paths.root)
+        if not chosen:
+            return
+        decision = data.catalog_switch_decision(chosen)
+        if not decision["exists"]:
+            answer = QMessageBox.question(
+                window, "сменить каталог",
+                "в выбранном каталоге данных нет — создать и открыть "
+                "его? (сбор запускается отдельно)")
+            if answer != QMessageBox.StandardButton.Yes:
+                status.setText("смена каталога отменена — "
+                               "ничего не создано")
+                return
+        import sys as _sys
+        _sys.argv = [_sys.argv[0], "--root", chosen]
+        window.close()
+        from rusterm.desktop.__main__ import main as desktop_main
+        raise SystemExit(desktop_main(["--root", chosen]))
+
+    def on_limit_edit(row: int, _column: int) -> None:
+        limits = data.host_limits_view(paths)
+        if row >= len(limits["rows"]):
+            return
+        entry = limits["rows"][row]
+        text, ok = QInputDialog.getText(
+            window, "лимит хоста",
+            f"запросов/сек для {entry['host']} "
+            f"(реестр: {entry['per_second']}):",
+            text=str(entry["override"]
+                     if entry["override"] is not None
+                     else entry["per_second"]))
+        if not ok or not text.strip():
+            return
+        try:
+            value = float(text)
+        except ValueError:
+            QMessageBox.warning(window, "лимит хоста",
+                                "нужно число, например 0.5")
+            return
+        outcome = data.set_host_rate_limit(paths, entry["host"], value)
+        if not outcome["ok"]:
+            QMessageBox.warning(window, "лимит хоста",
+                                "config.toml не принял правку")
+        repaint_settings()
+
+    limits_table.cellDoubleClicked.connect(on_limit_edit)
+    switch_root_button.clicked.connect(on_switch_root)
 
     def on_open_raw() -> None:
         """C6.2: сохранённый ответ открывают средства системы; файла
@@ -800,6 +913,7 @@ def _build_window(repos, paths, watchlist_id=None):
             company_header.setText(data.empty_watchlist_message())
         repaint_sidebar("")
     repaint_watchlists()
+    repaint_settings()
     repaint_chat_usage()
     repaint_chat_sessions()
     repaint_header()

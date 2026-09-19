@@ -176,8 +176,8 @@ def test_window_shows_switcher_version_and_confirm(env, monkeypatch,
 
     QApplication.instance() or QApplication([])
     repos, conn = env
-    window = desktop_window._build_window(repos, paths := tmp_path / "app",
-                                          "wl-main")
+    paths = AppPaths.from_root(tmp_path / "app")
+    window = desktop_window._build_window(repos, paths, "wl-main")
     window.close()
     box = window.findChild(QComboBox, "watchlist_box")
     label = window.findChild(QLabel, "watchlist_label")

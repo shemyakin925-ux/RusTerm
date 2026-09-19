@@ -846,3 +846,102 @@ def governance_view(card: dict) -> dict:
                      "note": GREY_REASONS.get(g.get("reason") or "", ""),
                      "lineage_ref": g.get("lineage_ref") or ""})
     return {"rows": rows}
+
+
+# ── Настройки (TASK-C9): ключи без значений, лимиты, каталог ────────────
+
+KEY_PURPOSE = {
+    "RUSTERM_SEC_UA": "запросы к SEC (companyfacts) без него отклоняются"
+                      " гейтом",
+    "RUSTERM_LLM_PROVIDER": "какой поставщик модели используется",
+    "RUSTERM_LLM_API_KEY": "разговор с моделью",
+    "RUSTERM_LLM_MODEL": "какая модель отвечает",
+    "RUSTERM_TWELVEDATA_KEY": "котировки twelvedata",
+}
+
+
+def keys_view() -> dict:
+    """C9.1: какие ключи найдены и откуда — env.report() ядра, значений
+    нет. Отсутствующий ключ назван вместе с тем, что из-за него
+    недоступно."""
+    from rusterm import env as env_module
+    report = env_module.report()
+    rows = []
+    for name, origin in report["vars"].items():
+        found = origin != "—"
+        rows.append({"name": name, "origin": origin, "found": found,
+                     "purpose": KEY_PURPOSE.get(name, "")})
+    return {"file": report["file"], "exists": report["exists"],
+            "rows": rows}
+
+
+def host_limits_view(paths: AppPaths) -> dict:
+    """C9.2: потолки по хостам из реестра провайдеров плюс оверрайды
+    из того же config.toml, который читает ядро (load_config)."""
+    from rusterm.providers import all_host_limits
+    from rusterm.store.config import load_config
+    config = load_config(paths.config_path)
+    rows = []
+    for name, limit in sorted(all_host_limits().items()):
+        rows.append({"host": limit.host,
+                     "nightly_max": limit.nightly_max,
+                     "per_second": limit.per_second,
+                     "override": config.provider_rate_limit.get(
+                         limit.host)})
+    return {"config_path": str(paths.config_path), "rows": rows}
+
+
+def set_host_rate_limit(paths: AppPaths, host: str,
+                        per_second: float) -> dict:
+    """C9.2: правка лимита — в тот же config.toml, который читает
+    ядро load_config; правка проверяется обратным чтением."""
+    text = paths.config_path.read_text(encoding="utf-8") \
+        if paths.config_path.exists() else ""
+    # хост с точкой — не TOML-ключ: только в кавычках это строка,
+    # иначе "sec.gov = 0.5" читается как вложенная таблица sec.gov
+    line = f'"{host}" = {per_second}'
+    if "[provider_rate_limit]" in text:
+        lines = text.splitlines()
+        start = lines.index("[provider_rate_limit]")
+        end = len(lines)
+        for i in range(start + 1, len(lines)):
+            if lines[i].startswith("["):
+                end = i
+                break
+        block = lines[start + 1:end]
+        block = [ln for ln in block
+                 if ln.split("=")[0].strip().strip('"') != host]
+        block.append(line)
+        lines[start + 1:end] = [""] + block
+        new_text = "\n".join(lines) + "\n"
+    else:
+        new_text = (text.rstrip("\n") + "\n\n[provider_rate_limit]\n"
+                    + line + "\n" if text.strip()
+                    else "[provider_rate_limit]\n" + line + "\n")
+    paths.config_path.write_text(new_text, encoding="utf-8")
+    from rusterm.store.config import load_config
+    applied = load_config(paths.config_path).provider_rate_limit.get(host)
+    return {"ok": applied == per_second, "applied": applied}
+
+
+def catalog_view(paths: AppPaths) -> dict:
+    """C9.3: где база, сколько занимает, когда обновлялась."""
+    import datetime
+    db = paths.db_path
+    view = {"root": str(paths.root), "db_path": str(db),
+            "exists": db.exists()}
+    if db.exists():
+        view["size_bytes"] = db.stat().st_size
+        view["updated_at"] = datetime.datetime.fromtimestamp(
+            db.stat().st_mtime).isoformat(timespec="seconds")
+    return view
+
+
+def catalog_switch_decision(candidate_root: str) -> dict:
+    """C9.3: решение о смене каталога. Каталога данных нет —
+    существует=False: окно обязано СПРОСИТЬ, молчаливого создания
+    нет (B35/B40)."""
+    from rusterm.store.paths import AppPaths
+    db = AppPaths.from_root(candidate_root).db_path
+    return {"candidate_root": str(candidate_root),
+            "exists": db.exists()}

@@ -160,7 +160,7 @@ def test_window_quality_tab_shows_coverage_and_governance(cnq_env):
     repos.watchlist.add_member(vid, "in-CNQ", None)
     window = desktop_window._build_window(repos, paths, "wl-c8")
     tabs = window.findChild(QTabWidget, "tabs")
-    assert tabs.count() == 3
+    assert tabs.count() == 4
     tree = window.findChild(QTreeWidget, "tree")
     tree.setCurrentItem(tree.topLevelItem(0).child(0))
     label = window.findChild(QLabel, "coverage_label")

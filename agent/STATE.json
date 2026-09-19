@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-C8.md",
- "report": "agent/REPORT-C8.md",
- "item": "C8",
- "step": "C8 done: measure coverage from snapshot rows (matches CLI), staleness marks with core constant threshold, governance five colors with core legend",
+ "task": "agent/TASK-C9.md",
+ "report": "agent/REPORT-C9.md",
+ "item": "C9",
+ "step": "C9 done: keys view without values (env.report), host limits registry+config.toml overrides with roundtrip edit, catalog view and switch-with-question",
  "status": "working",
  "last_commit": "99558d9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-19T17:52:15Z"
+ "updated_at": "2026-09-19T17:59:46Z"
 }
