@@ -745,3 +745,45 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
         lines.append(f"{stale['marker']} ({stale['source_tag']})")
     return {"text": "\n".join(lines), "open_target": open_target,
             "panel": panel}
+
+
+# ── Разговор (TASK-C7): расшифровки и счётчики из тех же мест ───────────
+
+def chat_sessions(repos) -> list[dict]:
+    """C7.1: прошлые разговоры, свежие сверху. Таблица та же, что
+    читает rusterm export --chat; перечня у ChatTranscriptRepo нет —
+    прямой SELECT той же таблицы без досчёта (дверь перечня в чужом
+    файле — Disputed)."""
+    rows = repos.conn.execute(
+        """SELECT session_id, model, started_at, calls
+           FROM chat_transcript ORDER BY started_at DESC""").fetchall()
+    return [{"session_id": r[0], "model": r[1], "started_at": r[2],
+             "calls": r[3]} for r in rows]
+
+
+def chat_transcript_lines(repos, session_id: str) -> list[str]:
+    """C7.1: ходы разговора тем же get(), что rusterm export --chat.
+    Разговора нет — слова, не пустота."""
+    transcript = repos.chat_transcript.get(session_id)
+    if transcript is None:
+        return [f"разговора {session_id} нет"]
+    lines = [f"разговор {session_id} · модель {transcript['model']}"
+             f" · вызовов {transcript['calls']}"]
+    who = {"user": "вы", "assistant": "модель", "tool": "инструмент",
+           "system-note": "система"}
+    for turn in transcript["turns"]:
+        lines.append(f"{who.get(turn['role'], turn['role'])}: "
+                     f"{turn['text']}")
+    return lines
+
+
+def llm_usage_line(repos) -> str:
+    """C7.2: вызовы — из calls_totals(), того же места, что
+    rusterm status. Ключ модели не показывается никогда: в строке
+    только счётчики."""
+    totals = repos.chat_transcript.calls_totals()
+    per = ", ".join(f"{model}: {calls}" for model, calls
+                    in sorted(totals["per_model"].items()))
+    line = (f"вызовы: {totals['calls_total']}"
+            f" (сегодня {totals['calls_today']})")
+    return f"{line}; {per}" if per else line

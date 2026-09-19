@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-C6.md",
- "report": "agent/REPORT-C6.md",
- "item": "C6",
- "step": "C6 done: source panel view (document, hash, period, raw path, unit), open raw via system opener with words on missing, refusal names missing concept (CNQ roe)",
+ "task": "agent/TASK-C7.md",
+ "report": "agent/REPORT-C7.md",
+ "item": "C7",
+ "step": "C7 done: sessions switcher + save_transcript persistence, usage line from calls_totals (no key), guard rejection pinned on recorded reply",
  "status": "working",
  "last_commit": "99558d9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-19T17:40:26Z"
+ "updated_at": "2026-09-19T17:47:07Z"
 }

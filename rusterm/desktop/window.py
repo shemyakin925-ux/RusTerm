@@ -10,6 +10,8 @@ ChatSession). Модуль импортируется и без PySide6 (при�
 from __future__ import annotations
 
 try:
+    import uuid
+
     from PySide6.QtCore import QUrl, Qt
     from PySide6.QtGui import QDesktopServices
     from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog,
@@ -235,9 +237,16 @@ def _build_window(repos, paths, watchlist_id=None):
     body.addWidget(tabs)
     body.setStretchFactor(1, 1)
 
-    # ── низ: разговор (C1.4) ───────────────────────────────────────
+    # ── низ: разговор (C1.4/C7) ────────────────────────────────────
     chat_box = QGroupBox()
     chat_layout = QVBoxLayout(chat_box)
+    chat_header = QHBoxLayout()
+    llm_usage_label = QLabel(objectName="llm_usage_label")
+    chat_header.addWidget(llm_usage_label, 1)
+    chat_sessions_box = QComboBox(objectName="chat_sessions_box")
+    chat_sessions_box.addItem("прошлые разговоры", userData=None)
+    chat_header.addWidget(chat_sessions_box, 1)
+    chat_layout.addLayout(chat_header)
     answer_label = QLabel(objectName="answer_label")
     answer_label.setWordWrap(True)
     answer_label.setMaximumWidth(ANSWER_MAX_WIDTH)
@@ -559,6 +568,35 @@ def _build_window(repos, paths, watchlist_id=None):
         reason = data.chat_unavailable_reason(client)
         state["chat_reason"] = reason
         state["session"] = None if reason else ChatSession(repos, client)
+        state["chat_session_id"] = (None if reason
+                                    else str(uuid.uuid4()))
+
+    def repaint_chat_usage() -> None:
+        """C7.2: вызовы из calls_totals — то же место, что
+        rusterm status; ключ не показывается никогда."""
+        llm_usage_label.setText(
+            data.llm_usage_line(repos) if repos else "вызовы: —")
+
+    def repaint_chat_sessions() -> None:
+        """C7.1: прошлые разговоры в переключателе, свежие сверху;
+        переживают перезапуск окна — читаются из базы."""
+        chat_sessions_box.blockSignals(True)
+        chat_sessions_box.clear()
+        chat_sessions_box.addItem("прошлые разговоры", userData=None)
+        if repos is not None:
+            for session in data.chat_sessions(repos):
+                chat_sessions_box.addItem(
+                    f"{session['session_id'][:8]}… · "
+                    f"{session['calls']} вызов.",
+                    userData=session["session_id"])
+        chat_sessions_box.blockSignals(False)
+
+    def on_session_open(index: int) -> None:
+        session_id = chat_sessions_box.itemData(index)
+        if repos is None or not session_id:
+            return
+        answer_label.setText(
+            "\n".join(data.chat_transcript_lines(repos, session_id)))
 
     def on_ask() -> None:
         question = question_line.text().strip()
@@ -571,7 +609,16 @@ def _build_window(repos, paths, watchlist_id=None):
         # вопрос модели синхронный: соединение sqlite не переезжает в
         # другой поток; вынос в QThreadPool — вопрос ТЗ-C7
         result = state["session"].ask(question)
+        # C7.1: расшифровка переживает перезапуск — та же дверь, что
+        # у CLI chat (save_transcript в chat_transcript/chat_turn)
+        from rusterm.core.chat import save_transcript
+        save_transcript(repos, state["session"],
+                        state["chat_session_id"])
+        repaint_chat_usage()
+        repaint_chat_sessions()
         if result.get("rejected"):
+            # C7.3: ответ без цитаты — не ответ: в панели отказ с
+            # причиной, сам бракованный текст не показывается
             answer_label.setText(f"отказ: {result.get('reason')}")
             return
         citations = "\n".join(f"цитата: {c}"
@@ -688,6 +735,7 @@ def _build_window(repos, paths, watchlist_id=None):
     table.cellClicked.connect(on_cell_clicked)
     open_raw_button.clicked.connect(on_open_raw)
     question_line.returnPressed.connect(on_ask)
+    chat_sessions_box.currentIndexChanged.connect(on_session_open)
     collect_button.clicked.connect(on_collect)
     cancel_button.clicked.connect(on_collect_cancel)
 
@@ -703,6 +751,8 @@ def _build_window(repos, paths, watchlist_id=None):
             company_header.setText(data.empty_watchlist_message())
         repaint_sidebar("")
     repaint_watchlists()
+    repaint_chat_usage()
+    repaint_chat_sessions()
     repaint_header()
     setup_chat()
     if state["chat_reason"]:
