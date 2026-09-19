@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-B1.md",
  "report": "agent/REPORT-B1.md",
- "item": "B1.1",
- "step": "B1.1 done; commit retry with selfcheck env sanitation (GIT_* leak under hook poisoned b35/guards)",
+ "item": "B1.2",
+ "step": "reason census: peer_set_not_confirmed added to dictionary, 50 non-measure tokens allowlisted with scopes, guard test landed",
  "status": "working",
  "last_commit": "pending",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-19T16:29:05Z"
+ "updated_at": "2026-09-19T16:41:08Z"
 }

@@ -91,3 +91,46 @@ NOW: B1.1, step 6 (committed)
   Shift not finished; final HANDOFF appended at the end.
 
 NOW: B1.2, step 1 (census collected)
+
+## Done (B1.2) — reason dictionary census and guard (commit 2)
+
+Census method (one phrase): AST-walk over every `rusterm/**/*.py`
+collecting string literals in reason positions — `*reason*` keyword
+args, assignments/subscripts to `*reason*` names, dict values under
+`*reason*` keys, formula refusal return-pairs `(value, reason)`, and
+static prefixes of f-strings — then first-token-before-colon vs
+`reasons.NULL_REASONS`.
+
+Result: 66 distinct tokens reachable from the package; 16 in the
+measure dictionary; 50 outside it, all classified non-measure
+(provider channel refusals, chat/LLM, manual-import ProviderErrors,
+ingest gates, cadence/coverage/watchlist/refresh labels) — each with a
+per-token scope justification in the allowlist inside the test. One
+token DID belong in the dictionary and was missing:
+
+- `peer_set_not_confirmed` (aggregate.py, null_reason of an unverified
+  peer-set aggregate): added to `reasons.NULL_REASONS` with a
+  user-meaning line. Before the addition `IndustryRepo.store_aggregates`
+  (which validates via `is_known_reason`) would have rejected the
+  honest refusal with ValueError — the CLI avoids the crash today only
+  by not persisting unverified aggregates (latent, not live).
+
+Guard: `tests/test_b1_reasons.py` — the scanner as a test; every token
+must be in the dictionary or in the justified allowlist, so a NEW
+channel with a NEW reason reds the test. Demonstrated live on the
+tree: a temporary `rusterm/_b1_demo_channel.py` returning
+`made_up_b1_demo_reason` → red with file:line named; file removed →
+green. The scanner also caught and closed its own blind spot: formula
+refusal return-pairs were not collected until the test's made-up-reason
+case failed on them (fixed: 2-tuple return positions scanned; 3-tuple
+label returns like period_type/codec excluded).
+
+Foreign-file tokens (providers/*, core/chat.py, cli/__init__.py) were
+allowlisted, not edited — territory rule; see Disputed.
+
+Verification: `pytest tests/test_b1_reasons.py tests/test_b1_honesty.py
+tests/test_formulas.py tests/test_industry_aggregate.py
+tests/test_industry_maritime.py tests/test_n2_industry_view.py` —
+62 passed.
+
+NOW: B1.2, step 6 (committed)

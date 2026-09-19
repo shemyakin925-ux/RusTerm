@@ -17,6 +17,7 @@ NULL_REASONS: frozenset[str] = frozenset({
     "negative_denominator",  # отрицательный знаменатель — доля не имеет смысла
     "jurisdiction_rate",     # ставка налога вне допустимой юрисдикционной полосы
     "peer_set_too_small",    # вкладчиков меньше AGGREGATE_MIN_PEERS (I6, TASK-17 E1)
+    "peer_set_not_confirmed",  # набор пиров не подтверждён: версия вне проверенных источников и утверждения нет — агрегат строить нельзя (ТЗ-17 E1; B1.2: токен жил в aggregate.py, но в словаре отсутствовал — IndustryRepo.store_aggregates отверг бы честный отказ)
     "no_sec_filings",        # эмитент не подаёт XBRL в SEC (404; TASK-18 G5)
     # TASK-19 F2: причины рынков вне EDGAR и ручного импорта
     "manual_import_required",  # эмитент на рынке есть, раскрытия машинно недоступны (ADR-0010 §3)
