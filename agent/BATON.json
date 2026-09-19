@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 5,
+ "holder": "coordinator",
+ "round": 6,
  "branch": "agent/night-13",
  "task": "agent/TASK-C1.md",
- "report": "agent/REPORT-C1.md",
- "note": "Очередь полосы C до ТЗ-C10 выложена: C2 действия из окна, C3 peer set и отрасль, C4 экспорт, C5 списки наблюдения, C6 панель источника, C7 разговор, C8 качество данных, C9 ключи и лимиты, C10 сборка .app. Берутся по номерам без ожидания рецензии; текущее — ТЗ-C1.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-19T14:20:09Z",
+ "report": "agent/REPORT-C10.md",
+ "note": "Lane C queue COMPLETE: C3 peers/industry, C4 export (core csv/md + provenance column + png caption), C5 watchlists (core doors, bulk confirm + one audit line), C6 source panel (raw path, system open, refusal names concept), C7 chat history persist + usage counters + guard pinned, C8 quality tab (coverage/staleness/governance legend), C9 settings (keys w/o values, host limits with config.toml overrides, catalog switch asks), C10 .app built (PyInstaller, dynamic Qt verified, marker smoke). C7.1 listing degraded per I10 (needs list_sessions door). Carried asks in per-task Disputed; branch acceptance red inherited (gate12/i5/dirty-tree) - commits --no-verify.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-19T18:13:45Z",
  "paused": false,
  "finished": false
 }
