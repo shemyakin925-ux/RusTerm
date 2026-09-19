@@ -94,6 +94,81 @@ tax. Options for the coordinator: normalize the sign at the map layer
 per A2 this is reported, pinned as-is in the golden (`"0.0"` with the
 artifact documented in the test docstring), not "fixed".
 
+## A3. B35 — read-only `markets` leaves the tree clean; CLI open-mode sweep
+
+Test `tests/test_b35_markets_readonly.py` (3 passed): in a fresh
+temp **git tree**, `markets`, `markets --json` and `--help` each exit 0
+and leave `git status --porcelain` EMPTY (evidence run: the same three
+commands printed `start status: ''` → `status= ''` after each;
+`init` shows `?? rusterm.db`); positive control asserts `init` and
+`ingest` still create the catalog (`?? rusterm.db`, file exists).
+B35 is marked closed in `agent/BACKLOG.md` — but that edit could not
+ride THIS commit: the committed P6 guard has no authorization path for
+BACKLOG (markers exist only for PROTOCOL/CONTEXT), so the BACKLOG edit
+stays in the working tree for the coordinator's relay commit (see the
+question list, item 4).
+
+Full sweep `_open` vs `_open_readonly` over every CLI command:
+
+| command | writes/reads | opens via |
+|---|---|---|
+| init, demo, ingest, refresh, snapshot, export, verify, ops, industry, add, backup, restore, chat, watchlist, import | writes | `_open` |
+| status, cadence, coverage, budget, markets | reads | `_open_readonly` |
+| census | reads, can rebuild snapshot | `_open` |
+| metrics | reads (writes only with `--record`) | `_open` |
+| doctor | diagnostics (writes only with `--fix`) | `_open` |
+| tui | docstring says read-only | own path: `ensure_app_dir` + `apply_migrations` in `tui/app.py run()` |
+
+Divergences found — **not fixed** (per ТЗ), listed as candidates:
+
+1. `metrics` — prints computed values, writes only with `--record`,
+   yet opens via `_open`: on an absent data dir it creates
+   `rusterm.db`. Same breed as B35.
+2. `doctor` — pure diagnostics by default, opens via `_open`: creates
+   the catalog just by being asked for a report.
+3. `census` — `_open` is defensible (it may rebuild a snapshot), but on
+   an absent dir it creates the base instead of refusing by name the
+   way `status` does.
+4. `tui` — documented as read-only, but `run()` creates the data dir
+   and runs migrations before showing anything; the docstring and the
+   behavior disagree.
+
+## A5. Flickering tests — first cause named and fixed; three named ones pending
+
+**Cause 1 (found and fixed this commit): nested selfcheck in
+`test_selfcheck_guard.py::test_selfcheck_cannot_exit_zero_with_dirty_tree`
+hits the O0 clock guard on a stale staged `STATE.json`.**
+
+Mechanism, shown by runs: selfcheck's O0 check reads the STAGED
+`agent/STATE.json` and compares its `updated_at` with the real clock
+(tolerance 15 min). The dirty-tree test runs selfcheck WITHOUT
+`I5_NESTED=1`, so O0 fires before P3/P4 as soon as the executor's
+index has been holding a staged STATE.json for more than 15 minutes —
+which is ALWAYS the case in the second full pytest pass of an
+acceptance (check 11 runs ~15+ min after check 3 started).
+
+Reproduction lines (same command, same tree, minutes apart):
+
+- check 3 (first pytest pass): `test_selfcheck_cannot_exit_zero_with_dirty_tree` PASSED;
+- check 11 (second pass, 06:17Z): `FAILED tests/test_selfcheck_guard.py::test_selfcheck_cannot_exit_zero_with_dirty_tree`
+  with the nested selfcheck output
+  `SELFCHECK FAIL (O0): updated_at=2026-09-19T06:00:00Z расходится с реальным 2026-09-19T06:17:19Z на +17.3 мин (допуск 15)`
+  — the expected `P3/P4` substring never appears (it fires after O0).
+- This fired twice in a row during the A3 commit attempts of this
+  shift (REPORT-57, What not to trust); the coordinator's runs on
+  `fdb8070` did not see it because their index was clean — O0 is
+  skipped entirely when nothing is staged.
+
+Fix: the nested run now passes `I5_NESTED=1` (the documented
+mechanism for nested acceptance runs — O0 skips it), so the test
+checks what it means to check (P3/P4 ordering on junk files) and is
+independent of the ambient index and wall clock. After the fix:
+`python3 -m pytest tests/test_selfcheck_guard.py -q` → 3 passed.
+
+This is NOT one of the three tests named in the ТЗ; those three are
+still under investigation (pending a standalone check-11 reproduction
+run on this machine).
+
 ## Done
 
 - A1: circle-60 tail pinned in both directions
@@ -102,6 +177,11 @@ artifact documented in the test docstring), not "fixed".
   texts); chat.py comment names the test instead of the round.
 - A2: BR census offline golden-pinned (4 values / 7 named refusals,
   dictionary-checked), candidate 3.08-sign reported without code.
+- A3: B35 closed — markets/--json/--help leave a clean tree clean
+  (test in a temp git tree, git status asserted), init/ingest positive
+  control; full CLI sweep table + 4 unfixed divergences (metrics,
+  doctor, census, tui) reported. BACKLOG edit is in the working tree
+  for the coordinator's relay commit (Disputed Q4).
 
 ## Blocked
 
@@ -129,17 +209,27 @@ artifact documented in the test docstring), not "fixed".
 
 Status:          working (interim)
 Arrival state:   selfcheck STATUS=OK on clean tree at 91e41ef, exit 0
-Items done:      A1 (commit 920d299, pushed), A2 (staged in this commit)
-Items not done:  A3, A4, A5, backlog item — not started yet
-Acceptance:      A1 commit: 13/0, Принято, exit 0 (both selfcheck runs);
+Items done:      A1 (920d299), A2 (5271ff8), A3 (this commit) — pushed
+Items not done:  A4, A5, backlog item — A4 in progress
+Acceptance:      A1 and A2 commits: 13/0, Принято, exit 0 (both runs);
                  this commit re-runs the same command
-Tests:           test_task57_br_census.py 5 passed (new)
+Tests:           test_b35_markets_readonly.py 3 passed (new)
 Guards:          none touched
 Schema:          unchanged
-Network:         0 requests used (census offline on recorded bytes)
+Network:         0 requests used
 Model:           app llm_calls 0; runner model GLM-5.3-Flash
-Secrets:         no key material in tests/data/cvm/ or the report
+Secrets:         no key material in new tests or the report
 Pushed:          this commit — yes, right after selfcheck passes
 Questions for the coordinator:
 1. Stop-time convention for daytime relay rounds (see Disputed Q1).
 2. A2 candidate: CVM 3.08 sign normalization (see the candidate item).
+3. A3 divergences: metrics/doctor/census/tui open-mode candidates
+   (see A3) — next-task material.
+4. ТЗ-57 says «РАЗРЕШЕНО ПРАВИТЬ: agent/BACKLOG.md» and A3 says
+   «B35 помечена закрытой в agent/BACKLOG.md», but the committed P6
+   guard has no authorization path for BACKLOG at all (its marker
+   branch covers only PROTOCOL/CONTEXT; the only legal BACKLOG commits
+   in history are «Эстафета» relay commits). Followed the guard, not
+   the ТЗ line: the BACKLOG closure text is prepared in the working
+   tree and rides the coordinator's relay commit. The ТЗ line and the
+   guard disagree — the guard wins until you rule.
