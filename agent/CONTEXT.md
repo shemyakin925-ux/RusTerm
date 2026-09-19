@@ -5,14 +5,19 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 19.09.2026, after round 67 on `agent/night-11`. Accepted:
-TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-56. Acceptance on
-`fdb8070` in a fresh linked worktree: **13/0, exit 0** — but the
-coordinator's FIRST run of the same command gave 12/1 on check 11
-(three tests flickered; the no-zstd suite is green in a separate
-tree). The flicker is TASK-57 A5 and is not a missing gzip fallback.
-Round 67 verdict on REPORT-56 Disputed: **P0 (15c854f) stays**, pinned
-by TASK-57 A1 — no revert.
+Last updated: 19.09.2026, after round 69 on `agent/night-11`. Accepted:
+TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-57. Acceptance on the
+head of round 69 in a fresh linked worktree: **13/0, exit 0, Принято**.
+Round-69 verdicts on the eight REPORT-57 questions are in `TASK-58` §C0
+and bind every later task. Two of them are standing rules:
+**(1) the 10:00 Danang stop is the NIGHT shift's rule** — a baton handed
+in daytime means work the task list, not the clock; **(2) `agent/BACKLOG.md`
+is coordinator-owned** — the executor names «B<N> closed by <sha>» in the
+report and the coordinator edits the file. The ТЗ-57 permission to the
+contrary was a coordinator error.
+**Open defect with a verdict: `clip()` in `effective_tax` invented 0.0**
+from AMBEV's true ≈23.8% (signed CVM line 3.08) — a measure must be
+honest or refuse; fixed by TASK-58 C4, first in priority.
 
 **Open product debt: TASK-37 I2** (does-not-know) — TASK-47 O1. I1
 (question vs order) landed with TASK-46 N3, I3 and I4 are done. The
