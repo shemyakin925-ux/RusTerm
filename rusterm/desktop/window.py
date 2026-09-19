@@ -10,7 +10,8 @@ ChatSession). Модуль импортируется и без PySide6 (при�
 from __future__ import annotations
 
 try:
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QUrl, Qt
+    from PySide6.QtGui import QDesktopServices
     from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog,
                                    QGroupBox, QHBoxLayout, QHeaderView,
                                    QInputDialog, QLabel, QLineEdit,
@@ -192,6 +193,10 @@ def _build_window(repos, paths, watchlist_id=None):
     source_panel = QLabel(objectName="source_panel")
     source_panel.setWordWrap(True)
     center_layout.addWidget(source_panel)
+    open_raw_button = QPushButton(objectName="open_raw_button")
+    open_raw_button.setText("открыть сохранённый ответ")
+    open_raw_button.setEnabled(False)
+    center_layout.addWidget(open_raw_button)
     tabs.addTab(center, "Компания")
 
     # ── вкладка «Отрасль» (TASK-C3) ────────────────────────────────
@@ -244,7 +249,7 @@ def _build_window(repos, paths, watchlist_id=None):
     root_layout.addWidget(chat_box)
 
     state = {"companies": [], "selected": None, "table": None,
-             "watchlist": watchlist_id,
+             "watchlist": watchlist_id, "open_raw_target": None,
              "industry": None, "peer": None, "pinned": set(),
              "session": None, "chat_reason": None, "worker": None}
 
@@ -527,25 +532,22 @@ def _build_window(repos, paths, watchlist_id=None):
         if payload and payload[0] == "company":
             load_company(payload[1])
 
+    def on_open_raw() -> None:
+        """C6.2: сохранённый ответ открывают средства системы; файла
+        нет — кнопка неактивна, слова в панели."""
+        target = state.get("open_raw_target")
+        if target:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target))
+
     def on_cell_clicked(row: int, _column: int) -> None:
         info = state["table"]
         if info is None or repos is None:
             return
         measure_row = info["measures"][row]
-        panel = tui_model.source_panel(repos, measure_row["measure"])
-        lines = [f"источник {panel['concept']}"
-                 f" ({panel['method_version']})"]
-        if measure_row["null_reason"]:
-            lines.append(f"причина: {measure_row['null_reason']}")
-        for source in panel["sources"]:
-            document = str(source["document"])[:40]
-            locator = source["locator"]
-            kind = (locator.get("kind", "?")
-                    if isinstance(locator, dict) else "?")
-            lines.append(f"документ {document}… локатор {kind}")
-        for stale in panel["stale"]:
-            lines.append(f"{stale['marker']} ({stale['source_tag']})")
-        source_panel.setText("\n".join(lines))
+        view = data.source_panel_view(repos, paths, measure_row)
+        source_panel.setText(view["text"])
+        state["open_raw_target"] = view["open_target"]
+        open_raw_button.setEnabled(view["open_target"] is not None)
 
     def setup_chat() -> None:
         if repos is None:
@@ -684,6 +686,7 @@ def _build_window(repos, paths, watchlist_id=None):
     industry_measure_box.currentIndexChanged.connect(
         lambda _i: apply_industry_chart())
     table.cellClicked.connect(on_cell_clicked)
+    open_raw_button.clicked.connect(on_open_raw)
     question_line.returnPressed.connect(on_ask)
     collect_button.clicked.connect(on_collect)
     cancel_button.clicked.connect(on_collect_cancel)

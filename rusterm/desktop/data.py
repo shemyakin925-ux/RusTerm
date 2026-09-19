@@ -697,3 +697,51 @@ def remove_instruments(repos, watchlist_id: str,
                          "count": len(instrument_ids)}, True, "ok")
     version = repos.watchlist.current_version(watchlist_id)["version"]
     return {"ok": True, "removed": instrument_ids, "version": version}
+
+
+# ── Панель источника (TASK-C6): только то, что отдаёт модель ────────────
+
+def raw_object_location(paths: AppPaths, sha256: str) -> dict:
+    """C6.2: где лежит сохранённый ответ и есть ли он. raw/store/<2>/<sha>;
+    файла нет — exists=False, окно скажет словами, а не упадёт."""
+    from rusterm.store.raw_store import object_path
+    path = object_path(paths.raw_store, sha256)
+    return {"path": str(path), "exists": path.exists()}
+
+
+def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
+    """C6.1/C6.3: панель источника целиком из source_panel модели и
+    репозиториев — ничего не досчитано. Строки: концепт, метод,
+    единица, документ с хэшем сохранённого ответа, период входного
+    факта, путь к сырью; для отказа — причина и неподаанный концепт
+    по имени. open_target — путь к сырью первой записи, если файл
+    есть; иначе None (окно скажет словами)."""
+    panel = tui_model.source_panel(repos, measure_row["measure"])
+    lines = [f"источник {panel['concept']}"
+             f" ({panel['method_version']})",
+             f"единица: {measure_row.get('unit') or '—'}"]
+    if measure_row["null_reason"]:
+        lines.append(f"причина: {measure_row['null_reason']}")
+        tail = measure_row["null_reason"].split(":", 1)[1].strip() \
+            if ":" in measure_row["null_reason"] else ""
+        if tail:
+            lines.append(f"не подан: {tail} — подстановки нет: "
+                         "значение строится только из поданных фактов")
+    open_target = None
+    for source in panel["sources"]:
+        sha = str(source["document"])
+        fact = repos.fact.get_fact(source["fact_id"])
+        period = fact["period_end"] if fact else ""
+        loc = raw_object_location(paths, sha)
+        kind = (source["locator"].get("kind", "?")
+                if isinstance(source["locator"], dict) else "?")
+        where = "сырье: " + loc["path"] if loc["exists"] \
+            else "сырья нет в хранилище"
+        lines.append(f"{kind}: {sha[:16]}… {where}"
+                     + (f" (период входа {period})" if period else ""))
+        if loc["exists"] and open_target is None:
+            open_target = loc["path"]
+    for stale in panel["stale"]:
+        lines.append(f"{stale['marker']} ({stale['source_tag']})")
+    return {"text": "\n".join(lines), "open_target": open_target,
+            "panel": panel}

@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-C5.md",
- "report": "agent/REPORT-C5.md",
- "item": "C5",
- "step": "C5 done: watchlist switcher+version in window, add/remove via repo doors with new versions and audit, bulk remove confirmed + one audit line",
+ "task": "agent/TASK-C6.md",
+ "report": "agent/REPORT-C6.md",
+ "item": "C6",
+ "step": "C6 done: source panel view (document, hash, period, raw path, unit), open raw via system opener with words on missing, refusal names missing concept (CNQ roe)",
  "status": "working",
  "last_commit": "99558d9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-19T17:36:04Z"
+ "updated_at": "2026-09-19T17:40:26Z"
 }
