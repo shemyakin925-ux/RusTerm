@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-57.md",
- "report": "agent/REPORT-57.md",
- "item": "done",
- "step": "TASK-57 done: A1 (920d299), A2 (5271ff8), A3+A5.1 (ffeb518), A4 (6fd5996); A5 three named tests not reproduced in 2 attempts -> Disputed Q7; final HANDOFF in REPORT-57",
- "status": "awaiting_review",
- "last_commit": "5271ff8",
+ "task": "agent/TASK-58.md",
+ "report": "agent/REPORT-58.md",
+ "item": "C4",
+ "step": "C4 done: cvm-dfp.v2 sign rule, clip removed -> jurisdiction_rate, AMBEV 0.2381 gold, census diff 1 row, formulas baseline updated",
+ "status": "working",
+ "last_commit": "795ee48",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-19T11:21:00Z"
+ "updated_at": "2026-09-19T12:30:00Z"
 }

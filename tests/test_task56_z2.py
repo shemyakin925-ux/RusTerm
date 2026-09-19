@@ -218,7 +218,8 @@ def test_facts_carry_cvm_provenance_and_resolve(app, cvm_channel,
     try:
         facts = conn.execute(
             """SELECT fact_id, concept, canonical_concept, value,
-                      unit, period_type, source_ref, locator
+                      unit, period_type, source_ref, locator,
+                      concept_map_version
                FROM fact WHERE issuer_id='cik-23264'""").fetchall()
         assert facts, "факты CVM не записаны"
         raw = conn.execute(
@@ -236,7 +237,15 @@ def test_facts_carry_cvm_provenance_and_resolve(app, cvm_channel,
     for row in facts:
         loc = locator_from_json(json.loads(row["locator"]))
         assert loc.kind == "cvm-dfp"
-        assert resolve_locator(loc, getter) == row["value"], row
+        raw_value = resolve_locator(loc, getter)
+        if loc.cd_conta == "3.08":
+            # cvm-dfp.v2 (ТЗ-58 C4): карта приводит знак вычета; в
+            # провенансе — исходное ЗНАКОВОЕ значение локатора и
+            # версия карты на самом факте
+            assert row["value"] == repr(-float(raw_value)), row
+            assert row["concept_map_version"] == "cvm-dfp.v2", row
+        else:
+            assert raw_value == row["value"], row
         canonical = canonical_for(loc.cd_conta, "cvm-dfp")
         if canonical is None:
             # строки вне карты (например 3.04) факт остаётся, канон NULL

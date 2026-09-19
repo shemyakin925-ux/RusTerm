@@ -90,17 +90,25 @@ def clip(x: float, lo: float, hi: float) -> float:
 
 
 def effective_tax_rate(tax_expense: float, pretax_income: float) -> Tuple[Optional[float], Optional[NullReason]]:
-    """effective_tax = clip(tax_expense / pretax_income, 0, 0.5).
-    
-    При pretax_income <= 0 -> ставка юрисдикции из справочника (возвращаем None, jurisdiction_rate).
+    """effective_tax = tax_expense / pretax_income, БЕЗ clip (ТЗ-58 C4):
+    ставка вне полосы [0, 0.5] — это не 0.0 и не 0.5, а отказ
+    jurisdiction_rate с числом в продолжении; clip выдумывал значение.
+
+    При pretax_income <= 0 -> None, jurisdiction_rate.
     При pretax_income == 0 -> denominator_zero.
+    При tax_expense is None -> missing_data.
     """
-    if pretax_income is None or pretax_income == 0:
-        if pretax_income == 0:
-            return None, "denominator_zero"
-        else:  # None
-            return None, "missing_data"
-    rate = clip(tax_expense / pretax_income, 0.0, 0.5)
+    if tax_expense is None:
+        return None, "missing_data"
+    if pretax_income is None:
+        return None, "missing_data"
+    if pretax_income == 0:
+        return None, "denominator_zero"
+    if pretax_income < 0:
+        return None, "jurisdiction_rate"
+    rate = tax_expense / pretax_income
+    if rate < 0.0 or rate > 0.5:
+        return None, f"jurisdiction_rate: rate={rate:.4f}"
     return rate, None
 
 

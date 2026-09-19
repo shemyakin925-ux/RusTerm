@@ -17,6 +17,7 @@ from uuid import uuid4
 from rusterm.core.fact import locator_from_json, resolve_locator
 from rusterm.parsers import parse_auto
 from rusterm.normalize.concepts import (
+    _CVM_SIGN_NORMALIZED,
     canonical_for,
     map_version,
     priority_rank,
@@ -106,6 +107,9 @@ def apply_concept_map(fact: dict) -> int:
     if canonical is not None:
         fact["canonical_concept"] = canonical
         fact["concept_map_version"] = map_version(effective)
+        if effective == "cvm-dfp" and canonical in _CVM_SIGN_NORMALIZED:
+            from .normalize.concepts import normalize_sign_cvm
+            normalize_sign_cvm(fact)
         return 0
     fact["canonical_concept"] = None
     fact["concept_map_version"] = None

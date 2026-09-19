@@ -150,7 +150,8 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
         # пороги в проходном тесте — чтобы регрессия ловилась здесь.
         floors = {
             "net_margin": 20,
-            "effective_tax": 15,
+            "effective_tax": 14,  # ТЗ-58 C4: DIS больше не «0.0» —
+                                  # отказ вне полосы
             "fcf": 12,
             "ebitda": 10,
             "interest_coverage": 8,
@@ -167,6 +168,10 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
             # ТЗ-55 Y1: AMZN-фикстура несёт gross_profit до 2009-12-31 —
             # вычищен окном давности, отказ стал stale_data
             "stale_data",
+            # ТЗ-58 C4: у двух эмитентов (DIS, DIS-подобный вычет
+            # -0.0354) ставка отрицательна — clip раньше выдумывал
+            # 0.0, теперь честный jurisdiction_rate с числом
+            "jurisdiction_rate",
         }
         table: dict[str, dict] = {}
         for snapshot in snapshots:
