@@ -55,7 +55,7 @@ def env(tmp_path):
         repos.instrument.upsert_instrument(Instrument(
             iid, f"i-{ticker}", None, "common", "active", None))
         repos.instrument.upsert_listing(Listing(
-            f"l-{ticker}", iid, "XNAS" if market == "US" else "XTSE",
+            f"l-{ticker}", iid, "NASDAQ" if market == "US" else "XTSE",
             "USD" if market == "US" else "CAD", 1, None, None))
         repos.instrument.add_ticker_history(
             f"l-{ticker}", ticker, "2000-01-01", None, None, None)
@@ -88,7 +88,7 @@ def env(tmp_path):
     repos.instrument.upsert_instrument(Instrument(
         DEMO_INSTRUMENT, DEMO_ISSUER, None, "common", "active", None))
     repos.instrument.upsert_listing(Listing(
-        f"{DEMO_INSTRUMENT}-listing", DEMO_INSTRUMENT, "XNAS", "USD",
+        f"{DEMO_INSTRUMENT}-listing", DEMO_INSTRUMENT, "NASDAQ", "USD",
         1, None, None))
     repos.instrument.add_ticker_history(
         f"{DEMO_INSTRUMENT}-listing", "DEMO", "2020-01-01", None,
@@ -398,3 +398,82 @@ def test_radar_excluded_counts_shown(qapp, env):
     radar = window.findChild(ChartArea, "radar_chart")
     assert radar is not None
     assert radar.current_text() != "", "без агрегатов радар говорит словами"
+
+
+# ── C5: списки наблюдения ───────────────────────────────────────────────
+
+def test_watchlist_line_shows_version_and_members(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    line = _widget(window, QLabel, "watchlist_line")
+    assert "версия 1" in line.text()
+    assert "участников 4" in line.text()
+
+
+def test_watchlist_switch_changes_sidebar(qapp, env):
+    repos, paths = env
+    # второй список пуст: переключение обязано опустошить колонку
+    repos.watchlist.create_watchlist("wl-2", "spare", None, None)
+    repos.watchlist.new_version("wlv-2", "wl-2", 1, "seed", None)
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    box = _widget(window, QComboBox, "watchlist_box")
+    assert box.count() == 2
+    counter = _widget(window, QLabel, "match_count")
+    assert counter.text() == "компаний: 4"
+    box.setCurrentIndex(1)  # wl-2
+    assert counter.text() == "компаний: 0"
+    box.setCurrentIndex(0)
+    assert counter.text() == "компаний: 4"
+
+
+def test_remove_then_add_same_ticker_bumps_versions(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    remove_button = _widget(window, desktop_window.QPushButton,
+                            "remove_button")
+    assert remove_button.isEnabled()
+    remove_button.click()
+    line = _widget(window, QLabel, "watchlist_line")
+    assert "AAA удалён" in line.text() and "версия 2" in line.text()
+    counter = _widget(window, QLabel, "match_count")
+    assert counter.text() == "компаний: 3"
+    # вернуть тем же добавлением: тикер резолвится тем же резолвером
+    ticker_edit = _widget(window, QLineEdit, "add_ticker")
+    market_edit = _widget(window, QLineEdit, "add_market")
+    add_button = _widget(window, desktop_window.QPushButton, "add_button")
+    ticker_edit.setText("AAA")
+    market_edit.setText("US")
+    add_button.click()
+    assert "добавлен" in line.text() and "версия 3" in line.text()
+    assert counter.text() == "компаний: 4"
+    rows = repos.conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE action IN"
+        " ('watchlist_add','watchlist_remove')").fetchone()[0]
+    assert rows == 2, "каждая правка пишет строку аудита"
+
+
+def test_rollback_requires_confirmation(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    _widget(window, desktop_window.QPushButton, "remove_button").click()
+    counter = _widget(window, QLabel, "match_count")
+    assert counter.text() == "компаний: 3"
+    version_box = _widget(window, QComboBox, "version_box")
+    version_box.setCurrentIndex(0)  # v1: состав с AAA
+    rollback = _widget(window, desktop_window.QPushButton,
+                       "rollback_button")
+    # отказ в подтверждении: ничего не происходит
+    monkeypatch_answer = desktop_window.QMessageBox.StandardButton.No
+    desktop_window.QMessageBox.question = \
+        lambda *a, **k: monkeypatch_answer
+    rollback.click()
+    assert counter.text() == "компаний: 3"
+    # подтверждение: новая версия со старым составом
+    yes = desktop_window.QMessageBox.StandardButton.Yes
+    desktop_window.QMessageBox.question = lambda *a, **k: yes
+    rollback.click()
+    assert counter.text() == "компаний: 4"
+    line = _widget(window, QLabel, "watchlist_line")
+    assert "откат" in line.text()

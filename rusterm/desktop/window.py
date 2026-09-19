@@ -14,10 +14,11 @@ try:
     from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog,
                                    QGroupBox, QHBoxLayout, QHeaderView,
                                    QLabel, QLineEdit, QMainWindow,
-                                   QPushButton, QSplitter, QTableWidget,
-                                   QTableWidgetItem, QTabWidget,
-                                   QTreeWidget, QTreeWidgetItem,
-                                   QVBoxLayout, QWidget)
+                                   QMessageBox, QPushButton, QSplitter,
+                                   QTableWidget, QTableWidgetItem,
+                                   QTabWidget, QTreeWidget,
+                                   QTreeWidgetItem, QVBoxLayout,
+                                   QWidget)
     QT_AVAILABLE = True
 except ImportError:  # приёмка №1: ядро и тесты живут без PySide6
     QT_AVAILABLE = False
@@ -102,9 +103,35 @@ def _build_window(repos, paths, watchlist_id=None):
     body = QSplitter(Qt.Orientation.Horizontal)
     root_layout.addWidget(body, 1)
 
-    # ── левая колонка: поиск и дерево отраслей (C1.1) ──────────────
+    # ── левая колонка: списки, поиск и дерево отраслей (C1.1/C5) ───
     left = QGroupBox()
     left_layout = QVBoxLayout(left)
+    watchlist_box = QComboBox(objectName="watchlist_box")
+    left_layout.addWidget(watchlist_box)
+    watchlist_line = QLabel(objectName="watchlist_line")
+    left_layout.addWidget(watchlist_line)
+    version_row = QHBoxLayout()
+    version_box = QComboBox(objectName="version_box")
+    version_row.addWidget(version_box, 1)
+    rollback_button = QPushButton(objectName="rollback_button")
+    rollback_button.setEnabled(False)
+    version_row.addWidget(rollback_button)
+    left_layout.addLayout(version_row)
+    add_row = QHBoxLayout()
+    add_ticker = QLineEdit(objectName="add_ticker")
+    add_ticker.setPlaceholderText("тикер")
+    add_market = QLineEdit(objectName="add_market")
+    add_market.setPlaceholderText("рынок")
+    add_button = QPushButton(objectName="add_button")
+    add_button.setText("Добавить")
+    add_row.addWidget(add_ticker, 1)
+    add_row.addWidget(add_market)
+    add_row.addWidget(add_button)
+    left_layout.addLayout(add_row)
+    remove_button = QPushButton(objectName="remove_button")
+    remove_button.setText("Убрать из списка")
+    remove_button.setEnabled(False)
+    left_layout.addWidget(remove_button)
     search = QLineEdit(objectName="search")
     search.setPlaceholderText("поиск: тикер или название")
     left_layout.addWidget(search)
@@ -218,10 +245,12 @@ def _build_window(repos, paths, watchlist_id=None):
 
     state = {"companies": [], "selected": None, "table": None,
              "industry": None, "peer": None, "pinned": set(),
-             "session": None, "chat_reason": None, "worker": None}
+             "session": None, "chat_reason": None, "worker": None,
+             "watchlist": watchlist_id}
 
     collect_button.setText("Собрать")
     cancel_button.setText("Отменить")
+    rollback_button.setText("Откатить")
 
     # ── жизнь окна ─────────────────────────────────────────────────
     def repaint_header() -> None:
@@ -290,6 +319,7 @@ def _build_window(repos, paths, watchlist_id=None):
         _repaint_industry()
         source_panel.setText("клик по ячейке — панель источника")
         collect_button.setEnabled(state["worker"] is None)
+        remove_button.setEnabled(True)
         for button in (export_csv_button, export_md_button,
                        save_png_button):
             button.setEnabled(True)
@@ -489,6 +519,106 @@ def _build_window(repos, paths, watchlist_id=None):
             worker.cancel_flag.cancel()
             collect_status.setText("отмена…")
 
+    # ── списки наблюдения (TASK-C5) ────────────────────────────────
+    def reload_companies() -> None:
+        state["companies"] = data.sidebar_companies(repos,
+                                                    state["watchlist"])
+        repaint_sidebar(search.text())
+
+    def repaint_watchlist_line() -> None:
+        overview = desktop_actions.watchlists_overview(repos)
+        current = next((o for o in overview
+                        if o["watchlist_id"] == state["watchlist"]), None)
+        if current is None:
+            watchlist_line.setText("списков наблюдения нет: "
+                                   "создайте rusterm watchlist create")
+            return
+        watchlist_line.setText(
+            f"версия {current['version']}"
+            f" · участников {current['member_count']}")
+
+    def repaint_version_box() -> None:
+        version_box.blockSignals(True)
+        version_box.clear()
+        versions = desktop_actions.watchlist_versions(
+            repos, state["watchlist"])
+        for v in versions:
+            version_box.addItem(f"v{v['version']} ({v['action']})",
+                                userData=v["version"])
+        version_box.blockSignals(False)
+        rollback_button.setEnabled(version_box.count() > 1)
+
+    def on_watchlist_switch(_index: int) -> None:
+        state["watchlist"] = watchlist_box.currentData()
+        state["selected"] = None
+        state["table"] = None
+        reload_companies()
+        repaint_watchlist_line()
+        repaint_version_box()
+
+    def on_add() -> None:
+        ticker = add_ticker.text().strip()
+        market = add_market.text().strip().upper()
+        if not ticker or not market or repos is None:
+            return
+        candidates = desktop_actions._resolve_ticker(repos, ticker,
+                                                     market)
+        if not candidates:
+            watchlist_line.setText(
+                f"тикер {ticker!r} на рынке {market} не найден")
+            return
+        if len(candidates) > 1:
+            watchlist_line.setText(
+                f"тикер {ticker!r} неоднозначен: "
+                f"{', '.join(candidates)}")
+            return
+        version = desktop_actions.watchlist_add(repos,
+                                                state["watchlist"],
+                                                candidates[0])
+        add_ticker.clear()
+        add_market.clear()
+        reload_companies()
+        repaint_watchlist_line()
+        repaint_version_box()
+        watchlist_line.setText(f"{candidates[0]} добавлен,"
+                               f" версия {version}")
+
+    def on_remove() -> None:
+        selected = state["selected"]
+        if selected is None or repos is None:
+            return
+        version = desktop_actions.watchlist_remove(
+            repos, state["watchlist"], selected["instrument_id"])
+        state["selected"] = None
+        reload_companies()
+        repaint_watchlist_line()
+        repaint_version_box()
+        watchlist_line.setText(f"{selected['ticker']} удалён,"
+                               f" версия {version}")
+
+    def _confirm_bulk(text: str) -> bool:
+        """Массовая операция требует подтверждения (C5.3) — тот же
+        барьер, что подтверждение в CLI."""
+        answer = QMessageBox.question(window, "подтверждение", text)
+        return answer == QMessageBox.StandardButton.Yes
+
+    def on_rollback() -> None:
+        to_version = version_box.currentData()
+        if to_version is None or repos is None:
+            return
+        if not _confirm_bulk(
+                f"откатить список к версии {to_version}? "
+                "будет создана новая версия с прежним составом"):
+            return
+        result = desktop_actions.watchlist_rollback(
+            repos, state["watchlist"], to_version)
+        reload_companies()
+        repaint_watchlist_line()
+        repaint_version_box()
+        watchlist_line.setText(
+            f"откат к версии {to_version}: создана версия "
+            f"{result['version']}")
+
     def on_collect_done(outcome) -> None:
         state["worker"] = None
         window.set_worker(None)
@@ -551,6 +681,10 @@ def _build_window(repos, paths, watchlist_id=None):
     export_csv_button.clicked.connect(lambda: _export_table("csv"))
     export_md_button.clicked.connect(lambda: _export_table("md"))
     save_png_button.clicked.connect(on_save_png)
+    watchlist_box.currentIndexChanged.connect(on_watchlist_switch)
+    add_button.clicked.connect(on_add)
+    remove_button.clicked.connect(on_remove)
+    rollback_button.clicked.connect(on_rollback)
     tree.itemSelectionChanged.connect(on_tree_selection)
     kind_box.currentIndexChanged.connect(lambda _i: apply_chart())
     measure_box.currentIndexChanged.connect(lambda _i: apply_chart())
@@ -568,10 +702,25 @@ def _build_window(repos, paths, watchlist_id=None):
         answer_label.setText(message)
         repaint_sidebar("")
     else:
-        state["companies"] = data.sidebar_companies(repos, watchlist_id)
+        if state["watchlist"] is None:
+            overview = desktop_actions.watchlists_overview(repos)
+            if overview:
+                state["watchlist"] = overview[0]["watchlist_id"]
+        watchlist_box.blockSignals(True)
+        for o in desktop_actions.watchlists_overview(repos):
+            watchlist_box.addItem(f"{o['name']} (v{o['version']})",
+                                  userData=o["watchlist_id"])
+        if state["watchlist"] is not None:
+            index = watchlist_box.findData(state["watchlist"])
+            watchlist_box.setCurrentIndex(max(index, 0))
+        watchlist_box.blockSignals(False)
+        state["companies"] = data.sidebar_companies(repos,
+                                                    state["watchlist"])
         if not state["companies"]:
             company_header.setText(data.empty_watchlist_message())
         repaint_sidebar("")
+        repaint_watchlist_line()
+        repaint_version_box()
     repaint_header()
     setup_chat()
     if state["chat_reason"]:

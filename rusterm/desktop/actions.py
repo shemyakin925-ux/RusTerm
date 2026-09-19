@@ -326,3 +326,75 @@ def chart_caption(table: dict, concept: str | None) -> str:
     return (f"{table.get('ticker', '—')} · {table.get('name') or '—'}"
             f" · мера {concept or '—'} · период {period}"
             f" · выгружено {_today()}")
+
+
+# ── TASK-C5: списки наблюдения — правка через те же двери, что CLI ──────
+
+def watchlists_overview(repos) -> list[dict]:
+    """Списки наблюдения с версией и числом участников — та же дверь
+    чтения, что у `rusterm watchlist list` (C5.1)."""
+    return repos.watchlist.list_watchlists()
+
+
+def watchlist_versions(repos, watchlist_id: str) -> list[dict]:
+    """Известные версии с их действиями: для выбора отката. Версий
+    нет — пусто (списка нет вовсе, и это слова для окна)."""
+    versions = []
+    current = repos.watchlist.current_version(watchlist_id)
+    if current is None:
+        return versions
+    for v in range(1, current["version"] + 1):
+        action = repos.watchlist.version_action(watchlist_id, v)
+        if action is None:
+            break
+        versions.append({"version": v, "action": action})
+    return versions
+
+
+def _resolve_ticker(repos, ticker: str, market: str) -> list:
+    """Разрешение тикера — тот же резолвер, что у CLI
+    (resolve_ticker_candidates, второго нет)."""
+    import datetime
+    as_of = datetime.date.today().isoformat()
+    return repos.instrument.resolve_ticker_candidates(ticker, market,
+                                                      as_of)
+
+
+def watchlist_add(repos, watchlist_id: str, instrument_id: str,
+                  note: str | None = None) -> int:
+    """Добавить бумагу: та же последовательность, что
+    `rusterm watchlist add` — новая версия с полным составом,
+    членство, строка аудита (C5.2). Возвращает номер версии."""
+    from rusterm.cli import _next_version_full_composition
+    vid = _next_version_full_composition(repos.watchlist, watchlist_id,
+                                         "edit")
+    repos.watchlist.add_member(vid, instrument_id, note)
+    repos.audit.log("watchlist_add", watchlist_id,
+                    {"instrument": instrument_id}, True, "ok")
+    return repos.watchlist.current_version(watchlist_id)["version"]
+
+
+def watchlist_remove(repos, watchlist_id: str, instrument_id: str) -> int:
+    """Убрать бумагу: как `rusterm watchlist remove` — новая версия,
+    состав без бумаги, строка аудита (C5.2)."""
+    import uuid as _uuid
+
+    current = repos.watchlist.current_version(watchlist_id)
+    vid = repos.watchlist.new_version(str(_uuid.uuid4()), watchlist_id,
+                                      current["version"] + 1, "edit",
+                                      None)
+    repos.watchlist.copy_members_except(
+        current["watchlist_version_id"], vid, instrument_id)
+    repos.audit.log("watchlist_remove", watchlist_id,
+                    {"instrument": instrument_id}, True, "ok")
+    return repos.watchlist.current_version(watchlist_id)["version"]
+
+
+def watchlist_rollback(repos, watchlist_id: str, to_version: int) -> dict:
+    """Откат к прежней версии — как `rusterm watchlist rollback`:
+    rollback_to создаёт НОВУЮ версию с составом старой (история не
+    переписывается), строка аудита с подтверждением (C5.3)."""
+    result = repos.watchlist.rollback_to(watchlist_id, to_version)
+    repos.audit.log("watchlist_rollback", watchlist_id,
+                    {"to_version": to_version}, True, "ok")
+    return result

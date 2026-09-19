@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-C4.md",
- "report": "agent/REPORT-C4.md",
- "item": "C4",
- "step": "C4 done: csv/md via core export calls (byte-identical values, refusal words kept), png with caption, source column from lineage",
+ "task": "agent/TASK-C5.md",
+ "report": "agent/REPORT-C5.md",
+ "item": "C5.3",
+ "step": "C5 done in exec2 worktree: switch/edit-as-version/rollback with confirmation + audit",
  "status": "working",
  "last_commit": "99558d9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-19T17:25:42Z"
+ "updated_at": "2026-09-20T01:10:00Z"
 }
