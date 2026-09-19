@@ -13,8 +13,9 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog,
                                    QGroupBox, QHBoxLayout, QHeaderView,
-                                   QLabel, QLineEdit, QMainWindow,
-                                   QPushButton, QSplitter, QTableWidget,
+                                   QInputDialog, QLabel, QLineEdit,
+                                   QMainWindow, QMessageBox, QPushButton,
+                                   QSplitter, QTableWidget,
                                    QTableWidgetItem, QTabWidget,
                                    QTreeWidget, QTreeWidgetItem,
                                    QVBoxLayout, QWidget)
@@ -102,9 +103,35 @@ def _build_window(repos, paths, watchlist_id=None):
     body = QSplitter(Qt.Orientation.Horizontal)
     root_layout.addWidget(body, 1)
 
-    # ── левая колонка: поиск и дерево отраслей (C1.1) ──────────────
+    # ── левая колонка: списки, поиск и дерево отраслей (C1.1/C5.1) ─
     left = QGroupBox()
     left_layout = QVBoxLayout(left)
+    watchlist_row = QHBoxLayout()
+    watchlist_box = QComboBox(objectName="watchlist_box")
+    watchlist_row.addWidget(watchlist_box, 1)
+    watchlist_label = QLabel(objectName="watchlist_label")
+    watchlist_row.addWidget(watchlist_label)
+    left_layout.addLayout(watchlist_row)
+    # ── кнопки списка наблюдения (C5.2/C5.3) ───────────────────────
+    watchlist_buttons = QHBoxLayout()
+    watchlist_add_button = QPushButton(
+        objectName="watchlist_add_button")
+    watchlist_add_button.setText("+ бумага")
+    watchlist_remove_button = QPushButton(
+        objectName="watchlist_remove_button")
+    watchlist_remove_button.setText("− выбранное")
+    watchlist_clear_button = QPushButton(
+        objectName="watchlist_clear_button")
+    watchlist_clear_button.setText("очистить список")
+    for button in (watchlist_add_button, watchlist_remove_button,
+                   watchlist_clear_button):
+        watchlist_buttons.addWidget(button)
+    left_layout.addLayout(watchlist_buttons)
+    if repos is not None:
+        for button in (watchlist_add_button, watchlist_remove_button,
+                       watchlist_clear_button):
+            button.setEnabled(True)
+
     search = QLineEdit(objectName="search")
     search.setPlaceholderText("поиск: тикер или название")
     left_layout.addWidget(search)
@@ -217,6 +244,7 @@ def _build_window(repos, paths, watchlist_id=None):
     root_layout.addWidget(chat_box)
 
     state = {"companies": [], "selected": None, "table": None,
+             "watchlist": watchlist_id,
              "industry": None, "peer": None, "pinned": set(),
              "session": None, "chat_reason": None, "worker": None}
 
@@ -269,6 +297,101 @@ def _build_window(repos, paths, watchlist_id=None):
                    if c["market"] != "—"}
         markets_line.setText(
             f"{len(present)} из {len(MARKET_CODES)} рынков")
+
+    def repaint_watchlists() -> None:
+        """C5.1: списки в переключателе, версия и состав видны."""
+        if repos is None:
+            watchlist_box.clear()
+            watchlist_label.setText("")
+            return
+        choices = data.watchlist_choices(repos)
+        watchlist_box.blockSignals(True)
+        watchlist_box.clear()
+        for choice in choices:
+            watchlist_box.addItem(
+                f"{choice['name']} ({choice['watchlist_id']})",
+                userData=choice["watchlist_id"])
+        index = watchlist_box.findData(state.get("watchlist"))
+        if index >= 0:
+            watchlist_box.setCurrentIndex(index)
+        watchlist_box.blockSignals(False)
+        current = next((c for c in choices
+                        if c["watchlist_id"] == state.get("watchlist")),
+                       None)
+        watchlist_label.setText(
+            f"v{current['version']} · {current['member_count']} бумаг"
+            if current else "списков нет")
+
+    def on_watchlist_switch(index: int) -> None:
+        state["watchlist"] = watchlist_box.itemData(index)
+        state["selected"] = None
+        state["companies"] = (data.sidebar_companies(
+            repos, state["watchlist"]) if repos else [])
+        repaint_sidebar("")
+        repaint_watchlists()
+
+    def on_watchlist_add() -> None:
+        """C5.2: добавление через те же двери ядра, что CLI add.
+"""
+        watchlist_id = state.get("watchlist")
+        if repos is None or not watchlist_id:
+            return
+        text, ok = QInputDialog.getText(
+            window, "добавить бумагу",
+            "тикер и рынок (например: CNQ TSX):")
+        if not ok or not text.strip():
+            return
+        parts = text.split()
+        outcome = data.add_instrument(repos, watchlist_id,
+                                      parts[0],
+                                      parts[1] if len(parts) > 1 else "")
+        if not outcome["ok"]:
+            QMessageBox.warning(window, "добавление", outcome["message"])
+            return
+        state["companies"] = data.sidebar_companies(repos, watchlist_id)
+        repaint_sidebar("")
+        repaint_watchlists()
+
+    def on_watchlist_remove() -> None:
+        """C5.2: удаление выбранной бумаги; версия новая, старая
+        доступна."""
+        watchlist_id = state.get("watchlist")
+        selected = state.get("selected")
+        if repos is None or not watchlist_id or not selected:
+            return
+        outcome = data.remove_instruments(repos, watchlist_id,
+                                          [selected["instrument_id"]])
+        if not outcome["ok"]:
+            QMessageBox.warning(window, "удаление", outcome["message"])
+            return
+        state["companies"] = data.sidebar_companies(repos, watchlist_id)
+        state["selected"] = None
+        repaint_sidebar("")
+        repaint_watchlists()
+
+    def on_watchlist_clear() -> None:
+        """C5.3: массовая операция — подтверждение и одна строка
+        аудита; без подтверждения слой данных откажет словами."""
+        watchlist_id = state.get("watchlist")
+        if repos is None or not watchlist_id:
+            return
+        ids = [c["instrument_id"] for c in state["companies"]]
+        outcome = data.remove_instruments(repos, watchlist_id, ids)
+        if outcome.get("needs_confirm"):
+            answer = QMessageBox.question(
+                window, "очистить список",
+                outcome["message"] + " — продолжить?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            outcome = data.remove_instruments(repos, watchlist_id, ids,
+                                              confirmed=True)
+        if not outcome["ok"]:
+            QMessageBox.warning(window, "очистка", outcome["message"])
+            return
+        state["companies"] = data.sidebar_companies(repos, watchlist_id)
+        state["selected"] = None
+        repaint_sidebar("")
+        repaint_watchlists()
 
     def load_company(company: dict) -> None:
         state["selected"] = company
@@ -552,6 +675,10 @@ def _build_window(repos, paths, watchlist_id=None):
     export_md_button.clicked.connect(lambda: _export_table("md"))
     save_png_button.clicked.connect(on_save_png)
     tree.itemSelectionChanged.connect(on_tree_selection)
+    watchlist_add_button.clicked.connect(on_watchlist_add)
+    watchlist_remove_button.clicked.connect(on_watchlist_remove)
+    watchlist_clear_button.clicked.connect(on_watchlist_clear)
+    watchlist_box.currentIndexChanged.connect(on_watchlist_switch)
     kind_box.currentIndexChanged.connect(lambda _i: apply_chart())
     measure_box.currentIndexChanged.connect(lambda _i: apply_chart())
     industry_measure_box.currentIndexChanged.connect(
@@ -572,6 +699,7 @@ def _build_window(repos, paths, watchlist_id=None):
         if not state["companies"]:
             company_header.setText(data.empty_watchlist_message())
         repaint_sidebar("")
+    repaint_watchlists()
     repaint_header()
     setup_chat()
     if state["chat_reason"]:

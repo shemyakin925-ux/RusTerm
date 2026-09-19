@@ -20,6 +20,7 @@ import datetime
 import io
 import json
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -604,3 +605,95 @@ def chart_caption(table: dict, concept: str, period: str = "",
                                        table.get("name")) if part)
     return (f"{who} — {concept}; период {period or '—'}; "
             f"выгружено {exported_at or _today()}")
+
+
+# ── Списки наблюдения (TASK-C5): те же двери ядра, что у CLI ────────────
+
+def watchlist_choices(repos) -> list[dict]:
+    """Списки наблюдения для переключателя (C5.1): id, имя, текущая
+    версия, сколько бумаг. Прямо то, что печатает rusterm watchlist
+    list, — в словарях."""
+    return [{"watchlist_id": r["watchlist_id"], "name": r["name"],
+             "version": r["version"], "member_count": r["member_count"]}
+            for r in repos.watchlist.list_watchlists()]
+
+
+def _next_version_full(repos, watchlist_id: str, action: str) -> str:
+    """Правка состава = новая версия с полным новым составом (T10/T11)
+    — тот же шаг, что у rusterm watchlist add."""
+    current = repos.watchlist.current_version(watchlist_id)
+    if current is None:
+        raise ValueError(f"список {watchlist_id!r} не найден")
+    version_id = repos.watchlist.new_version(
+        str(uuid.uuid4()), watchlist_id, current["version"] + 1,
+        action, None)
+    repos.watchlist.copy_members(current["watchlist_version_id"],
+                                 version_id)
+    return version_id
+
+
+def add_instrument(repos, watchlist_id: str, ticker: str, market: str,
+                   as_of: str | None = None) -> dict:
+    """C5.2: добавление бумаги тем же путём, что CLI watchlist add:
+    разрешение тикера вторым резолвером не пахнет — только
+    InstrumentRepo.resolve_ticker_candidates; правка = новая версия;
+    строка аудита. Отказ — словами."""
+    candidates = repos.instrument.resolve_ticker_candidates(
+        ticker, market, as_of or _today())
+    if not candidates:
+        return {"ok": False,
+                "message": (f"инструмента {ticker}.{market} нет — "
+                            "добавьте бумагу через rusterm add")}
+    if len(candidates) > 1:
+        return {"ok": False,
+                "message": f"тикер {ticker!r} неоднозначен: "
+                           f"{', '.join(candidates)}"}
+    instrument_id = candidates[0]
+    version_id = _next_version_full(repos, watchlist_id, "edit")
+    repos.watchlist.add_member(version_id, instrument_id, None)
+    repos.audit.log("watchlist_add", watchlist_id,
+                    {"instrument": instrument_id}, True, "ok")
+    version = repos.watchlist.current_version(watchlist_id)["version"]
+    return {"ok": True, "instrument_id": instrument_id, "version": version}
+
+
+def remove_instruments(repos, watchlist_id: str,
+                       instrument_ids: list[str],
+                       confirmed: bool = False) -> dict:
+    """C5.2/C5.3: удаление бумаг. Одна бумага — как CLI watchlist
+    remove (новая версия без неё, строка аудита). Больше одной —
+    операция требует подтверждения (confirmed=True): без него отказ
+    словами и ничего не меняется; с ним — ОДНА новая версия и ОДНА
+    строка аудита на операцию. Прежняя версия остаётся доступной
+    (репозиторий append-only)."""
+    if not instrument_ids:
+        return {"ok": False, "message": "нечего удалять"}
+    if len(instrument_ids) > 1 and not confirmed:
+        return {"ok": False,
+                "message": (f"затронуто бумаг: {len(instrument_ids)} — "
+                            "подтвердите операцию"),
+                "needs_confirm": True}
+    current = repos.watchlist.current_version(watchlist_id)
+    if current is None:
+        return {"ok": False,
+                "message": f"список {watchlist_id!r} не найден"}
+    # состав читается ДО создания новой версии: current_version уже
+    # смотрит на неё, а та рождается пустой
+    current_members = [m["instrument_id"] for m in
+                       repos.watchlist.members(watchlist_id)]
+    version_id = repos.watchlist.new_version(
+        str(uuid.uuid4()), watchlist_id, current["version"] + 1,
+        "edit", None)
+    remaining = [iid for iid in current_members
+                 if iid not in instrument_ids]
+    for iid in remaining:
+        repos.watchlist.add_member(version_id, iid, None)
+    if len(instrument_ids) == 1:
+        repos.audit.log("watchlist_remove", watchlist_id,
+                        {"instrument": instrument_ids[0]}, True, "ok")
+    else:
+        repos.audit.log("watchlist_bulk_remove", watchlist_id,
+                        {"instruments": instrument_ids,
+                         "count": len(instrument_ids)}, True, "ok")
+    version = repos.watchlist.current_version(watchlist_id)["version"]
+    return {"ok": True, "removed": instrument_ids, "version": version}
