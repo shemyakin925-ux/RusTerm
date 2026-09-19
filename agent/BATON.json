@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 1,
+ "holder": "executor",
+ "round": 2,
  "branch": "agent/night-13",
  "task": "agent/TASK-C1.md",
  "report": "agent/REPORT-C1.md",
- "note": "Полоса C заведена",
+ "note": "Полоса C, круг 1: десктопное окно только для чтения. tkinter (stdlib), данные из tui/model.py, точка входа python3 -m rusterm.desktop, сеть 0. Кнопок-действий нет — они заперты в cli/__init__.py, это чужая территория; что именно заперто — пунктом C1.4 в отчёт.",
  "handed_by": "coordinator",
- "handed_at": "2026-09-19T14:05:08Z",
+ "handed_at": "2026-09-19T14:05:13Z",
  "paused": false,
  "finished": false
 }
