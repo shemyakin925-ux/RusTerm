@@ -48,12 +48,60 @@ refusal path for a guard-rejected answer would drift silently: nothing
 would pin `no_data:` + the dictionary token over the generic
 «число не процитировано» when the data reason is known.
 
+## A2. BR measures census — Ambev, offline, golden-pinned
+
+Emitent: **BR-AMBEV (AMBEV S.A., CD_CVM 023264)** — the same payload
+as Z2 (annual DFP 2024, recorded slices `tests/data/cvm/`). The
+census runs offline through the REAL Z2 channel
+(`add` → `ingest --source cvm` → `snapshot`), transport replaced by
+the recorded bytes, real RequestGate counting; golden file
+`tests/data/golden_census_task57_br.json`, tests
+`tests/test_task57_br_census.py` (5 passed). The census covers the
+ten TASK-49 measures **plus `roe_incl_nci`** (landed in ТЗ-56 Z1),
+11 rows total — the ТЗ said «десять», the dictionary has grown by one
+since; nothing was dropped.
+
+Table in words (measure → value or refusal):
+
+| measure | outcome |
+|---|---|
+| gross_margin | **0.5124228210563511** (computes) |
+| net_margin | **0.16597550599636104** (computes) |
+| roe_incl_nci | **0.16521917935689903** (computes) |
+| effective_tax | **0.0** — see the candidate below; the true ratio from the payload is −4640375/19487327 = −0.2381 |
+| roe | refuses `missing_data: total_equity` — CVM files capital only WITH NCI (2.03), Z1 rule holds, no substitution |
+| operating_margin | refuses `missing_data: operating_income` — 3.05 is EBIT-like, deliberately unmapped (verdikt ТЗ-55) |
+| ebitda | refuses `missing_data: d_and_a, operating_income` |
+| nopat | refuses `missing_data: operating_income` |
+| interest_coverage | refuses `missing_data: interest_expense, operating_income` |
+| asset_turnover | refuses `missing_data: total_assets` — BPP slice has no asset lines |
+| fcf | refuses `missing_data: capex, ocf` — no cash-flow statement in the recorded slices |
+
+So: **4 rows carry a value, 7 refuse**; every refusal token is
+dictionary-checked by an assert, none is a bare `missing_data`.
+`rusterm census --instrument BR-AMBEV` prints the issuer like US/CA/
+OTC (asserted in test_census_command_lists_br_like_us_ca_otc; live
+offline run quoted in the prep: 36 facts, 11 rows).
+
+### Candidate (no code written, per ТЗ): CVM 3.08 sign convention
+
+DRE line 3.08 «Imposto de Renda e Contribuição Social sobre o Lucro»
+is filed as a SIGNED deduction (negative). The dictionary maps 3.08 →
+`tax_expense`, and `effective_tax = clip(tax/pretax, 0, 0.5)` clamps
+−0.2381 to **0.0** — a green-looking number that says AMBEV pays 0%
+tax. Options for the coordinator: normalize the sign at the map layer
+(cvm-dfp.v2, magnitude) or give BR its own measure; both are code, so
+per A2 this is reported, pinned as-is in the golden (`"0.0"` with the
+artifact documented in the test docstring), not "fixed".
+
 ## Done
 
 - A1: circle-60 tail pinned in both directions
   (test_green_answer_survives_gray_measure_in_block red on the
   reverted order, green after restore; cases б/в pinned on exact
   texts); chat.py comment names the test instead of the round.
+- A2: BR census offline golden-pinned (4 values / 7 named refusals,
+  dictionary-checked), candidate 3.08-sign reported without code.
 
 ## Blocked
 
@@ -81,16 +129,17 @@ would pin `no_data:` + the dictionary token over the generic
 
 Status:          working (interim)
 Arrival state:   selfcheck STATUS=OK on clean tree at 91e41ef, exit 0
-Items done:      A1 (code+test staged in this commit)
-Items not done:  A2, A3, A4, A5, backlog item — not started yet
-Acceptance:      this commit's acceptance: red (report sections),
-                 see What not to trust; the next commit re-runs it
-Tests:           test_i2_does_not_know.py 7 passed (3 new)
+Items done:      A1 (commit 920d299, pushed), A2 (staged in this commit)
+Items not done:  A3, A4, A5, backlog item — not started yet
+Acceptance:      A1 commit: 13/0, Принято, exit 0 (both selfcheck runs);
+                 this commit re-runs the same command
+Tests:           test_task57_br_census.py 5 passed (new)
 Guards:          none touched
 Schema:          unchanged
-Network:         0 requests used (no provider called)
+Network:         0 requests used (census offline on recorded bytes)
 Model:           app llm_calls 0; runner model GLM-5.3-Flash
-Secrets:         nothing to grep yet (no artifacts produced)
+Secrets:         no key material in tests/data/cvm/ or the report
 Pushed:          this commit — yes, right after selfcheck passes
 Questions for the coordinator:
 1. Stop-time convention for daytime relay rounds (see Disputed Q1).
+2. A2 candidate: CVM 3.08 sign normalization (see the candidate item).
