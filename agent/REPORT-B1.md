@@ -164,3 +164,26 @@ names the missing link); both effective_tax = 0.2 and fcf = 0.0
 Verification: `pytest tests/test_b1_zero_vs_missing.py -q` — 2 passed.
 
 NOW: B1.3, step 4 (committed)
+
+## HANDOFF (FINAL — shift closed, all TASK-B1 items done)
+
+- Status: DONE. Items done: B1.1, B1.2, B1.3. Commits: ee1e5f2 (B1.1 +
+  selfcheck GIT_* sanitation), c2896e3 (B1.2), 0e884ff (B1.3). All
+  pushed to origin/agent/night-12.
+- Not done: nothing from the ТЗ. BACKLOG intentionally not touched
+  (queue belongs to lane A).
+- Extra file touched beyond ТЗ territory, for the coordinator to
+  ratify: `agent/selfcheck.sh` — unset GIT_INDEX_FILE/GIT_DIR/
+  GIT_WORK_TREE/… at the top; without it the pre-commit hook poisons
+  the whole suite (b35 positive controls and the P3/P4 guard test red
+  under the hook, green outside; reproduced before the fix, root cause
+  in Disputed).
+- Coordinator decisions requested: (1) ratify the selfcheck
+  sanitation; (2) widen the p6_rule.sh relay allowlist to letter-named
+  lane files (TASK-B1/C1, REPORT-B1/C1) — currently the guard flags
+  the coordinator's own relay commits; (3) the B1.1 clip() removal and
+  era baseline change are inside commit ee1e5f2 as disclosed.
+- Worktree: /tmp/rt-lane-b (agent/night-12 checked out). Lane A files
+  in the main checkout untouched.
+
+NOW: HANDOFF, handed to coordinator
