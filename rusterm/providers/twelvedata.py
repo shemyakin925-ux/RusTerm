@@ -53,6 +53,17 @@ def _default_transport(url: str, headers: dict) -> tuple:
         return e.code, e.read(), dict(e.headers or {})
 
 
+KEY_SITE = "https://www.twelvedata.com"
+
+
+def key_instruction() -> str:
+    """ТЗ-68 N2: что делать при twelvedata_key_unset — подстановка
+    из констант, одна реализация для всех поверхностей."""
+    return ("получить бесплатный ключ на " + KEY_SITE
+            + " (тариф: 8 запросов/мин, 800/сут) и вписать его в "
+              "переменную RUSTERM_TWELVEDATA_KEY")
+
+
 @dataclass
 class TwelveDataProvider:
     """Клиент /time_series. Ошибки — значения (§7);Transport-исключения

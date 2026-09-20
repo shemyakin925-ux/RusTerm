@@ -70,3 +70,44 @@ NOW: N2, step 1
 ## HANDOFF
 
 Статус: DONE для N1/N3; N2 и N4 — следующим коммитом этого круга.
+
+- N2. Отказы учат: `edgar.py` получил `sec_ua_instruction()` (SEC_UA —
+  контактная строка по требованию SEC, это не секрет; вписать в
+  RUSTERM_SEC_UA или ~/.rusterm.env), `twelvedata.py` —
+  `key_instruction()` (бесплатный ключ на twelvedata.com, тариф
+  8/мин/800/сут, переменная RUSTERM_TWELVEDATA_KEY). cmd_ingest
+  печатает «что делать: …» при sec_ua_unset и twelvedata_key_unset.
+  Подстановка из констант проверена тестом (monkeypatch KEY_SITE и
+  SEC_UA_NOTE — подменённое доезжает до сообщения). Слова одни и в
+  окне — реализации единственные. Пустое окружение после правки
+  (дословно): «edgar недоступен: sec_ua_unset / что делать: вписать
+  контактную строку (имя и email) в переменную RUSTERM_SEC_UA или в
+  ~/.rusterm.env — SEC требует вежливой идентификации, это не
+  секретный ключ»; «twelvedata недоступен: twelvedata_key_unset /
+  что делать: получить бесплатный ключ на
+  https://www.twelvedata.com (тариф: 8 запросов/мин, 800/сут) и
+  вписать его в переменную RUSTERM_TWELVEDATA_KEY».
+- N4. Свежие числа после N1 (первый час, живой прогон AAPL):
+  20 из 28 мер со значением (было 8 в ТЗ-63, 10 в ТЗ-64, 15 в
+  ТЗ-67); происхождение — у всех значимых (provenance в json с
+  ТЗ-64 J2). Таблица: ТЗ-63 8 → ТЗ-64 10 → ТЗ-67 15 → сейчас 20.
+
+## HANDOFF (FINAL)
+
+Status: DONE
+Arrival state: task taken round 90 on 1b1202f, selfcheck green
+Items done: N1 (b3a6645), N2, N3 (фраза выше), N4 (числа и таблица)
+Items not done: none
+Acceptance: «Итог» из полного прогона этого коммита — в commit body
+Tests: 64+ зелёных (N1-наборы), 58 (N2-наборы), firsthour green
+Guards: none touched
+Schema: unchanged
+Network: 0 в этом круге (живые прогоны были в ТЗ-63/67)
+Model: GLM-5.3, app llm_calls 0
+Secrets: нет ключевого материала
+Pushed: this commit pushes immediately
+Questions for the coordinator:
+1. Корзина (б) из N1: invested_capital как сумма трёх тегов и
+   hhi-модуль — заводить пунктами?
+
+NOW: N4, step 2 — task complete, handing the baton back

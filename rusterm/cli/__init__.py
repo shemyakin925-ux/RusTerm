@@ -254,10 +254,10 @@ def cmd_ingest(args) -> int:
         if (market is not None
                 and provider_channel(market.provider) is None
                 and key_env and not _os.environ.get(key_env)):
-            from rusterm.providers.dart import key_instruction
+            from rusterm.providers.dart import dart_key_instruction
             exit_code = 1
             print(f"{instrument_id}: сбор недоступен: dart_key_unset — "
-                  f"{key_instruction(key_env)}", file=sys.stderr)
+                  f"{dart_key_instruction(key_env)}", file=sys.stderr)
             continue
         runnable.append((instrument_id, issuer_id))
     from rusterm.providers.disclosures import DEMO_INDEX_FIXTURE
@@ -305,6 +305,9 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
     if isinstance(provider, ConfigError):
         print(f"twelvedata недоступен: {provider.reason}",
               file=sys.stderr)
+        if provider.reason == "twelvedata_key_unset":
+            from rusterm.providers.twelvedata import key_instruction
+            print(f"что делать: {key_instruction()}", file=sys.stderr)
         return 1
 
     cache_url = provider.cache_url(symbol, start, None)
@@ -362,6 +365,9 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
     if isinstance(provider, ConfigError):
         print(f"twelvedata недоступен: {provider.reason}",
               file=sys.stderr)
+        if provider.reason == "twelvedata_key_unset":
+            from rusterm.providers.twelvedata import key_instruction
+            print(f"что делать: {key_instruction()}", file=sys.stderr)
         return 1
 
     payloads: dict[str, dict] = {}
@@ -442,6 +448,10 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     facts = provider.fetch_companyfacts()
     if isinstance(facts, ConfigError):
         print(f"edgar недоступен: {facts.reason}", file=sys.stderr)
+        if facts.reason == "sec_ua_unset":
+            from rusterm.providers.edgar import sec_ua_instruction
+            print(f"что делать: {sec_ua_instruction()}",
+                  file=sys.stderr)
         return 1
     _record_gate_usage(repos, "edgar", gate)
     from rusterm.providers.base import ProviderError as _PE

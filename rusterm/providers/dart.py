@@ -46,7 +46,7 @@ KEY_ENV = "RUSTERM_DART_KEY"
 KEY_SITE = "https://opendart.fss.or.kr"
 
 
-def key_instruction(key_env: str | None = None) -> str:
+def dart_key_instruction(key_env: str | None = None) -> str:
     """ТЗ-65 K3: одна строка-инструкция для CLI и окна — подстановка
     из констант, поверхностей не различает. Имя переменной берётся из
     реестра каналов (channel_key_env), чтобы подстановка была честной."""

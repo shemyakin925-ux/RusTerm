@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-67.md",
- "report": "agent/REPORT-67.md",
- "item": "M4",
- "step": "M1 experiments proven, M2 prices 15/28 live, M3 empty env verbatim, M4 GUIDE prose; awaiting review",
- "status": "awaiting_review",
+ "task": "agent/TASK-68.md",
+ "report": "agent/REPORT-68.md",
+ "item": "N1",
+ "step": "N1: 5 мер переведены в расчёт прохода оценки, живой прогон 20 из 28; committing",
+ "status": "working",
  "last_commit": "03fdbc7",
  "requests": 3,
  "net_requests": 3,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-20T20:20:59Z"
+ "updated_at": "2026-09-20T21:39:54Z"
 }

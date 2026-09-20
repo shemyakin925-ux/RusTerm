@@ -154,11 +154,11 @@ def collect_synthetic(root, instrument_id: str,
     if (market is not None
             and provider_channel(market.provider) is None
             and key_env and not os.environ.get(key_env)):
-        from rusterm.providers.dart import key_instruction
+        from rusterm.providers.dart import dart_key_instruction
         return CollectOutcome(
             ok=False, reason="dart_key_unset",
             detail=(f"сбор недоступен: dart_key_unset — "
-                    f"{key_instruction()}"))
+                    f"{dart_key_instruction()}"))
     if instrument_id != demo_instrument_id():
         return CollectOutcome(
             ok=False,
