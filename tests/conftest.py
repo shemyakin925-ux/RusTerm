@@ -25,6 +25,10 @@ def _isolated_rusterm_env(tmp_path, monkeypatch):
     monkeypatch.setenv("RUSTERM_ENV_FILE", str(env_file))
     for name in env_module.ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
+    # Кэш происхождений у load_env процесса, а не теста: без сброса
+    # report()/keys_view() читают origins чужого теста мимо
+    # изолированного окружения (красила пара test_env + keys_view).
+    env_module._LAST_ORIGINS = None
     yield
 
 

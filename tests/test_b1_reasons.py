@@ -126,6 +126,12 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "row_missing_ticker_or_market": "watchlist import report (core/watchlist_io.py)",
     "no_instrument_for_": "watchlist import report f-string prefix",
     "schema_not_ready": "cadence report label (cli, sqlite not migrated)",
+    "no_data_dir": "cadence report label (cli, data catalog absent)",
+    # десктоп (полоса C): отказы действий окна, в меры не попадают
+    "synthetic_demo_only": "desktop collect refusal (desktop/actions.py)",
+    "unexpected_error": "desktop action refusal prefix (desktop/actions.py)",
+    "index_unavailable": "desktop collect refusal (desktop/actions.py)",
+    "fetch_failed": "desktop collect refusal (desktop/actions.py)",
     # расширенная перепись (сканер возвратов-пар и f-строк)
     "asx_bad_url": "provider channel refusal (providers/asx.py)",
     "dart_bad_url": "provider channel refusal (providers/dart.py)",
