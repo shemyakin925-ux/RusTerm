@@ -263,14 +263,11 @@ def _lineage_facts(repos, measures) -> dict:
 
 def _source_cell(facts: list) -> str:
     """Ячейка источника: вид источника, хэш ответа (укороченный),
-    дата периода факта. Строка со значением без источника уйти не
+    дата периода факта. Реализация одна (data.source_cell, форма
+    'export') — ТЗ-62 G3; строка со значением без источника уйти не
     должна — это проверяет тест."""
-    parts = []
-    for f in facts:
-        kind = f.get("source_kind") or "provider"
-        parts.append(f"{kind}:{str(f.get('source_ref'))[:12]}"
-                     f"@{f.get('period_end')}")
-    return "; ".join(parts)
+    from rusterm.desktop.data import source_cell
+    return source_cell(facts, shape="export")
 
 
 def export_snapshot_csv(repos, instrument_id: str) -> str:
@@ -320,7 +317,9 @@ def export_snapshot_json(repos, instrument_id: str) -> str:
 
 def chart_caption(table: dict, concept: str | None) -> str:
     """Подпись под картинкой (C4.2): эмитент, мера, период, дата
-    выгрузки — из данных таблицы, без досчёта."""
+    выгрузки — из данных таблицы, без досчёта. Форма без источника:
+    подпись не называет документ и хэш — для них в ней нет места
+    (ТЗ-62 G3)."""
     years = table.get("years") or []
     period = f"{years[-1]}–{years[0]}" if years else "—"
     return (f"{table.get('ticker', '—')} · {table.get('name') or '—'}"

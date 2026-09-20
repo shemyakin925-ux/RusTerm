@@ -158,6 +158,8 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "suspect": "coverage reason: suspect facts (pipeline.py)",
     "unparsed": "coverage reason: unparsed elements (pipeline.py)",
     "parser_degraded": "coverage reason: degraded parse (core/verification.py)",
+    # слой конфигурации: отказ правки лимита при битом config.toml
+    "config_broken": "config layer refusal (store/config.py)",
 }
 
 

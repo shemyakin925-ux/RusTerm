@@ -1057,17 +1057,22 @@ class WatchlistRepo:
 
     def copy_members_except(self, source_version_id: str,
                             target_version_id: str,
-                            instrument_id: str) -> int:
-        """Полный новый состав без одного инструмента (удаление из
-        состава — тоже новая версия). Возвращает число перенесённых."""
+                            instrument_id: str | list[str]) -> int:
+        """Полный новый состав без перечисленных инструментов (ТЗ-62
+        G2: одна дверь для одиночного и массового удаления — строка
+        или список). Возвращает число перенесённых."""
+        excluded = ([instrument_id] if isinstance(instrument_id, str)
+                    else list(instrument_id))
+        placeholders = ",".join("?" * len(excluded))
         with writer_transaction(self.conn) as c:
             cur = c.execute(
-                """INSERT INTO watchlist_member(watchlist_version_id,
+                f"""INSERT INTO watchlist_member(watchlist_version_id,
                   instrument_id, note, added_at)
                   SELECT ?, instrument_id, note, added_at
                   FROM watchlist_member
-                  WHERE watchlist_version_id=? AND instrument_id <> ?""",
-                (target_version_id, source_version_id, instrument_id))
+                  WHERE watchlist_version_id=?
+                    AND instrument_id NOT IN ({placeholders})""",
+                (target_version_id, source_version_id, *excluded))
             return cur.rowcount
 
     def create_version_with_members(self, watchlist_id: str,

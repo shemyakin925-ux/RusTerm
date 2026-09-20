@@ -532,31 +532,48 @@ def export_snapshot_measures(repos, instrument_id: str) -> Optional[list]:
     return repos.snapshot.get_measures(sid)
 
 
-def _source_cell(repos, measure_row) -> str:
-    """Колонка источника (C4.3): канал или документ, локатор входного
-    факта, хэш сохранённого ответа, конец периода. У меры без входов
-    ячейка пуста — значения без источника не бывает."""
+def source_cell(facts: list, shape: str = "table") -> str:
+    """Строка источника (ТЗ-62 G3): одна реализация для всех
+    поверхностей, форму задаёт параметр, а не своя копия. Документ,
+    хэш и период — одни и те же в любой форме. shape='table' — колонка
+    выгрузки (kind where #sha12 period); shape='export' — компактная
+    kind:sha12@period. Подпись графика источника не называет вовсе:
+    в ней нет места для хэша (см. chart_caption)."""
     cells = []
-    for fact_id in repos.snapshot.lineage_fact_ids(measure_row[0]):
-        fact = repos.fact.get_fact(fact_id)
-        if fact is None:
-            continue
-        locator = fact["locator"]
+    for fact in facts:
+        locator = fact.get("locator")
         if isinstance(locator, str):
             try:
                 locator = json.loads(locator)
             except ValueError:
                 locator = {"locator": locator}
         kind = fact.get("source_kind") or "provider"
+        sha = str(fact.get("source_ref") or "")[:12]
+        period = fact.get("period_end") or ""
+        if shape == "export":
+            cells.append(f"{kind}:{sha}@{period}")
+            continue
         if kind == "manual":
             where = (locator or {}).get("locator", "") or "файл"
         else:
             where = ((locator or {}).get("endpoint")
                      or (locator or {}).get("locator", ""))
-        sha = (fact.get("source_ref") or "")[:12]
-        period = fact["period_end"] or ""
         cells.append(f"{kind} {where} #{sha} {period}".strip())
     return "; ".join(cells)
+
+
+def _source_cell(repos, measure_row) -> str:
+    """Колонка источника (C4.3): канал или документ, локатор входного
+    факта, хэш сохранённого ответа, конец периода. У меры без входов
+    ячейка пуста — значения без источника не бывает. Формы — в
+    source_cell (ТЗ-62 G3)."""
+    facts = []
+    for fact_id in repos.snapshot.lineage_fact_ids(measure_row[0]):
+        fact = repos.fact.get_fact(fact_id)
+        if fact is None:
+            continue
+        facts.append(fact)
+    return source_cell(facts)
 
 
 def export_table_csv(repos, instrument_id: str) -> Optional[str]:
@@ -594,7 +611,9 @@ def export_table_md(repos, instrument_id: str) -> Optional[str]:
 
 def chart_caption(table: dict, concept: str, period: str = "",
                   exported_at: str | None = None) -> str:
-    """Подпись png (C4.2): эмитент, мера, период, дата выгрузки."""
+    """Подпись png (C4.2): эмитент, мера, период, дата выгрузки.
+    Форма без источника: подпись не называет документ и хэш — для них
+    в ней нет места (ТЗ-62 G3)."""
     who = " · ".join(part for part in (table.get("ticker"),
                                        table.get("name")) if part)
     return (f"{who} — {concept}; период {period or '—'}; "
@@ -678,10 +697,11 @@ def remove_instruments(repos, watchlist_id: str,
     version_id = repos.watchlist.new_version(
         str(uuid.uuid4()), watchlist_id, current["version"] + 1,
         "edit", None)
-    remaining = [iid for iid in current_members
-                 if iid not in instrument_ids]
-    for iid in remaining:
-        repos.watchlist.add_member(version_id, iid, None)
+    # ТЗ-62 G2: одна дверь переноса состава — та же, что у
+    # одиночного удаления в CLI (copy_members_except), строка или
+    # список
+    repos.watchlist.copy_members_except(
+        current["watchlist_version_id"], version_id, instrument_ids)
     if len(instrument_ids) == 1:
         repos.audit.log("watchlist_remove", watchlist_id,
                         {"instrument": instrument_ids[0]}, True, "ok")
@@ -879,7 +899,7 @@ def keys_view() -> dict:
 
 def host_limits_view(paths: AppPaths) -> dict:
     """C9.2: потолки по хостам из реестра провайдеров плюс оверрайды
-    из того же config.toml, который читает ядро (load_config)."""
+    из конфигурации ядра — та же дверь load_config."""
     from rusterm.providers import all_host_limits
     from rusterm.store.config import load_config
     config = load_config(paths.config_path)
@@ -895,35 +915,11 @@ def host_limits_view(paths: AppPaths) -> dict:
 
 def set_host_rate_limit(paths: AppPaths, host: str,
                         per_second: float) -> dict:
-    """C9.2: правка лимита — в тот же config.toml, который читает
-    ядро load_config; правка проверяется обратным чтением."""
-    text = paths.config_path.read_text(encoding="utf-8") \
-        if paths.config_path.exists() else ""
-    # хост с точкой — не TOML-ключ: только в кавычках это строка,
-    # иначе "sec.gov = 0.5" читается как вложенная таблица sec.gov
-    line = f'"{host}" = {per_second}'
-    if "[provider_rate_limit]" in text:
-        lines = text.splitlines()
-        start = lines.index("[provider_rate_limit]")
-        end = len(lines)
-        for i in range(start + 1, len(lines)):
-            if lines[i].startswith("["):
-                end = i
-                break
-        block = lines[start + 1:end]
-        block = [ln for ln in block
-                 if ln.split("=")[0].strip().strip('"') != host]
-        block.append(line)
-        lines[start + 1:end] = [""] + block
-        new_text = "\n".join(lines) + "\n"
-    else:
-        new_text = (text.rstrip("\n") + "\n\n[provider_rate_limit]\n"
-                    + line + "\n" if text.strip()
-                    else "[provider_rate_limit]\n" + line + "\n")
-    paths.config_path.write_text(new_text, encoding="utf-8")
-    from rusterm.store.config import load_config
-    applied = load_config(paths.config_path).provider_rate_limit.get(host)
-    return {"ok": applied == per_second, "applied": applied}
+    """C9.2 -> ТЗ-62 G1: правка лимита через дверь слоя конфигурации
+    (set_provider_rate_limit) — окно про имя файла не знает. Битый
+    конфиг: отказ причиной от двери, молчаливой перезаписи нет."""
+    from rusterm.store.config import set_provider_rate_limit
+    return set_provider_rate_limit(paths.config_path, host, per_second)
 
 
 def catalog_view(paths: AppPaths) -> dict:
