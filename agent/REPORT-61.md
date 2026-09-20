@@ -72,3 +72,15 @@ Questions for the coordinator:
    as permanent display-layer behavior.
 
 NOW: F1, step 8
+
+- F2. Three faces on one catalog, three markets (US-A7, CA-C7, BR-B7):
+  `tests/test_task61_f2_three_faces.py` compares, per measure and period,
+  (1) the real `rusterm export --format json` subprocess, (2)
+  `tui_model.card_rows`, (3) `desktop_data.measure_table_rows`. Concept
+  lists must be identical across the three (no silent omissions — an
+  omission reds with all three lists named); model == export
+  byte-for-byte; the desktop cell equals the export or exactly its
+  format_value (the F1-pinned display rule); refusals are recognised by
+  one token (`missing_data`) in all three faces, the model shows «—» and
+  the window «нет данных». Verified: `pytest tests/test_task61_f2_three_
+  faces.py -q` → 2 passed.
