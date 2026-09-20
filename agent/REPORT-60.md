@@ -206,3 +206,16 @@ NOW: E0, step 6 — blocked, handing the baton back
   running — my mistake, cost one acceptance cycle); fixed and verified
   before this commit.
 - Verified: `pytest tests/test_task60_e5_window_vs_cli.py -q` → 3 passed.
+
+- E6. Lane traces: `agent/STATE.json` and `agent/BATON.json` carry a single
+  lane's state (task ТЗ-60, branch agent/night-11, no inherited values —
+  shown by the files as committed). Deleted `agent/state/.gitkeep`: the
+  directory held per-lane `agent/state/<lane>.json` in the parallel-lanes
+  era (ТЗ-20), folded into the single `STATE.json` by ТЗ-21 H9 (6fe38f3);
+  nothing references it (grep over py/sh/md), the dir was empty.
+  Kept as history: `agent/MERGE-3.md` (the merge ledger of the completed
+  n3 lanes — a report, the task's exception), `agent/REVIEW.md` (a one-off
+  external-review brief pointing at the long-gone agent/night-2 — stale,
+  but not a lane trace; the coordinator decides its fate),
+  `agent/TASK-59.md` (SUPERSEDED — coordinator-owned, cannot be deleted by
+  the executor: P6 blocks staging it).
