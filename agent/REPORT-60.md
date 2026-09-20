@@ -219,3 +219,64 @@ NOW: E0, step 6 — blocked, handing the baton back
   but not a lane trace; the coordinator decides its fate),
   `agent/TASK-59.md` (SUPERSEDED — coordinator-owned, cannot be deleted by
   the executor: P6 blocks staging it).
+
+- E7. BACKLOG revision — the closures named for the coordinator's edit
+  (the file itself is coordinator-owned and untouched):
+  - B36 — closed by lane A, ТЗ-58 C2: eaa91d7 (the live model under the
+    citation guard; accepted round 72);
+  - B37 — closed by adad2e5 (ТЗ-50 T6, the guard temp-dir trap);
+    re-verified by 71d6fa9;
+  - B39 — closed by bdc03de (18.09.2026, ТЗ-50): the refresh failure
+    names a dictionary reason;
+  - B40 — closed by 3e75262 (18.09.2026, ТЗ-50): budget/cadence/status/
+    coverage no longer create the catalog;
+  - B34 — closed by 71d6fa9 (ТЗ-56, 19.09): the tolerance band with the
+    last live counts lives in agent/REPORT-MARKETS.md §"Universe-count
+    tolerance";
+  - B38 — genuinely open and not executor-takable: it edits
+    agent/PROTOCOL.md §5 (coordinator-owned, no РАЗРЕШЕНО ПРАВИТЬ);
+    the guard half (last HANDOFF wins) already landed as ТЗ-46 N1;
+  - B22/B27/B29 — already promoted to ТЗ-27 in the file; lanes B
+    (ТЗ-B1) and C (ТЗ-C1…C10) closed no B-items (B closed ТЗ-59 D1/D3).
+  Five of the six open queue lines are done work; nothing is left the
+  executor could take (the only genuinely open item is coordinator-owned).
+
+## HANDOFF (FINAL — supersedes the round-72 interim above)
+
+Status: DONE
+Arrival state: selfcheck 9 of 13, exit 1 on be9387f — night-11 unsynced
+with origin/main (PR #9 went to main); the coordinator merged main into
+the branch (a396a72) and rewrote this ТЗ with E1 first
+Items done: E1 2200538, E3 f93c4e6, E4 6fe6ad7, E5 4570d08, E6 9a455fb,
+E7 this commit
+Items not done: none of E1-E7; no BACKLOG item taken — the five closed
+lines await the coordinator's edit and B38 is coordinator-owned
+(PROTOCOL §5); see E7 above
+Acceptance: «Итог: пройдено 13, провалено 0» with exit 0 on the hook of
+every commit 2200538…9a455fb; final full suite just before E7: exit 0
+Tests: 935 passed, 6 skipped, 0 xfailed (junitxml, this tree, pre-E7)
+Guards: tests/test_guide_truth.py strengthened — its blocks now execute
+this tree's code (PYTHONPATH=repo root) instead of whatever copy is
+installed machine-wide; tests/test_b1_reasons.py vocabulary extended by
+five scoped desktop/cadence tokens; report-sections guard untouched
+Schema: unchanged
+Network: 0 requests of the budget (guide blocks that run are offline)
+Model: GLM-5.3, app llm_calls 0
+Secrets: git grep for key-value shapes over the shift's files — 7
+matches, all benign: GUIDE.md env-file template with placeholder values
+(lines 19-22) and env-var command assignments (RUSTERM_ENV_FILE=,
+RUSTERM_APP_SMOKE=1); no key material anywhere
+Pushed: yes through 9a455fb; this commit pushes immediately after
+Questions for the coordinator:
+1. BACKLOG edit is yours: B36 (eaa91d7), B37 (adad2e5), B39 (bdc03de),
+   B40 (3e75262), B34 (71d6fa9) — all five are done work, the queue
+   lines are still open.
+2. B38 stays open: it needs a PROTOCOL §5 line (yours); the guard half
+   already landed as ТЗ-46 N1.
+3. REVIEW.md points at the long-gone agent/night-2 — keep as history or
+   delete, your call.
+4. The installed-copy trap in the guide guard is closed in-tree
+   (PYTHONPATH=repo root); worth a line in CONTEXT.md §3 when you next
+   edit it.
+
+NOW: E7, step 6 — task complete, handing the baton back
