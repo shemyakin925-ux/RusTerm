@@ -61,7 +61,8 @@ def test_budget_json_carries_real_used(catalog, capsys):
     _record_gate_usage(repos, "edgar", gate)
     assert cli_main(["--root", str(root), "budget", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["used"] == gate.calls_made == 3
+    assert payload["used"] == payload["used_total"] == 3
+    assert payload["last_probe"] == 3.0
     assert payload["samples"]["provider_requests_used"] == 3.0
 
 
@@ -81,4 +82,5 @@ def test_no_gate_no_lie(catalog, capsys):
     assert cli_main(["--root", str(root), "budget", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["used"] == 0
+    assert payload["last_probe"] is None
     assert payload["samples"] == {}

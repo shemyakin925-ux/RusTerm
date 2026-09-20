@@ -44,6 +44,16 @@ KEY_ENV = "RUSTERM_DART_KEY"
 # ТЗ-61 F4: где взять ключ — строка отказа сбораKR называет сайт и
 # переменную подстановкой из этих констант, не копией в тексте.
 KEY_SITE = "https://opendart.fss.or.kr"
+
+
+def key_instruction(key_env: str | None = None) -> str:
+    """ТЗ-65 K3: одна строка-инструкция для CLI и окна — подстановка
+    из констант, поверхностей не различает. Имя переменной берётся из
+    реестра каналов (channel_key_env), чтобы подстановка была честной."""
+    from rusterm.providers import channel_key_env
+    env_name = key_env or channel_key_env("dart") or KEY_ENV
+    return (f"получите ключ на {KEY_SITE} (бесплатно, без карты) "
+            f"и положите в переменную {env_name}")
 _BASE = "https://engopendart.fss.or.kr/engapi"
 _LIMIT = HostLimit(host="engopendart.fss.or.kr", per_second=2.0,
                    nightly_max=5000)

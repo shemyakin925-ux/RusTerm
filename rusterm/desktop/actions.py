@@ -17,6 +17,7 @@ sha256, снапшот — один атомарный вызов ядра; по
 from __future__ import annotations
 
 import datetime
+import os
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -144,6 +145,20 @@ def collect_synthetic(root, instrument_id: str,
             on_stage(name)
 
     as_of = as_of or _today()
+    # ТЗ-65 K3: KR без ключа — отказ канала с инструкцией, те же
+    # слова, что у rusterm ingest (ТЗ-61 F4), не синтетика
+    from rusterm.markets import get_market, provider_channel
+    from rusterm.providers import channel_key_env
+    market = get_market(instrument_id.split("-", 1)[0])
+    key_env = channel_key_env(market.provider) if market else None
+    if (market is not None
+            and provider_channel(market.provider) is None
+            and key_env and not os.environ.get(key_env)):
+        from rusterm.providers.dart import key_instruction
+        return CollectOutcome(
+            ok=False, reason="dart_key_unset",
+            detail=(f"сбор недоступен: dart_key_unset — "
+                    f"{key_instruction()}"))
     if instrument_id != demo_instrument_id():
         return CollectOutcome(
             ok=False,

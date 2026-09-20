@@ -254,11 +254,10 @@ def cmd_ingest(args) -> int:
         if (market is not None
                 and provider_channel(market.provider) is None
                 and key_env and not _os.environ.get(key_env)):
-            from rusterm.providers.dart import KEY_SITE
+            from rusterm.providers.dart import key_instruction
             exit_code = 1
             print(f"{instrument_id}: сбор недоступен: dart_key_unset — "
-                  f"получите ключ на {KEY_SITE} (бесплатно, без карты) "
-                  f"и положите в переменную {key_env}", file=sys.stderr)
+                  f"{key_instruction(key_env)}", file=sys.stderr)
             continue
         runnable.append((instrument_id, issuer_id))
     from rusterm.providers.disclosures import DEMO_INDEX_FIXTURE
@@ -2047,17 +2046,21 @@ def cmd_budget(args) -> int:
     # ТЗ-64 J1: used — сумма ВСЕХ проб гейта (каждый сбор пишет свою),
     # не память; samples — последняя проба по имени (ТЗ-56/57 пин)
     used = 0
+    last_probe = None
     samples: dict[str, float] = {}
     for s in repos.metrics.samples():
         if s[1].startswith("provider_"):
             samples[s[1]] = float(s[3])
         if s[1] == "provider_requests_used":
             used += int(float(s[3]))
+            last_probe = float(s[3])
     payload = {
         "ceiling_per_night": 5000,
         "rate_per_second": 5,
         "provider_ran": bool(samples),
         "used": used,
+        "used_total": used,
+        "last_probe": last_probe,
         "refused": 0 if not samples else None,
         "samples": samples,
     }
@@ -2071,8 +2074,11 @@ def cmd_budget(args) -> int:
         print("сетевой провайдер не работал: использовано 0, отказано 0 "
               "(записей в metric_sample нет)")
     else:
-        print(f"использовано запросов: {used}")
-        for host in sorted(samples):
+        # ТЗ-65 K5: два счёта названы, чтобы не путались
+        print(f"использовано запросов за жизнь каталога: {used}")
+        print(f"последняя проба гейта: provider_requests_used = "
+              f"{last_probe}")
+        for host in sorted(h for h in samples if h != "provider_requests_used"):
             print(f"{host} = {samples[host]}")
     return 0
 
