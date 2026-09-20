@@ -240,6 +240,15 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
+- [ ] B41 — targeted request counters: `add` and every `--source` ingest write provider_requests_used samples; `rusterm budget` and `status --json` show the real spend — accept: after add+ingest budget names a number greater than zero and equal to the requests actually made — size: M — **выдан ТЗ-64 J1**
+- [ ] B42 — provenance in the CLI export: `--format json` carries lineage document and hash per measure, like the desktop export — accept: no measure with a value leaves the export without provenance — size: M — **выдан ТЗ-64 J2**
+- [ ] B43 — price advice in refusals: `missing_data: price_close` carries a runnable `ingest --source twelvedata` line, substituted from constants — accept: the line parses with the CLI parser — size: S — **выдан ТЗ-64 J3**
+- [ ] B44 — stage progress in ingest: fetch/parse/store with counters — accept: on a live companyfacts run the user sees moving stages instead of 74 silent seconds — size: S — **выдан ТЗ-64 J4**
+- [ ] B45 — «неотображённых концептов: N» explained in words from the core, with map coverage share — accept: the ingest line explains the number instead of scaring — size: S — **выдан ТЗ-64 J5**
+- [ ] B46 — a repeat snapshot on identical inputs does not bump the version (or says «без изменений») — accept: the second run leaves the version unchanged for identical content, a changed input still bumps it — size: M — **выдан ТЗ-64 J5**
+- [ ] B47 — desktop collection for KR names `dart_key_unset` and how to get the key, in the same words as the CLI refusal (ТЗ-61 F4) — accept: the window refusal carries the reason and the substituted instruction line — size: S
+- [ ] B48 — the first-hour scenario becomes a marked test: the measured path (init → add → ingest → snapshot → window → export) runs end to end and prints its own timings — accept: `pytest -m firsthour` passes and the numbers land in the report; default collection deselects it — size: M
+
 - [ ] B38 (координаторский — правит agent/PROTOCOL.md §5, исполнителю не выдаётся) — the interim `## HANDOFF` blocks pile up in a shift report:
   `REPORT-45.md` ends with two of them and a reader must know that the
   second supersedes the first. Once TASK-46 N1 makes the guard read the
