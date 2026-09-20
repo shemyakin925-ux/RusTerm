@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-57.md",
- "report": "agent/REPORT-57.md",
- "item": "A4",
- "step": "A4 done: AU announcements channel (resolve/raw/cache/manual_import_required/zero facts), markets channel asx, budget by number; BR add-resolve defect reported; A3+A5.1 disclosed as ffeb518",
+ "task": "agent/TASK-58.md",
+ "report": "agent/REPORT-58.md",
+ "item": "C1",
+ "step": "C5 done (AU chain probed live: announcements OK, body host times out, manual_import_required stands); C1 BLOCKED measured: RUSTERM_DART_KEY absent from env despite the ТЗ premise; M8 line updated to fact",
  "status": "working",
- "last_commit": "5271ff8",
+ "last_commit": "795ee48",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3-Flash",
- "updated_at": "2026-09-19T07:22:00Z"
+ "updated_at": "2026-09-19T18:49:13Z"
 }

@@ -1451,7 +1451,8 @@ def cmd_cadence(args) -> int:
     next_pass_requests = sum(1 for e in plan if e.action != "skip")
     limit = host_limit("twelvedata")
     ceiling = limit.nightly_max if limit is not None else None
-    conn.close()
+    if conn is not None:
+        conn.close()
     if args.json:
         print(json.dumps({
             "as_of": as_of,
@@ -1480,7 +1481,14 @@ def cmd_census(args) -> int:
     измерение; вход для решений о покрытии."""
     from rusterm.core.snapshot import SnapshotBuilder
 
-    paths, conn = _open(args.root)
+    # ТЗ-58 C3 (расхождение A3): перепись читает меры; пересборка
+    # (--rebuild или нет снапшота) пишется в СУЩЕСТВУЮЩИЙ каталог —
+    # отсутствующий называется по имени, а не создаётся
+    paths, conn = _open_readonly(args.root)
+    if conn is None:
+        print(f"переписи нет — каталога данных нет: {args.root}; "
+              f"выполните rusterm init", file=sys.stderr)
+        return 1
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
     instrument = repos.instrument.get_instrument(args.instrument)
@@ -1513,7 +1521,13 @@ def cmd_census(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    paths, conn = _open(args.root)
+    # ТЗ-58 C3 (расхождение A3): диагностика по умолчанию только
+    # читает — absent-каталог не создаётся, а отсутствие базы есть
+    # находка отчёта (schema_version=None; булавки закрепляют);
+    # писать умеет лишь --fix, он и создаёт как прежде
+    paths, conn = (_open(args.root)
+                   if getattr(args, "fix", False)
+                   else _open_readonly(args.root))
     # ТЗ-51 U2: путь «база старой версии → схема 45» идёт через тот же
     # apply_migrations, что и init, — но только с --fix. По умолчанию
     # doctor остаётся диагностикой (булавки набора закрепляют:
@@ -1579,25 +1593,35 @@ def cmd_doctor(args) -> int:
     from rusterm.core import cadence as cadence_mod
     tw_limit = all_host_limits().get("twelvedata")
     ceiling = tw_limit.nightly_max if tw_limit else None
-    try:
-        repos = RepoRegistry(conn, paths)
-        plan = cadence_mod.plan_pass(repos, args_as_of_default())
-        report["cadence"] = {
-            "incomplete": sum(1 for e in plan
-                              if e.state == "incomplete"),
-            "next_pass_requests": sum(1 for e in plan
-                                      if e.action != "skip"),
-            "daily_ceiling": ceiling,
-        }
-    except _sqlite3.DatabaseError:
+    repos = RepoRegistry(conn, paths) if conn is not None else None
+    if repos is None:
+        # ТЗ-58 C3: absent-каталог — находка отчёта, а не создание
         report["cadence"] = {
             "incomplete": None,
             "next_pass_requests": None,
             "daily_ceiling": ceiling,
-            "reason": "schema_not_ready",
+            "reason": "no_data_dir",
         }
+    else:
+        try:
+            plan = cadence_mod.plan_pass(repos, args_as_of_default())
+            report["cadence"] = {
+                "incomplete": sum(1 for e in plan
+                                  if e.state == "incomplete"),
+                "next_pass_requests": sum(1 for e in plan
+                                          if e.action != "skip"),
+                "daily_ceiling": ceiling,
+            }
+        except _sqlite3.DatabaseError:
+            report["cadence"] = {
+                "incomplete": None,
+                "next_pass_requests": None,
+                "daily_ceiling": ceiling,
+                "reason": "schema_not_ready",
+            }
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    conn.close()
+    if conn is not None:
+        conn.close()
     return 0 if report["ok"] else 1
 
 
@@ -1872,7 +1896,17 @@ def cmd_coverage(args) -> int:
 
 
 def cmd_metrics(args) -> int:
-    paths, conn = _open(args.root)
+    # ТЗ-58 C3 (расхождение A3): метрика только читает; писать она
+    # умеет лишь с --record — absent-каталог называется по имени, а
+    # не создаётся
+    if getattr(args, "record", False):
+        paths, conn = _open(args.root)
+    else:
+        paths, conn = _open_readonly(args.root)
+        if conn is None:
+            print(f"метрик нет — каталога данных нет: {args.root}; "
+                  f"выполните rusterm init", file=sys.stderr)
+            return 1
     repos = RepoRegistry(conn, paths)
     from rusterm.core.metrics import SystemMetrics
     metrics = SystemMetrics(repos.metrics, request_gate=None)
