@@ -131,13 +131,20 @@ else
   ok 'заглушек нет'
 fi
 
-# ── 6. Ни строки Qt ──────────────────────────────────────────────────────
-head_ '6. Ни строки Qt'
-if grep -rniE '(import|from)[[:space:]]+(PySide6|PyQt5|PyQt6|qtpy)' rusterm/ tests/ --include='*.py' >"$TMP/qt.txt" 2>/dev/null; then
-  bad 'найдены импорты Qt'
+# ── 6. Qt только в слое интерфейса ───────────────────────────────────────
+# ADR-0023 сузил запрет ADR-0009: цель проверки — не пустить Qt в ЯДРО,
+# а не запретить десктоп, выбранный ADR-0004. Qt разрешён ровно в
+# rusterm/desktop/ и tests/test_desktop_*.py; PyQt под GPL запрещён везде.
+head_ '6. Qt только в rusterm/desktop/'
+if grep -rniE '(import|from)[[:space:]]+(PyQt5|PyQt6)' rusterm/ tests/ --include='*.py' >"$TMP/qt.txt" 2>/dev/null; then
+  bad 'PyQt запрещён лицензией (GPL) — только PySide6, ADR-0004'
+  detail < "$TMP/qt.txt"
+elif grep -rniE '(import|from)[[:space:]]+(PySide6|qtpy)' rusterm/ tests/ --include='*.py' 2>/dev/null \
+     | grep -vE '^(rusterm/desktop/|tests/test_desktop_)' >"$TMP/qt.txt"; then
+  bad 'Qt вне слоя интерфейса — ядро обязано собираться и тестироваться без Qt'
   detail < "$TMP/qt.txt"
 else
-  ok 'Qt не импортируется нигде'
+  ok 'Qt не выходит за rusterm/desktop/'
 fi
 
 # ── 7. SQL только в rusterm/store/ ───────────────────────────────────────
