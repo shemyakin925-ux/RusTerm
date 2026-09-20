@@ -12,11 +12,17 @@
 начинается с HANDOFF, — финальный блок может называться
 «## HANDOFF (FINAL …)», и именно он решает; промежуточный блок без
 суффикса стража не устраивает.
+
+ТЗ-62 G4 (BACKLOG B38): последний HANDOFF не должен ПРОТИВОРЕЧИТЬ
+ветке. Если он называет пункт несделанным («Items not done», «не
+сделан»), а коммит с этим пунктом на ветке есть — красный с именами
+пункта и коммита. Правило одной строкой живёт в agent/PROTOCOL.md §5.
 """
 from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -135,3 +141,75 @@ def test_honest_final_handoff_after_interim_passes(monkeypatch):
     monkeypatch.setattr(sys.modules[__name__], "_report_text",
                         lambda: text)
     test_handoff_carries_real_values_not_placeholders()
+
+
+# ── ТЗ-62 G4: последний HANDOFF не противоречит ветке ───────────────────
+
+def _claimed_undone_ids(handoff: str) -> list[str]:
+    """Пункты, которые последний HANDOFF называет несделанными:
+    строки «Items not done» / «не сделан», идентификаторы вида буква
+    + номер (E1, F2, G4...)."""
+    ids: list[str] = []
+    for line in handoff.splitlines():
+        low = line.lower()
+        if "items not done" in low or "не сделан" in low:
+            ids += re.findall(r"\b[A-Z]\d+\b", line)
+    return ids
+
+
+def _commit_for_items(ids: list[str], round_no: int) -> dict[str, str]:
+    """Коммиты ЭТОГО круга, в теме которых стоит пункт:
+    {'F2': '<sha> <тема>'}. Круг ограничивает обзор: границы — коммит
+    эстафеты «Эстафета: круг <N>», номера не уникальны между задачами
+    (ТЗ-35 тоже имела G4/G5)."""
+    if not ids:
+        return {}
+    proc = subprocess.run(
+        ["git", "log", "--format=%h %s"], cwd=REPO,
+        capture_output=True, text=True, check=True)
+    lines = proc.stdout.splitlines()
+    marker = f"Эстафета: круг {round_no},"
+    end = next((i for i, ln in enumerate(lines) if marker in ln), None)
+    if end is None:
+        return {}
+    found: dict[str, str] = {}
+    for line in lines[:end]:
+        sha, _, subject = line.partition(" ")
+        for iid in ids:
+            if iid not in found and re.search(rf"\b{iid}\b", subject):
+                found[iid] = line
+    return found
+
+
+def _baton_round() -> int:
+    baton = json.loads((REPO / "agent" / "BATON.json").read_text(
+        encoding="utf-8"))
+    return int(baton.get("round", 0))
+
+
+def test_last_handoff_does_not_call_committed_items_undone():
+    """G4: если последний HANDOFF называет пункт несделанным, а
+    коммит с этим пунктом на ветке есть — красный с именами пункта
+    и коммита. Соглашение «последний HANDOFF отменяет предыдущие» —
+    PROTOCOL §5 (B38)."""
+    handoff = "\n".join(_handoff_section(_report_text()))
+    committed = _commit_for_items(_claimed_undone_ids(handoff),
+                                  _baton_round())
+    assert not committed, (
+        "последний HANDOFF зовёт несделанным то, что уже закоммичено "
+        f"в этом круге: {committed}")
+
+
+def test_stale_report61_handoff_reds_the_guard():
+    """Красная демонстрация на настоящей лжи круга 76: interim-HANDOFF
+    REPORT-61 называл F2-F4 несделанными, пока они коммитились тем же
+    кругом. Текст зафиксирован литералом — живой отчёт уже починен."""
+    stale = ("Status: PARTIAL (F1 done; F2-F4 ahead)\n"
+             "Arrival state: task taken round 76 on 008aded, selfcheck green\n"
+             "Items done: F1\n"
+             "Items not done: F2 three-face cross-check, F3 window at "
+             "volume, F4 KR door\n")
+    ids = _claimed_undone_ids(stale)
+    assert sorted(ids) == ["F2", "F3", "F4"], ids
+    committed = _commit_for_items(ids, 76)
+    assert set(committed) == {"F2", "F3", "F4"}, committed

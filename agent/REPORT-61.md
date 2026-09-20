@@ -127,3 +127,24 @@ NOW: F1, step 8
   f1_desktop_rules.py tests/test_guide_truth.py tests/test_markets.py
   tests/test_cli.py tests/test_desktop_data.py tests/test_j1_display.py
   tests/test_e2e_cli.py -q` → 84 passed.
+
+## HANDOFF (FINAL — supersedes the interim above)
+
+Status: DONE
+Arrival state: task taken round 76 on d026daa, selfcheck green
+Items done: F1 (06d5af1), F2 (fa58790), F3 (5dc1e6c), F4 (c8cba50)
+Items not done: none
+Acceptance: «Итог: пройдено 13, провалено 0» on every commit's hook;
+coordinator's clean-clone run accepted the round
+Tests: full suite 935 passed, 6 skipped (pre-F4), 84 green in the ten
+F4-affected suites at F4
+Guards: test_guide_truth strengthened (PYTHONPATH of this tree)
+Schema: unchanged
+Network: 0 requests (F4's no-network test added)
+Model: GLM-5.3, app llm_calls 0
+Secrets: no key material in this report
+Pushed: yes through c8cba50
+Questions for the coordinator:
+1. Answered by round 78: the three Disputed became G1-G3.
+
+NOW: G4 (REPORT-61 closed with the final section), step 3

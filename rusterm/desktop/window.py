@@ -623,7 +623,7 @@ def _build_window(repos, paths, watchlist_id=None):
 
     def repaint_settings() -> None:
         """C9: ключи без значений (откуда и зачем), лимиты из
-        реестра с оверрайдами config.toml, каталог данных."""
+        реестра с оверрайдами из конфигурации ядра, каталог данных."""
         if repos is None:
             keys_label.setText("настроек нет — базы нет")
             limits_table.setRowCount(0)
@@ -704,7 +704,7 @@ def _build_window(repos, paths, watchlist_id=None):
         outcome = data.set_host_rate_limit(paths, entry["host"], value)
         if not outcome["ok"]:
             QMessageBox.warning(window, "лимит хоста",
-                                "config.toml не принял правку")
+                                "дверь конфигурации не приняла правку")
         repaint_settings()
 
     limits_table.cellDoubleClicked.connect(on_limit_edit)

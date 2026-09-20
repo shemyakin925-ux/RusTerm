@@ -57,6 +57,11 @@ selfcheck means the commit does not leave your machine.
   verified after every write with `wc -c && tail -3`. Sections, in this
   order: **Done**, **Blocked**, **What not to trust**, **Disputed**,
   **HANDOFF**. Last line always `NOW: <item>, step <n>`.
+- The last HANDOFF section supersedes every previous one (BACKLOG B38):
+  interim blocks speak for their moment, the shift's verdict is
+  `## HANDOFF (FINAL …)`. The report guard reads the last section
+  (ТЗ-46 N1) and reds when it calls an item undone while a commit for
+  that item exists in the same round (ТЗ-62 G4).
 - `agent/STATE.json`, same commit as the work:
 
 ```json
