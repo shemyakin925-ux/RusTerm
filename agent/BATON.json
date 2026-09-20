@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 91,
+ "holder": "executor",
+ "round": 92,
  "branch": "agent/night-11",
- "task": "agent/TASK-68.md",
- "report": "agent/REPORT-68.md",
- "note": "ТЗ-68 DONE: N1 пять мер из _UNMAPPED_FORMULAS переведены в расчёт (20 из 28 живьём: pe 166.4, ps 44.9, net_debt 19.9e9), N2 отказы учат (sec_ua/twelvedata инструкции из констант, тесты), N3 roe_incl_nci AAPL честен (нет MinorityInterest), N4 таблица 8->10->15->20; acceptance 13/0 на хуках. Вопрос: invested_capital/hhi — пунктами?",
- "handed_by": "executor",
- "handed_at": "2026-09-20T22:47:21Z",
+ "task": "agent/TASK-69.md",
+ "report": "agent/REPORT-69.md",
+ "note": "ТЗ-68: N2, N3, N4 приняты, N1 ВОЗВРАЩЁН. pe=166.4 и ps=44.9 у Apple завышены вчетверо — квартальный поток поделён как годовой; snapshot.py считает pe = price/eps_diluted, а словарь formulas.py определяет pe = market_cap_total / net_income_ttm: реализация разошлась со словарём, годового приближения в lineage нет вопреки ADR-0021. Приёмка дала 13/0 — значит дыра и в ней: P3 требует проверки внутренней согласованности (два пути расчёта обязаны сойтись), а не выдуманных границ.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-20T23:14:10Z",
  "paused": false,
  "finished": false
 }
