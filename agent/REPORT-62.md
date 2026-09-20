@@ -59,3 +59,33 @@ Questions for the coordinator:
 1. None so far.
 
 NOW: G4, step 1
+
+## HANDOFF (FINAL — supersedes the interim above)
+
+Status: DONE
+Arrival state: task taken round 78 on d026daa, selfcheck green
+Items done: G1-G3 (ed71383), G4-G5 (0d7c6f0)
+Items not done: none
+Acceptance: «Итог: пройдено 13, провалено 0» on every commit's hook
+(ED71383's hook covered G1-G3's 92 targeted tests; 0d7c6f0's the
+guard suite)
+Tests: 92 passed (G1-G3 suites), 7 passed (report guard), volume and
+degree suites green
+Guards: test_report_sections strengthened — the last HANDOFF may not
+call an item undone while its commit exists in the same round; red
+demonstrated on the literal round-76 lie, then REPORT-61 closed with
+the final section
+Schema: unchanged
+Network: 0 requests
+Model: GLM-5.3, app llm_calls 0
+Secrets: no key material in this report
+Pushed: yes through 0d7c6f0; this commit pushes immediately
+Questions for the coordinator:
+1. B38 закрыта коммитом 0d7c6f0 (строка соглашения в PROTOCOL §5) —
+   BACKLOG-правка за вами, как договорились.
+2. Что взял бы следующим: общий запрет синтетики на не-демо
+   инструмент в cmd_ingest (F4 починил только KR; дефолтная
+   синтетика всё ещё молча собирает демо-факты на любом другом
+   не-демо инструменте).
+
+NOW: G5, step 2 — task complete, handing the baton back
