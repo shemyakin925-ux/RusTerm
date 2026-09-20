@@ -57,10 +57,14 @@ _CHAIN_MEASURES: dict[str, dict[str, str]] = {
 # в formulas.py со своим unit-тестом.
 # ТЗ-23 K4: шесть мер получили входы (цена из таблицы price + факты)
 # и считаются в отдельном проходе; остальные ждут своих концептов.
+# ТЗ-68 N1: pe/ps/fcf_yield/net_debt/net_debt_ebitda считаются
+# проходом оценки (их входы в карте v4: cash/total_debt/
+# shares_outstanding — ТЗ-31 C2; eps_diluted/revenue — исходно).
+# Остались честно несчитаемые формулами v0: invested_capital (нужна
+# сумма долга), hhi (нужны пиры), price_adj/total_return/drawdown
+# (нужен ряд цен, а не одна закрытая).
 _UNMAPPED_FORMULAS: tuple[str, ...] = (
-    "invested_capital", "net_debt", "net_debt_ebitda",
-    "fcf_yield", "pe", "ps",
-    "total_return", "drawdown", "price_adj", "hhi",
+    "invested_capital", "total_return", "drawdown", "price_adj", "hhi",
 )
 
 # Канонические входы оценочных мер, которых нет в карте V0 (ТЗ-23 K4).
@@ -68,6 +72,7 @@ _VALUATION_INPUT_CONCEPTS: tuple[str, ...] = (
     "shares_outstanding", "total_debt", "cash", "st_investments",
     "minority_interest", "preferred_equity", "dps_ttm",
     "invested_capital", "total_equity",
+    "eps_diluted", "revenue",  # ТЗ-68 N1: pe и ps
 )
 
 # ТЗ-23 K4: цена старше семи дней — поводок, а не число; перенос
@@ -830,7 +835,9 @@ class SnapshotBuilder:
         currency_mismatch, а не частное.
         """
         concepts = ("market_cap", "market_cap_total", "ev", "pb",
-                    "ev_ebitda", "div_yield", "roic")
+                    "ev_ebitda", "div_yield", "roic",
+                    "pe", "ps", "fcf_yield", "net_debt",
+                    "net_debt_ebitda")
         price = (self._prices.price_as_of(instrument_id, as_of)
                  if self._prices is not None else None)
         if price is None:
@@ -978,6 +985,91 @@ class SnapshotBuilder:
         ev_lineage += nci_lineage
         ev_mid = write("ev", ev_value, ev_reason, price_currency or "",
                        ev_lineage)
+
+        # ── ТЗ-68 N1: net_debt = total_debt - cash - st_investments ──
+        nd_value = None
+        nd_reason = None
+        if total_value is None:
+            nd_reason = "missing_data: market_cap_total"
+        else:
+            missing = sorted(
+                name for name, v in (
+                    ("total_debt", debt), ("cash", cash),
+                    ("st_investments", stinv)) if v is None)
+            if missing:
+                nd_reason = "missing_data: " + ", ".join(missing)
+            else:
+                nd_value = (debt[0] - cash[0] - stinv[0])
+        nd_lineage = []
+        for c in ("total_debt", "cash", "st_investments"):
+            if inputs.get(c):
+                nd_lineage += self._fact_lineage(inputs[c][3])
+        nd_mid = write("net_debt", nd_value, nd_reason,
+                       price_currency or "", nd_lineage)
+
+        # net_debt_ebitda = net_debt / ebitda (ratio; ebitda — проход 1)
+        ebitda_value = computed.get("ebitda")
+        nde_value = None
+        nde_reason = None
+        if nd_value is None:
+            nde_reason = "missing_data: net_debt"
+        elif ebitda_value is None:
+            nde_reason = "missing_data: ebitda"
+        else:
+            nde_value = nd_value / ebitda_value
+        ebitda_mid = measure_row_ids.get("ebitda")
+        nde_lineage = ([{"fact_id": None,
+                         "peer_measure_id": ebitda_mid,
+                         "role": "from_ebitda"}] if ebitda_mid else [])
+        write("net_debt_ebitda", nde_value, nde_reason, "ratio",
+              nde_lineage)
+
+        # pe = price / eps_diluted (ratio)
+        eps = inputs.get("eps_diluted")
+        eps_cur = eps[2] if eps else None
+        pe_value = None
+        pe_reason = None
+        if eps is None:
+            pe_reason = "missing_data: eps_diluted"
+        elif eps_cur and price_currency and eps_cur != price_currency:
+            pe_reason = mismatch([eps_cur, price_currency])
+        else:
+            pe_value = price_value / eps[0]
+        write("pe", pe_value, pe_reason, "ratio",
+              self._fact_lineage(eps[3] if eps else None))
+
+        # ps = market_cap_total / revenue (ratio)
+        revenue = inputs.get("revenue")
+        rev_cur = revenue[2] if revenue else None
+        ps_value = None
+        ps_reason = None
+        if total_value is None:
+            ps_reason = "missing_data: market_cap_total"
+        elif revenue is None:
+            ps_reason = "missing_data: revenue"
+        elif rev_cur and price_currency and rev_cur != price_currency:
+            ps_reason = mismatch([rev_cur, price_currency])
+        else:
+            ps_value = total_value / revenue[0]
+        write("ps", ps_value, ps_reason, "ratio",
+              self._fact_lineage(revenue[3] if revenue else None))
+
+        # fcf_yield = fcf / market_cap_total (ratio; fcf — проход 1)
+        fcf_value = computed.get("fcf")
+        fcfy_value = None
+        fcfy_reason = None
+        if total_value is None:
+            fcfy_reason = "missing_data: market_cap_total"
+        elif fcf_value is None:
+            fcfy_reason = "missing_data: fcf"
+        else:
+            fcfy_value = fcf_value / total_value
+        fcf_mid = measure_row_ids.get("fcf")
+        fcfy_lineage = ([{"fact_id": None,
+                          "peer_measure_id": fcf_mid,
+                          "role": "from_fcf"}] if fcf_mid else [])
+        write("fcf_yield", fcfy_value, fcfy_reason, "ratio",
+              fcfy_lineage)
 
         # ev_ebitda = ev / ebitda — ratio: обе стороны уже в одной
         # валюте (ev наследует валюту цены, ebitda — валюту фактов
