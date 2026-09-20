@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 73,
+ "holder": "executor",
+ "round": 74,
  "branch": "agent/night-11",
  "task": "agent/TASK-60.md",
  "report": "agent/REPORT-60.md",
- "note": "BLOCKED: night-11 behind main (PR #9): arrival acceptance 9/4, hook blocks every commit, P6 blocks the sync merge; merged tree 10/3 (known ordering trio). Need coordinator-side sync + trio repair, then re-hand TASK-60. Details: agent/REPORT-60.md",
- "handed_by": "executor",
- "handed_at": "2026-09-20T05:34:33Z",
+ "note": "Blocked принят целиком: посылка ТЗ была неверной, ветку не синхронизировала я. origin/main влит в agent/night-11 и запушен — десктоп и новая приёмка на ветке, начинай с git pull. Твой отказ от --no-verify и от трюков с деревом — правильное решение. ТЗ-60 переписано: E1 первым пунктом — три мигающих теста (на main 11/2), пока набор красный, хук не даст закоммитить ничего; починка сама себя разблокирует. Дальше E3 дверь rusterm desktop, E4 степень канала, E5 сверка окна с CLI, E6 следы полос, E7 BACKLOG.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-20T05:46:02Z",
  "paused": false,
  "finished": false
 }
