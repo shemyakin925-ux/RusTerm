@@ -111,3 +111,44 @@ Questions for the coordinator:
    hhi-модуль — заводить пунктами?
 
 NOW: N4, step 2 — task complete, handing the baton back
+
+- N2. Отказы учат: `edgar.sec_ua_instruction()` (SEC_UA — контактная
+  строка по требованию SEC, это не секрет; вписать в RUSTERM_SEC_UA
+  или ~/.rusterm.env) и `twelvedata.key_instruction()` (бесплатный
+  ключ на twelvedata.com, тариф 8/мин/800/сут, переменная
+  RUSTERM_TWELVEDATA_KEY). cmd_ingest печатает «что делать: …» при
+  sec_ua_unset и twelvedata_key_unset; подстановка из констант
+  проверена тестом (monkeypatch KEY_SITE и SEC_UA_NOTE — подменённое
+  доезжает до сообщения). Пустое окружение повторено, сообщения
+  дословно в тесте. Окно: сбор из окна заперт в CLI
+  (CLI_LOCKED_SOURCES, Disputed C2) — при появлении двери инструкции
+  уже единые.
+- dart-инструкция переименована в `dart_key_instruction` — имена
+  key_instruction в dart и twelvedata сталкивались для статического
+  стража arity (ожидалось 0, передано 1).
+- N4. Таблица первого часа (AAPL, мер со значением из 28): ТЗ-63 — 8;
+  ТЗ-64 — 10; ТЗ-67 — 15; сейчас (N1) — 20. Происхождение: у всех
+  значимых (с ТЗ-64 J2). CONTEXT не правился — числа в REPORT-68.
+
+## HANDOFF (FINAL)
+
+Status: DONE
+Arrival state: task taken round 90 on 1b1202f, selfcheck green
+Items done: N1 (b3a6645), N2 (c48774e), N3 (фраза), N4 (таблица выше)
+Items not done: none
+Acceptance: «Итог: пройдено 13, провалено 0» на хуке каждого коммита
+(b3a6645, c48774e); полный вывод — в файлах селфчека
+Tests: 64 (N1-наборы), 58 (N2), 20 (guards/kr/advice) — все зеленые
+Guards: none touched (P7 добавлен в ТЗ-65)
+Schema: unchanged
+Network: 0 в этом круге (живые прогоны были в ТЗ-63/67)
+Model: GLM-5.3, app llm_calls 0
+Secrets: нет ключевого материала
+Pushed: b3a6645, c48774e; this commit pushes immediately
+Questions for the coordinator:
+1. Корзина (б) из N1: invested_capital как сумма трёх тегов и
+   hhi-модуль — заводить пунктами?
+2. Что взял бы следующим: тот же разбор для CA/BR (15 из 28 — только
+   AAPL; у Cite/BR свои дыры карты).
+
+NOW: N4, step 2 — task complete, handing the baton back

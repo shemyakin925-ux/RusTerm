@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-68.md",
  "report": "agent/REPORT-68.md",
- "item": "N1",
- "step": "N1: 5 мер переведены в расчёт прохода оценки, живой прогон 20 из 28; committing",
- "status": "working",
+ "item": "N4",
+ "step": "N1-N4 done: 20/28 мер, учащие отказы, таблица первого часа; awaiting review",
+ "status": "awaiting_review",
  "last_commit": "03fdbc7",
  "requests": 3,
  "net_requests": 3,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-20T21:39:54Z"
+ "updated_at": "2026-09-20T22:22:27Z"
 }
