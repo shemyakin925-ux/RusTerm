@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-61.md",
  "report": "agent/REPORT-61.md",
- "item": "F3",
- "step": "500 papers: open 0.45s, switch 0.01s, chart 0.05s; 2500-point row has no real producer; committing",
+ "item": "F4",
+ "step": "KR degree «нет ключа», ingest refusal with substituted instruction, no network, CONTEXT §5 measured; committing",
  "status": "working",
  "last_commit": "70c2060",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-20T10:33:18Z"
+ "updated_at": "2026-09-20T10:57:01Z"
 }

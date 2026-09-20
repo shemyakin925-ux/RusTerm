@@ -101,3 +101,29 @@ NOW: F1, step 8
     ChartArea.set_spec machinery.
 - Verified: `pytest tests/test_task61_f3_volume_window.py -m volume -q -s`
   → 1 passed with the numbers above; default collection deselects it.
+
+- F4. KR door without a key:
+  - `rusterm markets` (TSV + --json) and the window's markets line show
+    KR with degree **«нет ключа»** when the channel is absent because its
+    key is unset — `markets.channel_degree_label()` layers the label over
+    the E4 production degrees; the key env comes from the provider
+    registry (`providers.channel_key_env`), so the label follows the
+    registry, not a copied string.
+  - `rusterm ingest --instrument KR-…` (the default synthetic fall-through)
+    refused with the dictionary reason `dart_key_unset` and a line naming
+    where to get the key and which variable: the site and the variable are
+    SUBSTITUTED from constants (`providers.dart.KEY_SITE`, the registry's
+    key-env name) — the test monkeypatches both and asserts the patched
+    values land in the line. Before the fix the attempt silently stored
+    six demo-fixture facts on a fictional KR issuer (measured on a probe
+    catalog); now nothing is stored.
+  - No network: the test runs in-process with the conftest urlopen
+    sentinel armed — any request would fail the test by name.
+  - `agent/CONTEXT.md` §5 brought to measured fact: SEC_UA, LLM_API_KEY,
+    LLM_MODEL, TWELVEDATA_KEY present; DART_KEY and LLM_PROVIDER absent
+    (measured via load_env, 20.09.2026).
+- Verified: `pytest tests/test_task61_f4_kr_door.py tests/test_desktop_
+  market_degree.py tests/test_task61_f2_three_faces.py tests/test_task61_
+  f1_desktop_rules.py tests/test_guide_truth.py tests/test_markets.py
+  tests/test_cli.py tests/test_desktop_data.py tests/test_j1_display.py
+  tests/test_e2e_cli.py -q` → 84 passed.

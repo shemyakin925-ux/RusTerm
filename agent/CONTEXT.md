@@ -203,7 +203,11 @@ continuation (full table: `agent/REPORT-49.md`, replay offline via
 `glm-5.3-flash` — chosen by measurement in TASK-35 G3, not by taste).
 Loaded from the
 environment, else from `$RUSTERM_ENV_FILE` or `~/.rusterm.env`.
-**They exist in the executor's environment from 13.09.2026.**
+Measured 20.09.2026 via `load_env()` (ТЗ-61 F4): `RUSTERM_SEC_UA`,
+`RUSTERM_LLM_API_KEY` and `RUSTERM_LLM_MODEL` and
+`RUSTERM_TWELVEDATA_KEY` are present; **`RUSTERM_DART_KEY` is absent**
+(Korea stays a named refusal, ТЗ-58 C1) and `RUSTERM_LLM_PROVIDER` is
+absent (the measured default is used).
 
 ## 6. ADRs, one line each
 

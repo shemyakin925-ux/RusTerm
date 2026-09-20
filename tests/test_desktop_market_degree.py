@@ -54,9 +54,12 @@ def catalog(tmp_path):
 
 def test_markets_without_catalog_says_dash_and_creates_nothing(
         tmp_path, capsys):
-    """B35: нет каталога — «—» по всем рынкам, каталог не создан."""
+    """B35: нет каталога — «—» по всем рынкам с каналом; KR без ключа —
+    «нет ключа» (ТЗ-61 F4) даже без каталога. Каталог не создан."""
     missing = tmp_path / "nope"
     degrees = _degrees_json(missing, capsys)
+    assert degrees["KR"] == "нет ключа"
+    del degrees["KR"]
     assert set(degrees.values()) == {"—"}
     assert not missing.exists()
 
@@ -64,7 +67,10 @@ def test_markets_without_catalog_says_dash_and_creates_nothing(
 def test_empty_catalog_has_no_degree(catalog, tmp_path, capsys):
     repos, _ = catalog
     assert repos.instrument.channel_degrees() == {}
-    assert set(_degrees_json(tmp_path / "app", capsys).values()) == {"—"}
+    degrees = _degrees_json(tmp_path / "app", capsys)
+    assert degrees["KR"] == "нет ключа"
+    del degrees["KR"]
+    assert set(degrees.values()) == {"—"}
 
 
 def test_degree_climbs_with_channel_production(catalog):

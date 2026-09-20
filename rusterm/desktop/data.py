@@ -19,6 +19,7 @@ import csv
 import datetime
 import io
 import json
+import os
 import sqlite3
 import uuid
 from pathlib import Path
@@ -841,13 +842,24 @@ KEY_PURPOSE = {
 
 
 def channel_degrees(repos) -> dict:
-    """ТЗ-60 E4: степень канала по рынку — считает репозиторий из того,
-    что канал произвёл в этой базе; слова те же, что у `rusterm markets`
-    («меры» / «факты» / «сырьё», ничего — «—»). Каталога нет — пустой
-    словарь, окно молча показывает «—»."""
+    """ТЗ-60 E4 + ТЗ-61 F4: степень канала по рынку — считает
+    репозиторий из того, что канал произвёл в этой базе; канал, которого
+    нет без ключа, а ключа нет — «нет ключа» (те же слова, что у
+    `rusterm markets`). Каталога нет — пустой словарь, окно молча
+    показывает «—»."""
+    from rusterm.markets import (MARKETS, channel_degree_label,
+                                 provider_channel)
+    from rusterm.providers import channel_key_env
     if repos is None:
         return {}
-    return repos.instrument.channel_degrees()
+    produced = repos.instrument.channel_degrees()
+    out: dict = {}
+    for m in MARKETS:
+        key_env = channel_key_env(m.provider)
+        out[m.code] = channel_degree_label(
+            m.provider, produced.get(m.code), key_env,
+            bool(os.environ.get(key_env or "")))
+    return out
 
 
 def keys_view() -> dict:

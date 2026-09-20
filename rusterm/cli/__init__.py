@@ -239,11 +239,32 @@ def cmd_ingest(args) -> int:
                 exit_code = code
         conn.close()
         return exit_code
+    from rusterm.markets import get_market, provider_channel
+    from rusterm.providers import channel_key_env
+    import os as _os
+    # ТЗ-61 F4: дефолтный синтетический сбор честно служит демо; рынок,
+    # чей канал закрыт ключом (KR: dart), получает отказ с причиной из
+    # словаря и строкой, что именно сделать, — не выдуманные факты.
+    runnable = []
+    exit_code = 0
+    for instrument_id, issuer_id in targets:
+        market = get_market(instrument_id.split("-", 1)[0])
+        key_env = channel_key_env(market.provider) if market else None
+        if (market is not None
+                and provider_channel(market.provider) is None
+                and key_env and not _os.environ.get(key_env)):
+            from rusterm.providers.dart import KEY_SITE
+            exit_code = 1
+            print(f"{instrument_id}: сбор недоступен: dart_key_unset — "
+                  f"получите ключ на {KEY_SITE} (бесплатно, без карты) "
+                  f"и положите в переменную {key_env}", file=sys.stderr)
+            continue
+        runnable.append((instrument_id, issuer_id))
     from rusterm.providers.disclosures import DEMO_INDEX_FIXTURE
     providers = {"synthetic": SyntheticDisclosuresProvider(
         fixture_path=DEMO_INDEX_FIXTURE)}
     pipe = IngestionPipeline(repos, providers)
-    for instrument_id, issuer_id in targets:
+    for instrument_id, issuer_id in runnable:
         result = pipe.run(instrument_id, issuer_id, "synthetic")
         print(f"{instrument_id}: заданий закрыто: {result.jobs_done}; "
               f"фактов: {result.facts_stored}; "
@@ -251,7 +272,7 @@ def cmd_ingest(args) -> int:
               f"{result.needs_verification}; suspect (E5): {result.suspects}; "
               f"неотображённых концептов: {result.unmapped_concepts}")
     conn.close()
-    return 0
+    return exit_code
 
 
 def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
@@ -2017,7 +2038,10 @@ def cmd_markets(args) -> int:
     сколько эмитентов в локальной базе; --json для машинного
     потребления. Ответ на вопрос «достанет ли программа корейские
     данные?» — без чтения исходников."""
-    from rusterm.markets import MARKETS, provider_channel
+    from rusterm.markets import (MARKETS, channel_degree_label,
+                                 provider_channel)
+    from rusterm.providers import channel_key_env
+    import os as _os
     # только чтение реестра: каталог данных не создаётся (B35)
     paths, conn = _open_readonly(args.root)
     # степень канала — из того, что канал произвёл в этой базе;
@@ -2037,7 +2061,11 @@ def cmd_markets(args) -> int:
                      "access": m.access,
                      "provider_status": _provider_status(m.provider),
                      "channel": provider_channel(m.provider),
-                     "degree": degrees.get(m.code, "—"),
+                     "degree": channel_degree_label(
+                         m.provider, degrees.get(m.code),
+                         channel_key_env(m.provider),
+                         bool(_os.environ.get(
+                             channel_key_env(m.provider) or ""))),
                      "issuers": _issuer_count(conn, paths)})
     if conn is not None:
         conn.close()

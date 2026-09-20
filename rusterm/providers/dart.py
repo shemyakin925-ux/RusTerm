@@ -41,6 +41,9 @@ from .disclosures import (
 )
 
 KEY_ENV = "RUSTERM_DART_KEY"
+# ТЗ-61 F4: где взять ключ — строка отказа сбораKR называет сайт и
+# переменную подстановкой из этих констант, не копией в тексте.
+KEY_SITE = "https://opendart.fss.or.kr"
 _BASE = "https://engopendart.fss.or.kr/engapi"
 _LIMIT = HostLimit(host="engopendart.fss.or.kr", per_second=2.0,
                    nightly_max=5000)
