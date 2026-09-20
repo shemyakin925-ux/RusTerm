@@ -37,7 +37,7 @@ GUARD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/selfcheck-guards.XXXXXX")
 # ТЗ-50 T6 / BACKLOG B37: каталог извлечённых сторожей убирается своим
 # trap — раньше каждый коммит оставлял по каталогу (накопилось 400+).
 trap 'rm -rf "$GUARD_DIR"' EXIT
-for guard in agent/p1_rule.sh agent/p6_rule.sh; do
+for guard in agent/p1_rule.sh agent/p6_rule.sh agent/p7_relay_rule.sh; do
     base=$(basename "$guard")
     if ! git diff --quiet -- "$guard"; then
         fail "I5" "страж изменён в рабочем дереве и не застейджен: $guard"
@@ -138,6 +138,12 @@ fi
 # Исполняется извлечённая из коммита копия стража (I5).
 if ! bash "$GUARD_DIR/p6_rule.sh"; then
     fail "P6" "coordinator-owned files staged"
+fi
+
+# P7: эстафетный коммит не тащит работу (ТЗ-65 K1) — исполняется
+# из COMMIT/HEAD, как P1/P6; rebase-случай читает живой rebase-merge
+if ! bash "$GUARD_DIR/p7_relay_rule.sh" precommit; then
+    fail "P7" "эстафетный коммит несёт работу"
 fi
 
 # P3/P4: ничего вне git, никакого мусора

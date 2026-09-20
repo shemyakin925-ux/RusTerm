@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-64.md",
- "report": "agent/REPORT-64.md",
- "item": "J5",
- "step": "J1-J5 done: counter truth, export provenance, advice, stages, explanations; awaiting review",
+ "task": "agent/TASK-65.md",
+ "report": "agent/REPORT-65.md",
+ "item": "K5",
+ "step": "K0-K5 done: P7 guard, K0 cause, K2 table, B47/B48, budget labels; awaiting review",
  "status": "awaiting_review",
  "last_commit": "03fdbc7",
  "requests": 3,
  "net_requests": 3,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-20T15:20:17Z"
+ "updated_at": "2026-09-20T16:49:06Z"
 }

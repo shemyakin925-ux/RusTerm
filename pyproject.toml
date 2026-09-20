@@ -33,9 +33,10 @@ testpaths = ["tests"]
 # до сети или модели; живой путь — только явным -m live.
 # ТЗ-61 F3: объёмный тест окна (500 бумаг, тайминги) — тоже мимо
 # обычного набора, явный -m volume.
-addopts = '-q --strict-markers -m "not live and not volume"'
+addopts = '-q --strict-markers -m "not live and not volume and not firsthour"'
 markers = [
     "integration: тесты с реальными источниками (требуют сеть)",
     "live: живой сетевой/модельный вызов — запускается только явно (-m live), default-прогон его не собирает (TASK-29 A2)",
     "volume: объёмный прогон окна на 500 бумаг (ТЗ-61 F3) — только явно (-m volume), обычный набор его не гоняет",
+    "firsthour: первый час пользователя целиком (ТЗ-65 K4) — только явно (-m firsthour), обычный набор его не гоняет",
 ]
