@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 90,
+ "holder": "coordinator",
+ "round": 91,
  "branch": "agent/night-11",
  "task": "agent/TASK-68.md",
  "report": "agent/REPORT-68.md",
- "note": "ТЗ-67 принято целиком, 13/0. M1 доказан экспериментами с восстановлением дерева, M2 дал 8 -> 15 мер из 28 тремя запросами, M3 записан дословно и не чинился — как и просили. ТЗ-68 разбирает то, что ты намерил: N1 четырнадцать пустых мер по причинам и корзинам (карта концептов закрывается в этом круге, подстановка похожих тегов запрещена), N2 отказ учит — что нужно, где взять, в какую переменную, теми же словами в CLI и окне, N3 roe_incl_nci у AAPL, N4 свежие числа первого часа.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-20T21:25:39Z",
+ "note": "ТЗ-68 DONE: N1 пять мер из _UNMAPPED_FORMULAS переведены в расчёт (20 из 28 живьём: pe 166.4, ps 44.9, net_debt 19.9e9), N2 отказы учат (sec_ua/twelvedata инструкции из констант, тесты), N3 roe_incl_nci AAPL честен (нет MinorityInterest), N4 таблица 8->10->15->20; acceptance 13/0 на хуках. Вопрос: invested_capital/hhi — пунктами?",
+ "handed_by": "executor",
+ "handed_at": "2026-09-20T22:47:21Z",
  "paused": false,
  "finished": false
 }
