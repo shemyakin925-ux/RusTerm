@@ -1564,6 +1564,21 @@ class MetricsRepo:
             "SELECT ts, name, provider, value FROM metric_sample"
             " ORDER BY name").fetchall()
 
+    def requests_used_today(self) -> int:
+        """Сумма провайдерских запросов за местные сегодня (ТЗ-61 F1:
+        агрегат живёт в хранилище, а не в слое окна; rusterm status и
+        шапка окна читают одно число из одной двери)."""
+        import datetime
+        today = datetime.date.today().isoformat()
+        used = 0
+        for ts, name, _provider, value in self.samples():
+            if name != "provider_requests_used":
+                continue
+            day = datetime.datetime.fromtimestamp(ts).date().isoformat()
+            if day == today:
+                used += int(value or 0)
+        return used
+
 
 # Параметры запроса, которые никогда не попадают в журнал (T13):
 # URL с ключом или токеном не логируется ни в каком виде.

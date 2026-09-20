@@ -77,6 +77,21 @@ def list_rows(repos, watchlist_id: Optional[str]) -> list[dict]:
     return rows
 
 
+def measure_reason_counts(repos, snapshot_id: str | None) -> dict:
+    """Токены причин пустых мер снапшота (ТЗ-61 F1): одно счётное
+    место для всех трёх лиц — `rusterm coverage --json`, окно и TUI.
+    Мера со значением не считается; токен — первый до ':'."""
+    counts: dict = {}
+    if not snapshot_id:
+        return counts
+    for m in repos.snapshot.get_measures(snapshot_id):
+        if m[4] is not None:
+            continue
+        token = (m[10] or "missing_data").split(":", 1)[0]
+        counts[token] = counts.get(token, 0) + 1
+    return counts
+
+
 def card_rows(repos, instrument_id: str) -> dict:
     """Экран «Карточка»: меры, покрытие с причинами, governance."""
     snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)

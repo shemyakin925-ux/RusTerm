@@ -68,22 +68,13 @@ def header_info(repos) -> dict:
     """Шапка окна: версия схемы и запросы провайдеров за сегодня.
 
     Схема — та же дверь, что у rusterm status (current_schema_version,
-    БЕЗ тихой миграции: окно читает). «Запросов сегодня» — сумма
-    сэмплов provider_requests_used, записанных после местной полуночи
-    (сэмпл пишет cmd_ingest по факту сбора; сэмплов нет — честный 0).
+    БЕЗ тихой миграции: окно читает). «Запросов сегодня» — агрегат
+    хранилища (requests_used_today, ТЗ-61 F1): одно число из одной
+    двери для окна и rusterm status, окно не суммирует само.
     """
-    today = datetime.date.today().isoformat()
-    requests_today = 0
-    for sample in repos.metrics.samples():
-        ts, name, _provider, value = sample[0], sample[1], sample[2], sample[3]
-        if name != "provider_requests_used":
-            continue
-        day = datetime.datetime.fromtimestamp(ts).date().isoformat()
-        if day == today:
-            requests_today += int(value or 0)
     return {"schema_version": current_schema_version(repos.conn)
             if hasattr(repos, "conn") else None,
-            "requests_today": requests_today}
+            "requests_today": repos.metrics.requests_used_today()}
 
 
 # ── Левая колонка: поиск и дерево отраслей (C1.1) ────────────────────────
@@ -792,23 +783,15 @@ def llm_usage_line(repos) -> str:
 
 def measure_coverage(repos, instrument_id: str) -> dict:
     """C8.1: сколько мер зелёные из скольких и чем красные красны —
-    из тех же строк снапшота, из которых rusterm coverage --json
-    считает measure_reason_counts; число совпадает с CLI по
-    построению. Снапшота нет — has_snapshot False, не пустота."""
+    счётчик один на все лица (tui_model.measure_reason_counts,
+    ТЗ-61 F1): rusterm coverage --json и окно считают одним кодом.
+    Снапшота нет — has_snapshot False, не пустота."""
     sid = repos.snapshot.latest_snapshot_id(instrument_id)
-    if sid is None:
-        return {"has_snapshot": False, "green": 0, "total": 0,
-                "reasons": {}}
-    measures = repos.snapshot.get_measures(sid)
-    reasons: dict[str, int] = {}
-    green = 0
-    for m in measures:
-        if m[4] is not None:
-            green += 1
-            continue
-        token = (m[10] or "missing_data").split(":", 1)[0]
-        reasons[token] = reasons.get(token, 0) + 1
-    return {"has_snapshot": True, "green": green, "total": len(measures),
+    reasons = tui_model.measure_reason_counts(repos, sid)
+    total = (len(repos.snapshot.get_measures(sid)) if sid else 0)
+    return {"has_snapshot": bool(sid),
+            "green": total - sum(reasons.values()),
+            "total": total,
             "reasons": reasons}
 
 

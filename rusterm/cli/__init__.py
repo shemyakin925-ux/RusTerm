@@ -1894,15 +1894,15 @@ def cmd_coverage(args) -> int:
         # ТЗ-22 J1: currency_mismatch считается отдельно от missing_data —
         # это разные проблемы, чинятся по-разному
         if args.watchlist is None:
+            from rusterm.tui import model as tui_model
             snapshot_id = repos.snapshot.latest_snapshot_id(instrument)
+            # ТЗ-61 F1: счётчик один на все лица — tui_model
             if snapshot_id:
-                counts: dict[str, int] = {}
-                for m in repos.snapshot.get_measures(snapshot_id):
-                    reason = (m[10] or "").split(":", 1)[0]
-                    if reason and m[4] is None:
-                        counts[reason] = counts.get(reason, 0) + 1
-                if counts:
-                    payload["measure_reason_counts"] = counts
+                counts = tui_model.measure_reason_counts(repos, snapshot_id)
+            else:
+                counts = {}
+            if counts:
+                payload["measure_reason_counts"] = counts
         print(json.dumps(payload, ensure_ascii=False))
         conn.close()
         return 0
