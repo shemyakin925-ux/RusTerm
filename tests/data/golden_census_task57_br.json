@@ -1,17 +1,50 @@
 {
  "census": {
   "BR-AMBEV": {
-   "asset_turnover": {"value": null, "reason": "missing_data: total_assets"},
-   "ebitda": {"value": null, "reason": "missing_data: d_and_a, operating_income"},
-   "effective_tax": {"value": "0.0", "reason": null},
-   "fcf": {"value": null, "reason": "missing_data: capex, ocf"},
-   "gross_margin": {"value": "0.5124228210563511", "reason": null},
-   "interest_coverage": {"value": null, "reason": "missing_data: interest_expense, operating_income"},
-   "net_margin": {"value": "0.16597550599636104", "reason": null},
-   "nopat": {"value": null, "reason": "missing_data: operating_income"},
-   "operating_margin": {"value": null, "reason": "missing_data: operating_income"},
-   "roe": {"value": null, "reason": "missing_data: total_equity"},
-   "roe_incl_nci": {"value": "0.16521917935689903", "reason": null}
+   "asset_turnover": {
+    "value": null,
+    "reason": "missing_data: total_assets"
+   },
+   "ebitda": {
+    "value": null,
+    "reason": "missing_data: d_and_a, operating_income"
+   },
+   "effective_tax": {
+    "value": "0.23812270405274155",
+    "reason": null
+   },
+   "fcf": {
+    "value": null,
+    "reason": "missing_data: capex, ocf"
+   },
+   "gross_margin": {
+    "value": "0.5124228210563511",
+    "reason": null
+   },
+   "interest_coverage": {
+    "value": null,
+    "reason": "missing_data: interest_expense, operating_income"
+   },
+   "net_margin": {
+    "value": "0.16597550599636104",
+    "reason": null
+   },
+   "nopat": {
+    "value": null,
+    "reason": "missing_data: operating_income"
+   },
+   "operating_margin": {
+    "value": null,
+    "reason": "missing_data: operating_income"
+   },
+   "roe": {
+    "value": null,
+    "reason": "missing_data: total_equity"
+   },
+   "roe_incl_nci": {
+    "value": "0.16521917935689903",
+    "reason": null
+   }
   }
  }
 }

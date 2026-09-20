@@ -165,7 +165,7 @@ _IFRS_PRIORITY: dict[str, dict[str, int]] = {
 #    неконтролирующие доли: это total_equity_incl_nci, НЕ total_equity
 #    (правило ТЗ-56 Z1): roe по BR отказывает missing_data:
 #    total_equity, roe_incl_nci считает.
-CONCEPT_MAP_VERSION_CVM = "cvm-dfp.v1"
+CONCEPT_MAP_VERSION_CVM = "cvm-dfp.v2"
 
 CONCEPT_MAP_CVM: dict[str, tuple[str, ...]] = {
     "revenue": ("3.01",),
@@ -186,6 +186,31 @@ _CVM_PRIORITY: dict[str, dict[str, int]] = {
     concept: {tag: rank for rank, tag in enumerate(tags)}
     for concept, tags in CONCEPT_MAP_CVM.items()
 }
+
+# cvm-dfp.v2 (ТЗ-58 C4, вердикт Q2): DRE подаёт налог (3.08) ВЫЧТОМ —
+# со знаком минус; словарь мер держит tax_expense ПОЛОЖИТЕЛЬНОЙ
+# величиной (расход). Карта приводит знак при отображении — той же
+# породой, что масштаб ESCALA_MOEDA: провенанс — на самом факте,
+# concept_map_version='cvm-dfp.v2' (чем нормализовано), исходное
+# ЗНАКОВОЕ значение — в locator.raw_value (как подано).
+_CVM_SIGN_NORMALIZED: frozenset[str] = frozenset({"tax_expense"})
+
+
+def normalize_sign_cvm(fact: dict) -> bool:
+    """Привести знак величины к конвенции словаря мер (cvm-dfp.v2).
+    True — знак приведён; меняется только value (модуль), исходное
+    знаковое значение остаётся в локаторе (raw_value). Других
+    преобразований карта не делает."""
+    if strip_taxonomy(fact.get("concept", "")) != ("cvm-dfp", "3.08"):
+        return False
+    try:
+        value = float(fact.get("value"))
+    except (TypeError, ValueError):
+        return False
+    if value >= 0:
+        return False
+    fact["value"] = repr(-value)
+    return True
 
 
 def canonical_for(local_tag: str, taxonomy: str = "us-gaap") -> str | None:

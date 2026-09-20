@@ -259,6 +259,20 @@ class SnapshotBuilder:
                     if all(v is not None for v in kw.values()):
                         m = calculate_measure(concept, **kw)
                         value, null_reason = m.value, m.null_reason
+                    else:
+                        # ТЗ-58 C4: отказ цепочки называет отвалившееся
+                        # ЗВЕНО (например effective_tax при снятом
+                        # clip), а не голое missing_data; уже названная
+                        # причина исходных входов не перекрывается
+                        missing_chain = sorted(
+                            {source for source in _CHAIN_MEASURES.get(
+                                concept, {}).values()
+                             if computed.get(source) is None})
+                        if missing_chain:
+                            named = input_reasons.get(concept)
+                            if named in (None, "missing_data"):
+                                null_reason = ("missing_data: "
+                                               + ", ".join(missing_chain))
                 if value is None and null_reason is None:
                     null_reason = "missing_data"  # I4: NULL обязан причиной
                 if concept in periods:

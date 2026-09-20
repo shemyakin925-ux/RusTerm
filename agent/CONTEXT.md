@@ -5,14 +5,19 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 19.09.2026, after round 67 on `agent/night-11`. Accepted:
-TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-56. Acceptance on
-`fdb8070` in a fresh linked worktree: **13/0, exit 0** — but the
-coordinator's FIRST run of the same command gave 12/1 on check 11
-(three tests flickered; the no-zstd suite is green in a separate
-tree). The flicker is TASK-57 A5 and is not a missing gzip fallback.
-Round 67 verdict on REPORT-56 Disputed: **P0 (15c854f) stays**, pinned
-by TASK-57 A1 — no revert.
+Last updated: 19.09.2026, after round 69 on `agent/night-11`. Accepted:
+TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-57. Acceptance on the
+head of round 69 in a fresh linked worktree: **13/0, exit 0, Принято**.
+Round-69 verdicts on the eight REPORT-57 questions are in `TASK-58` §C0
+and bind every later task. Two of them are standing rules:
+**(1) the 10:00 Danang stop is the NIGHT shift's rule** — a baton handed
+in daytime means work the task list, not the clock; **(2) `agent/BACKLOG.md`
+is coordinator-owned** — the executor names «B<N> closed by <sha>» in the
+report and the coordinator edits the file. The ТЗ-57 permission to the
+contrary was a coordinator error.
+**Open defect with a verdict: `clip()` in `effective_tax` invented 0.0**
+from AMBEV's true ≈23.8% (signed CVM line 3.08) — a measure must be
+honest or refuse; fixed by TASK-58 C4, first in priority.
 
 **Open product debt: TASK-37 I2** (does-not-know) — TASK-47 O1. I1
 (question vs order) landed with TASK-46 N3, I3 and I4 are done. The
@@ -168,7 +173,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M5 LLM layer | citation guard, four read-only tools, confirmed mass ops |
 | M6 CA + OTC | both collected through EDGAR |
 | M7 industry aggregate | done |
-| M8 six markets, manual import | registry of six; US/CA/OTC collect, KR needs its key, **BR collects** (annual DFP datasets, `rusterm ingest --source cvm`, ТЗ-56 Z2; consolidated DRE/BPP -> cvm-dfp.v1 map, incremental by Last-Modified), AU has a provider but **no `ingest` channel** (`rusterm markets` shows the channel column honestly) |
+| M8 six markets, manual import | registry of six; US/CA/OTC collect, KR honest `None`: measured 2026-09-20 — `RUSTERM_DART_KEY` is NOT in the environment despite §5 (ТЗ-58 C1 Blocked); the DART door code exists (C6), the key is the missing piece, **BR collects** (annual DFP datasets, `rusterm ingest --source cvm`, ТЗ-56 Z2; consolidated DRE/BPP -> cvm-dfp.v1 map, incremental by Last-Modified), AU has a provider but **no `ingest` channel** (`rusterm markets` shows the channel column honestly) |
 | M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **44** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |

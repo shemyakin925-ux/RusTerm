@@ -270,16 +270,6 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   finding repeated every night — accept: REPORT-MARKETS states the
   tolerance band and the date of the last live count — size: S
 
-- [ ] B35 — a read-only command must not create a data directory in the
-  current working directory. `--root` defaults to `.`, so
-  `python3 -m rusterm.cli markets` run from the repository root creates
-  `rusterm.db` there and breaks acceptance check 13 for whoever ran it.
-  Measured by the coordinator 12.09.2026 (`ACCEPTANCE-21.txt`, section
-  «Мерцание приёмки»). Commands that only read the registry open the
-  database read-only or not at all; commands that write keep today's
-  behaviour — accept: from a clean tree, `markets`, `markets --json`
-  and `--help` leave `git status --porcelain` empty, asserted by a
-  test; `init` and `ingest` still create the directory — size: S
 
 - [→] B22, B27, B29 — **promoted to `agent/TASK-27.md`** (items N2,
   N3, N5) on 11.09.2026. Each was deferred in TASK-19 for a stated
@@ -290,6 +280,14 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
 ## Done
 
+- [x] B35 — closed with ТЗ-57 A3 (commit of 19.09.2026 on
+  `agent/night-11`): `markets`, `markets --json` and `--help` leave
+  `git status --porcelain` empty from a clean tree, positive control
+  asserts `init`/`ingest` still create the catalog —
+  `tests/test_b35_markets_readonly.py`, agent/REPORT-57.md. The
+  remaining `_open`-vs-`_open_readonly` divergences found by the same
+  sweep (metrics, doctor, census, tui) are reported, not fixed —
+  agent/REPORT-57.md A3.
 - [x] B33 — selfcheck reads its expected check count from acceptance.sh instead of hard-coding "пройдено 13" — landed with TASK-27 N6; re-verified 13.09.2026 (scratch 14-check copy counts 14, the pass condition matches 14, a 12/1 outcome fails the match as seen live at arrival) — TASK-28 R6, agent/REPORT-28.md
 
 **ID reuse, noted 12.09.2026.** The numbers B19-B25 were handed out

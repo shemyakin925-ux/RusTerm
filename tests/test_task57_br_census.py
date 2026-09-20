@@ -10,12 +10,9 @@ tests/data/golden_census_task57_br.json: значение — точная ст�
 snapshot), транспорт подменён записанными байтами, счёт запросов ведёт
 настоящий гейт.
 
-Что нашла перепись (REPORT-57, пункт-кандидат): DRE-строка 3.08
-«Imposto de Renda e Contribuição Social» подаётся СО ЗНАКОМ МИНУС
-(вычет из прибыли); effective_tax = clip(tax/pretax, 0, 0.5) зажимает
--0.2381 в 0.0 — число «зелёное», но о реальной ставке AMBEV (23.8%)
-лжёт. Код НЕ правится (ТЗ-57 A2): кандидат на нормализацию знака
-вынесен в отчёт.
+ТЗ-58 C4: кандидат REPORT-57 закрыт — знак 3.08 нормализует карта
+(cvm-dfp.v2), clip() снят: ставка вне полосы [0, 0.5] — отказ
+jurisdiction_rate с числом, а не выдуманные 0.0/0.5.
 """
 from __future__ import annotations
 
@@ -155,15 +152,15 @@ def test_br_refusals_name_dictionary_tokens(br_app):
 
 
 def test_br_green_values_are_exact_strings(br_app):
-    """Считающиеся меры дают ровно те числа, что в отчёте. AMBEV
-    effective_tax = 0.0 — артефакт clip() при знаке CVM 3.08; закреплён
-    КАК ЕСТЬ, кандидат на нормализацию знака назван в REPORT-57."""
+    """Считающиеся меры дают ровно те числа, что в отчёте. ТЗ-58 C4:
+    знак 3.08 нормализует карта (cvm-dfp.v2), clip() снят — AMBEV
+    effective_tax даёт настоящую ставку ≈23.81%, а не выдуманный 0.0."""
     root, _ = br_app
     rows = _census_rows(root)
     assert rows["gross_margin"]["value"] == "0.5124228210563511"
     assert rows["net_margin"]["value"] == "0.16597550599636104"
     assert rows["roe_incl_nci"]["value"] == "0.16521917935689903"
-    assert rows["effective_tax"]["value"] == "0.0"
+    assert rows["effective_tax"]["value"] == "0.23812270405274155"
 
 
 def test_br_roe_refusal_coexists_with_incl_nci(br_app):
