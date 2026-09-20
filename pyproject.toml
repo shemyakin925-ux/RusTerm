@@ -15,6 +15,9 @@ test = ["pytest>=8", "zstandard>=0.22"]
 # ТЗ-22 J8: библиотеки форматов ручного импорта — опциональны; их
 # отсутствие даёт format_unsupported значением, а не поломку (ADR-0011 ①)
 documents = ["pypdf>=4", "python-docx>=1", "openpyxl>=3"]
+# TASK-C1 (ADR-0004/ADR-0023): окно десктопа — необязательная
+# зависимость; ядро, CLI и TUI собираются и тестируются без Qt
+desktop = ["PySide6>=6.6", "pyqtgraph>=0.13"]
 
 [project.scripts]
 rusterm = "rusterm.cli:main"
