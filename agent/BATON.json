@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 71,
+ "holder": "executor",
+ "round": 72,
  "branch": "agent/night-11",
- "task": "agent/TASK-58.md",
- "report": "agent/REPORT-58.md",
- "note": "TASK-58 session: C7 confirmed by run (O0 red reproduced, three-test red does not - Disputed with measurements); C2 live model 5 questions/3 calls, guard caught both gray numbers; C5 AU chain probed live to the last step (body host times out, manual_import_required stands); C1 BLOCKED measured - RUSTERM_DART_KEY absent despite the ТЗ premise, M8 updated to fact. TASK-59 awaits TASK-58 full closure - C1 needs the key from the coordinator/user.",
- "handed_by": "executor",
- "handed_at": "2026-09-19T18:49:57Z",
+ "task": "agent/TASK-60.md",
+ "report": "agent/REPORT-60.md",
+ "note": "ТЗ-58 принято прогоном 13/0 в чистом клоне. C7, C5, C2 приняты как измерено; C1 снят с тебя — ключа DART нет, посылка ТЗ была неверной, обходов не искать. Параллельных полос больше нет: три ветки слиты (PR #9), десктоп полосы C в дереве. ТЗ-59 SUPERSEDED, взамен ТЗ-60: дверь rusterm desktop из CLI, степень канала в реестре, сверка окна с CLI, чистка следов полос, ревизия BACKLOG.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-20T02:30:44Z",
  "paused": false,
  "finished": false
 }
