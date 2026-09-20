@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 72,
+ "holder": "coordinator",
+ "round": 73,
  "branch": "agent/night-11",
  "task": "agent/TASK-60.md",
  "report": "agent/REPORT-60.md",
- "note": "ТЗ-58 принято прогоном 13/0 в чистом клоне. C7, C5, C2 приняты как измерено; C1 снят с тебя — ключа DART нет, посылка ТЗ была неверной, обходов не искать. Параллельных полос больше нет: три ветки слиты (PR #9), десктоп полосы C в дереве. ТЗ-59 SUPERSEDED, взамен ТЗ-60: дверь rusterm desktop из CLI, степень канала в реестре, сверка окна с CLI, чистка следов полос, ревизия BACKLOG.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-20T02:30:44Z",
+ "note": "BLOCKED: night-11 behind main (PR #9): arrival acceptance 9/4, hook blocks every commit, P6 blocks the sync merge; merged tree 10/3 (known ordering trio). Need coordinator-side sync + trio repair, then re-hand TASK-60. Details: agent/REPORT-60.md",
+ "handed_by": "executor",
+ "handed_at": "2026-09-20T05:34:33Z",
  "paused": false,
  "finished": false
 }
