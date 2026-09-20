@@ -187,3 +187,22 @@ NOW: E0, step 6 — blocked, handing the baton back
   tests/test_desktop_window.py tests/test_desktop_settings.py
   tests/test_desktop_watchlist.py tests/test_b35_markets_readonly.py -q`
   → 34 passed. Commit hook reruns the full selfcheck.
+
+- E5. Window vs CLI cross-check, three markets in one catalog (US, CA, BR —
+  `US-A5`, `CA-C5`, `BR-B5`, each with a snapshot): `tests/test_task60_e5_
+  window_vs_cli.py` runs the REAL `rusterm export --format json` as a
+  subprocess and compares every measure against the window's
+  `measure_table_rows` for the same concept and period.
+  - Values: the cell must equal the export string byte-for-byte, OR exactly
+    `format_value` of it — the lane-C display rule (cell shows 4 decimals,
+    export carries full precision) is pinned by its own test with both
+    values named («1234.5679» vs «1234.56789»); anything else reds with
+    both values in the message. No side was fitted to the other.
+  - Refusals: where export says `missing_data: total_equity`, the window
+    cell is «нет данных», the null_reason matches, and the source panel
+    names the concept («причина: …», «не подан: total_equity»).
+- The first run of this test inside the E4 commit's acceptance reded on my
+  own `row["period"]` KeyError (the file was created while the hook was
+  running — my mistake, cost one acceptance cycle); fixed and verified
+  before this commit.
+- Verified: `pytest tests/test_task60_e5_window_vs_cli.py -q` → 3 passed.
