@@ -46,6 +46,7 @@ user, data never leaves the machine. **Everything in it is free
 | `rusterm/manual/` | manual import: extract → model → deterministic control |
 | `rusterm/parsers/`, `formulas.py`, `reasons.py`, `markets.py`, `env.py` | parsing, the formulas, the closed vocabulary of null reasons, the market registry, the env-file loader |
 | `rusterm/tui/` | curses screens |
+| `rusterm/desktop/` | the PySide6 window (read-only, ADR-0023); opened by `python3 -m rusterm.desktop` and `rusterm desktop` — one shared entry |
 | `agent/` | the coordination channel: this file, `PROTOCOL.md`, `TASK-*.md`, `REPORT-*.md`, `BACKLOG.md`, `acceptance.sh`, `selfcheck.sh`, `LAUNCH.md` (for the user, Russian) |
 
 ## 3. Standing rules that bind every task

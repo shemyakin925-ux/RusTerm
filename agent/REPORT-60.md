@@ -131,3 +131,35 @@ NOW: E0, step 6 — blocked, handing the baton back
 - Suite after the fixes: `python3 -m pytest tests/ -q` → exit 0.
 - Acceptance: `bash agent/acceptance.sh` → «Итог: пройдено 13, провалено 0»,
   exit 0. Commit follows (hook reruns selfcheck on the same tree).
+
+## Done (round 74, continued)
+
+- E3. `rusterm desktop` registered (`rusterm/cli/__init__.py`): `cmd_desktop`
+  delegates to `rusterm.desktop.__main__.main` — one shared entry, no copy;
+  `--root` follows the window's rule (`$RUSTERM_DATA`/`~/.rusterm`, the
+  CLI-wide «.» default is mapped to it), `--watchlist` passes through.
+  The no-PySide6 refusal is `window.run`'s own words, so both entry points
+  say the same thing.
+- Verified by runs: `python3 -m rusterm.cli --root /tmp/rt-smoke-nocatalog
+  desktop` with `QT_QPA_PLATFORM=offscreen RUSTERM_APP_SMOKE=1` → exit 0,
+  the catalog was NOT created (B35); `desktop --help` captured and diffed
+  byte-for-byte against the GUIDE insert — identical.
+- New `tests/test_desktop_door.py` (5 tests): help lists the command; both
+  doors reach the same `window.run` with the same arguments; the root
+  default mapping; no-PySide6 words without a traceback (the test purges
+  all `PySide6*` sys.modules entries AND the package attribute —
+  `from package import module` binds the attribute without touching
+  sys.modules, so deleting only the module entry silently opened the real
+  window); the door creates no data dir.
+- `GUIDE.md` §10 «Десктопное окно»: the help insert (byte-verified), the
+  refusal words, what the window shows; the smoke run is marked
+  «# требует экрана» like the tui block. Old §10 renumbered to §11.
+- `tests/test_guide_truth.py`: block subprocesses now run with
+  `PYTHONPATH=<repo root>` prepended — previously the guard silently
+  executed whatever `python3 -m rusterm.cli` resolved to machine-wide
+  (the installed copy, NOT the tree under test); counts updated
+  (12 blocks, 2 marked).
+- `agent/CONTEXT.md` §2: row for `rusterm/desktop/` added.
+- Verified: `pytest tests/test_guide_truth.py tests/test_desktop_door.py
+  tests/test_cli.py tests/test_b40_readonly_commands.py -q` → 62 passed.
+  Commit hook reruns the full selfcheck.

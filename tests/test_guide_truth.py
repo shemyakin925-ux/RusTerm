@@ -129,7 +129,7 @@ def _match(expected: list[str], actual: list[str], tmp_root: Path,
 
 def test_guide_blocks_run_and_match(tmp_path):
     blocks = parse_guide(GUIDE.read_text(encoding="utf-8"))
-    assert len(blocks) == 10, [b.lineno for b in blocks]
+    assert len(blocks) == 12, [b.lineno for b in blocks]
     envfile = tmp_path / "guide-env"
     envfile.write_text("", encoding="utf-8")
     envfile.chmod(0o600)
@@ -152,6 +152,13 @@ def test_guide_blocks_run_and_match(tmp_path):
             env = dict(base_env)
             if step.env_overrides:
                 env.update(step.env_overrides)
+            # Блок исполняется из tmp_path — без этого python3 поднял бы
+            # не код ЭТОГО дерева, а какую-нибудь установленную копию
+            # с машины (круг 56: у каждого дерева свой путь). Корень
+            # дерева идёт первым — страж проверяет вставки против того
+            # кода, который и проверяет остальная приёмка.
+            env["PYTHONPATH"] = (
+                str(ROOT) + os.pathsep + env.get("PYTHONPATH", ""))
             result = subprocess.run(
                 command, shell=True, cwd=tmp_path, env=env,
                 capture_output=True, text=True, timeout=120)
@@ -168,15 +175,20 @@ def test_guide_blocks_run_and_match(tmp_path):
                     f"  фактический вывод: {actual[:12]}")
     assert not failures, (
         "руководство расходится с прогоном:\n" + "\n".join(failures))
-    assert skipped == 1, skipped
+    assert skipped == 2, skipped
 
 
-def test_tui_block_is_marked_as_interactive():
+def test_marked_blocks_are_interactive():
+    """Блоки под маркером не исполняются стражем: tui требует
+    терминала, прогон окна — экрана (ТЗ-60 E3). Порядок разделов
+    руководства держит tui первым из помеченных."""
     blocks = parse_guide(GUIDE.read_text(encoding="utf-8"))
     marked = [b for b in blocks if b.markers]
-    assert len(marked) == 1
+    assert len(marked) == 2
     assert "требует терминала" in marked[0].markers[0]
     assert marked[0].steps[0].command.endswith("tui")
+    assert "требует экрана" in marked[1].markers[0]
+    assert " desktop" in marked[1].steps[0].command
 
 
 def test_parser_lists_every_command():

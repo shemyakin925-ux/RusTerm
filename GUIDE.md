@@ -219,7 +219,37 @@ $ python3 -m rusterm.cli --root /tmp/rusterm-guide tui
 
 Только чтение, curses; выход — `q`. (Скриншот не вставляю — интерактив.)
 
-## 10. Что дальше
+## 10. Десктопное окно
+
+То же окно, что `python3 -m rusterm.desktop`, открывает и обычная
+команда (ТЗ-60 E3); без установленного PySide6 она не падает
+трассировкой, а говорит словами, что поставить:
+
+```console
+$ python3 -m rusterm.cli --root /tmp/rusterm-guide desktop --help
+usage: rusterm desktop [-h] [--root ROOT] [--watchlist WATCHLIST]
+
+options:
+  -h, --help            show this help message and exit
+  --root ROOT           каталог данных (по умолчанию — как у окна:
+                        $RUSTERM_DATA или ~/.rusterm)
+  --watchlist WATCHLIST
+```
+
+Окно открывается только на чтение: каталог не создаётся, миграций
+нет (B35/B40). В окне: поиск по эмитентам и спискам наблюдения,
+таблица мер с пометкой «· нет данных» и причиной отказа словами,
+диаграммы по годам, вкладка разговора с цитатами, настройки (ключи —
+откуда, без значений; лимиты хостов; каталог данных со сменой через
+вопрос). Пробный прогон без экрана — окно стартовало и само
+закрылось:
+
+```console
+# требует экрана
+$ QT_QPA_PLATFORM=offscreen RUSTERM_APP_SMOKE=1 python3 -m rusterm.cli --root /tmp/rusterm-guide desktop
+```
+
+## 11. Что дальше
 
 M8 в работе: рынки KR/BR/AU и ручной импорт (ТЗ-19 — фундамент, ТЗ-20 —
 полосы). Дорожная карта — README §15; архитектура — `docs/adr/`.

@@ -1284,6 +1284,25 @@ def cmd_tui(args) -> int:
     return app.run(args.root, args.watchlist)
 
 
+def cmd_desktop(args) -> int:
+    """Десктопное окно (ТЗ-60 E3): та же дверь, что
+    python3 -m rusterm.desktop, — один код, копии нет.
+
+    Каталог данных — по правилам окна: без явного --root это
+    $RUSTERM_DATA или ~/.rusterm (не «.» из общего дефолта CLI).
+    Отказ без PySide6 словами даёт сам window.run — общего кода
+    меньше, а слова не расходятся между точками входа.
+    """
+    from rusterm.desktop.__main__ import main as desktop_main
+    argv = []
+    root = getattr(args, "root", None)
+    if root not in (None, "."):
+        argv += ["--root", root]
+    if getattr(args, "watchlist", None):
+        argv += ["--watchlist", args.watchlist]
+    return desktop_main(argv)
+
+
 def cmd_add(args) -> int:
     """Создать эмитента + инструмент + листинг + историю тикера
     (TASK-9 V3). Идемпотентно: повтор — «уже есть», код 0. Онлайн
@@ -2205,6 +2224,15 @@ def main(argv: list[str] | None = None) -> int:
     p_bud.add_argument("--json", action="store_true")
     p_tui = sub.add_parser("tui", help="терминальный интерфейс (только чтение)")
     p_tui.add_argument("--watchlist", default=None)
+    p_desk = sub.add_parser(
+        "desktop",
+        help="десктопное окно (только чтение; ADR-0023), "
+             "как python3 -m rusterm.desktop")
+    p_desk.add_argument(
+        "--root", default=argparse.SUPPRESS,
+        help="каталог данных (по умолчанию — как у окна: "
+             "$RUSTERM_DATA или ~/.rusterm)")
+    p_desk.add_argument("--watchlist", default=None)
     p_ref = sub.add_parser("refresh",
                            help="инкрементальный проход по списку наблюдения (для cron)")
     p_ref.add_argument("--watchlist", required=True)
@@ -2262,6 +2290,7 @@ def main(argv: list[str] | None = None) -> int:
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
         "status": cmd_status, "tui": cmd_tui, "add": cmd_add,
+        "desktop": cmd_desktop,
         "refresh": cmd_refresh,
         "ops": cmd_ops,
         "industry": cmd_industry,
