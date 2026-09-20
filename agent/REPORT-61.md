@@ -84,3 +84,20 @@ NOW: F1, step 8
   one token (`missing_data`) in all three faces, the model shows «—» and
   the window «нет данных». Verified: `pytest tests/test_task61_f2_three_
   faces.py -q` → 2 passed.
+
+- F3. Window at real volume (`tests/test_task61_f3_volume_window.py`,
+  marker `volume`, excluded from the default run via pyproject addopts):
+  a 500-paper watchlist built through the real repo path (issuer +
+  instrument + listing + ticker + member + snapshot + measure each),
+  offscreen window. Measured on this machine: **открытие окна 0.45 с,
+  переключение компании 0.01 с, диаграмма 0.05 с** — responsive with
+  generous asserted ceilings (20/10/10 s).
+  - The 2500-point row of ADR-0004 has no real producer: the only chart
+    series the window can build is measure history, empty by
+    construction (ADR-0009, one value per measure); the largest real
+    vendor payload in-tree is 200 closes
+    (tests/data/twelvedata/time_series_AAPL_1day_trimmed.json). The
+    chart timing ran on those 200 real closes through the real
+    ChartArea.set_spec machinery.
+- Verified: `pytest tests/test_task61_f3_volume_window.py -m volume -q -s`
+  → 1 passed with the numbers above; default collection deselects it.
