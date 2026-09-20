@@ -510,6 +510,20 @@ def cmd_hand(a: argparse.Namespace) -> int:
         die(f"--to принимает {ROLES}")
     if stop_file().exists() and not a.force:
         die(f"пауза: {stop_file()} на месте. relay.py resume — и повтори")
+    # ТЗ-66 L1: красная приёмка на дереве — ход не передаётся.
+    # Это закрывает щель: работа, уехавшая мимо хуков (плюмбинг,
+    # amend), больше не уезжает на ветку.
+    acc_script = Path.cwd() / "agent" / "acceptance.sh"
+    if acc_script.exists():
+        # ТЗ-66 L1: в песочницах unit-тестов relay acceptance.sh нет —
+        # проверка опциональна по наличию скрипта
+        acc = subprocess.run(["bash", str(acc_script)],
+                             cwd=str(Path.cwd()), capture_output=True,
+                             text=True)
+        if acc.returncode != 0:
+            die("приёмка на дереве красная — ход не передан. Полный "
+                "вывод: прогоны приёмки сохраняются самим селфчеком; "
+                "исправь и повтори hand")
     fetch(a.remote, branch)
     baton = read_remote_baton(a.remote, branch)
     if baton is None:

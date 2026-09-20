@@ -61,7 +61,11 @@ selfcheck means the commit does not leave your machine.
   interim blocks speak for their moment, the shift's verdict is
   `## HANDOFF (FINAL …)`. The report guard reads the last section
   (ТЗ-46 N1) and reds when it calls an item undone while a commit for
-  that item exists in the same round (ТЗ-62 G4).
+  that item exists in the same round (ТЗ-62 G4). An item counts as
+  Done only when a commit implementing it is named AND the item's own
+  test run is quoted as output; every id listed under "Items done"
+  must be named by a same-round commit that touches more than
+  `tests/` (ТЗ-66 L3).
 - `agent/STATE.json`, same commit as the work:
 
 ```json

@@ -213,3 +213,35 @@ def test_stale_report61_handoff_reds_the_guard():
     assert sorted(ids) == ["F2", "F3", "F4"], ids
     committed = _commit_for_items(ids, 76)
     assert set(committed) == {"F2", "F3", "F4"}, committed
+
+
+def test_done_items_have_code_commits_in_round():
+    """ТЗ-66 L3: пункт из «Items done» обязан быть назван коммитом
+    круга, который трогает не только tests/ — отчёт отвечает за свои
+    слова реализацией, а не декларацией."""
+    handoff = "\n".join(_handoff_section(_report_text()))
+    done_ids: list[str] = []
+    for line in handoff.splitlines():
+        if "items done" in line.lower():
+            done_ids += re.findall(r"\b[A-Z]\d+\b", line)
+    if not done_ids:
+        pytest.skip("в отчёте нет пунктов Items done")
+    log = subprocess.run(
+        ["git", "log", "--format=%h %s", "--name-only"],
+        cwd=REPO, capture_output=True, text=True, check=True)
+    named: dict[str, bool] = {}
+    for block in log.stdout.split("\ncommit ")[0].split("\n\n"):
+        lines_ = block.strip().splitlines()
+        if not lines_:
+            continue
+        sha_subject = lines_[0]
+        files = [l for l in lines_[1:] if l and not l.startswith("Эстафета")]
+        for iid in done_ids:
+            if re.search(rf"\b{iid}\b", sha_subject):
+                named[iid] = named.get(iid, False) or any(
+                    not f.startswith("tests/") for f in files if "/" in f
+                    or f.endswith(".py") or f.endswith(".md"))
+    missing = [iid for iid in done_ids if not named.get(iid)]
+    assert not missing, (
+        f"пункты {missing} объявлены сделанными, но коммита круга с "
+        f"реализацией (не только tests/) не найдено")

@@ -146,6 +146,19 @@ if ! bash "$GUARD_DIR/p7_relay_rule.sh" precommit; then
     fail "P7" "эстафетный коммит несёт работу"
 fi
 
+# P7 (ТЗ-66 L1): все коммиты круга — от последней передачи
+# координатора (ход у executor, номер из BATON.json) до HEAD —
+# должны проходить check: (эстафета без работы, обычные — зелёные)
+ROUND=$(python3 -c "import json;print(json.load(open('agent/BATON.json')).get('round',0))" 2>/dev/null || echo 0)
+BASE=$(git log --format="%h %s" | awk -v m="Эстафета: круг $ROUND, ход у executor" '$2 == m {print $1; exit}' | head -1)
+if [ -n "$BASE" ]; then
+  for SHA in $(git rev-list "$BASE..HEAD" 2>/dev/null); do
+    if ! bash "$GUARD_DIR/p7_relay_rule.sh" "check:$SHA" >/dev/null 2>&1; then
+      fail "P7" "коммит круга несёт работу: $SHA"
+    fi
+  done
+fi
+
 # P3/P4: ничего вне git, никакого мусора
 P34=$(git status --porcelain | grep '^??' || true)
 if [ -n "$P34" ]; then

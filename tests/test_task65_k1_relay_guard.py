@@ -64,3 +64,11 @@ def test_rebase_arm_reds_in_scratch_clone(tmp_path):
     r = _p7("precommit", cwd=scratch)
     assert r.returncode == 1, (r.stdout, r.stderr)
     assert "тащит работу" in r.stderr
+
+
+def test_round84_relay_with_work_is_red():
+    """8ea2e0d — эстафетный заголовок круга 84, нёсший работу J-круга:
+    красный (ТЗ-66 L1)."""
+    r = _p7("check:8ea2e0d")
+    assert r.returncode == 1
+    assert "несёт работу" in r.stderr
