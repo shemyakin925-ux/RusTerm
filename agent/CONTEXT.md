@@ -5,19 +5,25 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 19.09.2026, after round 69 on `agent/night-11`. Accepted:
-TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-57. Acceptance on the
-head of round 69 in a fresh linked worktree: **13/0, exit 0, Принято**.
-Round-69 verdicts on the eight REPORT-57 questions are in `TASK-58` §C0
-and bind every later task. Two of them are standing rules:
-**(1) the 10:00 Danang stop is the NIGHT shift's rule** — a baton handed
-in daytime means work the task list, not the clock; **(2) `agent/BACKLOG.md`
-is coordinator-owned** — the executor names «B<N> closed by <sha>» in the
-report and the coordinator edits the file. The ТЗ-57 permission to the
-contrary was a coordinator error.
-**Open defect with a verdict: `clip()` in `effective_tax` invented 0.0**
-from AMBEV's true ≈23.8% (signed CVM line 3.08) — a measure must be
-honest or refuse; fixed by TASK-58 C4, first in priority.
+Last updated: 20.09.2026, after round 75 on `agent/night-11`. Accepted:
+TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
+TASK-60. Acceptance on the branch head in a clean clone: **13/0, exit 0**.
+
+**Parallel lanes are over.** The three shift branches were merged into
+`main` (PR #9, `36d1999`) and `main` was merged back into
+`agent/night-11` (`a396a72`). Old lane branches are deleted; one lane,
+one branch from here on. The lesson is recorded as a standing rule:
+**one clone per session.** Linked worktrees share config, refs and the
+stash — three lanes in one clone produced a real collision.
+
+**What lane C left behind, found by TASK-60 E1:** the desktop introduced
+five refusal reasons outside the closed vocabulary. The vocabulary is
+the promise that a refusal is honest — TASK-61 F1 audits the desktop
+against the core's own rules.
+
+**Still blocked:** `RUSTERM_DART_KEY` is absent from the machine
+(measured, round 72). Korea shows no measures; TASK-61 F4 makes that
+visible instead of promising.
 
 **Open product debt: TASK-37 I2** (does-not-know) — TASK-47 O1. I1
 (question vs order) landed with TASK-46 N3, I3 and I4 are done. The

@@ -219,7 +219,7 @@ items already here, then two new ones:
   Until the chat door returns a client that implements what
   `ChatSession.ask` calls, a live-model test measures a fake.
 
-- [ ] B39 — `rusterm refresh --dry-run` prints `US-CLI-DEMO: ошибка (у
+- [x] B39 — закрыта ТЗ-50, коммит bdc03de — ошибка прохода refresh называет причину из словаря. Исходная формулировка: — `rusterm refresh --dry-run` prints `US-CLI-DEMO: ошибка (у
   эмитента нет CIK)`. «Ошибка» is not a reason: rule 2 of
   `agent/CONTEXT.md` §3 wants a token from `rusterm/reasons.py`, and a
   planning command that will never resolve an issuer should say so in
@@ -227,7 +227,7 @@ items already here, then two new ones:
   `is_known_reason` accepts its first token, asserted by a test —
   size: S
 
-- [ ] B40 — audit the remaining read-only commands the way B35 fixed
+- [x] B40 — закрыта ТЗ-50, коммит 3e75262 — budget/cadence/status/coverage не создают каталог. Исходная формулировка: — audit the remaining read-only commands the way B35 fixed
   `markets`: `budget`, `cadence`, `status` and `coverage` open the data
   directory through `_open`, which creates it. Decide per command
   whether it must create anything at all when the directory is absent —
@@ -240,7 +240,7 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
-- [ ] B38 — the interim `## HANDOFF` blocks pile up in a shift report:
+- [ ] B38 (координаторский — правит agent/PROTOCOL.md §5, исполнителю не выдаётся) — the interim `## HANDOFF` blocks pile up in a shift report:
   `REPORT-45.md` ends with two of them and a reader must know that the
   second supersedes the first. Once TASK-46 N1 makes the guard read the
   last one, collapse the convention into one line in `agent/PROTOCOL.md`
@@ -248,7 +248,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   `## HANDOFF (FINAL)` — accept: `grep -c '^## HANDOFF' agent/REPORT-46.md`
   is the number of passes, and the guard names the final block — size: S
 
-- [ ] B37 — `agent/selfcheck.sh` leaks its guard temp dir: the
+- [x] B37 — закрыта ТЗ-50 T6, коммит adad2e5; перепроверена 71d6fa9. Исходная формулировка: — `agent/selfcheck.sh` leaks its guard temp dir: the
   `mktemp -d` for the extracted `p1_rule.sh`/`p6_rule.sh` copies (TASK-37
   I5) has no trap, and the later `trap ... EXIT` for the acceptance file
   would replace one anyway — so every selfcheck run, i.e. every commit,
@@ -257,7 +257,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   `ls -d "${TMPDIR:-/tmp}"/selfcheck-guards.* 2>/dev/null` prints
   nothing — size: S
 
-- [ ] B36 — the M5 live model path, implemented behind the `live`
+- [x] B36 — закрыта ТЗ-58 C2, коммит eaa91d7 (живая модель под гвардом цитат; принято кругом 72). Исходная формулировка: — the M5 live model path, implemented behind the `live`
   marker (debt guarded by the TASK-9 V7 tripwire, which on 13.09.2026
   became a `live`-marked test instead of a default-run failure, see
   TASK-29 A3): a real model answers through the read-only tools with
@@ -265,7 +265,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   executes nothing (the TASK-7 T16 contract) — accept:
   `python3 -m pytest -m live tests/test_llm_real.py` with the key set
   is green — size: M
-- [ ] B34 — the OTC universe drift (12,794 live vs 12,867 in
+- [x] B34 — закрыта ТЗ-56, коммит 71d6fa9 — полоса допуска и даты живого счёта в agent/REPORT-MARKETS.md. Исходная формулировка: — the OTC universe drift (12,794 live vs 12,867 in
   `agent/REPORT-MARKETS.md`) gets a written tolerance instead of a
   finding repeated every night — accept: REPORT-MARKETS states the
   tolerance band and the date of the last live count — size: S
