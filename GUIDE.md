@@ -139,17 +139,20 @@ $ python3 -m rusterm.cli --root /tmp/rusterm-guide budget
 сетевой провайдер не работал: использовано 0, отказано 0 (записей в metric_sample нет)
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide markets
-US	US	exchange	edgar	cik	us-gaap	auto	implemented	edgar	1
-CA	CA	exchange	edgar	cik	ifrs-full	auto	implemented	edgar	1
-OTC	US	otc	edgar	cik	us-gaap	partial	implemented	edgar	1
-KR	KR	exchange	dart	corp_code	ifrs-full	auto	implemented	-	1
-BR	BR	exchange	cvm	cvm_code	ifrs-full	auto	implemented	cvm	1
-AU	AU	exchange	asx	asx_code	ifrs-full	partial	implemented	asx	1
+US	US	exchange	edgar	cik	us-gaap	auto	implemented	edgar	меры	1
+CA	CA	exchange	edgar	cik	ifrs-full	auto	implemented	edgar	—	1
+OTC	US	otc	edgar	cik	us-gaap	partial	implemented	edgar	—	1
+KR	KR	exchange	dart	corp_code	ifrs-full	auto	implemented	-	—	1
+BR	BR	exchange	cvm	cvm_code	ifrs-full	auto	implemented	cvm	—	1
+AU	AU	exchange	asx	asx_code	ifrs-full	partial	implemented	asx	—	1
 ```
 
 `markets` — реестр рынков: провайдер, схема идентификатора, уровень
 доступа (`auto` — качается само, `partial` — программа различает
-эмитентов до создания, `manual` — только ручной импорт). doctor
+эмитентов до создания, `manual` — только ручной импорт), степень
+канала — «сырьё» / «факты» / «меры» — вычислена из того, что канал
+реально произвёл в вашем каталоге (у демо US есть снапшот с мерами,
+остальные каналы ничего не дали). doctor
 печатает JSON-отчёт самопроверки базы и store (`python3 -m rusterm.cli
 --root ... doctor`).
 

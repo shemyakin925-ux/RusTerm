@@ -2020,6 +2020,14 @@ def cmd_markets(args) -> int:
     from rusterm.markets import MARKETS, provider_channel
     # только чтение реестра: каталог данных не создаётся (B35)
     paths, conn = _open_readonly(args.root)
+    # степень канала — из того, что канал произвёл в этой базе;
+    # базы нет (B35) или схема не готова — честное «—» (ТЗ-60 E4)
+    degrees = {}
+    if conn is not None:
+        try:
+            degrees = RepoRegistry(conn, paths).instrument.channel_degrees()
+        except Exception:
+            degrees = {}
     rows = []
     for m in MARKETS:
         rows.append({"code": m.code, "jurisdiction": m.jurisdiction,
@@ -2029,6 +2037,7 @@ def cmd_markets(args) -> int:
                      "access": m.access,
                      "provider_status": _provider_status(m.provider),
                      "channel": provider_channel(m.provider),
+                     "degree": degrees.get(m.code, "—"),
                      "issuers": _issuer_count(conn, paths)})
     if conn is not None:
         conn.close()
@@ -2040,7 +2049,7 @@ def cmd_markets(args) -> int:
               f"{row['venue_kind']}\t{row['provider']}\t"
               f"{row['identifier']}\t{row['default_taxonomy']}\t"
               f"{row['access']}\t{row['provider_status']}\t"
-              f"{row['channel'] or '-'}\t{row['issuers']}")
+              f"{row['channel'] or '-'}\t{row['degree']}\t{row['issuers']}")
     return 0
 
 

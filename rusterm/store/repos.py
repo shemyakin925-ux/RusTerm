@@ -112,6 +112,49 @@ class InstrumentRepo:
         return self.conn.execute(
             "SELECT COUNT(*) FROM issuer").fetchone()[0]
 
+    def channel_degrees(self) -> Dict[str, str]:
+        """Степень канала по рынку из того, что канал произвёл в этой
+        базе (ТЗ-60 E4): «меры» / «факты» / «сырьё», ничего — «—».
+        Считается, а не записывается: рынок без единого факта не может
+        показать «факты». Опоры: меры — инструменты рынка (префикс
+        instrument_id до «-», как в реестре пиров), факты — по
+        провайдеру источника факта (fact.source_ref → raw_object:
+        факт ручного импорта — работа пользователя, не канала),
+        сырьё — провайдер канала в raw_object. Слова одни с
+        `rusterm markets` и окном. SQL живёт в слое хранилища
+        (приёмка, пункт 7)."""
+        from rusterm.markets import MARKETS
+        degrees: Dict[str, str] = {}
+        for m in MARKETS:
+            prefix = m.code + "-%"
+            has_measures = self.conn.execute(
+                """SELECT EXISTS(SELECT 1 FROM measure
+                   JOIN snapshot ON measure.snapshot_id =
+                        snapshot.snapshot_id
+                   JOIN instrument ON snapshot.instrument_id =
+                        instrument.instrument_id
+                   WHERE instrument.instrument_id = ?
+                      OR instrument.instrument_id LIKE ?)""",
+                (m.code, prefix)).fetchone()[0]
+            if has_measures:
+                degrees[m.code] = "меры"
+                continue
+            has_facts = self.conn.execute(
+                """SELECT EXISTS(SELECT 1 FROM fact
+                   JOIN raw_object ON fact.source_ref =
+                        raw_object.sha256
+                   WHERE raw_object.provider = ?)""",
+                (m.provider,)).fetchone()[0]
+            if has_facts:
+                degrees[m.code] = "факты"
+                continue
+            has_raw = self.conn.execute(
+                "SELECT EXISTS(SELECT 1 FROM raw_object WHERE provider = ?)",
+                (m.provider,)).fetchone()[0]
+            if has_raw:
+                degrees[m.code] = "сырьё"
+        return degrees
+
     def upsert_listing(self, listing: Listing) -> None:
         with writer_transaction(self.conn) as c:
             c.execute(

@@ -163,3 +163,27 @@ NOW: E0, step 6 — blocked, handing the baton back
 - Verified: `pytest tests/test_guide_truth.py tests/test_desktop_door.py
   tests/test_cli.py tests/test_b40_readonly_commands.py -q` → 62 passed.
   Commit hook reruns the full selfcheck.
+
+- E4. Degree of a channel is computed, never written by hand:
+  `InstrumentRepo.channel_degrees()` (SQL stays in the store layer) reads
+  what the channel actually produced in this catalog — «меры» if any measure
+  exists for the market's instruments, «факты» if any fact's source
+  (`fact.source_ref` → `raw_object.provider`) came through the market's
+  channel, «сырьё» if the channel left any raw object, otherwise «—». A
+  manual-import fact carries provider `manual` and does not lift the
+  channel (test proves it). US/CA/OTC share edgar: its raw honestly shows
+  «сырьё» on all three.
+- `rusterm markets` (TSV and `--json`) carries `degree` per row; no catalog
+  → «—» everywhere and the catalog is not created (B35, test). The desktop
+  reads the same repository method (`desktop_data.channel_degrees`) and the
+  window's markets line appends the same words («AU — сырьё»); a test
+  asserts CLI json and the desktop dict are the same words, and a window
+  test drives the label.
+- `GUIDE.md` §5: the markets insert replaced with a real run on a rebuilt
+  catalog (init → demo → ingest → snapshot): US «меры», the rest «—»; prose
+  explains the degree. `agent/CONTEXT.md` M8 row brought to the new form.
+- Verified: `pytest tests/test_task60_e4_degree.py tests/test_markets.py
+  tests/test_guide_truth.py -q` → 17 passed; `pytest
+  tests/test_desktop_window.py tests/test_desktop_settings.py
+  tests/test_desktop_watchlist.py tests/test_b35_markets_readonly.py -q`
+  → 34 passed. Commit hook reruns the full selfcheck.

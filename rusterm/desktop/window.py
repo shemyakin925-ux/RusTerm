@@ -349,8 +349,15 @@ def _build_window(repos, paths, watchlist_id=None):
             sector_item.setExpanded(node["sector"] in expanded)
         present = {c["market"] for c in state["companies"]
                    if c["market"] != "—"}
-        markets_line.setText(
-            f"{len(present)} из {len(MARKET_CODES)} рынков")
+        # ТЗ-60 E4: степень канала теми же словами, что `rusterm markets`
+        degrees = data.channel_degrees(repos)
+        with_degree = sorted(
+            c for c in present if degrees.get(c, "—") != "—")
+        line = f"{len(present)} из {len(MARKET_CODES)} рынков"
+        if with_degree:
+            line += " · " + ", ".join(
+                f"{c} — {degrees[c]}" for c in with_degree)
+        markets_line.setText(line)
 
     def repaint_watchlists() -> None:
         """C5.1: списки в переключателе, версия и состав видны."""
