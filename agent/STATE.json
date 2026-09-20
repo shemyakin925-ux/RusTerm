@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-64.md",
  "report": "agent/REPORT-64.md",
- "item": "J1",
- "step": "gate usage recorded for add/edgar paths, budget sums rows, live used=2; committing",
- "status": "working",
+ "item": "J5",
+ "step": "J1-J5 done: counter truth, export provenance, advice, stages, explanations; awaiting review",
+ "status": "awaiting_review",
  "last_commit": "03fdbc7",
  "requests": 3,
  "net_requests": 3,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-20T14:04:51Z"
+ "updated_at": "2026-09-20T15:20:17Z"
 }

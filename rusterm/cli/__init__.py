@@ -12,12 +12,13 @@ import json
 import sys
 import uuid
 
-from rusterm.core.export import snapshot_to_csv, snapshot_to_json, \
+from rusterm.core.export import format_source_cell, refusal_advice, snapshot_to_csv, snapshot_to_json, \
     snapshot_to_md
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
 from rusterm.providers.budget import ConfigError, RequestGate
 from rusterm.providers import get_provider
 from rusterm.core.industry.aggregate import build_sector_aggregates
+from rusterm.core.snapshot import snapshot_measures_identical
 from rusterm.core.snapshot import SnapshotBuilder, stale_exclusions
 from rusterm.markets import MARKET_CODES
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION_IFRS
@@ -266,11 +267,14 @@ def cmd_ingest(args) -> int:
     pipe = IngestionPipeline(repos, providers)
     for instrument_id, issuer_id in runnable:
         result = pipe.run(instrument_id, issuer_id, "synthetic")
+        total_tags = result.facts_stored + result.unmapped_concepts
         print(f"{instrument_id}: заданий закрыто: {result.jobs_done}; "
               f"фактов: {result.facts_stored}; "
               f"дублей sha256: {result.duplicates}; неразобрано (E4): "
               f"{result.needs_verification}; suspect (E5): {result.suspects}; "
-              f"неотображённых концептов: {result.unmapped_concepts}")
+              f"неотображённых концептов: {result.unmapped_concepts} "
+              f"(теги вне карты концептов мерами не стали — это норма; "
+              f"карта узнала {result.facts_stored} из {total_tags})")
     conn.close()
     return exit_code
 
@@ -434,6 +438,8 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     # TASK-12 Y5: тёплого прогона карты тикеров здесь больше нет — CIK
     # уже пришёл из issuer.registry_id выше, а resolve тянул всю карту
     # тикеров (один запрос за прогон) и выбрасывал результат.
+    print(f"{instrument_id}: стадия загрузки — companyfacts "
+          "(data.sec.gov)…", file=sys.stderr, flush=True)
     facts = provider.fetch_companyfacts()
     if isinstance(facts, ConfigError):
         print(f"edgar недоступен: {facts.reason}", file=sys.stderr)
@@ -450,6 +456,8 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
               f"(companyfacts 404) — покрытие missing: no_sec_filings")
         return 0
     raw = json.dumps(facts, ensure_ascii=False, sort_keys=True).encode()
+    print(f"{instrument_id}: стадия записи — получено {len(raw)} байт…",
+          file=sys.stderr, flush=True)
     sha = hashlib.sha256(raw).hexdigest()
     if repos.raw.has(sha):
         print(f"{instrument_id}: companyfacts уже в store — пропущено")
@@ -933,6 +941,14 @@ def cmd_snapshot(args) -> int:
         result = builder.build(instrument_id, issuer_id, as_of)
         print(f"{instrument_id}: снапшот v{result.version}: "
               f"{result.snapshot_id}")
+        # ТЗ-64 J5: вторая сборка на тех же входах честно говорит
+        # «без изменений» (версия создаётся — append-only хранилище)
+        prev_id = repos.snapshot.previous_snapshot(instrument_id)
+        if prev_id is not None and snapshot_measures_identical(
+                repos.snapshot.get_measures(result.snapshot_id),
+                repos.snapshot.get_measures(prev_id)):
+            print(f"{instrument_id}: без изменений — значения "
+                  f"идентичны предыдущей версии")
         # «написано» и «имеет значение» — разные счётчики (TASK-8 U3)
         measures = repos.snapshot.get_measures(result.snapshot_id)
         with_value = sum(1 for m in measures if m[4] is not None)
@@ -985,9 +1001,33 @@ def cmd_export(args) -> int:
                       for m in measures}
     else:
         currencies = None
-    text = (snapshot_to_csv(measures) if args.format == "csv"
-            else snapshot_to_json(snapshot, measures, currencies=currencies)
-            if args.format == "json" else snapshot_to_md(measures))
+    # ТЗ-64 J2: происхождение едет в экспорт тем же путём по lineage,
+    # что у десктопного экспорта (одна реализация — core/export)
+    from rusterm.core.export import lineage_facts
+    from rusterm.store.repos import FactRepo
+    repos = RepoRegistry(conn, paths)
+    lineage = lineage_facts(repos, measures)
+    if args.format == "md":
+        from rusterm.core.export import refusal_advice
+        sources = [f"- {m[3]}: "
+                   f"{format_source_cell(lineage.get(m[0], [])) or 'входов нет'}"
+                   for m in measures]
+        lines = snapshot_to_md(measures).splitlines()
+        advised = []
+        for line in lines:
+            advised.append(line)
+            if line.startswith("- [") and ": " in line:
+                token = line.rsplit(": ", 1)[1].split(":", 1)[0].strip()
+                advice = refusal_advice(token, args.instrument)
+                if advice:
+                    advised.append(f"  что делать: {advice}")
+        text = ("\n".join(advised) + "\nИсточники:\n"
+                + "\n".join(sources) + "\n")
+    elif args.format == "json":
+        text = snapshot_to_json(snapshot, measures, provenance=lineage,
+                                currencies=currencies)
+    else:
+        text = snapshot_to_csv(measures)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(text)
@@ -2184,9 +2224,10 @@ def cmd_import(args) -> int:
     return exit_code
 
 
-def main(argv: list[str] | None = None) -> int:
-    from rusterm import env as env_module
-    env_module.load_env()  # RUSTERM_* из ~/.rusterm.env, если не в окружении
+def _build_parser() -> argparse.ArgumentParser:
+    """Построить парсер CLI (ТЗ-64 J3): извлечено из main, чтобы
+    тесты могли проверять советы разбором, не исполняя команду.
+    """
     parser = argparse.ArgumentParser(
         prog="rusterm", description="EquityLab: локальный терминал (ядро)")
     parser.add_argument("--root", default=".", help="каталог данных")
@@ -2346,6 +2387,13 @@ def main(argv: list[str] | None = None) -> int:
     p_ind.add_argument("--sector", required=True)
     p_ind.add_argument("--as-of", dest="as_of", default=None)
     p_ind.add_argument("--json", action="store_true")
+
+    return parser
+
+def main(argv: list[str] | None = None) -> int:
+    from rusterm import env as env_module
+    env_module.load_env()  # RUSTERM_* из ~/.rusterm.env, если не в окружении
+    parser = _build_parser()
     args = parser.parse_args(argv)
 
     commands = {

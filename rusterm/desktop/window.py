@@ -722,7 +722,9 @@ def _build_window(repos, paths, watchlist_id=None):
         if info is None or repos is None:
             return
         measure_row = info["measures"][row]
-        view = data.source_panel_view(repos, paths, measure_row)
+        view = data.source_panel_view(repos, paths, measure_row,
+                                      instrument_id=state["table"]
+                                      ["instrument_id"])
         source_panel.setText(view["text"])
         state["open_raw_target"] = view["open_target"]
         open_raw_button.setEnabled(view["open_target"] is not None)

@@ -533,47 +533,15 @@ def export_snapshot_measures(repos, instrument_id: str) -> Optional[list]:
 
 
 def source_cell(facts: list, shape: str = "table") -> str:
-    """Строка источника (ТЗ-62 G3): одна реализация для всех
-    поверхностей, форму задаёт параметр, а не своя копия. Документ,
-    хэш и период — одни и те же в любой форме. shape='table' — колонка
-    выгрузки (kind where #sha12 period); shape='export' — компактная
-    kind:sha12@period. Подпись графика источника не называет вовсе:
-    в ней нет места для хэша (см. chart_caption)."""
-    cells = []
-    for fact in facts:
-        locator = fact.get("locator")
-        if isinstance(locator, str):
-            try:
-                locator = json.loads(locator)
-            except ValueError:
-                locator = {"locator": locator}
-        kind = fact.get("source_kind") or "provider"
-        sha = str(fact.get("source_ref") or "")[:12]
-        period = fact.get("period_end") or ""
-        if shape == "export":
-            cells.append(f"{kind}:{sha}@{period}")
-            continue
-        if kind == "manual":
-            where = (locator or {}).get("locator", "") or "файл"
-        else:
-            where = ((locator or {}).get("endpoint")
-                     or (locator or {}).get("locator", ""))
-        cells.append(f"{kind} {where} #{sha} {period}".strip())
-    return "; ".join(cells)
+    """ТЗ-62 G3 -> ТЗ-64 J2: делегация единой реализации ядра."""
+    from rusterm.core.export import format_source_cell
+    return format_source_cell(facts, shape=shape)
 
 
 def _source_cell(repos, measure_row) -> str:
-    """Колонка источника (C4.3): канал или документ, локатор входного
-    факта, хэш сохранённого ответа, конец периода. У меры без входов
-    ячейка пуста — значения без источника не бывает. Формы — в
-    source_cell (ТЗ-62 G3)."""
-    facts = []
-    for fact_id in repos.snapshot.lineage_fact_ids(measure_row[0]):
-        fact = repos.fact.get_fact(fact_id)
-        if fact is None:
-            continue
-        facts.append(fact)
-    return source_cell(facts)
+    """ТЗ-64 J2: делегация единой реализации ядра."""
+    from rusterm.core.export import source_lineage_cell
+    return source_lineage_cell(repos, measure_row)
 
 
 def export_table_csv(repos, instrument_id: str) -> Optional[str]:
@@ -723,13 +691,16 @@ def raw_object_location(paths: AppPaths, sha256: str) -> dict:
     return {"path": str(path), "exists": path.exists()}
 
 
-def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
+def source_panel_view(repos, paths: AppPaths, measure_row: dict,
+                      instrument_id: str | None = None) -> dict:
     """C6.1/C6.3: панель источника целиком из source_panel модели и
     репозиториев — ничего не досчитано. Строки: концепт, метод,
     единица, документ с хэшем сохранённого ответа, период входного
     факта, путь к сырью; для отказа — причина и неподаанный концепт
-    по имени. open_target — путь к сырью первой записи, если файл
+    по имени, плюс совет действия теми же словами, что в CLI
+    (ТЗ-64 J3). open_target — путь к сырью первой записи, если файл
     есть; иначе None (окно скажет словами)."""
+    from rusterm.core.export import refusal_advice
     panel = tui_model.source_panel(repos, measure_row["measure"])
     lines = [f"источник {panel['concept']}"
              f" ({panel['method_version']})",
@@ -741,6 +712,10 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
         if tail:
             lines.append(f"не подан: {tail} — подстановки нет: "
                          "значение строится только из поданных фактов")
+        advice = (refusal_advice(tail, instrument_id or "")
+                  if instrument_id and tail else None)
+        if advice:
+            lines.append(f"что делать: {advice}")
     open_target = None
     for source in panel["sources"]:
         sha = str(source["document"])

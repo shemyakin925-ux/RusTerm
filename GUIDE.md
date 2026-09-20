@@ -71,7 +71,7 @@ demo-list --to 1`, `watchlist export/import`.
 
 ```console
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide ingest --instrument US-CLI-DEMO
-US-CLI-DEMO: заданий закрыто: 2; фактов: 6; дублей sha256: 0; неразобрано (E4): 0; suspect (E5): 0; неотображённых концептов: 1
+US-CLI-DEMO: заданий закрыто: 2; фактов: 6; дублей sha256: 0; неразобрано (E4): 0; suspect (E5): 0; неотображённых концептов: 1 (теги вне карты концептов мерами не стали — это норма; карта узнала 6 из 7)
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide snapshot --instrument US-CLI-DEMO
 US-CLI-DEMO: снапшот v1: 5c202d7f-12c0-42f4-92b9-8ebb516a783a

@@ -1116,3 +1116,14 @@ class SnapshotBuilder:
         diff.revisions = [(c, p) for c, p
                           in self._snapshots.restated_revisions(issuer_id)]
         return diff
+
+
+def snapshot_measures_identical(rows_a: list, rows_b: list) -> bool:
+    """ТЗ-64 J5: содержимое двух снапшотов совпадает — те же меры с
+    теми же величинами, единицами, периодами и причинами отказов.
+    Версия и идентификаторы не участвуют: сбор на тех же входах не
+    должен выдавать себя за изменение."""
+    def key(rows):
+        return sorted((m[3], str(m[4]), m[5], m[6], m[7],
+                       (m[10] or "")) for m in rows)
+    return key(rows_a) == key(rows_b)
