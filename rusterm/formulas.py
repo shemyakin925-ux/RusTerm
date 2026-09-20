@@ -84,11 +84,6 @@ def measure_unit(concept: str, input_unit: str = "") -> str:
     return kind
 
 
-def clip(x: float, lo: float, hi: float) -> float:
-    """Ограничение значения диапазоном."""
-    return max(lo, min(hi, x))
-
-
 def effective_tax_rate(tax_expense: float, pretax_income: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """effective_tax = tax_expense / pretax_income, БЕЗ clip (ТЗ-58 C4):
     ставка вне полосы [0, 0.5] — это не 0.0 и не 0.5, а отказ
@@ -114,7 +109,12 @@ def effective_tax_rate(tax_expense: float, pretax_income: float) -> Tuple[Option
 
 def invested_capital(total_equity: float, minority_interest: float,
                      total_debt: float, cash: float, st_investments: float) -> float:
-    """invested_capital = total_equity + minority_interest + total_debt - cash - st_investments."""
+    """invested_capital = total_equity + minority_interest + total_debt - cash - st_investments.
+
+    Арифметическое ядро: входы обязаны быть числами, None запрещён —
+    отказ с причиной из словаря даёт calculate_measure (B1.1: раньше
+    None здесь падал TypeError вместо отказа).
+    """
     return total_equity + minority_interest + total_debt - cash - st_investments
 
 
@@ -195,10 +195,11 @@ def asset_turnover(revenue: float, total_assets_begin: float, total_assets_end: 
 
 def nopat(operating_income: float, tax_rate: float) -> Optional[float]:
     """nopat = operating_income * (1 - effective_tax).
-    
+
     Если tax_rate None (нет данных) -> None.
     Если operating_income None -> None.
-    """
+    Причина отказа назначается в calculate_measure (B1.1: раньше случай
+    «ставки нет, доход есть» возвращал (None, None) — без причины)."""
     if operating_income is None:
         return None
     if tax_rate is None:
@@ -208,31 +209,41 @@ def nopat(operating_income: float, tax_rate: float) -> Optional[float]:
 
 def gross_margin(gross_profit: float, revenue: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """Gross Margin = gross_profit / revenue.
-    
-    Знаменатель <= 0 -> null.
+
+    Знаменатель <= 0 -> null: нулевой — denominator_zero, отрицательный
+    — negative_denominator, то же правило §1.4, что у pe/pb/ps (B1.1:
+    раньше отрицательная выручка молча давала знак-наоборот).
     """
+    if gross_profit is None or revenue is None:
+        return None, "missing_data"
     if revenue == 0:
         return None, "denominator_zero"
-    if revenue is None:
-        return None, "missing_data"
+    if revenue < 0:
+        return None, "negative_denominator"
     return gross_profit / revenue, None
 
 
 def operating_margin(operating_income: float, revenue: float) -> Tuple[Optional[float], Optional[NullReason]]:
-    """Operating Margin = operating_income / revenue."""
+    """Operating Margin = operating_income / revenue; правила знаменателя
+    те же, что у gross_margin."""
+    if operating_income is None or revenue is None:
+        return None, "missing_data"
     if revenue == 0:
         return None, "denominator_zero"
-    if revenue is None:
-        return None, "missing_data"
+    if revenue < 0:
+        return None, "negative_denominator"
     return operating_income / revenue, None
 
 
 def net_margin(net_income: float, revenue: float) -> Tuple[Optional[float], Optional[NullReason]]:
-    """Net Margin = net_income / revenue."""
+    """Net Margin = net_income / revenue; правила знаменателя те же,
+    что у gross_margin."""
+    if net_income is None or revenue is None:
+        return None, "missing_data"
     if revenue == 0:
         return None, "denominator_zero"
-    if revenue is None:
-        return None, "missing_data"
+    if revenue < 0:
+        return None, "negative_denominator"
     return net_income / revenue, None
 
 
@@ -439,9 +450,16 @@ def total_return(prices_adj: List[Tuple[str, float]]) -> Tuple[Optional[float], 
 
 def drawdown(prices_adj: List[Tuple[str, float]]) -> Tuple[Optional[float], Optional[NullReason]]:
     """drawdown(t) = price_adj(t) / max(price_adj[t0..t]) - 1; возвращает
-    максимальную просадку по ряду (наименьшее значение)."""
+    максимальную просадку по ряду (наименьшее значение).
+
+    Цена вне домена (<= 0) — отказ missing_data: nonpositive_price
+    (B1.1: ряд из неположительных цен раньше давал молчаливый 0.0 —
+    «просадки нет» — вместо отказа; настоящий ноль растущего ряда это
+    не подделывает, ряды различимы)."""
     if not prices_adj:
         return None, "missing_data"
+    if any(v <= 0 for _, v in prices_adj):
+        return None, "missing_data: nonpositive_price"
     peak = prices_adj[0][1]
     worst = 0.0
     for _, v in prices_adj:
@@ -472,59 +490,60 @@ def calculate_measure(
     null_reason = None
     
     if concept == "ebitda":
-        # ebitda = operating_income + d_and_a (если operating_income не раскрыт:
-        # revenue - cogs - opex + d_and_a)
+        # ebitda = operating_income + d_and_a; если operating_income не
+        # раскрыт: revenue - cogs - opex + d_and_a. B1.1: неполный путь
+        # раньше подменял ebitda голым operating_income — значение,
+        # заниженное на d_and_a, выглядело честным числом. Теперь отказ
+        # называет, каких концептов не хватает (X3).
         operating_income = kwargs.get("operating_income")
         d_and_a = kwargs.get("d_and_a")
         revenue = kwargs.get("revenue")
         cogs = kwargs.get("cogs")
         opex = kwargs.get("opex")
-        
-        if operating_income is not None:
-            value = operating_income
-            if d_and_a is not None:
-                value = operating_income + d_and_a  # already has d_and_a added? No, ebitda = operating_income + d_and_a
-                # Actually: ebitda = operating_income + d_and_a when operating_income is revealed
-                # If not revealed: revenue - cogs - opex + d_and_a
+
+        if operating_income is not None and d_and_a is not None:
+            value = operating_income + d_and_a
         elif all(x is not None for x in [revenue, cogs, opex, d_and_a]):
             value = revenue - cogs - opex + d_and_a
         else:
-            null_reason = "missing_data"
-    
+            if operating_income is not None:
+                # ближний путь: не хватает только d_and_a — не шумим
+                # отсутствием концептов второго пути
+                missing = ["d_and_a"]
+            else:
+                missing = sorted(name for name, v in (
+                    ("cogs", cogs), ("d_and_a", d_and_a),
+                    ("operating_income", operating_income),
+                    ("opex", opex), ("revenue", revenue)) if v is None)
+            null_reason = "missing_data: " + ", ".join(missing)
+
     elif concept == "gross_margin":
-        gp = kwargs.get("gross_profit")
-        rev = kwargs.get("revenue")
-        if gp is not None and rev is not None and rev != 0:
-            value = gp / rev
-        elif gp is None or rev is None or rev == 0:
-            null_reason = "denominator_zero" if rev == 0 else "missing_data"
-    
+        value, null_reason = gross_margin(
+            kwargs.get("gross_profit"), kwargs.get("revenue"))
+
     elif concept == "operating_margin":
-        oi = kwargs.get("operating_income")
-        rev = kwargs.get("revenue")
-        if oi is not None and rev is not None and rev != 0:
-            value = oi / rev
-        elif oi is None or rev is None or rev == 0:
-            null_reason = "denominator_zero" if rev == 0 else "missing_data"
-    
+        value, null_reason = operating_margin(
+            kwargs.get("operating_income"), kwargs.get("revenue"))
+
     elif concept == "net_margin":
-        ni = kwargs.get("net_income")
-        rev = kwargs.get("revenue")
-        if ni is not None and rev is not None and rev != 0:
-            value = ni / rev
-        elif ni is None or rev is None or rev == 0:
-            null_reason = "denominator_zero" if rev == 0 else "missing_data"
-    
+        value, null_reason = net_margin(
+            kwargs.get("net_income"), kwargs.get("revenue"))
+
     elif concept == "invested_capital":
-        te = kwargs.get("total_equity")
-        mi = kwargs.get("minority_interest")
-        td = kwargs.get("total_debt")
-        cash = kwargs.get("cash")
-        stinv = kwargs.get("st_investments")
-        if all(x is not None for x in [te, mi, td]) or _has_sufficient_ic_inputs(kwargs):
-            value = invested_capital(**kwargs)
+        # B1.1: раньше `invested_capital(**kwargs)` падал TypeError
+        # дважды — на нехватке cash/st_investments и на любом лишнем
+        # kwargе (period_start, lineage); теперь входы передаются
+        # явно, а нехватка названа по именам, а не крэшем. Настоящий
+        # ноль (все входы 0) остаётся 0.0 и отличим от отказа.
+        ic_inputs = {name: kwargs.get(name) for name in (
+            "total_equity", "minority_interest", "total_debt",
+            "cash", "st_investments")}
+        missing = sorted(name for name, v in ic_inputs.items()
+                         if v is None)
+        if missing:
+            null_reason = "missing_data: " + ", ".join(missing)
         else:
-            null_reason = "missing_data"
+            value = invested_capital(**ic_inputs)
     
     elif concept == "roic":
         nop = kwargs.get("nopat")
@@ -575,11 +594,14 @@ def calculate_measure(
             null_reason = "missing_data"
     
     elif concept == "nopat":
+        # B1.1: при живом operating_income и tax_rate=None мера
+        # возвращала (None, None) — ни значения, ни причины (I4).
+        # Теперь отказ missing_data в обоих случаях нехватки.
         oi = kwargs.get("operating_income")
         tr = kwargs.get("tax_rate")
         value = nopat(oi, tr)
         if value is None:
-            null_reason = "missing_data" if oi is None else None
+            null_reason = "missing_data"
     
     elif concept == "effective_tax":
         te = kwargs.get("tax_expense")
@@ -670,13 +692,3 @@ def calculate_measure(
         lineage=kwargs.get("lineage", []),
         scope=scope,
     )
-
-
-def _has_sufficient_ic_inputs(kwargs: dict) -> bool:
-    """Проверяет, достаточно ли данных для invested_capital."""
-    # invested_capital = total_equity + minority_interest + total_debt - cash - st_investments
-    # Минимум: total_equity + minority_interest + total_debt (остальное можно 0)
-    has_te = kwargs.get("total_equity") is not None
-    has_mi = kwargs.get("minority_interest") is not None
-    has_td = kwargs.get("total_debt") is not None
-    return has_te and has_mi and has_td
