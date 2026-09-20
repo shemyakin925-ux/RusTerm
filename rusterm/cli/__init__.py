@@ -438,6 +438,7 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     if isinstance(facts, ConfigError):
         print(f"edgar недоступен: {facts.reason}", file=sys.stderr)
         return 1
+    _record_gate_usage(repos, "edgar", gate)
     from rusterm.providers.base import ProviderError as _PE
     if isinstance(facts, _PE) and facts.reason == "no_sec_filings":
         # TASK-18 G5 (§0.3 ruling 4): «не подаёт XBRL в SEC» — ответ, а
@@ -471,6 +472,17 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     print(f"{instrument_id}: companyfacts загружены; фактов: "
           f"{len(fact_dicts)}; неотображённых концептов: {unmapped}")
     return 0
+
+
+def _record_gate_usage(repos, provider: str, gate) -> None:
+    """ТЗ-64 J1: расход гейта пишется немедленно в metric_sample —
+    budget и status называют число сделанных запросов, а не память.
+    Один хелпер для всякого пути через RequestGate."""
+    if gate is None:
+        return
+    import time as _time
+    repos.metrics.record_sample(_time.time(), "provider_requests_used",
+                                provider, float(gate.calls_made))
 
 
 def _record_cvm_budget(repos, gate) -> None:
@@ -699,7 +711,10 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
               f"rusterm add --ticker ... --market ...", file=sys.stderr)
         return 1
     if provider is None:
-        provider = get_provider("edgar", gate=RequestGate())
+        ownership_gate = RequestGate()
+        provider = get_provider("edgar", gate=ownership_gate)
+    else:
+        ownership_gate = None
     if isinstance(provider, ConfigError):
         print(f"edgar-провайдер недоступен: {provider.reason}",
               file=sys.stderr)
@@ -708,6 +723,7 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
 
     listed = provider.list_ownership(instrument_id,
                                      limit_per_form=limit_per_form)
+    _record_gate_usage(repos, "edgar", ownership_gate)
     if isinstance(listed, _PE):
         print(f"edgar: {listed.reason}", file=sys.stderr)
         repos.coverage.upsert(instrument_id, "ownership", "missing",
@@ -1241,6 +1257,9 @@ def cmd_status(args) -> int:
     applied = current_schema_version(conn)
     budget_samples = {s[1]: s[3] for s in repos.metrics.samples()
                       if s[1].startswith("provider_")}
+    requests_used = int(sum(
+        float(s[3]) for s in repos.metrics.samples()
+        if s[1] == "provider_requests_used"))
     payload = {
         "data_dir": str(paths.root),
         "schema_version": applied,
@@ -1259,6 +1278,7 @@ def cmd_status(args) -> int:
             "ceiling_per_night": 5000,
             "rate_per_second": 5,
             "provider_ran": bool(budget_samples),
+            "used": requests_used,
             "samples": budget_samples,
         },
         "env": env_module.report(),
@@ -1372,7 +1392,8 @@ def cmd_add(args) -> int:
         # а не провайдера, если гейт не передан (TASK-10 W0).
         # Провайдер — по строке реестра рынка (ADR-0010 §1), а не
         # захардкоженный edgar: у KR/BR/AU он свой (TASK-19 F3).
-        provider = get_provider(market_row.provider, gate=RequestGate())
+        add_gate = RequestGate()
+        provider = get_provider(market_row.provider, gate=add_gate)
         if isinstance(provider, (ConfigError, UnknownProvider)):
             reason = (provider.reason if isinstance(provider, ConfigError)
                       else f"provider_not_implemented:{provider.name}")
@@ -1389,6 +1410,7 @@ def cmd_add(args) -> int:
             return 1
         cik = cik if cik is not None else resolution["cik"]
         name = name or resolution.get("title") or args.ticker.upper()
+        _record_gate_usage(repos, market_row.provider, add_gate)
 
     if instruments.get_instrument(instrument_id) is not None:
         print(f"инструмент {instrument_id} уже существует")
@@ -1982,13 +2004,20 @@ def cmd_budget(args) -> int:
               "(записей в metric_sample нет)")
         return 0
     repos = RepoRegistry(conn, paths)
-    samples = {s[1]: s[3] for s in repos.metrics.samples()
-               if s[1].startswith("provider_")}
+    # ТЗ-64 J1: used — сумма ВСЕХ проб гейта (каждый сбор пишет свою),
+    # не память; samples — последняя проба по имени (ТЗ-56/57 пин)
+    used = 0
+    samples: dict[str, float] = {}
+    for s in repos.metrics.samples():
+        if s[1].startswith("provider_"):
+            samples[s[1]] = float(s[3])
+        if s[1] == "provider_requests_used":
+            used += int(float(s[3]))
     payload = {
         "ceiling_per_night": 5000,
         "rate_per_second": 5,
         "provider_ran": bool(samples),
-        "used": 0 if not samples else None,
+        "used": used,
         "refused": 0 if not samples else None,
         "samples": samples,
     }
@@ -2002,8 +2031,9 @@ def cmd_budget(args) -> int:
         print("сетевой провайдер не работал: использовано 0, отказано 0 "
               "(записей в metric_sample нет)")
     else:
-        for name in sorted(samples):
-            print(f"{name} = {samples[name]}")
+        print(f"использовано запросов: {used}")
+        for host in sorted(samples):
+            print(f"{host} = {samples[host]}")
     return 0
 
 
