@@ -236,6 +236,103 @@ items already here, then two new ones:
   the B35-style test — size: M
 
 
+## External review, 21.09.2026 — six items taken, the rest rejected
+
+Source: a 30-point improvement list produced by an outside model from
+the README and the commit titles. The coordinator checked every point
+against the code. Six are real and are queued below as B41-B46, in
+priority order. The rest are recorded here **with the reason they were
+rejected, so they are not re-proposed**:
+
+| Proposed | Verdict |
+|---|---|
+| structured logging instead of `print` | Already done — `rusterm/applog.py` is `logging` + `RotatingFileHandler`; zero `print(` in `rusterm/` outside `cli/`, where it is the program's output |
+| a `ProviderError` class | Exists — `rusterm/providers/base.py:8` |
+| exception subclasses `RateLimitError` / `AuthError` | **Forbidden.** Errors are values, not exceptions, on every provider path (CONTEXT §3 rule 5) |
+| Alembic | Versioning exists — `_SCHEMA_VERSION`, `_MIGRATIONS`, `_CUSTOM_MIGRATIONS` in `rusterm/store/db.py`; P2 protects applied migrations |
+| break the import cycles between `store`/`core`/`providers` | No cycle was named. I9/I10 forbid it and acceptance checks 7-9 enforce it machine-side |
+| formulas as a YAML/TOML DSL | **Rejected.** A measure carries `null_reason`, `lineage` and `method_version` and must refuse rather than invent; a DSL re-implements Python and weakens that. The live defect (`clip()` in `effective_tax`) is about honesty, not declarativeness |
+| pydantic / structlog / pybreaker / jinja2 / fuzzywuzzy / plotext / reportlab / babel / redis / semantic-release | `pyproject.toml` declares `dependencies = []` by decision; heavy things live in extras. A new mandatory dependency is a task with an ADR, never a backlog item |
+| benchmarks | `tests/test_m4_scale.py` exists (TASK-40 L6 made it load-tolerant) |
+| canary / feature flags for new markets | ADR-0013 already fixes the order of adding a market |
+| i18n (gettext/babel) | One local user, no value |
+| build a PySide6 desktop | Done — `rusterm/desktop/`, ADR-0004 and ADR-0023, lane C merged |
+| `tomllib` with a `tomli` fallback, for Python 3.10/3.11 (external review, 21.09.2026) | **Rejected.** `requires-python = ">=3.12"`; `tomllib` is stdlib from 3.11. A fallback is a new *mandatory* dependency for a Python the project does not support, and pip already refuses to install below the floor. Measured here: Python **3.14.6**, `import tomllib` ok |
+| disable `pytest-qt` in `addopts` / a root `conftest.py` (external review, 21.09.2026) | **Rejected.** The project neither uses nor installs `pytest-qt`; it is absent from this environment and the suite runs. A third-party plugin broken in someone else's environment is not a repository defect |
+| release notes, rollback CI, bandit | No release channel, no network-facing surface, no untrusted input outside the manual-import path that ADR-0016 already governs |
+
+- [ ] B41 — the model door caches its answers, so a repeated question
+  costs no free-tier request (ADR-0018). Key = sha256 over
+  (model name, full prompt, tool-result payloads); **only an accepted
+  answer is cached** — an answer rejected for an uncited number
+  (ADR-0016) is never stored. **Placement:** the table and its repo live
+  in `rusterm/store/` (SQL only there, check 7), the lookup is done by
+  the single door `make_intent_client` / `core/llm.py`; `providers/`
+  gets no SQL, or acceptance check 7 goes red the way TASK-30 B2 did —
+  accept: a test with a counting fake client asserts two identical asks
+  make **one** provider call, a different model name makes two, and a
+  rejected answer leaves the cache empty; `_SCHEMA_VERSION` bumped with
+  the schema-history pins updated in the same commit — size: M
+
+- [ ] B42 — a host that answered 403/429 is not hit again until it has
+  cooled down. Today `twelvedata` stops by value and `llm_api` retries
+  once with a backoff, but nothing remembers the refusal, so the next
+  command walks into the same wall and burns the nightly ceiling.
+  `RequestGate` gains a per-host `cooling_until`, set from `Retry-After`
+  when the response carries one and otherwise from a named constant; a
+  request to a cooling host returns `source_unreachable: cooling` as a
+  **value** and makes no HTTP call. **I10 holds:** `budget.py` imports
+  no store and no `sqlite3` — the state lives behind an injected
+  get/set port whose default is an in-process dict; a store-backed
+  implementation is a later item, not this one — accept: a test drives
+  a fake sender that answers 429, then asserts the next call inside the
+  window sends nothing and returns a reason whose first token
+  `is_known_reason` accepts, and that a call after the window sends
+  again; `gate.calls_made` unchanged by the suppressed call — size: M
+
+- [ ] B43 — an ingest killed in the middle leaves a database that still
+  opens and still tells the truth. The base is WAL with
+  `isolation_level=None`, i.e. autocommit, so a multi-step ingest can
+  commit half of itself; nothing measures what that half looks like —
+  accept: a test runs a synthetic-fixture ingest in a subprocess,
+  `kill -9`s it at a named step, then asserts `PRAGMA integrity_check`
+  returns `ok`, `doctor` reports no dangling reference in either
+  direction (B9), and re-running the same ingest is idempotent (B3).
+  Any inconsistency found is **reported, not fixed**, in the same pass;
+  the fix is a task — size: M
+
+- [ ] B44 — the commit hook runs a linter. `agent/githooks/pre-commit`
+  already runs selfcheck; add `ruff check` over the **staged** `*.py`
+  only, with the rule set written into `pyproject.toml`. Two hard
+  conditions: ruff stays an optional dev tool (`dependencies = []` is
+  untouched, `[project.optional-dependencies].dev` at most), and an
+  absent ruff prints one named skip line and leaves the hook green —
+  never red, never a silent pass. `mypy` is out of scope of this item —
+  accept: a staged file with an undefined name makes the hook red and
+  the commit fail; with ruff uninstalled the same commit succeeds and
+  the hook prints the skip line; `bash agent/selfcheck.sh` still green
+  — size: S
+
+- [ ] B45 — the TUI answers `?` with a key overlay and `/` with a
+  search over the current list (watchlist, snapshot rows, industry).
+  Both must survive 80x24 — the 44-line card crash is the precedent, so
+  the overlay paginates rather than assumes height. The test **drives
+  the key**, not the screen function: a function called directly proves
+  nothing about the key that opens it (CONTEXT §3, the `_chat_screen`
+  defect) — accept: a test feeds `?` then `q` and `/` + a substring
+  through the key loop at an 80x24 geometry and asserts the overlay
+  appears, filters, and closes without an exception — size: M
+
+- [ ] B46 — the TUI uses colour where it carries meaning (governance
+  green/amber/red, a null reason, a changed value). Measured
+  21.09.2026: `init_pair`, `color_pair` and `start_color` appear **zero**
+  times in `rusterm/tui/`. Colour is added only behind
+  `curses.has_colors()`, the monochrome path stays a first-class path,
+  and nothing here may put ANSI into piped output (B11) — accept: a test
+  asserts the screens render identically in content with colours forced
+  off, and that a terminal reporting no colour support takes the
+  monochrome path without an exception — size: S
+
 Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).

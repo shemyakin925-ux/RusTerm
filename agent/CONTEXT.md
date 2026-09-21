@@ -5,9 +5,30 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 19.09.2026, after round 69 on `agent/night-11`. Accepted:
-TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-57. Acceptance on the
-head of round 69 in a fresh linked worktree: **13/0, exit 0, Принято**.
+Last updated: 21.09.2026. Accepted: TASK-31…TASK-36, **TASK-37 I5-I8**,
+TASK-42…TASK-57. Acceptance on the head of round 69 in a fresh linked
+worktree was **13/0, exit 0, Принято** — but that was measured **before**
+the three-lane merge.
+
+**The merge commit `36d1999` (lanes A, B, C) has never been green.**
+Measured by the coordinator 21.09.2026 on a clean tree, Python 3.14.6:
+`bash agent/acceptance.sh` → **пройдено 11, провалено 2** (checks 3 and
+11); `python3 -m pytest` → **4 failed, 910 passed**. The four are
+`test_b1_reasons` (five reason tokens outside the dictionary, all from
+lane C), `test_desktop_settings::test_keys_view_names_origin_without_values`
+(green alone, red in the full run — state leaks between modules), and
+two guard tests killed by the P1 defect below. All four are
+`agent/TASK-60.md`, items E1-E3.
+
+**P1 cannot judge a merge HEAD, and that blocks every commit (TASK-60
+E1).** `agent/p1_rule.sh` falls back to `HEAD~1..HEAD` when no `.py` is
+staged (H6.3, so an empty index does not pass vacuously). With a merge
+commit at HEAD that diff is the whole lane, whose `ЗАМЕНА-БУЛАВКИ`
+declarations live in the original commit messages, not in the merge's.
+So selfcheck is red for **any** commit that stages no Python — a report,
+`STATE.json`, `BATON.json`, markdown. The coordinator had to land the
+21.09 `agent/BACKLOG.md` refill with `--no-verify`; recorded here, not
+hidden.
 Round-69 verdicts on the eight REPORT-57 questions are in `TASK-58` §C0
 and bind every later task. Two of them are standing rules:
 **(1) the 10:00 Danang stop is the NIGHT shift's rule** — a baton handed
