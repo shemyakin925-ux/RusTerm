@@ -484,6 +484,35 @@ class SnapshotRepo:
         keys = ("instrument_id", "snapshot_id", "version", "as_of")
         return [dict(zip(keys, r)) for r in rows]
 
+    def latest_annual_fact(self, issuer_id: str, canonical: str,
+                           min_days: int = 300) -> Optional[tuple]:
+        """ТЗ-69 P1: свежайший годовой (окно >= min_days дней) факт по
+        каноническим тегам входа, любой честный basis (as_reported или
+        restated). Знаменатель поток-меры: квартальный поток в годовой
+        мере — выдумка. SQL в слое хранилища."""
+        import datetime as _dt
+        # каноническое имя входа живёт в canonical_concept (карта
+        # концептов применяется при разборе), а не в сыром теге
+        rows = self.conn.execute(
+            """SELECT value, period_end, currency, fact_id, period_start
+               FROM fact WHERE issuer_id=? AND canonical_concept=?
+               AND status='ok' AND value IS NOT NULL
+               ORDER BY period_end DESC LIMIT 200""",
+            (issuer_id, canonical)).fetchall()
+        best = None
+        for value, end, currency, fact_id, start in rows:
+            if not start or not end:
+                continue
+            try:
+                numeric = float(value)
+                length = (_dt.date.fromisoformat(end)
+                          - _dt.date.fromisoformat(start)).days
+            except (TypeError, ValueError):
+                continue
+            if length >= min_days and (best is None or end > best[1]):
+                best = (numeric, end, currency, fact_id, start, length)
+        return best
+
     def previous_snapshot(self, instrument_id: str) -> Optional[str]:
         """Предпоследняя версия: база для diff текущей сборки."""
         row = self.conn.execute(

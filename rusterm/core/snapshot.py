@@ -718,6 +718,15 @@ class SnapshotBuilder:
     def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:
         return self._snapshots.fact_currency(fact_id)
 
+    def _latest_annual_input(self, issuer_id: str, canonical: str,
+                             min_days: int = 300) -> tuple | None:
+        """ТЗ-69 P1: свежайший ГОДОВОЙ (окно >= min_days дней) факт по
+        каноническому входу — знаменатель поток-меры. Квартальный поток
+        в знаменателе годовой меры — выдумка, а не значение. Теги
+        входа берутся из карты концептов (в фактах — сырые теги)."""
+        return self._snapshots.latest_annual_fact(issuer_id, canonical,
+                                                  min_days=min_days)
+
     # ── ТЗ-31 C2: входы оценочных мер из реальных данных ────────────────
 
     def _nci_never_reported(self, issuer_id: str) -> bool:
@@ -1013,7 +1022,7 @@ class SnapshotBuilder:
         nde_reason = None
         if nd_value is None:
             nde_reason = "missing_data: net_debt"
-        elif ebitda_value is None:
+        elif ebitda_value is None or ebitda_value <= 0:
             nde_reason = "missing_data: ebitda"
         else:
             nde_value = nd_value / ebitda_value
@@ -1024,46 +1033,60 @@ class SnapshotBuilder:
         write("net_debt_ebitda", nde_value, nde_reason, "ratio",
               nde_lineage)
 
-        # pe = price / eps_diluted (ratio)
-        eps = inputs.get("eps_diluted")
-        eps_cur = eps[2] if eps else None
-        pe_value = None
-        pe_reason = None
-        if eps is None:
-            pe_reason = "missing_data: eps_diluted"
-        elif eps_cur and price_currency and eps_cur != price_currency:
-            pe_reason = mismatch([eps_cur, price_currency])
+        # ТЗ-69 P1: pe = market_cap_total / net_income_ttm (словарь) —
+        # знаменатель: свежайший ГОДОВОЙ (>= 300 дней) net_income;
+        # квартального потока в годовой мере не бывает
+        annual = self._latest_annual_input(issuer_id, "net_income")
+        if annual is None:
+            pe_reason = "missing_data: net_income_ttm"
+            pe_lineage = []
+            pe_value = None
         else:
-            pe_value = price_value / eps[0]
-        write("pe", pe_value, pe_reason, "ratio",
-              self._fact_lineage(eps[3] if eps else None))
+            ni_value, ni_end, _unit, ni_fact, ni_start, _len = annual
+            if total_value is None:
+                pe_reason = "missing_data: market_cap_total"
+                pe_lineage = []
+                pe_value = None
+            elif ni_value <= 0:
+                pe_reason = "missing_data: net_income"
+                pe_lineage = []
+                pe_value = None
+            else:
+                pe_value = total_value / ni_value
+                pe_reason = None
+                pe_lineage = [{"fact_id": ni_fact,
+                               "peer_measure_id": None,
+                               "role": (f"input:годовое окно "
+                                        f"{ni_start}…{ni_end}")}]
+        write("pe", pe_value, pe_reason, "ratio", pe_lineage)
 
-        # ps = market_cap_total / revenue (ratio)
-        revenue = inputs.get("revenue")
-        rev_cur = revenue[2] if revenue else None
+        # ps = market_cap_total / revenue_ttm (словарь): годовой вход
+        annual_rev = self._latest_annual_input(issuer_id, "revenue")
         ps_value = None
         ps_reason = None
         if total_value is None:
             ps_reason = "missing_data: market_cap_total"
-        elif revenue is None:
-            ps_reason = "missing_data: revenue"
-        elif rev_cur and price_currency and rev_cur != price_currency:
-            ps_reason = mismatch([rev_cur, price_currency])
+        elif annual_rev is None:
+            ps_reason = "missing_data: revenue_ttm"
         else:
-            ps_value = total_value / revenue[0]
-        write("ps", ps_value, ps_reason, "ratio",
-              self._fact_lineage(revenue[3] if revenue else None))
+            ps_value = total_value / annual_rev[0]
+        ps_lineage = ([{"fact_id": annual_rev[3],
+                        "peer_measure_id": None,
+                        "role": (f"input:годовое окно "
+                                 f"{annual_rev[4]}…{annual_rev[1]}")}]
+                      if annual_rev is not None else [])
+        write("ps", ps_value, ps_reason, "ratio", ps_lineage)
 
-        # fcf_yield = fcf / market_cap_total (ratio; fcf — проход 1)
+        # fcf_yield = fcf_ttm / market_cap (класс, словарь)
         fcf_value = computed.get("fcf")
         fcfy_value = None
         fcfy_reason = None
-        if total_value is None:
-            fcfy_reason = "missing_data: market_cap_total"
+        if mcap_value is None:
+            fcfy_reason = "missing_data: market_cap"
         elif fcf_value is None:
             fcfy_reason = "missing_data: fcf"
         else:
-            fcfy_value = fcf_value / total_value
+            fcfy_value = fcf_value / mcap_value
         fcf_mid = measure_row_ids.get("fcf")
         fcfy_lineage = ([{"fact_id": None,
                           "peer_measure_id": fcf_mid,
