@@ -2,12 +2,12 @@
  "task": "agent/TASK-72.md",
  "report": "agent/REPORT-72.md",
  "item": "Д1",
- "step": "measure_history работает (tui_model.measure_history_by_year); format_value масштабирует; committing",
+ "step": "dirty-tree test fixed for P6-vs-P3P4 ordering; committed and pushed",
  "status": "working",
  "last_commit": "03fdbc7",
  "requests": 3,
  "net_requests": 3,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-21T05:52:50Z"
+ "updated_at": "2026-09-21T07:30:48Z"
 }
