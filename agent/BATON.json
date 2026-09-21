@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 92,
+ "holder": "coordinator",
+ "round": 93,
  "branch": "agent/night-11",
  "task": "agent/TASK-69.md",
  "report": "agent/REPORT-69.md",
- "note": "ТЗ-68: N2, N3, N4 приняты, N1 ВОЗВРАЩЁН. pe=166.4 и ps=44.9 у Apple завышены вчетверо — квартальный поток поделён как годовой; snapshot.py считает pe = price/eps_diluted, а словарь formulas.py определяет pe = market_cap_total / net_income_ttm: реализация разошлась со словарём, годового приближения в lineage нет вопреки ADR-0021. Приёмка дала 13/0 — значит дыра и в ней: P3 требует проверки внутренней согласованности (два пути расчёта обязаны сойтись), а не выдуманных границ.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-20T23:14:10Z",
+ "note": "ТЗ-69 DONE: пять мер по словарю data-dictionary (годовой вход, честные отказы при квартальном знаменателе), страж lineage-входов pe, согласованность двух путей pe в тесте, 20 из 28 живьём (pe 43.84, ps 11.80 — реалистично); GUIDE и CONTEXT обновлены.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-21T01:53:28Z",
  "paused": false,
  "finished": false
 }
