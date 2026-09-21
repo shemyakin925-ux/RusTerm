@@ -64,7 +64,7 @@ _CHAIN_MEASURES: dict[str, dict[str, str]] = {
 # сумма долга), hhi (нужны пиры), price_adj/total_return/drawdown
 # (нужен ряд цен, а не одна закрытая).
 _UNMAPPED_FORMULAS: tuple[str, ...] = (
-    "invested_capital", "total_return", "drawdown", "price_adj", "hhi",
+    "total_return", "drawdown", "price_adj", "hhi",
 )
 
 # Канонические входы оценочных мер, которых нет в карте V0 (ТЗ-23 K4).
@@ -846,7 +846,7 @@ class SnapshotBuilder:
         concepts = ("market_cap", "market_cap_total", "ev", "pb",
                     "ev_ebitda", "div_yield", "roic",
                     "pe", "ps", "fcf_yield", "net_debt",
-                    "net_debt_ebitda")
+                    "net_debt_ebitda", "invested_capital")
         price = (self._prices.price_as_of(instrument_id, as_of)
                  if self._prices is not None else None)
         if price is None:
@@ -1032,6 +1032,26 @@ class SnapshotBuilder:
                          "role": "from_ebitda"}] if ebitda_mid else [])
         write("net_debt_ebitda", nde_value, nde_reason, "ratio",
               nde_lineage)
+
+        # ТЗ-71 R2: invested_capital = total_equity + total_debt
+        # - cash - st_investments (словарь; minority = 0 для AAPL
+        # подтверждён ТЗ-68 N3, отсутствие названо в lineage)
+        ic_value = None
+        ic_reason = None
+        ic_missing = sorted(
+            name for name, v in (
+                ("total_equity", equity), ("total_debt", debt),
+                ("cash", cash), ("st_investments", stinv)) if v is None)
+        if ic_missing:
+            ic_reason = "missing_data: " + ", ".join(ic_missing)
+        else:
+            ic_value = (equity[0] + debt[0] - cash[0] - stinv[0])
+        ic_lineage = []
+        for c in ("total_equity", "total_debt", "cash", "st_investments"):
+            if inputs.get(c):
+                ic_lineage += self._fact_lineage(inputs[c][3])
+        ic_mid = write("invested_capital", ic_value, ic_reason,
+                       price_currency or "", ic_lineage)
 
         # ТЗ-69 P1: pe = market_cap_total / net_income_ttm (словарь) —
         # знаменатель: свежайший ГОДОВОЙ (>= 300 дней) net_income;
