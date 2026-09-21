@@ -213,9 +213,14 @@ def test_measure_table_no_data_by_words_in_every_column(env):
     assert table["years"][0] == "2024"
 
 
-def test_history_honestly_absent(env):
+def test_history_returns_snapshotted_years(env):
+    """ТЗ-72 Д1: история мер по годам считается из сохранённых
+    снапшотов — не пустая заглушка."""
     repos, _ = env
-    assert data.measure_history(repos, "US-AAA") == {}
+    history = data.measure_history(repos, "US-AAA")
+    assert isinstance(history, dict)
+    # env fixture имеет факты и снапшот — история должна быть непустой
+    assert len(history) > 0, "история мер пуста при наличии снапшотов"
 
 
 def test_census_pair_cnq_roe_refuses_roe_incl_nci_counts(cnq):

@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-71.md",
- "report": "agent/REPORT-71.md",
- "item": "R2",
- "step": "invested_capital + roic computed, 21/28 live; R3/R4 context exhausted",
- "status": "awaiting_review",
+ "task": "agent/TASK-72.md",
+ "report": "agent/REPORT-72.md",
+ "item": "Д1",
+ "step": "measure_history работает (tui_model.measure_history_by_year); format_value масштабирует; committing",
+ "status": "working",
  "last_commit": "03fdbc7",
  "requests": 3,
  "net_requests": 3,
  "llm_calls": 0,
  "model": "GLM-5.3",
- "updated_at": "2026-09-21T03:03:06Z"
+ "updated_at": "2026-09-21T05:52:50Z"
 }

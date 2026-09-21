@@ -414,3 +414,28 @@ def render_chat(screen: dict) -> list[str]:
             lines.append(f"   цитата: {citation}")
     lines.append(f"вызовов: {screen['calls']}; модель: {screen['model']}")
     return lines
+
+
+def measure_history_by_year(repos, instrument_id: str) -> dict[str, dict[str, float]]:
+    """ТЗ-72 Д1: история мер по годам из ВСЕХ сохранённых снапшотов.
+
+    Проходит по снапшотам инструмента (свежайший период каждой меры в
+    каждом), извлекает год из as_of и строит {год: {концепт: значение}}.
+    Используется окном и CLI/TUI — одна реализация для всех лиц."""
+    out: dict[str, dict[str, float]] = {}
+    snapshots = repos.snapshot.latest_per_instrument()
+    for s in snapshots:
+        if s["instrument_id"] != instrument_id:
+            continue
+        sid = s["snapshot_id"]
+        year = s["as_of"][:4]
+        for m in repos.snapshot.get_measures(sid):
+            if m[4] is None:
+                continue
+            concept = m[3]
+            try:
+                val = float(m[4])
+            except (TypeError, ValueError):
+                continue
+            out.setdefault(year, {})[concept] = val
+    return out

@@ -185,14 +185,9 @@ def history_years(card: dict, count: int = MIN_YEAR_COLUMNS) -> list[str]:
     return [str(anchor_year - i) for i in range(count)]
 
 
-def measure_history(repos, instrument_id: str) -> dict[str, dict]:
-    """История мер по годам. Пусто — и это честно: двери нет.
-
-    tui/model.py истории не отдаёт (снапшот хранит свежайший период
-    меры), а своей выборки окно не пишет (C1.2). Координатору —
-    Disputed: нужна функция модели поверх билдера снапшотов.
-    """
-    return {}
+def measure_history(repos, instrument_id: str) -> dict[str, dict[str, float]]:
+    """ТЗ-72 Д1: та же дверь, что у CLI/TUI — не пустой заглушка."""
+    return tui_model.measure_history_by_year(repos, instrument_id)
 
 
 def measure_table_rows(repos, instrument_id: str,
