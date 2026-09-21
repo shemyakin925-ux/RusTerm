@@ -43,8 +43,8 @@
 
 Status: DONE
 Arrival state: task taken round 92 on 993b11e, selfcheck green
-Items done: P1 (пять мер по словарю), P2 (страж lineage-входов),
-P3 (согласованность двух путей pe), P4 (firsthour + live + CONTEXT)
+Items done: все пять мер по словарю, страж lineage-входов,
+согласованность двух путей, firsthour с ценами и live прогон, CONTEXT
 Items not done: none
 Acceptance: «Итог: пройдено 13, провалено 0» на хуке каждого коммита
 круга; полный вывод приёмки — в commit body
