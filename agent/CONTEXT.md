@@ -189,7 +189,9 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |
 
 Data reaching a user today: **US 10 measures of 10 plus real prices;
-CA 4/10 on CNQ; OTC 7/10 on NGGTF** (all three through EDGAR; the
+CA 4/10 on CNQ; OTC 7/10 on NGGTF; AAPL first-hour: 20/28 measures
+valued after ТЗ-68 N1 + ТЗ-69 P1 (five measures moved into the
+valuation pass per the dictionary)** (all three through EDGAR; the
 TASK-49 census also measured RY 4/10, BMO 5/10, CPTP 3/10 offline).
 Everything else is a named refusal with the missing concept in the
 continuation (full table: `agent/REPORT-49.md`, replay offline via
