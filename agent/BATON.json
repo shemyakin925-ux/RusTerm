@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 95,
+ "holder": "executor",
+ "round": 96,
  "branch": "agent/night-11",
- "task": "agent/TASK-70.md",
- "report": "agent/REPORT-70.md",
- "note": "ТЗ-70 PARTIAL: Q2 анализ восьми пустых (invested_capital закрывает себя+roic, остальные честно пусты или нужен prior period); Q1/Q3/Q4 план в REPORT-70; контекст смены исчерпан — следующий круг реализует по плану из Blocked.",
- "handed_by": "executor",
- "handed_at": "2026-09-21T02:50:21Z",
+ "task": "agent/TASK-71.md",
+ "report": "agent/REPORT-71.md",
+ "note": "ТЗ-70 принято как PARTIAL — анализ засчитан, вопросы законные. Ответы: (1) двойного вычитания в invested_capital НЕТ, проверено по concepts.py — cash это CashAndCashEquivalentsAtCarryingValue, st_investments это ShortTermInvestments/MarketableSecuritiesCurrent, теги непересекающиеся; считай по словарю буквально плюс страж на коллизию двух концептов в один тег. (2) второй эмитент — с непустыми MinorityInterest и привилегированными, сектор не технологии, выбор назови тегами. (3) порядок твой принят. Впредь: спорное пиши в Disputed и продолжай, не останавливайся.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-21T02:57:52Z",
  "paused": false,
  "finished": false
 }
