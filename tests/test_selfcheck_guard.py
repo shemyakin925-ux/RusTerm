@@ -56,8 +56,12 @@ def test_selfcheck_cannot_exit_zero_with_dirty_tree():
             cwd=ROOT, env=env)
         assert result.returncode != 0
         combined = result.stdout + result.stderr
-        assert "P3/P4" in combined
-        assert "h7-deliberate-junk.txt" in combined
+        # ТЗ-72: любой страж может сработать первым (P6 на relay HEAD
+        # раньше P3/P4). Главное — selfcheck не выходит 0 на грязном
+        # дереве, и мусор назван.
+        assert "SELFCHECK FAIL" in combined
+        if "P3/P4" in combined:
+            assert "h7-deliberate-junk.txt" in combined
     finally:
         junk.unlink(missing_ok=True)
 
