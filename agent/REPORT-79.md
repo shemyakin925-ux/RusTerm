@@ -226,3 +226,30 @@ Budget: network 0 honoured — no request was made; every number in this
 report comes from local git history and repo files.
 Last commit: see `agent/STATE.json`.
 NOW: hand to coordinator, step 1
+
+## Note on the queue (appended; the final HANDOFF above still decides)
+
+TASK-79 closes with both items done, and the header offers TASK-77 next.
+I am not taking it in this circle, for two measured reasons rather than
+convenience:
+
+1. Budget collision. This baton's ТЗ states `Budgets: network 0`;
+   TASK-77's X1/X2 require up to 60 live requests (X2: "прогнана живьём
+   в пределах бюджета 60 запросов"). Spending network under a baton that
+   forbids it would be a violation of the file that currently governs
+   the circle, and I cannot resolve that from the ТЗ text — the
+   coordinator can, in one line of the next baton.
+2. One report per acceptance. TASK-77 names `agent/REPORT-77.md` and its
+   own `hand --report`, while `agent/STATE.json` carries a single
+   `report` field that the section guards and the round guard read.
+   Merging the two circles would make TASK-77's evidence invisible to
+   `test_report_carries_every_required_section` and
+   `test_done_items_have_code_commits_in_round`. Precedent: round 103
+   brief also listed TASK-77 next, TASK-76 was handed alone and accepted.
+
+So: TASK-77 is ready to be issued with its own budgets in force. Before
+it is issued, the authorization lines of TASK-73 (line 89) and TASK-74
+(line 75) need the flat one-path-per-line form — see the table in
+`## Done #2`; otherwise TASK-74 will redden the Z2 guard at hand time
+and lock the relay for a header typo, which is exactly the failure Z2
+exists to make loud.
