@@ -226,30 +226,24 @@ def test_stale_report61_handoff_reds_the_guard():
     assert set(committed) == {"F2", "F3", "F4"}, committed
 
 
-def test_done_items_have_code_commits_in_round():
-    """ТЗ-66 L3: пункт из «Items done» обязан быть назван коммитом
-    круга, который трогает не только tests/ — отчёт отвечает за свои
-    слова реализацией, а не декларацией."""
-    handoff = "\n".join(_handoff_section(_report_text()))
-    done_ids: list[str] = []
-    for line in handoff.splitlines():
-        if "items done" in line.lower():
-            done_ids += re.findall(r"\b[A-Z]\d+\b", line)
-    if not done_ids:
-        pytest.skip("в отчёте нет пунктов Items done")
-    # ТЗ-76 W1: делит РАЗДЕЛИТЕЛЬ, а не пустая строка. `--name-only`
-    # ставит пустую строку МЕЖДУ темой и списком файлов, поэтому
-    # split("\n\n") резал блок ровно по теме: первой строкой
-    # следующего блока оказывалось ИМЯ ФАЙЛА, и тема не совпадала
-    # никогда. Страж проходил только через staged-фолбэк — то есть в
-    # обычном прогоне не проверял ничего, а на чистом дереве краснел
-    # (ТЗ-75, Disputed: приёмка 11/13). %x1e начинает каждый коммит
-    # своим байтом, и тема снова первая строка блока.
-    log = subprocess.run(
-        ["git", "log", "--format=%x1e%h %s", "--name-only"],
-        cwd=REPO, capture_output=True, text=True, check=True)
+def _l3_missing(done_ids: list[str], log_text: str,
+                staged: list[str]) -> list[str]:
+    """Ядро L3 (ТЗ-66 L3, зубы — ТЗ-76 W1): те пункты из «Items done»,
+    у которых нет коммита круга, трогающего что-то кроме tests/.
+
+    Разделитель блоков — %x1e, а не пустая строка: `--name-only` ставит
+    пустую строку МЕЖДУ темой и списком файлов, поэтому деление по
+    пустой строке делало первой строкой блока ИМЯ ФАЙЛА, тема не
+    совпадала никогда, и страж проверял только staged-фолбэк (ТЗ-75,
+    Disputed: приёмка 11/13 на чистом дереве).
+
+    `staged` — список файлов индекса; фолбэк ТЗ-66 L2 (пункт
+    материализуется этим же коммитом) включается только когда среди них
+    есть нетестовый. Пустой список отключает фолбэк — так делают его в
+    тестах-зубах, чтобы вырожденность парсера не прикрывал живая правка
+    индекса."""
     named: dict[str, bool] = {}
-    for block in log.stdout.split("\x1e"):
+    for block in log_text.split("\x1e"):
         lines_ = [l for l in block.strip().splitlines() if l.strip()]
         if not lines_:
             continue
@@ -261,14 +255,84 @@ def test_done_items_have_code_commits_in_round():
                     not f.startswith("tests/") for f in files if "/" in f
                     or f.endswith(".py") or f.endswith(".md"))
     missing = [iid for iid in done_ids if not named.get(iid)]
-    if missing:
-        # ТЗ-66 L2: пункт materializуется ЭТИМ же коммитом — staged
-        # дифф, трогающий не только tests/, честно закрывает претензию
-        staged = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"], cwd=REPO,
-            capture_output=True, text=True).stdout.splitlines()
-        if any(not f.startswith("tests/") for f in staged):
-            missing = []
+    if missing and any(not f.startswith("tests/") for f in staged):
+        missing = []
+    return missing
+
+
+def _git_log_name_only() -> str:
+    return subprocess.run(
+        ["git", "log", "--format=%x1e%h %s", "--name-only"],
+        cwd=REPO, capture_output=True, text=True, check=True).stdout
+
+
+def test_done_items_have_code_commits_in_round():
+    """ТЗ-66 L3: пункт из «Items done» обязан быть назван коммитом
+    круга, который трогает не только tests/ — отчёт отвечает за свои
+    слова реализацией, а не декларацией."""
+    handoff = "\n".join(_handoff_section(_report_text()))
+    done_ids: list[str] = []
+    for line in handoff.splitlines():
+        if "items done" in line.lower():
+            done_ids += re.findall(r"\b[A-Z]\d+\b", line)
+    if not done_ids:
+        pytest.skip("в отчёте нет пунктов Items done")
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"], cwd=REPO,
+        capture_output=True, text=True).stdout.splitlines()
+    missing = _l3_missing(done_ids, _git_log_name_only(), staged)
     assert not missing, (
         f"пункты {missing} объявлены сделанными, но коммита круга с "
         f"реализацией (не только tests/) не найдено")
+
+
+
+# ── ТЗ-76 W1: зубы у L3 ─────────────────────────────────────────────────
+
+# Форма вывода `git log --format=%x1e%h %s --name-only`: разделитель
+# %x1e, тема, ПУСТАЯ СТРОКА, список файлов. Литерал, а не живой прогон:
+# текст не должен меняться вместе с историей ветки.
+FAKE_LOG = (
+    "\x1e1111111 ТЗ-76 Q7: окно читает историю по периоду меры\n"
+    "\n"
+    "rusterm/desktop/data.py\n"
+    "tests/test_desktop_history.py\n"
+    "\x1e2222222 Эстафета: круг 101, ход у executor\n"
+    "\n"
+    "agent/BATON.json\n"
+)
+
+
+def test_l3_finds_the_item_by_subject_with_files_attached():
+    """Зубы: Q7 закрыт коммитом с кодом — страж зелёный на настоящем
+    формате. Дегенерация парсера (деление по пустой строке, как было до
+    починки) этот же текст читает иначе и тест краснеет."""
+    assert _l3_missing(["Q7"], FAKE_LOG, []) == []
+
+
+def test_blank_line_split_leaves_the_subject_block_without_files():
+    """Почему прежний парсер был пустым: при `split("\\n\\n")` блок,
+    где стоит тема, оказывается ОДНОСТРОЧНЫМ — файлы уезжают в
+    соседний блок, и `any(не tests/)` не видит ничего. Если форма
+    вывода git изменится так, что старое деление снова заработает, —
+    этот тест красный и W1 пересматривается."""
+    naive = [b for b in FAKE_LOG.replace("\x1e", "").split("\n\n")
+             if b.strip()]
+    subject_block = next(b for b in naive if "Q7" in b)
+    assert len(subject_block.splitlines()) == 1, subject_block
+
+
+def test_l3_flags_an_item_that_no_commit_carries():
+    """Заведомо несуществующий пункт Z9 не находит оправдания на живой
+    истории ветки: фолбэк индекса в этом тесте отключен явным пустым
+    staged-списком, а не унаследован от рабочего дерева."""
+    assert _l3_missing(["Z9"], _git_log_name_only(), []) == ["Z9"]
+
+
+def test_l2_staged_fallback_only_opens_for_a_non_test_file():
+    """Как именно фолбэк не маскирует вырожденность: он проверяется
+    отдельно и только на переданном списке. Индекс живого прогона в
+    зубы не подмешивается."""
+    log = _git_log_name_only()
+    assert _l3_missing(["Z9"], log, ["tests/test_x.py"]) == ["Z9"]
+    assert _l3_missing(["Z9"], log, ["rusterm/x.py"]) == []
