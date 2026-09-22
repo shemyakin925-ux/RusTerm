@@ -50,6 +50,39 @@ pytest 972 passed / 3 skipped / 4 xfailed / 0 failed.
     2026-09-15), so the MSFT/ADBE counts from the baton note are not
     reproducible on this machine today.
 
+- **Д2.** The watchlist label no longer lies: `repaint_watchlists`
+  syncs box/state/label — when the requested id is absent from the
+  list of choices, the first list is shown and the label describes
+  THAT list; «списков нет» appears only when there are truly no
+  watchlists. Startup re-reads the sidebar after the sync, so the
+  visible list and the left column are about the same list.
+  - Red before the fix (quote):
+    `FAILED tests/test_desktop_window.py::test_watchlist_label_agrees_on_stale_id`
+    — `'списков нет' is contained here: списков нет`;
+    `FAILED tests/test_desktop_window.py::test_watchlist_window_start_without_id_is_honest`.
+  - After: `tests/test_desktop_window.py` → 22 passed (exit 0);
+    commit 06e390e, selfcheck OK.
+
+
+
+- **Д4.** The source panel leads with the essentials (concept,
+  value, unit, reason, document+hash+period) and collapses the
+  stale-input wall into one line «устаревших входов: N, самый свежий
+  X»; the full list expands on demand via a dedicated button (and
+  stale_detail=True in the data layer).
+  - Red before the fix (quote):
+    `FAILED tests/test_desktop_data.py::test_source_panel_collapses_stale_inputs`
+    — the panel carried 25+ per-entry «устаревший (последний
+    2009-12-31, anchor 2024-12-31)» lines and the line-count assert
+    read `28 <= 12`.
+  - First commit attempt was rejected by the hook:
+    test_refusal_panel_names_missing_concept hit KeyError 'current' on
+    the partial row built by the test helper; the value read is now
+    robust (fallback to format_value of the measure dict), the test's
+    asserts themselves unchanged.
+  - After: the three desktop test files → 49 passed (exit 0),
+    including the button click/expand/collapse round-trip on a
+    25-stale-input base.
 ## Blocked
 
 ## What not to trust
@@ -93,26 +126,13 @@ Questions for the coordinator:
 
 NOW: V1, step 8
 
-- **Д2.** The watchlist label no longer lies: `repaint_watchlists`
-  syncs box/state/label — when the requested id is absent from the
-  list of choices, the first list is shown and the label describes
-  THAT list; «списков нет» appears only when there are truly no
-  watchlists. Startup re-reads the sidebar after the sync, so the
-  visible list and the left column are about the same list.
-  - Red before the fix (quote):
-    `FAILED tests/test_desktop_window.py::test_watchlist_label_agrees_on_stale_id`
-    — `'списков нет' is contained here: списков нет`;
-    `FAILED tests/test_desktop_window.py::test_watchlist_window_start_without_id_is_honest`.
-  - After: `tests/test_desktop_window.py` → 22 passed (exit 0);
-    commit 06e390e, selfcheck OK.
-
 ## HANDOFF
 
-Status: PARTIAL (V1, Д2 done; Д4, S1, S2, S4, S5, V3 pending)
-Items done: V1, Д2
-Items not done: Д4, S1, S2, S4, S5, V3 — in progress this shift
-Acceptance: «Итог: пройдено 13, провалено 0», exit 0 (commit 06e390e)
-Tests: window file 22 passed; suite green at V1 (975p/3s/4x)
-Pushed: yes (1154307, 06e390e)
+Status: PARTIAL (V1, Д2, Д4 done; S1, S2, S4, S5, V3 pending)
+Items done: V1, Д2, Д4
+Items not done: S1, S2, S4, S5, V3 — in progress this shift
+Acceptance: selfcheck OK (13/0) on the Д4 commit
+Tests: three desktop test files 49 passed; suite green at V1 (975p/3s/4x)
+Pushed: yes (1154307, 06e390e, 3f4c366, and this commit)
 
-NOW: Д4, step 0
+NOW: S1, step 0

@@ -705,18 +705,26 @@ def raw_object_location(paths: AppPaths, sha256: str) -> dict:
 
 
 def source_panel_view(repos, paths: AppPaths, measure_row: dict,
-                      instrument_id: str | None = None) -> dict:
+                      instrument_id: str | None = None,
+                      stale_detail: bool = False) -> dict:
     """C6.1/C6.3: панель источника целиком из source_panel модели и
-    репозиториев — ничего не досчитано. Строки: концепт, метод,
-    единица, документ с хэшем сохранённого ответа, период входного
-    факта, путь к сырью; для отказа — причина и неподаанный концепт
-    по имени, плюс совет действия теми же словами, что в CLI
-    (ТЗ-64 J3). open_target — путь к сырью первой записи, если файл
-    есть; иначе None (окно скажет словами)."""
+    репозиториев — ничего не досчитано. Строки: концепт, значение,
+    метод, единица, документ с хэшем сохранённого ответа, период
+    входного факта, путь к сырью; для отказа — причина и неподанный
+    концепт по имени, плюс совет действия теми же словами, что в CLI
+    (ТЗ-64 J3). Устаревшие входы свёрнуты в одну строку с числом
+    (ТЗ-72 Д4); перечень целиком — только по stale_detail=True.
+    open_target — путь к сырью первой записи, если файл есть; иначе
+    None (окно скажет словами). stale_count — число устаревших входов."""
     from rusterm.core.export import refusal_advice
     panel = tui_model.source_panel(repos, measure_row["measure"])
+    value_text = measure_row.get("current")
+    if value_text is None:
+        value_text = format_value(
+            (measure_row.get("measure") or {}).get("value"))
     lines = [f"источник {panel['concept']}"
              f" ({panel['method_version']})",
+             f"значение: {value_text}",
              f"единица: {measure_row.get('unit') or '—'}"]
     if measure_row["null_reason"]:
         lines.append(f"причина: {measure_row['null_reason']}")
@@ -743,10 +751,16 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict,
                      + (f" (период входа {period})" if period else ""))
         if loc["exists"] and open_target is None:
             open_target = loc["path"]
-    for stale in panel["stale"]:
-        lines.append(f"{stale['marker']} ({stale['source_tag']})")
+    stale = panel["stale"]
+    if stale and not stale_detail:
+        freshest = max(s["period_end"] for s in stale)
+        lines.append(f"устаревших входов: {len(stale)}, "
+                     f"самый свежий {freshest}")
+    else:
+        for entry in stale:
+            lines.append(f"{entry['marker']} ({entry['source_tag']})")
     return {"text": "\n".join(lines), "open_target": open_target,
-            "panel": panel}
+            "panel": panel, "stale_count": len(stale)}
 
 
 # ── Разговор (TASK-C7): расшифровки и счётчики из тех же мест ───────────

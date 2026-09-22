@@ -265,6 +265,69 @@ def test_history_cells_carry_snapshotted_values(history_env):
     assert rows["net_margin"]["years"]["2022"] == data.NO_DATA
 
 
+@pytest.fixture()
+def stale_env(tmp_path):
+    """ТЗ-75 V2 (Д4): у меры без значения 25 устаревших входов и один
+    свежий якорь — стена строк «устаревший …» в панели источника."""
+    paths = AppPaths.from_root(tmp_path / "stale")
+    ensure_app_dir(paths)
+    conn = _connect(paths)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-s9", "Corp Nine", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-S9", "i-s9", None, "common", "active", None))
+    repos.snapshot.create_snapshot("s-s9", "US-S9", 1, "2025-01-01",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-s9", "s-s9", "issuer", "i-s9", "net_margin", None,
+        "ratio", "2024-01-01", "2024-12-31", None, "v1",
+        "missing_prior_period", None)
+    raw = repos.raw.put(b"payload", provider="edgar",
+                        url="https://data.sec.gov/companyfacts")
+    # свежий якорь и 25 устаревших фактов выручки: входы net_margin
+    repos.fact.insert_fact(
+        "f-fresh", "i-s9", None, "Revenues", "2024-01-01", "2024-12-31",
+        "duration", "100", "USD", "USD", "as_reported", "extracted",
+        raw.sha256, {"endpoint": "companyfacts", "kind": "10-K"},
+        "t75-test", canonical_concept="revenue")
+    for i in range(25):
+        repos.fact.insert_fact(
+            f"f-stale-{i}", "i-s9", None, "Revenues", "2009-01-01",
+            "2009-12-31", "duration", f"{100 + i}", "USD", "USD",
+            "as_reported", "extracted", raw.sha256,
+            {"endpoint": "companyfacts", "kind": "10-K"},
+            "t75-test", canonical_concept="revenue")
+    yield repos, paths
+    conn.close()
+
+
+def test_source_panel_collapses_stale_inputs(stale_env):
+    """ТЗ-75 V2 (Д4): главное — сначала (значение, документ, хэш,
+    период), устаревшие входы — одна строка с числом; полный перечень
+    только по требованию."""
+    repos, paths = stale_env
+    row = next(r for r in
+               data.measure_table_rows(repos, "US-S9")["measures"]
+               if r["concept"] == "net_margin")
+    view = data.source_panel_view(repos, paths, row)
+    lines = view["text"].splitlines()
+    assert len(lines) <= 12, "стена строк вернулась"
+    assert "значение: нет данных" in lines
+    collapsed = [l for l in lines if l.startswith("устаревших входов")]
+    assert collapsed == [
+        "устаревших входов: 25, самый свежий 2009-12-31"]
+    assert "устаревший (последний" not in view["text"]
+    assert view["stale_count"] == 25
+    detail = data.source_panel_view(
+        repos, paths, row, stale_detail=True)
+    per_entry = [l for l in detail["text"].splitlines()
+                 if "устаревший (последний" in l]
+    assert len(per_entry) == 25
+    assert "устаревших входов:" not in detail["text"]
+
+
 def test_no_history_no_year_columns_and_command_offered(env):
     """ТЗ-75 V1, правило ТЗ-72 Д1: истории нет ни у одной меры —
     годовые колонки не рисуются, окно предлагает посчитать ряд одним

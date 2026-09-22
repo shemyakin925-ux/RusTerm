@@ -195,6 +195,10 @@ def _build_window(repos, paths, watchlist_id=None):
     source_panel = QLabel(objectName="source_panel")
     source_panel.setWordWrap(True)
     center_layout.addWidget(source_panel)
+    stale_button = QPushButton(objectName="stale_button")
+    stale_button.setText("показать устаревшие входы")
+    stale_button.setVisible(False)
+    center_layout.addWidget(stale_button)
     open_raw_button = QPushButton(objectName="open_raw_button")
     open_raw_button.setText("открыть сохранённый ответ")
     open_raw_button.setEnabled(False)
@@ -300,7 +304,8 @@ def _build_window(repos, paths, watchlist_id=None):
     state = {"companies": [], "selected": None, "table": None,
              "watchlist": watchlist_id, "open_raw_target": None,
              "industry": None, "peer": None, "pinned": set(),
-             "session": None, "chat_reason": None, "worker": None}
+             "session": None, "chat_reason": None, "worker": None,
+             "source_measure_row": None, "stale_detail": False}
 
     collect_button.setText("Собрать")
     cancel_button.setText("Отменить")
@@ -485,6 +490,10 @@ def _build_window(repos, paths, watchlist_id=None):
         # «посчитать ряд одним действием», а не стена пустых колонок
         source_panel.setText(info.get("suggestion")
                              or "клик по ячейке — панель источника")
+        # ТЗ-72 Д4: панель источника новой бумаги — свёрнутая
+        state["source_measure_row"] = None
+        state["stale_detail"] = False
+        stale_button.setVisible(False)
         collect_button.setEnabled(state["worker"] is None)
         for button in (export_csv_button, export_md_button,
                        save_png_button):
@@ -726,17 +735,36 @@ def _build_window(repos, paths, watchlist_id=None):
         if target:
             QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
+    def show_source_panel(detail: bool) -> None:
+        """ТЗ-72 Д4: панель источника перерисовывается с тем же рядом
+        мер — свёрнуто или с полным перечнем устаревших входов."""
+        info = state["table"]
+        measure_row = state.get("source_measure_row")
+        if info is None or repos is None or measure_row is None:
+            return
+        view = data.source_panel_view(repos, paths, measure_row,
+                                      instrument_id=info["instrument_id"],
+                                      stale_detail=detail)
+        source_panel.setText(view["text"])
+        state["open_raw_target"] = view["open_target"]
+        open_raw_button.setEnabled(view["open_target"] is not None)
+        count = view["stale_count"]
+        stale_button.setVisible(count > 0)
+        stale_button.setText(
+            f"скрыть устаревшие входы: {count}" if detail
+            else f"показать устаревшие входы: {count}")
+
     def on_cell_clicked(row: int, _column: int) -> None:
         info = state["table"]
         if info is None or repos is None:
             return
-        measure_row = info["measures"][row]
-        view = data.source_panel_view(repos, paths, measure_row,
-                                      instrument_id=state["table"]
-                                      ["instrument_id"])
-        source_panel.setText(view["text"])
-        state["open_raw_target"] = view["open_target"]
-        open_raw_button.setEnabled(view["open_target"] is not None)
+        state["source_measure_row"] = info["measures"][row]
+        state["stale_detail"] = False
+        show_source_panel(False)
+
+    def on_toggle_stale() -> None:
+        state["stale_detail"] = not state.get("stale_detail")
+        show_source_panel(state["stale_detail"])
 
     def setup_chat() -> None:
         if repos is None:
@@ -917,6 +945,7 @@ def _build_window(repos, paths, watchlist_id=None):
     industry_measure_box.currentIndexChanged.connect(
         lambda _i: apply_industry_chart())
     table.cellClicked.connect(on_cell_clicked)
+    stale_button.clicked.connect(on_toggle_stale)
     open_raw_button.clicked.connect(on_open_raw)
     question_line.returnPressed.connect(on_ask)
     chat_sessions_box.currentIndexChanged.connect(on_session_open)

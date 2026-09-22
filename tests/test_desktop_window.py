@@ -20,7 +20,8 @@ import pytest  # noqa: E402
 pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import (QApplication, QComboBox, QLabel,  # noqa: E402
-                               QLineEdit, QTableWidget, QTreeWidget)
+                               QLineEdit, QPushButton, QTableWidget,
+                               QTreeWidget)
 
 from rusterm.desktop import data as desktop_data  # noqa: E402
 from rusterm.desktop import window as desktop_window  # noqa: E402
@@ -226,6 +227,77 @@ def test_watchlist_label_says_none_when_truly_none(qapp, tmp_path):
     label = _widget(window, QLabel, "watchlist_label")
     assert box.count() == 0
     assert label.text() == "списков нет"
+    conn.close()
+
+
+def test_stale_inputs_collapse_and_expand_on_click(qapp, tmp_path):
+    """ТЗ-75 V2 (Д4): в панели по умолчанию одна строка про устаревшие
+    входы; кнопка раскрывает перечень, повторное нажатие сворачивает."""
+    paths = AppPaths.from_root(tmp_path / "stalewin")
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-s9", "Corp Nine", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-S9", "i-s9", None, "common", "active", None))
+    repos.watchlist.create_watchlist("wl-9", "nine", None, None)
+    version_id = repos.watchlist.new_version("wlv-9", "wl-9", 1,
+                                             "seed", None)
+    repos.watchlist.add_member(version_id, "US-S9", None)
+    repos.snapshot.create_snapshot("s-s9", "US-S9", 1, "2025-01-01",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-s9", "s-s9", "issuer", "i-s9", "net_margin", None,
+        "ratio", "2024-01-01", "2024-12-31", None, "v1",
+        "missing_prior_period", None)
+    raw = repos.raw.put(b"payload", provider="edgar",
+                        url="https://data.sec.gov/companyfacts")
+    repos.fact.insert_fact(
+        "f-fresh", "i-s9", None, "Revenues", "2024-01-01", "2024-12-31",
+        "duration", "100", "USD", "USD", "as_reported", "extracted",
+        raw.sha256, {"endpoint": "companyfacts", "kind": "10-K"},
+        "t75-test", canonical_concept="revenue")
+    for i in range(25):
+        repos.fact.insert_fact(
+            f"f-stale-{i}", "i-s9", None, "Revenues", "2009-01-01",
+            "2009-12-31", "duration", f"{100 + i}", "USD", "USD",
+            "as_reported", "extracted", raw.sha256,
+            {"endpoint": "companyfacts", "kind": "10-K"},
+            "t75-test", canonical_concept="revenue")
+
+    window = desktop_window._build_window(repos, paths, "wl-9")
+    tree = _widget(window, QTreeWidget, "tree")
+    target = None
+    for top in range(tree.topLevelItemCount()):
+        node = tree.topLevelItem(top)
+        for child in range(node.childCount()):
+            if "S9" in node.child(child).text(0):
+                target = node.child(child)
+    assert target is not None, "US-S9 нет в дереве"
+    tree.setCurrentItem(target)
+    table = _widget(window, QTableWidget, "table")
+    concepts = [table.item(row, 0).text()
+                for row in range(table.rowCount())]
+    table.cellClicked.emit(concepts.index("net_margin"), 1)
+    panel = _widget(window, QLabel, "source_panel")
+    collapsed = [l for l in panel.text().splitlines()
+                 if l.startswith("устаревших входов")]
+    assert collapsed, panel.text()
+    assert "устаревший (последний" not in panel.text()
+    stale_button = window.findChild(QPushButton, "stale_button")
+    assert stale_button is not None, "кнопка устаревших входов не найдена"
+    # окно в тестах не показывается — проверяем isHidden, а не isVisible
+    assert not stale_button.isHidden()
+    stale_button.click()
+    expanded = [l for l in panel.text().splitlines()
+                if "устаревший (последний" in l]
+    assert len(expanded) == 25, "перечень не раскрылся по кнопке"
+    stale_button.click()
+    assert "устаревший (последний" not in panel.text()
     conn.close()
 
 
