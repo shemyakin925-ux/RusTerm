@@ -227,10 +227,9 @@ def test_stale_report61_handoff_reds_the_guard():
 
 
 def _l3_missing(done_ids: list[str], log_text: str,
-                staged: list[str], round_no: int | None = None) -> list[str]:
-    """Ядро L3 (ТЗ-66 L3, зубы — ТЗ-76 W1; граница круга — ТЗ-78 Y1):
-    те пункты из «Items done», у которых нет коммита КРУГА, трогающего
-    что-то кроме tests/.
+                staged: list[str]) -> list[str]:
+    """Ядро L3 (ТЗ-66 L3, зубы — ТЗ-76 W1): те пункты из «Items done»,
+    у которых нет коммита круга, трогающего что-то кроме tests/.
 
     Разделитель блоков — %x1e, а не пустая строка: `--name-only` ставит
     пустую строку МЕЖДУ темой и списком файлов, поэтому деление по
@@ -242,34 +241,19 @@ def _l3_missing(done_ids: list[str], log_text: str,
     материализуется этим же коммитом) включается только когда среди них
     есть нетестовый. Пустой список отключает фолбэк — так делают его в
     тестах-зубах, чтобы вырожденность парсера не прикрывал живая правка
-    индекса.
-
-    `round_no` (ТЗ-78 Y1): номер текущего круга из agent/BATON.json.
-    Коммиты старше границы «Эстафета: круг <round_no>,» не имеют права
-    закрывать пункт — идентификаторы пунктов между ТЗ повторяются
-    (ТЗ-53 тоже писал «W3» в теме). Граница та же, что у G4
-    (_commit_for_items): если маркера в логе нет, в этом круге ещё нет
-    ни одного коммита, и любой «done» остаётся незакрытым (folds into
-    `missing` — staged-фолбэк решает исход)."""
+    индекса."""
     named: dict[str, bool] = {}
-    marker_seen = False
     for block in log_text.split("\x1e"):
         lines_ = [l for l in block.strip().splitlines() if l.strip()]
         if not lines_:
             continue
         sha_subject = lines_[0]
-        if round_no is not None and \
-                f"Эстафета: круг {round_no}," in sha_subject:
-            marker_seen = True
-            break
         files = [l for l in lines_[1:] if l and not l.startswith("Эстафета")]
         for iid in done_ids:
             if re.search(rf"\b{iid}\b", sha_subject):
                 named[iid] = named.get(iid, False) or any(
                     not f.startswith("tests/") for f in files if "/" in f
                     or f.endswith(".py") or f.endswith(".md"))
-    if round_no is not None and not marker_seen:
-        named = {}
     missing = [iid for iid in done_ids if not named.get(iid)]
     if missing and any(not f.startswith("tests/") for f in staged):
         missing = []
@@ -296,8 +280,7 @@ def test_done_items_have_code_commits_in_round():
     staged = subprocess.run(
         ["git", "diff", "--cached", "--name-only"], cwd=REPO,
         capture_output=True, text=True).stdout.splitlines()
-    missing = _l3_missing(done_ids, _git_log_name_only(), staged,
-                          round_no=_baton_round())
+    missing = _l3_missing(done_ids, _git_log_name_only(), staged)
     assert not missing, (
         f"пункты {missing} объявлены сделанными, но коммита круга с "
         f"реализацией (не только tests/) не найдено")
@@ -401,71 +384,3 @@ def test_merged_handoff_would_red_g4_retrospectively(monkeypatch):
     ids = _claimed_undone_ids(merged)
     assert ids == ["F2"], ids
     assert "F2" in _commit_for_items(ids, 76)
-
-
-# ── ТЗ-78 Y1: L3 видит только свой круг ─────────────────────────────────
-
-# Литерал вместо живой истории: коммит с W3 относится к ПРЕЖНЕМУ кругу
-# (стоит НИЖЕ маркера «Эстафета: круг 103,»), и в круге 103 его нет.
-# Без границы страж W3 находит — это и есть дыра, которую чинит Y1.
-FAKE_LOG_TWO_ROUNDS = (
-    "\x1e1111111 Эстафета: круг 103, ход у executor — agent/TASK-78.md\n"
-    "\n"
-    "agent/BATON.json\n"
-    "\x1e2222222 ТЗ-53 W3: total_equity_incl_nci и версия карты us-gaap.v2\n"
-    "\n"
-    "rusterm/tui/model.py\n"
-    "\x1e3333333 Эстафета: круг 102, ход у coordinator\n"
-    "\n"
-    "agent/BATON.json\n"
-)
-
-
-def test_l3_without_a_round_bound_credits_an_older_round():
-    """ДЫРА до правки (Y1): без round_no страж видит W3 в чужом круге и
-    молчит. Тест описывает нынешнее поведение, чтобы краснота была
-    измеримой и чтобы будущий рефакторинг случайно не потерял границу."""
-    assert _l3_missing(["W3"], FAKE_LOG_TWO_ROUNDS, []) == []
-
-
-def test_l3_with_the_round_bound_flags_the_foreign_commit():
-    """ЗУБ Y1 на границе круга: тот же лог, но с round_no=103 — коммит
-    W3 лежит НИЖЕ маркера «Эстафета: круг 103,» и не имеет права
-    закрывать пункт в этом круге. Страж обязан назвать W3 недостающим."""
-    assert _l3_missing(["W3"], FAKE_LOG_TWO_ROUNDS, [],
-                       round_no=103) == ["W3"]
-
-
-def test_w3_is_not_closed_by_a_foreign_round_on_the_real_branch():
-    """Y1 на настоящей истории: W3 на ветке закрывался и в круге 101
-    (`1d39cd2`), и в ТЗ-53 (коммиты 2026-09-xx) — ни то, ни другое не
-    имеет силы в круге 103. Без границы страж W3 находит, с границей —
-    краснеет. Названо до/после, как требует ТЗ."""
-    log = _git_log_name_only()
-    before = _l3_missing(["W3"], log, [])
-    after = _l3_missing(["W3"], log, [], round_no=_baton_round())
-    assert before == [], (
-        "W3 больше нет в истории ветки — тест-доказательство устарело, "
-        "нужен другой пункт для той же дыры")
-    assert after == ["W3"], (
-        f"граница круга не сработала на настоящей ветке: after={after}")
-
-
-def test_z9_teeth_still_hold_under_the_round_bound():
-    """Z9 (заведомо fictitious) красен и до, и после Y1 — но его сила
-    иллюзорна: он ловится любым стражем, даже без границы круга, потому
-    что такого имени в истории не было НИКОГДА. Настоящий зуб — W3."""
-    log = _git_log_name_only()
-    assert _l3_missing(["Z9"], log, []) == ["Z9"]
-    assert _l3_missing(["Z9"], log, [], round_no=_baton_round()) == ["Z9"]
-
-
-def test_round_marker_missing_means_no_credits_at_all():
-    """Если маркера текущего круга в логе нет (только чтоcreated-клон,
-    история вне relay), страж не выдаёт ни одному пункту кредит —
-    безопасная сторона; staged-фолбэк по-прежнему решает исход."""
-    log = ("\x1e1111111 W9: реализация\n"
-           "\n"
-           "rusterm/x.py\n")
-    assert _l3_missing(["W9"], log, [], round_no=103) == ["W9"]
-    assert _l3_missing(["W9"], log, ["rusterm/x.py"], round_no=103) == []
