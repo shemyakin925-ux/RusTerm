@@ -751,13 +751,12 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
 
 # ── Разговор (TASK-C7): расшифровки и счётчики из тех же мест ───────────
 
-def chat_sessions(repos) -> Optional[list]:
-    """C7.1: перечень прошлых разговоров. Двери в store НЕТ
-    (ChatTranscriptRepo.list_sessions отсутствует), а прямые SQL вне
-    rusterm/store запрещены инвариантом I10 — поэтому функция
-    честно отвечает None, и окно говорит это словами. Дверь добавит
-    координатор (Disputed REPORT-C7/C10)."""
-    return None
+def chat_sessions(repos) -> list[dict]:
+    """C7.1: прошлые разговоры, свежие сверху — через дверь перечня
+    ChatTranscriptRepo.list_sessions: SQL живёт в rusterm/store, а не
+    здесь (инвариант I10). Таблица та же, что читает
+    rusterm export --chat."""
+    return repos.chat_transcript.list_sessions()
 
 
 def chat_transcript_lines(repos, session_id: str) -> list[str]:

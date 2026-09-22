@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-C10.md",
  "report": "agent/REPORT-C10.md",
- "item": "C10",
- "step": "C10 done: EquityLab.app built (PyInstaller 6.22.3, dynamic Qt via otool @rpath), smoke marker test, honest no-sign note; C7.1 listing degraded per I10 (no SQL outside store)",
- "status": "working",
- "last_commit": "99558d9",
+ "item": "repair",
+ "step": "полоса C (C1..C10) закрыта; починка приёмки после C10: дверь list_sessions в store, живое происхождение ключей в env.report, мусор вне git; приёмка 13/13; narrative — в REPORT-76.md по указанию пользователя",
+ "status": "awaiting_review",
+ "last_commit": "5357b51",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
- "model": "GLM-5.3",
- "updated_at": "2026-09-19T18:13:10Z"
+ "model": "Qoder executor (model id not exposed)",
+ "updated_at": "2026-09-22T15:34:21Z"
 }
