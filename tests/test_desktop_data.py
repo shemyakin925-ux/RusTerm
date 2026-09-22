@@ -265,6 +265,116 @@ def test_history_cells_carry_snapshotted_values(history_env):
     assert rows["net_margin"]["years"]["2022"] == data.NO_DATA
 
 
+def test_history_year_is_the_measure_period(env):
+    """ТЗ-76 W3: снапшот собран в 2026 (as_of 2026-09-01), а мера за
+    период 2024 — значение стоит в колонке 2024, год прогона колонкой
+    не становится."""
+    repos, _ = env
+    table = data.measure_table_rows(repos, "US-AAA")
+    rows = {r["concept"]: r for r in table["measures"]}
+    assert rows["net_margin"]["years"]["2024"] == "0.2043"
+    history = data.measure_history(repos, "US-AAA")
+    assert "2024" in history and "2026" not in history
+
+
+@pytest.fixture()
+def same_run_env(tmp_path):
+    """ТЗ-76 W3: два снапшота одного прогона (оба as_of 2026-09-15),
+    меры за разными отчётными периодами — живая база AAPL выглядит
+    именно так, и вся история в ней стоит в одной колонке 2026."""
+    paths = AppPaths.from_root(tmp_path / "same-run")
+    ensure_app_dir(paths)
+    conn = _connect(paths)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-AAA", "Alpha Alpha", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-AAA", "i-AAA", None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        "l-AAA", "US-AAA", "XNAS", "USD", 1, None, None))
+    repos.instrument.add_ticker_history(
+        "l-AAA", "AAA", "2000-01-01", None, None, None)
+    repos.snapshot.create_snapshot("s-run-1", "US-AAA", 1, "2026-09-15",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-fy24", "s-run-1", "issuer", "i-AAA", "net_margin", "0.226",
+        "ratio", "2024-01-01", "2024-12-31", "f-1", "v1", None, None)
+    repos.snapshot.create_snapshot("s-run-2", "US-AAA", 2, "2026-09-15",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-fy25", "s-run-2", "issuer", "i-AAA", "net_margin", "0.2043",
+        "ratio", "2025-01-01", "2025-12-31", "f-1", "v1", None, None)
+    yield repos, paths
+    conn.close()
+
+
+def test_one_run_two_periods_does_not_collapse_into_one_column(
+        same_run_env):
+    """ТЗ-76 W3: база, пересобранная одним прогоном, не обязана
+    схлопывать историю в колонку года запуска — периоды разные, значит
+    и колонки разные."""
+    repos, _ = same_run_env
+    table = data.measure_table_rows(repos, "US-AAA")
+    rows = {r["concept"]: r for r in table["measures"]}
+    assert table["years"][:2] == ["2025", "2024"]
+    assert rows["net_margin"]["years"]["2025"] == "0.2043"
+    assert rows["net_margin"]["years"]["2024"] == "0.226"
+
+
+@pytest.fixture()
+def no_period_env(tmp_path):
+    """ТЗ-76 W3: у net_margin периода нет вовсе (пустые period_*), у
+    revenue он есть и якорит колонки 2026-м годом."""
+    paths = AppPaths.from_root(tmp_path / "no-period")
+    ensure_app_dir(paths)
+    conn = _connect(paths)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-AAA", "Alpha Alpha", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-AAA", "i-AAA", None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        "l-AAA", "US-AAA", "XNAS", "USD", 1, None, None))
+    repos.instrument.add_ticker_history(
+        "l-AAA", "AAA", "2000-01-01", None, None, None)
+    repos.snapshot.create_snapshot("s-np", "US-AAA", 1, "2026-09-15",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-rev-np", "s-np", "issuer", "i-AAA", "revenue", "100",
+        "USD", "2026-01-01", "2026-12-31", "f-rev", "v1", None, None)
+    repos.snapshot.insert_measure(
+        "m-nm-np", "s-np", "issuer", "i-AAA", "net_margin", "0.2",
+        "ratio", "", "", "f-1", "v1", None, None)
+    yield repos, paths
+    conn.close()
+
+
+def test_run_year_fallback_shows_in_the_cell(no_period_env):
+    """ТЗ-76 W3: фолбэк на as_of разрешён, только когда он виден —
+    ячейка без периода помечена как отнесённая к году прогона, а
+    ячейка с периодом пометки не несёт."""
+    repos, _ = no_period_env
+    table = data.measure_table_rows(repos, "US-AAA")
+    rows = {r["concept"]: r for r in table["measures"]}
+    assert rows["net_margin"]["years"]["2026"] == "0.2" + data.RUN_YEAR_MARK
+    assert rows["revenue"]["years"]["2026"] == "100"
+    basis = data.measure_history_basis(repos, "US-AAA")
+    assert basis["2026"]["net_margin"] == "run_year"
+    assert basis["2026"]["revenue"] == "period"
+
+
+def test_run_year_mark_does_not_steal_the_chart_point(no_period_env):
+    """ТЗ-76 W3: пометка — аннотация отображения, а не ещё один отказ:
+    клетка «0.2 · год прогона» остаётся точкой линии, а не разрывом."""
+    repos, _ = no_period_env
+    table = data.measure_table_rows(repos, "US-AAA")
+    spec = data.chart_spec("line", table, None, "net_margin")
+    assert spec["kind"] == "line"
+    assert spec["values"] == [0.2, None, None, None]
+
+
 @pytest.fixture()
 def stale_env(tmp_path):
     """ТЗ-75 V2 (Д4): у меры без значения 25 устаревших входов и один
@@ -376,11 +486,14 @@ def test_line_spec_gap_is_none_not_zero():
 
 
 def test_line_spec_without_history_says_no_data(env):
+    """Мера без истории (в `env` у roe один отказанный снапшот) —
+    диаграмма говорит словами, а не рисует пустую линию. net_margin с
+    ТЗ-76 W3 историю имеет, поэтому пример берётся с roe."""
     repos, _ = env
     table = data.measure_table_rows(repos, "US-AAA")
-    spec = data.chart_spec("line", table, None, "net_margin")
+    spec = data.chart_spec("line", table, None, "roe")
     assert spec == {"kind": "message", "text": data.NO_DATA,
-                    "concept": "net_margin"}
+                    "concept": "roe"}
 
 
 def test_box_spec_from_industry_quartiles():

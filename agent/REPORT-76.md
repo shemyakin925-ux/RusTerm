@@ -92,22 +92,108 @@ clean-tree run is the first measurement (quoted below).
   rewritten in place at every commit; no `FINAL 2` / `FINAL 3` suffixes
   are being added, and nothing is declared done there before its own
   commit exists.
+- **W3 — the history year is the measure's period, not the run year.**
+  `rusterm/tui/model.py::_history_walk()` takes the year from
+  `period_end`, then `period_start`; `as_of` survives only as a fallback
+  for a measure with no period at all, and `measure_history_basis()`
+  reports which of the two each cell used (`"period"` / `"run_year"`).
+  The window shows the fallback instead of hiding it:
+  `rusterm/desktop/data.py::measure_table_rows()` appends
+  `RUN_YEAR_MARK` (" · год прогона") to a run-year cell, so a
+  re-collected base can no longer collapse fifteen years into 2026
+  silently. `_series_spec()` strips the mark before parsing — it is a
+  display annotation, and an annotated cell must still plot as a point.
+  Red before the fix (`tests/test_desktop_data.py -k "history_year or
+  collapse or run_year"`, sources at HEAD):
+
+  ```
+  E   AssertionError: assert 'нет данных' == '0.2043'
+  tests/test_desktop_data.py:321: AssertionError
+  E   AttributeError: module 'rusterm.desktop.data' has no attribute 'RUN_YEAR_MARK'
+  FAILED tests/test_desktop_data.py::test_history_year_is_the_measure_period
+  FAILED tests/test_desktop_data.py::test_one_run_two_periods_does_not_collapse_into_one_column
+  FAILED tests/test_desktop_data.py::test_run_year_fallback_shows_in_the_cell
+  3 failed, 2 passed, 22 deselected in 0.22s
+  ```
+
+  The window pin moved with it: `test_chart_kind_switches_without_restart`
+  now asserts the line for `net_margin` draws (empty message) and keeps
+  the old «нет данных» assertion on `roe`, the measure that genuinely has
+  no history. It is red on HEAD too, which is the same W3 defect seen from
+  the other side:
+
+  ```
+  E   AssertionError: assert 'нет данных' == ''
+  FAILED tests/test_desktop_window.py::test_chart_kind_switches_without_restart
+  1 failed in 0.70s
+  ```
+
+  `test_run_year_mark_does_not_steal_the_chart_point` cannot be red on
+  HEAD (no mark existed there), so its teeth were measured against the
+  intermediate state instead — fix in, the two-line strip removed again:
+
+  ```
+  >       assert spec["kind"] == "line"
+  E   AssertionError: assert 'message' == 'line'
+  1 failed, 1 passed, 25 deselected in 0.14s
+  ```
+
+  Live AAPL cell count, before → after (script outside the repo, read-only
+  on `~/.rusterm`, network 0): **15 filled cells out of 108 before, 15 out
+  of 108 after** — 27 measures × 4 year columns, every filled cell still in
+  the 2026 column. The reason is in the data, not in the fix: all three
+  stored snapshots carry `as_of 2026-09-15` *and* every stored
+  `period_end` falls in 2026, so on this base the two bases coincide and
+  the correction is invisible. What W3 actually buys is measurable on a
+  multi-period base (`test_one_run_two_periods_does_not_collapse_into_one_
+  column`: one run, FY2024 + FY2025 → two columns, both filled). No cell
+  count improvement is claimed on the live base, and the 15/108 figure is
+  not the fix's evidence.
+
+
 ## Blocked
 
 - none so far.
 
 ## What not to trust
 
+- L3 being green for "Items done: W1, W2, W3" is NOT evidence that W3
+  has a commit — see the first Disputed entry; the guard matched a
+  ТЗ-53 commit from an older round.
 - W1's and W2's red quotes come from temporary one-line mutations of the
   guard parser in the working tree; both were reverted by copying the file
   back (`/tmp/trs-good.py`, `/tmp/trs-good-w2.py`), not by `git checkout`,
   so verify the diff against HEAD rather than trusting the sentence.
+- The W3 source files were also shuffled between HEAD and the fix by
+  copying (`/tmp/w3-new-model.py`, `/tmp/w3-new-data.py`); the live-base
+  census ran from `/tmp`, outside the repo, so nothing of it is committed
+  and the 15/108 pair cannot be re-derived from the tree alone — the
+  script's rules are stated in the W3 bullet.
+- The `test_run_year_mark_does_not_steal_the_chart_point` redness is from
+  the intermediate state (fix minus the strip), not from HEAD; on HEAD the
+  test passes vacuously because no mark existed to strip.
 - The lane night-13 repair numbers (10/3 arrival, 13/0 after) come from
   that branch, not from this one; nothing from it has been merged into
   `agent/night-11`.
 
 ## Disputed
 
+- **L3 is not scoped to the round — it searches the whole branch
+  history.** `_git_log_name_only()` runs
+  `git log --format=%x1e%h %s --name-only` with no round boundary, so any
+  `\bW3\b` match in the subject of any commit on the branch counts the
+  item as implemented. Measured before the W3 commit existed: HANDOFF
+  already carried "Items done: W1, W2, W3" and
+  `tests/test_report_sections.py` stayed green. Matching history:
+  `94ed9fa ТЗ-53: отчёт — W1 кампания 10/10, W3 живой прогон 4 passed, W2 счёт`,
+  `d549f2a ТЗ-53 W3: живая модель отвечает цитатами …`,
+  `892d4c1 W3: total_equity_incl_nci и версия карты us-gaap.v2`.
+  W1 passed for the same shallow reason, not because of its teeth. Not
+  fixed here: the round boundary belongs to the ТЗ-66 L3 rule, which is
+  the coordinator's, and W1's teeth cover block parsing, not commit
+  selection. The repair is the selection G4 already uses
+  (`_commit_for_items(ids, round)`) — then an item has to be closed by a
+  commit of its OWN round.
 - `.git/relay-branch` in the original clone still pointed at
   `agent/night-11` while the working branch there was `agent/night-13`;
   every relay call must pass `--branch` explicitly or it moves another
@@ -121,8 +207,6 @@ clean-tree run is the first measurement (quoted below).
 ## HANDOFF
 
 Status: in progress.
-Items done: W1, W2
+Items done: W1, W2, W3
 Items not done: W4 whole-window data-shape guard, W5 Verizon payload
-W3 is implemented and measured in this worktree; its commit is the next
-step, so it is not claimed done here yet.
-NOW: W2, step 1
+NOW: W3, step 1

@@ -345,10 +345,19 @@ def test_chart_kind_switches_without_restart(qapp, env):
         if kind_box.itemData(index) == "candles":
             kind_box.setCurrentIndex(index)
     assert "close" in chart.current_text()
-    # линия без истории — «нет данных», окно не перезапускалось
     for index in range(kind_box.count()):
         if kind_box.itemData(index) == "line":
             kind_box.setCurrentIndex(index)
+    # ТЗ-76 W3: net_margin за период 2024 — линия с точкой. До правки
+    # год клетки был годом прогона (2026), колонка 2024 стояла пустой и
+    # линия скатывалась в «нет данных».
+    assert chart.current_text() == ""
+    # та же линия для меры без истории вовсе — «нет данных»;
+    # окно не перезапускалось между этими двумя состояниями
+    measure_box = _widget(window, QComboBox, "measure_box")
+    for index in range(measure_box.count()):
+        if measure_box.itemData(index) == "roe":
+            measure_box.setCurrentIndex(index)
     assert chart.current_text() == desktop_data.NO_DATA
 
 

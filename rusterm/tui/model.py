@@ -455,26 +455,72 @@ def measure_summary_line(summary: dict) -> str:
             f"значением {summary['valued']} из {summary['total']}{tail}")
 
 
-def measure_history_by_year(repos, instrument_id: str) -> dict[str, dict[str, float]]:
-    """ТЗ-72 Д1: история мер по годам из ВСЕХ сохранённых снапшотов
-    инструмента.
+# ТЗ-76 W3: год ячейки истории — год периода меры, а не год прогона.
+# as_of снапшота остаётся фолбэком, когда периода нет, и фолбэк этот
+# виден: окно помечает клетку как отнесённую к году прогона.
+HISTORY_BASIS_PERIOD = "period"
+HISTORY_BASIS_RUN_YEAR = "run_year"
 
-    Форма результата — ``{год: {концепт: значение}}``: год берётся из
-    as_of снапшота, в пределах года побеждает старшая версия снапшота.
-    Эту же форму словами читает measure_table_rows окна (ТЗ-75 V1) —
-    обе докстроки называют её одинаково, чтобы расхождение не вернулось.
-    Используется окном и CLI/TUI — одна реализация для всех лиц."""
-    out: dict[str, dict[str, float]] = {}
+
+def _period_year(value) -> Optional[str]:
+    """Год из даты периода: первые четыре ASCII-цифры, иначе None."""
+    text = str(value or "").strip()
+    head = text[:4]
+    if len(head) == 4 and head.isascii() and head.isdigit():
+        return head
+    return None
+
+
+def _history_walk(repos, instrument_id: str):
+    """Один обход ВСЕХ снапшотов инструмента: значения по годам и
+    основание года каждой клетки (ТЗ-76 W3).
+
+    Год берётся из периода меры: period_end, при его отсутствии
+    period_start. as_of снапшота — только фолбэк для меры без периода
+    (пересобранная сегодня база иначе схлопывает всю историю в один
+    столбец года запуска). В пределах года побеждает старшая версия
+    снапшота: снапшоты идут по возрастанию версии, позднейший
+    перезаписывает клетку."""
+    values: dict[str, dict[str, float]] = {}
+    basis: dict[str, dict[str, str]] = {}
     for s in repos.snapshot.snapshots_of_instrument(instrument_id):
-        sid = s["snapshot_id"]
-        year = s["as_of"][:4]
-        for m in repos.snapshot.get_measures(sid):
+        run_year = _period_year(s["as_of"])
+        for m in repos.snapshot.get_measures(s["snapshot_id"]):
             if m[4] is None:
                 continue
-            concept = m[3]
             try:
                 val = float(m[4])
             except (TypeError, ValueError):
                 continue
-            out.setdefault(year, {})[concept] = val
-    return out
+            year = _period_year(m[7]) or _period_year(m[6])
+            why = HISTORY_BASIS_PERIOD
+            if year is None:
+                year, why = run_year, HISTORY_BASIS_RUN_YEAR
+            if year is None:
+                continue
+            values.setdefault(year, {})[m[3]] = val
+            basis.setdefault(year, {})[m[3]] = why
+    return values, basis
+
+
+def measure_history_by_year(repos, instrument_id: str) -> dict[str, dict[str, float]]:
+    """ТЗ-72 Д1: история мер по годам из ВСЕХ сохранённых снапшотов
+    инструмента.
+
+    Форма результата — ``{год: {концепт: значение}}``: год — период
+    меры (ТЗ-76 W3), в пределах года побеждает старшая версия
+    снапшота. Эту же форму словами читает measure_table_rows окна
+    (ТЗ-75 V1) — обе докстроки называют её одинаково, чтобы
+    расхождение не вернулось. Используется окном и CLI/TUI — одна
+    реализация для всех лиц."""
+    return _history_walk(repos, instrument_id)[0]
+
+
+def measure_history_basis(repos, instrument_id: str) -> dict[str, dict[str, str]]:
+    """Основание года для каждой клетки истории — ``{год: {концепт:
+    "period"|"run_year"}}``, той же формой, что значения (ТЗ-76 W3).
+
+    «run_year» значит, что у меры нет периода и клетка отнесена к году
+    прогона по as_of снапшота: интерфейс обязан показать это, а не
+    выдавать год запуска за год отчётности."""
+    return _history_walk(repos, instrument_id)[1]

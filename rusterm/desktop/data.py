@@ -227,8 +227,20 @@ def measure_history(repos, instrument_id: str) -> dict[str, dict[str, float]]:
     """ТЗ-72 Д1: та же дверь, что у CLI/TUI — не пустой заглушка.
 
     Форма — ``{год: {концепт: значение}}`` (ТЗ-75 V1); ровно эту форму
-    читает measure_table_rows."""
+    читает measure_table_rows. Год ячейки — период меры, а не год
+    прогона (ТЗ-76 W3)."""
     return tui_model.measure_history_by_year(repos, instrument_id)
+
+
+def measure_history_basis(repos, instrument_id: str) -> dict[str, dict[str, str]]:
+    """Основание года клетки истории: ``{год: {концепт: "period"|
+    "run_year"}}`` — та же форма, что у значений (ТЗ-76 W3)."""
+    return tui_model.measure_history_basis(repos, instrument_id)
+
+
+# Пометка клетки, отнесённой к году прогона, а не к году отчёта:
+# молча подставлять год запуска под столбец нельзя (ТЗ-76 W3)
+RUN_YEAR_MARK = " · год прогона"
 
 
 NO_HISTORY_HINT = ("истории мер нет: посчитайте ряд одной командой — "
@@ -244,12 +256,15 @@ def measure_table_rows(repos, instrument_id: str,
     источника по клику, не в ячейке.
 
     История приходит формой ``{год: {концепт: значение}}`` — ячейка
-    года N читается как history[год][концепт] (ТЗ-75 V1). Истории нет
+    года N читается как history[год][концепт] (ТЗ-75 V1), а год —
+    период меры (ТЗ-76 W3): ячейка, отнесённая к году прогона потому,
+    что у меры нет периода, помечена ``RUN_YEAR_MARK``. Истории нет
     ни у одной меры — годовые колонки не рисуются (пустая колонка
     запрещена, ТЗ-72 Д1), а ``suggestion`` несёт исполнимую строку
     «посчитать ряд одним действием»."""
     card = tui_model.card_rows(repos, instrument_id)
     history = measure_history(repos, instrument_id)
+    basis = measure_history_basis(repos, instrument_id)
     if history:
         years = history_years(card, year_count)
         suggestion = None
@@ -268,8 +283,14 @@ def measure_table_rows(repos, instrument_id: str,
         year_cells = {}
         for year in years:
             point = history.get(year, {}).get(measure["concept"])
-            year_cells[year] = (format_value(point)
-                                if point is not None else NO_DATA)
+            if point is None:
+                year_cells[year] = NO_DATA
+                continue
+            cell = format_value(point)
+            if (basis.get(year, {}).get(measure["concept"])
+                    == tui_model.HISTORY_BASIS_RUN_YEAR):
+                cell += RUN_YEAR_MARK
+            year_cells[year] = cell
         period_end = measure.get("period") or ""
         rows.append({
             "concept": measure["concept"],
@@ -352,7 +373,11 @@ def _series_spec(kind: str, table: dict,
                  concept: str | None = None) -> dict:
     """Линия/столбики выбранной меры: год со значением — точка, год
     без значения — None (разрыв, не ноль). Истории нет — все None, и
-    спецификация честно сообщает «нет данных»."""
+    спецификация честно сообщает «нет данных».
+
+    Пометка «год прогона» — аннотация отображения: клетка с ней
+    остаётся значением и рисуется точкой (ТЗ-76 W3), пометка не
+    отнимает данных."""
     concepts = [row["concept"] for row in table["measures"]]
     if not concepts:
         return {"kind": "message", "text": "нет данных"}
@@ -366,6 +391,8 @@ def _series_spec(kind: str, table: dict,
         if text == NO_DATA:
             values.append(None)
             continue
+        if text.endswith(RUN_YEAR_MARK):
+            text = text[:-len(RUN_YEAR_MARK)]
         try:
             values.append(float(text))
         except ValueError:

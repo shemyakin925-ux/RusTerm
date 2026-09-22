@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-76.md",
  "report": "agent/REPORT-76.md",
- "item": "W2",
- "step": "W2 done: three HANDOFF-splitting teeth tests, red shown on the old setdefault parser and reverted",
+ "item": "W3",
+ "step": "W3 done: год истории = период меры, as_of только видимый фолбэк (RUN_YEAR_MARK); краснота до правки и числа живой базы в отчёте",
  "status": "working",
- "last_commit": "7c0cdfb",
+ "last_commit": "3a5b620",
  "requests": 3,
  "net_requests": 3,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-22T16:36:15Z"
+ "updated_at": "2026-09-22T16:47:55Z"
 }
