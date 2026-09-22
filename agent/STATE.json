@@ -2,12 +2,12 @@
  "task": "agent/TASK-78.md",
  "report": "agent/REPORT-78.md",
  "item": "Y2",
- "step": "Y2 committed: shares_outstanding route = dei (us-gaap wins by _DEI_RANK_OFFSET=1000), parser supplements dei, W5 test rewritten (13 tests), divergence measured 508 818 shares, facts on VZ 0→6. Y1 remains green (20/20 in test_report_sections.py).",
- "status": "working",
- "last_commit": "d4a0e66",
+ "step": "Y2 done and green: dei route (us-gaap priority via _DEI_RANK_OFFSET=1000), divergence 508 818 shares measured, W5 test rewritten (13 assertions), VZ shares_outstanding facts 0→6, Y1 re-landed as 5dbad52 after the d4a0e66 message tripped L1 (revert 7abef4e + clean re-land), and Y2 in 9da772f. Handing to coordinator.",
+ "status": "awaiting_review",
+ "last_commit": "9da772f",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-22T19:59:09Z"
+ "updated_at": "2026-09-22T20:29:23Z"
 }
