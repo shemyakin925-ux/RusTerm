@@ -92,3 +92,27 @@ Questions for the coordinator:
    see Disputed; say the word and it becomes an item.
 
 NOW: V1, step 8
+
+- **Д2.** The watchlist label no longer lies: `repaint_watchlists`
+  syncs box/state/label — when the requested id is absent from the
+  list of choices, the first list is shown and the label describes
+  THAT list; «списков нет» appears only when there are truly no
+  watchlists. Startup re-reads the sidebar after the sync, so the
+  visible list and the left column are about the same list.
+  - Red before the fix (quote):
+    `FAILED tests/test_desktop_window.py::test_watchlist_label_agrees_on_stale_id`
+    — `'списков нет' is contained here: списков нет`;
+    `FAILED tests/test_desktop_window.py::test_watchlist_window_start_without_id_is_honest`.
+  - After: `tests/test_desktop_window.py` → 22 passed (exit 0);
+    commit 06e390e, selfcheck OK.
+
+## HANDOFF
+
+Status: PARTIAL (V1, Д2 done; Д4, S1, S2, S4, S5, V3 pending)
+Items done: V1, Д2
+Items not done: Д4, S1, S2, S4, S5, V3 — in progress this shift
+Acceptance: «Итог: пройдено 13, провалено 0», exit 0 (commit 06e390e)
+Tests: window file 22 passed; suite green at V1 (975p/3s/4x)
+Pushed: yes (1154307, 06e390e)
+
+NOW: Д4, step 0
