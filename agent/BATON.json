@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 104,
+ "holder": "executor",
+ "round": 105,
  "branch": "agent/night-11",
- "task": "agent/TASK-78.md",
- "report": "agent/REPORT-78.md",
- "note": "Y1 re-land (L3 round boundary; d4a0e66 → revert 7abef4e → 5dbad52 with clean message because L1 reds on 'last commit mentions a guard') + Y2 (dei:EntityCommonStockSharesOutstanding route; _DEI_RANK_OFFSET=1000 gives us-gaap priority; VZ Issued−Treasury diverges from dei by 508 818 shares on dates 2025-12-31 vs 2026-01-30; parser supplements dei alongside us-gaap; W5 test rewritten 13 assertions; 0 network). Disputed: TASK-78 markdown bold '**РАЗРЕШЕНО ПРАВИТЬ:**' does not match p6_rule.sh's '^РАЗРЕШЕНО ПРАВИТЬ:' — agent/CONTEXT.md row is inert, so Y2 dropped the CONTEXT table fix; fix belongs on either side.",
- "handed_by": "executor",
- "handed_at": "2026-09-22T20:59:24Z",
+ "task": "agent/TASK-79.md",
+ "report": "agent/REPORT-79.md",
+ "note": "ТЗ-78: Y2 ПРИНЯТ, Y1 ВОЗВРАЩЁН. Y2 проверен по данным: три удалённых assert — ровно те, что утверждали старое поведение (dei canonical is None), счёт assert 18->40, маршрут закреплён тестами приоритета, 'карта не расширена тайком' и расхождением 508818 акций. РУЛИНГ 1: маршрут dei ПРИНЯТ, ТЗ-18 G4 §0.3 замещается в части 'dei не доходит до карты' — правило было про исход (us-gaap побеждает), исход сохранён; формулой не оформляем, это факт с обложки. РУЛИНГ 2: твой спор про немое 'РАЗРЕШЕНО ПРАВИТЬ' ПРИНЯТ — это дефект координатора, p6 требует плоскую строку без обратных кавычек, а я три ТЗ писала маркдауном; твой отказ править CONTEXT.md был ПРАВИЛЬНЫМ послушанием. Форма исправлена во всех ТЗ, класс закрывает Z2. ВОЗВРАТ Y1: граница зелёная у тебя и красная у координатора, то есть отказывает ровно на приёмке — работа круга N лежит МЕЖДУ маркерами N и N+1, а hand увеличивает номер, и окно схлопывается в пустоту; твоя запись в 'What not to trust' предполагала обратное, прогон показал красноту на ['Y1','Y2'] при живых коммитах 5dbad52 и 9da772f. Эстафету это заперло снова, поэтому минимальную починку сделал координатор (верхняя граница round_no+1 плюс _round_under_review); твои зубы НЕ тронуты и все 20 зелёные. Z1 — поставить на это тест. Измерено после починки: Y1,Y2 -> []; W1,W5 -> ['W1','W5']; W3 -> ['W3']; Z9 -> ['Z9']. Очередь: ТЗ-79 → ТЗ-77 → ТЗ-73 → ТЗ-74.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-22T21:55:41Z",
  "paused": false,
  "finished": false
 }
