@@ -14,6 +14,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sqlite3  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 import pytest  # noqa: E402
 
@@ -551,3 +552,300 @@ def test_radar_excluded_counts_shown(qapp, env):
     radar = window.findChild(ChartArea, "radar_chart")
     assert radar is not None
     assert radar.current_text() != "", "без агрегатов радар говорит словами"
+
+
+# ── ТЗ-75 S1: каждый элемент управления проверен нажатием ────────────────
+
+def _second_watchlist(repos):
+    repos.watchlist.create_watchlist("wl-2", "other", None, None)
+    vid = repos.watchlist.new_version("wlv-2", "wl-2", 1, "seed", None)
+    repos.watchlist.add_member(vid, "CA-CNQ", None)
+
+
+def test_s1_watchlist_box_switch_reloads_members(qapp, env):
+    repos, paths = env
+    _second_watchlist(repos)
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    box = _widget(window, QComboBox, "watchlist_box")
+    counter = _widget(window, QLabel, "match_count")
+    label = _widget(window, QLabel, "watchlist_label")
+    assert counter.text() == "компаний: 4"
+    box.setCurrentIndex(1)
+    assert box.currentData() == "wl-2"
+    assert counter.text() == "компаний: 1", "состав не перечитан"
+    assert "1 бумаг" in label.text()
+
+
+def _fresh_instrument(repos):
+    repos.instrument.upsert_issuer(Issuer(
+        "i-s1x", "Corp S1X", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-S1X", "i-s1x", None, "common", "active", None))
+    # площадка из реестра рынков (NASDAQ), иначе резолвер тикера
+    # не найдёт бумагу — venue_in_market("XNAS", "US") ложь
+    repos.instrument.upsert_listing(Listing(
+        "l-s1x", "US-S1X", "NASDAQ", "USD", 1, None, None))
+    repos.instrument.add_ticker_history(
+        "l-s1x", "S1X", "2000-01-01", None, None, None)
+
+
+def test_s1_watchlist_add_button_press_adds_paper(qapp, env, monkeypatch):
+    repos, paths = env
+    _fresh_instrument(repos)
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    from PySide6.QtWidgets import QInputDialog
+    monkeypatch.setattr(
+        QInputDialog, "getText",
+        staticmethod(lambda *a, **k: ("S1X US", True)))
+    _widget(window, QPushButton, "watchlist_add_button").click()
+    counter = _widget(window, QLabel, "match_count")
+    label = _widget(window, QLabel, "watchlist_label")
+    assert counter.text() == "компаний: 5", "бумага не добавилась"
+    assert "v2" in label.text(), "правка списка не создала версию"
+    assert "5 бумаг" in label.text()
+
+
+def test_s1_watchlist_remove_button_press_removes_selected(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "CNQ")
+    counter = _widget(window, QLabel, "match_count")
+    assert counter.text() == "компаний: 4"
+    _widget(window, QPushButton, "watchlist_remove_button").click()
+    assert counter.text() == "компаний: 3", "бумага не удалилась"
+
+
+def test_s1_watchlist_clear_button_press_asks_and_clears(qapp, env,
+                                                         monkeypatch):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    from PySide6.QtWidgets import QMessageBox
+    asked = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: asked.append(a) or
+                     QMessageBox.StandardButton.Yes))
+    _widget(window, QPushButton, "watchlist_clear_button").click()
+    counter = _widget(window, QLabel, "match_count")
+    label = _widget(window, QLabel, "watchlist_label")
+    assert asked, "подтверждение не спрашивалось"
+    assert counter.text() == "компаний: 0", "список не очищен"
+    assert "0 бумаг" in label.text()
+
+
+def test_s1_measure_switch_press_changes_chart(qapp, tmp_path):
+    repos, paths = _history_window_env(qapp, tmp_path)
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    box = _widget(window, QComboBox, "measure_box")
+    chart = window.findChild(ChartArea, "chart_area")
+    idx_nm = next(i for i in range(box.count())
+                  if box.itemData(i) == "net_margin")
+    idx_roe = next(i for i in range(box.count())
+                   if box.itemData(i) == "roe")
+    box.setCurrentIndex(idx_nm)
+    live = chart.current_text()
+    box.setCurrentIndex(idx_roe)
+    empty = chart.current_text()
+    assert live == "", "мера с историей не рисует живую диаграмму"
+    assert empty == desktop_data.NO_DATA, (
+        "мера без значений не отвечает «нет данных»")
+
+
+def _history_window_env(qapp, tmp_path):
+    """База, где у net_margin заполнены годы 2024 и 2023 (ТЗ-75 V1)."""
+    repos, paths = _minimal_base(tmp_path / "hist")
+    repos.watchlist.create_watchlist("wl-1", "main", None, None)
+    version_id = repos.watchlist.new_version("wlv-1", "wl-1", 1,
+                                             "seed", None)
+    repos.watchlist.add_member(version_id, "US-AAA", None)
+    repos.snapshot.create_snapshot("s-2023", "US-AAA", 1, "2023-06-30",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-2023", "s-2023", "issuer", "i-AAA", "net_margin", "0.226",
+        "ratio", "2023-01-01", "2023-12-31", "f-2", "v1", None, None)
+    repos.snapshot.insert_measure(
+        "m-roe-2023", "s-2023", "issuer", "i-AAA", "roe", None,
+        "ratio", "2023-01-01", "2023-12-31", "f-3", "v1",
+        "missing_prior_period", None)
+    repos.snapshot.create_snapshot("s-2024", "US-AAA", 2, "2024-06-30",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-2024", "s-2024", "issuer", "i-AAA", "net_margin", "0.2043",
+        "ratio", "2024-01-01", "2024-12-31", "f-1", "v1", None, None)
+    repos.snapshot.insert_measure(
+        "m-roe-2024", "s-2024", "issuer", "i-AAA", "roe", None,
+        "ratio", "2024-01-01", "2024-12-31", "f-4", "v1",
+        "missing_prior_period", None)
+    return repos, paths
+
+
+def _minimal_base(root):
+    paths = AppPaths.from_root(root)
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-AAA", "Alpha Alpha", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-AAA", "i-AAA", None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        "l-AAA", "US-AAA", "XNAS", "USD", 1, None, None))
+    repos.instrument.add_ticker_history(
+        "l-AAA", "AAA", "2000-01-01", None, None, None)
+    return repos, paths
+
+
+def test_s1_industry_measure_switch_changes_chart(qapp, env):
+    repos, paths = env
+    # AGGREGATE_MIN_PEERS = 8: отрасль собирается только от восьми
+    # вкладчиков, иначе экран честно отвечает peer_set_too_small
+    for n in range(1, 7):
+        iid, tid = f"US-D{n}", f"D{n}"
+        repos.instrument.upsert_issuer(Issuer(
+            f"i-{tid}", f"Corp {tid}", "US", None, None,
+            "us-gaap", "USD"))
+        repos.instrument.upsert_instrument(Instrument(
+            iid, f"i-{tid}", None, "common", "active", None))
+        repos.instrument.upsert_listing(Listing(
+            f"l-{tid}", iid, "NASDAQ", "USD", 1, None, None))
+        repos.instrument.add_ticker_history(
+            f"l-{tid}", tid, "2000-01-01", None, None, None)
+        repos.peer_set.add_member("psv-1", iid, None)
+        repos.watchlist.add_member("wlv-1", iid, None)
+        repos.snapshot.create_snapshot(f"s-{tid}", iid, 1,
+                                       "2026-09-01", "psv-1",
+                                       "verified", "ready")
+        repos.snapshot.insert_measure(
+            f"m-nm-{tid}", f"s-{tid}", "issuer", f"i-{tid}",
+            "net_margin", f"0.{10 + n}", "ratio",
+            "2024-01-01", "2024-12-31", f"f-{tid}", "v1", None, None)
+    repos.snapshot.create_snapshot("s-bbb", "US-BBB", 1, "2026-09-01",
+                                   "psv-1", "verified", "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-bbb", "s-bbb", "issuer", "i-BBB", "net_margin", "0.11",
+        "ratio", "2024-01-01", "2024-12-31", "f-bbb", "v1", None, None)
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    box = _widget(window, QComboBox, "industry_measure_box")
+    chart = window.findChild(ChartArea, "industry_chart")
+    assert box.count() >= 2, "в отраслевом переключателе меньше двух мер"
+    idx_nm = next(i for i in range(box.count())
+                  if box.itemData(i) == "net_margin")
+    idx_other = next(i for i in range(box.count())
+                     if box.itemData(i) != "net_margin")
+    box.setCurrentIndex(idx_nm)
+    live = chart.current_text()
+    box.setCurrentIndex(idx_other)
+    refused = chart.current_text()
+    assert live == "", "box-plot отрасли не нарисован при n=2"
+    assert refused != live and "нет данных" in refused, (
+        "мера вне агрегата не отказывает словами")
+
+
+def test_s1_export_buttons_write_files(qapp, env, monkeypatch, tmp_path):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    from PySide6.QtWidgets import QFileDialog
+    targets = {}
+
+    def fake_save(_parent, _caption, _dir, filt):
+        fmt = filt.lstrip("*")
+        path = str(tmp_path / f"out.{fmt}")
+        targets[fmt] = path
+        return path, filt
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(fake_save))
+    _widget(window, QPushButton, "export_csv_button").click()
+    _widget(window, QPushButton, "export_md_button").click()
+    assert set(targets) == {".csv", ".md"}, targets
+    csv_text = Path(targets[".csv"]).read_text(encoding="utf-8")
+    md_text = Path(targets[".md"]).read_text(encoding="utf-8")
+    assert "net_margin" in csv_text and "0.2043" in csv_text
+    assert "net_margin" in md_text
+
+
+def test_s1_save_png_button_writes_file(qapp, env, monkeypatch, tmp_path):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    from PySide6.QtWidgets import QFileDialog
+    target = tmp_path / "chart.png"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(target), "*.png")))
+    _widget(window, QPushButton, "save_png_button").click()
+    assert target.exists(), "png не записан"
+    assert target.stat().st_size > 0
+
+
+def test_s1_switch_root_press_cancel_words(qapp, env, monkeypatch,
+                                           tmp_path):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    # каталог без данных + отказ в вопросе = ничего не создаётся
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory",
+        staticmethod(lambda *a, **k: str(tmp_path / "nowhere")))
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    status = _widget(window, QLabel, "status")
+    before = status.text()
+    _widget(window, QPushButton, "switch_root_button").click()
+    assert "смена каталога отменена" in status.text()
+    assert status.text() != before or before == ""
+    assert (tmp_path / "nowhere").exists() is False, \
+        "каталог создан без подтверждения"
+
+
+def test_s1_chat_sessions_box_honest_empty(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    box = _widget(window, QComboBox, "chat_sessions_box")
+    usage = _widget(window, QLabel, "llm_usage_label")
+    before = usage.text()
+    # двери list_sessions в store нет (Disputed REPORT-C7): переключатель
+    # честно называет причину вместо пустоты
+    assert box.count() == 1
+    assert "ждёт двери list_sessions" in box.itemText(0)
+    assert box.itemData(0) is None
+    box.setCurrentIndex(0)
+    assert usage.text() == before, "пустое переключение меняло счётчики"
+
+
+def test_s1_tabs_switch_shows_industry(qapp, env):
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    from PySide6.QtWidgets import QTabWidget
+    tabs = window.findChild(QTabWidget, "tabs")
+    assert tabs is not None and tabs.count() >= 2
+    tabs.setCurrentIndex(1)
+    assert tabs.currentIndex() == 1
+    peer_line = _widget(window, QLabel, "peer_line")
+    assert "peer set energy" in peer_line.text()
+
+
+def test_s2_add_unknown_paper_names_ready_command(qapp, env, monkeypatch):
+    """ТЗ-75 S2: бумаги нет в базе — окно называет готовую команду
+    rusterm add с подстановкой, а не отмахивается «иди в CLI»."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    monkeypatch.setattr(
+        QInputDialog, "getText",
+        staticmethod(lambda *a, **k: ("ZZ US", True)))
+    warned = []
+    monkeypatch.setattr(
+        QMessageBox, "warning",
+        staticmethod(lambda *a, **k: warned.append(a[-1])))
+    _widget(window, QPushButton, "watchlist_add_button").click()
+    assert warned, "отказ не показан"
+    assert "rusterm add --ticker ZZ --market US" in warned[0]

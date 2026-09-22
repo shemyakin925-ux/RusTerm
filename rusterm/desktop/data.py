@@ -488,9 +488,17 @@ def industry_chart_spec(screen: dict,
     if chosen.get("null_reason"):
         return {"kind": "message",
                 "text": f"нет данных: {chosen['null_reason']}"}
+    # квартили приходят из ядра строками (repr квантилей, ТЗ-22 J7);
+    # полотно считает по числам — находка S1: живой агрегат ронял
+    # отрисовку TypeError (str - str)
+    def _num(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
     return {"kind": "box", "concept": chosen["concept"],
-            "p25": chosen["p25"], "median": chosen["median"],
-            "p75": chosen["p75"], "n": chosen["n"]}
+            "p25": _num(chosen["p25"]), "median": _num(chosen["median"]),
+            "p75": _num(chosen["p75"]), "n": chosen["n"]}
 
 
 def radar_vs_group_spec(table: dict, industry_screen: dict | None) -> dict:
@@ -636,8 +644,10 @@ def add_instrument(repos, watchlist_id: str, ticker: str, market: str,
         ticker, market, as_of or _today())
     if not candidates:
         return {"ok": False,
-                "message": (f"инструмента {ticker}.{market} нет — "
-                            "добавьте бумагу через rusterm add")}
+                "message": (f"инструмента {ticker}.{market} нет в базе — "
+                            f"добавьте бумагу командой "
+                            f"rusterm add --ticker {ticker} "
+                            f"--market {market}")}
     if len(candidates) > 1:
         return {"ok": False,
                 "message": f"тикер {ticker!r} неоднозначен: "
