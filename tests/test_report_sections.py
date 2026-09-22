@@ -336,3 +336,51 @@ def test_l2_staged_fallback_only_opens_for_a_non_test_file():
     log = _git_log_name_only()
     assert _l3_missing(["Z9"], log, ["tests/test_x.py"]) == ["Z9"]
     assert _l3_missing(["Z9"], log, ["rusterm/x.py"]) == []
+
+
+# ── ТЗ-76 W2: одноимённые HANDOFF не сливаются ──────────────────────────
+
+TWO_HANDOFFS = (
+    "# REPORT\n"
+    "## Done\n"
+    "- ok\n"
+    "## HANDOFF\n"
+    "Status: PARTIAL (F1 done; F2 ahead)\n"
+    "Items done: F1\n"
+    "Items not done: F2 three-face cross-check\n"
+    "## HANDOFF\n"
+    "Status: DONE\n"
+    "Items done: F1, F2\n"
+)
+
+
+def test_two_plain_handoff_blocks_stay_two_sections():
+    """Зубы W2: ровно «## HANDOFF» дважды — это ДВЕ секции. setdefault
+    (прежний код) склеивал их в одну, и проверить «решает последний»
+    было нельзя без суффикса FINAL."""
+    names = [n for n in _sections(TWO_HANDOFFS) if n.startswith("HANDOFF")]
+    assert len(names) == 2, names
+
+
+def test_last_handoff_decides_and_the_interim_one_is_ignored(monkeypatch):
+    """Зубы W2 на живом правиле G4: промежуточный блок называет F2
+    несделанным, финальный — нет. Склейка дала бы красный задним
+    числом по работе, закоммиченной в круге 76."""
+    monkeypatch.setattr(sys.modules[__name__], "_report_text",
+                        lambda: TWO_HANDOFFS)
+    monkeypatch.setattr(sys.modules[__name__], "_baton_round", lambda: 76)
+    assert _claimed_undone_ids("\n".join(_handoff_section(TWO_HANDOFFS))) \
+        == []
+    test_last_handoff_does_not_call_committed_items_undone()
+
+
+def test_merged_handoff_would_red_g4_retrospectively(monkeypatch):
+    """Красный случай того же разреза, собранный вручную: если блоки
+    склеить (как делал setdefault), промежуточная строка «Items not
+    done: F2» попадает в проверяемый текст, коммит F2 в круге 76 на
+    ветке есть — и G4 краснеет по уже сделанной работе."""
+    merged = "\n".join(_sections(TWO_HANDOFFS)["HANDOFF"]
+                       + _sections(TWO_HANDOFFS)["HANDOFF #2"])
+    ids = _claimed_undone_ids(merged)
+    assert ids == ["F2"], ids
+    assert "F2" in _commit_for_items(ids, 76)

@@ -62,17 +62,46 @@ clean-tree run is the first measurement (quoted below).
   the case; (4) `.wt-exec2/`, a stale registered worktree, tripped check
   13 and was hidden by a local `.git/info/exclude` rule rather than
   deleted, because it is not this session's to delete.
+- **W2 — same-named HANDOFF blocks no longer merge.**
+  Three teeth tests in `tests/test_report_sections.py`:
+  `test_two_plain_handoff_blocks_stay_two_sections` (two literal
+  `## HANDOFF` headers are two sections, no `FINAL` suffix needed),
+  `test_last_handoff_decides_and_the_interim_one_is_ignored` (the interim
+  block calls F2 undone, the final one calls it done — G4 reads the last),
+  `test_merged_handoff_would_red_g4_retrospectively` (the same cut with
+  the blocks glued by hand: F2 lands in the checked text, its commit
+  exists in round 76, so the merged form is exactly the retrospective red
+  W2 describes).
+  Red proof, with the coordinator's numbering put back to the old
+  `setdefault` (one line, working tree only, not committed):
 
+  ```
+  E   AssertionError: assert ['F2'] == []
+        Left contains one more item: 'F2'
+  tests/test_report_sections.py:367: AssertionError
+  _______________ test_merged_handoff_would_red_g4_retrospectively _______________
+  E   KeyError: 'HANDOFF #2'
+  FAILED tests/test_report_sections.py::test_two_plain_handoff_blocks_stay_two_sections
+  FAILED tests/test_report_sections.py::test_last_handoff_decides_and_the_interim_one_is_ignored
+  FAILED tests/test_report_sections.py::test_merged_handoff_would_red_g4_retrospectively
+  3 failed, 5 passed, 7 deselected in 0.11s
+  ```
+
+  Restored → `14 passed, 1 skipped`. Third sub-item, "one final HANDOFF
+  from now on": this report has a single `## HANDOFF` section that is
+  rewritten in place at every commit; no `FINAL 2` / `FINAL 3` suffixes
+  are being added, and nothing is declared done there before its own
+  commit exists.
 ## Blocked
 
 - none so far.
 
 ## What not to trust
 
-- W1's red quote comes from a temporary one-line mutation of the parser in
-  the working tree; it was reverted by copying the file back
-  (`/tmp/trs-good.py`), not by `git checkout`, so verify the diff against
-  HEAD rather than trusting the sentence.
+- W1's and W2's red quotes come from temporary one-line mutations of the
+  guard parser in the working tree; both were reverted by copying the file
+  back (`/tmp/trs-good.py`, `/tmp/trs-good-w2.py`), not by `git checkout`,
+  so verify the diff against HEAD rather than trusting the sentence.
 - The lane night-13 repair numbers (10/3 arrival, 13/0 after) come from
   that branch, not from this one; nothing from it has been merged into
   `agent/night-11`.
@@ -91,4 +120,9 @@ clean-tree run is the first measurement (quoted below).
 
 ## HANDOFF
 
-Status: in progress — W1 committed, W2 onward next.
+Status: in progress.
+Items done: W1, W2
+Items not done: W4 whole-window data-shape guard, W5 Verizon payload
+W3 is implemented and measured in this worktree; its commit is the next
+step, so it is not claimed done here yet.
+NOW: W2, step 1
