@@ -601,14 +601,26 @@ def test_round_under_review_and_live_baton_agree():
         f"holder={holder!r}, round={rnd}: получено {_round_under_review()}")
 
 
-def _log_from_top_marker(log: str) -> str:
+def _log_from_top_marker(log: str, round_no: int | None = None) -> str:
     """Лог, усечённый до формы момента приёмки: всё, что лежит ВЫШЕ
-    самого свежего маркера эстафеты, отбрасывается — на живой ветке там
-    стоят коммиты следующего круга, а в приёмный момент их нет."""
+    маркера эстафеты, отбрасывается — на живой ветке там стоят коммиты
+    следующих кругов, а в приёмный момент их нет.
+
+    ТЗ-81 (починка ТЗ-79 Z1): при заданном `round_no` ищется именно
+    маркер круга `round_no + 1`, а не «самый свежий». Прежняя версия
+    привязывалась к голове ветки: пока сверху стоял маркер 105, тест с
+    `round_no=104` был зелёным, но следующий же круг поднял туда маркер
+    106 — и тест покраснел, не изменившись сам. Страж, зависящий от
+    того, сколько кругов прошло после него, зеленеет у исполнителя и
+    краснеет на приёмке — ровно та болезнь, которую Z1 и лечил."""
     blocks = log.split("\x1e")
+    wanted = f"Эстафета: круг {round_no + 1}," if round_no is not None \
+        else None
     for i, block in enumerate(blocks):
         lines_ = [l for l in block.strip().splitlines() if l.strip()]
-        if lines_ and "Эстафета: круг" in lines_[0]:
+        if not lines_ or "Эстафета: круг" not in lines_[0]:
+            continue
+        if wanted is None or wanted in lines_[0]:
             return "\x1e".join(blocks[i:])
     return log
 
@@ -618,7 +630,7 @@ def test_strictness_holds_on_the_real_branch(tmp_path, monkeypatch):
     пунктов прошлого круга (W1, W5), ни чужого W3, ни вымышленного Z9,
     при том что работа этого круга (Y1, Y2) находится. Числа
     воспроизводят прогон координатора."""
-    log = _log_from_top_marker(_git_log_name_only())
+    log = _log_from_top_marker(_git_log_name_only(), round_no=104)
     assert _l3_missing(["Y1", "Y2"], log, [], round_no=104) == []
     assert _l3_missing(["W1", "W5"], log, [], round_no=104) == ["W1", "W5"]
     assert _l3_missing(["W3"], log, [], round_no=104) == ["W3"]

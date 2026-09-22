@@ -100,7 +100,44 @@ holds the baton). The executor's own teeth were untouched and all 20 pass.
 Measured after the fix: `Y1,Y2 → []`, `W1,W5 → ['W1','W5']`, `W3 → ['W3']`,
 `Z9 → ['Z9']`.
 
-Queue order: **TASK-79 → TASK-77 → TASK-73 → TASK-74.**
+**Round 105 (TASK-79): Z2 accepted, Z1 returned.** Z2's guard emulates
+`p6_rule.sh`'s own greps and, beyond what the task asked, covers the
+comma-list case (`test_two_paths_on_one_line_leave_the_second_
+unauthorized`). The coordinator independently found that exact defect in
+the queue: TASK-74's `РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md, GUIDE.md` left
+`GUIDE.md` mute, and TASK-73 had the same plus a continuation line. Both
+task files are fixed — **one path per line**, verified with the parser's
+own grep.
+
+**Z1 returned for the disease it was written to cure.**
+`test_strictness_holds_on_the_real_branch` is red on the branch head:
+`_log_from_top_marker()` slices the log at the *newest* relay marker while
+the test pins `round_no=104`. It was green while marker 105 was on top;
+the coordinator's own `hand` put marker 106 there and the test went red
+without changing. A guard tied to the position of HEAD is green for the
+executor and red at acceptance — exactly the failure mode Z1 addressed.
+Fixed by the coordinator (`_log_from_top_marker(log, round_no)` slices at
+marker `round_no + 1`); guards run 31 passed.
+
+**Standing rule, now third time earned: a guard may not depend on how
+many rounds have passed since it was written.** Slice live history by
+round number, never by head position. TASK-80 A1 puts teeth on it.
+
+**Three deadlocks in a row have the same shape:** a red report-guard
+blocks `relay.py hand` for *both* sides, so a defect in the guard stops
+the relay itself and the coordinator has to fix it in place. TASK-80 A2
+at least makes the refusal name the failing tests instead of the bare
+phrase «приёмка красная».
+
+**`verify` runs acceptance in a linked worktree**, where
+`test_i5_staged_and_authorised_widening_is_green` fails while a normal
+clone on the same commit is green (CONTEXT §3: P6 reads
+`.git/COMMIT_EDITMSG` literally and `.git` is a file there). The same test
+also reds on *uncommitted coordinator files* — measured twice this round.
+TASK-80 A3 requires the cause measured and the test either fixed or
+honestly skipped.
+
+Queue order: **TASK-80 → TASK-77 → TASK-73 → TASK-74.**
 
 Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,

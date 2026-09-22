@@ -85,5 +85,8 @@
 
 Бери из BACKLOG пункт S или M, названный в отчёте.
 
-РАЗРЕШЕНО ПРАВИТЬ: agent/PROTOCOL.md (только пункт T1),
-agent/CONTEXT.md, GUIDE.md
+РАЗРЕШЕНО ПРАВИТЬ: agent/PROTOCOL.md
+РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md
+РАЗРЕШЕНО ПРАВИТЬ: GUIDE.md
+
+(PROTOCOL.md — только пункт T1.)

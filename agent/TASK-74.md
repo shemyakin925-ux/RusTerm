@@ -72,4 +72,5 @@
 
 Бери из BACKLOG пункт S или M, названный в отчёте.
 
-РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md, GUIDE.md
+РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md
+РАЗРЕШЕНО ПРАВИТЬ: GUIDE.md
