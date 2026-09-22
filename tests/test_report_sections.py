@@ -497,3 +497,129 @@ def test_round_marker_missing_means_no_credits_at_all():
            "rusterm/x.py\n")
     assert _l3_missing(["W9"], log, [], round_no=103) == ["W9"]
     assert _l3_missing(["W9"], log, ["rusterm/x.py"], round_no=103) == []
+
+
+# ── ТЗ-79 Z1: зубы на починку границы со стороны координатора ────────────
+
+# Форма лога МОМЕНТА ПРИЁМКИ: `hand` ставит маркер круга N+1 самым
+# свежим коммитом, работа круга N лежит под ним, ещё ниже — маркер
+# круга N. Именно здесь прежнее правило (упор в маркер round_no)
+# схлопывало окно в пустоту: Y1 был зелёным у исполнителя и красным у
+# координатора. Литерал, а не живая история: форма не должна зависеть
+# от того, сколько коммитов уже легло сверху.
+FAKE_LOG_ACCEPTANCE_SHAPE = (
+    "\x1e5555555 Эстафета: круг 105, ход у executor — agent/TASK-79.md\n"
+    "\n"
+    "agent/BATON.json\n"
+    "\x1e4444444 ТЗ-78 Y2: маршрут dei и живые меры VZ\n"
+    "\n"
+    "rusterm/normalize/concepts.py\n"
+    "tests/test_w5_verizon_shares.py\n"
+    "\x1e3333333 Эстафета: круг 104, ход у coordinator — agent/TASK-78.md\n"
+    "\n"
+    "agent/BATON.json\n"
+)
+
+
+def test_item_is_found_under_the_next_round_marker():
+    """ЗУБ Z1 на верхней границе: при round_no=104 работа круга 104
+    обязана находиться, даже когда сверху стоит маркер круга 105 —
+    `hand` увеличивает номер раньше, чем начинается приёмка."""
+    assert _l3_missing(["Y2"], FAKE_LOG_ACCEPTANCE_SHAPE, [],
+                       round_no=104) == []
+
+
+def test_old_bound_collapsed_the_window_at_acceptance():
+    """ДЫРА прежнего правила на той же истории: окно обязано быть
+    непустым в ОБЕИХ формах — и когда верхний блок есть маркер самого
+    round_no (ход ещё у исполнителя), и когда сверху встал маркер
+    круга N+1 (уже у координатора). Прежнее правило, упиравшееся в
+    маркер round_no, во второй форме обрывало обзор до всякой работы:
+    на красном прогоне обе строки дают `['Y2']` вместо `[]`."""
+    old_shape = FAKE_LOG_ACCEPTANCE_SHAPE.replace(
+        "\x1e5555555 Эстафета: круг 105, ход у executor — agent/TASK-79.md\n"
+        "\n"
+        "agent/BATON.json\n", "")
+    assert _l3_missing(["Y2"], old_shape, [], round_no=104) == []
+    assert _l3_missing(["Y2"], FAKE_LOG_ACCEPTANCE_SHAPE, [],
+                       round_no=104) == []
+
+
+def test_leading_marker_of_another_round_is_not_a_lower_bound():
+    """Маркер круга, НЕ совпадающего с round_no и round_no+1, сверху
+    обязан остановить обзор: нижняя граница — маркер round_no, а не
+    произвольная преграда. Проверка на настоящем ветвлении номеров:
+    окно круга 104 не открывают коммиты из чужого маркера."""
+    log = ("\x1e9999999 Эстафета: круг 107, ход у executor\n"
+           "\n"
+           "agent/BATON.json\n"
+           "\x1e4444444 ТЗ-78 Y2: маршрут dei\n"
+           "\n"
+           "rusterm/normalize/concepts.py\n"
+           "\x1e3333333 Эстафета: круг 104, ход у coordinator\n"
+           "\n"
+           "agent/BATON.json\n")
+    assert _l3_missing(["Y2"], log, [], round_no=104) == ["Y2"]
+
+
+def _round_under_review_cases(tmp_path, monkeypatch):
+    """Обе развилки `_round_under_review()` на подставном BATON.json:
+    REPO подменяется, живой baton не читается и не пишется."""
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "REPO", tmp_path)
+    agent = tmp_path / "agent"
+    agent.mkdir(parents=True, exist_ok=True)
+    baton = agent / "BATON.json"
+
+    def case(holder: str, rnd: int) -> int:
+        baton.write_text(json.dumps({"holder": holder, "round": rnd}),
+                         encoding="utf-8")
+        return _round_under_review()
+
+    return case
+
+
+def test_round_under_review_shifts_when_the_holder_is_coordinator(
+        tmp_path, monkeypatch):
+    """Z1: при ходе у координатора проверяется круг round − 1 (отчёт
+    описывает предыдущий круг), при ходе у исполнителя — сам round."""
+    case = _round_under_review_cases(tmp_path, monkeypatch)
+    assert case("coordinator", 105) == 104
+    assert case("executor", 105) == 105
+    assert case("coordinator", 1) == 0
+
+
+def test_round_under_review_and_live_baton_agree():
+    """Живой baton: правило применено к настоящему BATON.json — сверка
+    с `_baton_round()` не даёт расхождения кроме законной −1."""
+    baton = json.loads((REPO / "agent" / "BATON.json").read_text(
+        encoding="utf-8"))
+    rnd = int(baton.get("round", 0))
+    holder = baton.get("holder")
+    expected = rnd - 1 if holder == "coordinator" else rnd
+    assert _round_under_review() == expected, (
+        f"holder={holder!r}, round={rnd}: получено {_round_under_review()}")
+
+
+def _log_from_top_marker(log: str) -> str:
+    """Лог, усечённый до формы момента приёмки: всё, что лежит ВЫШЕ
+    самого свежего маркера эстафеты, отбрасывается — на живой ветке там
+    стоят коммиты следующего круга, а в приёмный момент их нет."""
+    blocks = log.split("\x1e")
+    for i, block in enumerate(blocks):
+        lines_ = [l for l in block.strip().splitlines() if l.strip()]
+        if lines_ and "Эстафета: круг" in lines_[0]:
+            return "\x1e".join(blocks[i:])
+    return log
+
+
+def test_strictness_holds_on_the_real_branch(tmp_path, monkeypatch):
+    """Z1: граница осталась строгой — из окна круга 104 не видно ни
+    пунктов прошлого круга (W1, W5), ни чужого W3, ни вымышленного Z9,
+    при том что работа этого круга (Y1, Y2) находится. Числа
+    воспроизводят прогон координатора."""
+    log = _log_from_top_marker(_git_log_name_only())
+    assert _l3_missing(["Y1", "Y2"], log, [], round_no=104) == []
+    assert _l3_missing(["W1", "W5"], log, [], round_no=104) == ["W1", "W5"]
+    assert _l3_missing(["W3"], log, [], round_no=104) == ["W3"]
+    assert _l3_missing(["Z9"], log, [], round_no=104) == ["Z9"]
