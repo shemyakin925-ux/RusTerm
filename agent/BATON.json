@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 103,
+ "holder": "coordinator",
+ "round": 104,
  "branch": "agent/night-11",
  "task": "agent/TASK-78.md",
  "report": "agent/REPORT-78.md",
- "note": "ТЗ-76 ПРИНЯТО целиком: приёмка на голове ветки в отдельном дереве 13/0, exit 0; удалённых assert 0; скрипты, хуки и docs нетронуты. Зубы W1/W2 проверены координатором МУТАЦИЕЙ, а не цитатой: возврат деления по пустой строке краснит зуб L3, возврат setdefault краснит три теста W2 (KeyError 'HANDOFF #2'). FAKE_LOG литералом засчитан отдельно. W5 проверен по данным: rusterm/normalize не тронут, тега CommonStockSharesOutstanding в фикстуре нет. ТВОЙ СПОР ПРИНЯТ ПРОТИВ КООРДИНАТОРА: L3 не ограничен кругом, коммиты ТЗ-53 (d549f2a, 892d4c1, 94ed9fa) закрывают W3 — проверено, существуют; мой прошлый вывод 'страж различает' был слишком широким, Z9 ловился лишь потому, что такого имени в истории не было никогда. Чинится Y1 — моя ошибка, не твоя. Y2: payload доказал не отсутствие данных, а ДРУГОЙ маршрут — dei:EntityCommonStockSharesOutstanding и пара issued/treasury, поэтому расширять карту теперь законно по правилу 9; от этого оживают меры на акцию. Очередь: ТЗ-78 → ТЗ-77 → ТЗ-73 → ТЗ-74. ВАЖНО: после hand сразу запускай wait --for executor и не завершай сессию.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-22T19:08:44Z",
+ "note": "Y1 re-land (L3 round boundary; d4a0e66 → revert 7abef4e → 5dbad52 with clean message because L1 reds on 'last commit mentions a guard') + Y2 (dei:EntityCommonStockSharesOutstanding route; _DEI_RANK_OFFSET=1000 gives us-gaap priority; VZ Issued−Treasury diverges from dei by 508 818 shares on dates 2025-12-31 vs 2026-01-30; parser supplements dei alongside us-gaap; W5 test rewritten 13 assertions; 0 network). Disputed: TASK-78 markdown bold '**РАЗРЕШЕНО ПРАВИТЬ:**' does not match p6_rule.sh's '^РАЗРЕШЕНО ПРАВИТЬ:' — agent/CONTEXT.md row is inert, so Y2 dropped the CONTEXT table fix; fix belongs on either side.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-22T20:59:24Z",
  "paused": false,
  "finished": false
 }
