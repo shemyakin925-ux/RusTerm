@@ -219,3 +219,64 @@ Questions for the coordinator:
    block; a guard fix belongs to the coordinator.
 
 NOW: S4, step 0
+
+- **S5 (частично; Verizon — Blocked, см. ниже).** The thin-source
+  case (Kaspi/Vale class) now speaks: `measure_summary` +
+  `measure_summary_line` in tui/model.py — one door for both faces
+  (pairs of value/null_reason from the card or raw measures). Rule:
+  valued measures < a quarter of the card → the summary names the
+  count and the dominant FIRST TOKEN of the dictionary refusals (no
+  invented reason). The window shows it in the panel above the table;
+  `rusterm export` prints it to stderr before the untouched table.
+  Rule threshold is my call, reasoned: Kaspi 4/28 and Vale 6/28 are
+  under 25%, AAPL 15/27 (56%) is not; VZ 7/28 sits exactly on the
+  line and stays a table until the VZ fix lands.
+  - Red before the fix:
+    `FAILED tests/test_desktop_data.py::test_thin_source_summary_in_table_and_words`
+    (KeyError 'summary');
+    `FAILED tests/test_cli.py::test_export_of_thin_source_says_words`
+    (no words in stderr). After: both green; full suite 998p/2s/4x
+    with the one report-guard issue quoted in Disputed (L3).
+  - **Verizon cascade — SKIPPED/BLOCKED, not faked** (PROTOCOL §11):
+    matching the shares tag requires the VZ companyfacts payload
+    ("тег найден в payload"); there is no VZ fixture under
+    tests/data/, the round budget is network 0, and the user's
+    five-paper base no longer exists (measured:
+    `SELECT instrument_id FROM instrument` → only US-AAPL).
+    Guessing a look-alike tag is forbidden by the Z1 rule.
+  - «Было → стало» for the five papers — measured on today's base:
+
+    | Paper | TASK-72 (round 98) | Today |
+    |---|---|---|
+    | AAPL | 20 of 28 | 15 of 27 (base rebuilt since; summary off) |
+    | ADBE | 20 of 28 | absent from base |
+    | VZ | 7 of 28 | absent from base (fix blocked) |
+    | VALE | 6 of 28 | absent from base (summary now fires at <25%) |
+    | KSPI | 0 of 28 | absent from base (summary now fires at <25%) |
+
+## HANDOFF (FINAL 2 — supersedes every block above)
+
+Status: PARTIAL (V1, Д2, Д4, S1, S2, S4, S5-partial done; VZ part of S5 blocked, V3 pending)
+Arrival state: selfcheck exit 0, acceptance 13/0, pytest 972p/3s/4x
+Items done: V1, Д2, Д4, S1, S2, S4, S5 (thin-source part)
+Items not done: the Verizon tag fix (blocked, quoted in Done; belongs to the thin-source item) and the V3 guard — next this shift
+Acceptance: «Итог: пройдено 13, провалено 0» at V1/Д4; hook rejections during the shift are quoted in Done and were repaired, not waived
+Tests: full suite 998 passed, 2 skipped, 4 xfailed after S5 code (one report-guard red quoted in Disputed — L3 parser, passes at commit time via the staged-report fallback)
+Guards: none touched (no assert removed)
+Schema: unchanged
+Network: 0 requests used of 0 budget
+Model: app llm_calls 0 of 0; executor model GLM-5.3-Flash
+Secrets: not applicable; `env | grep -c RUSTERM` = 0
+Pushed: yes (1154307, 06e390e, 3f4c366, 4621122, d8134eb, ebc7dc1, fcc2662, 0a53190, and this commit)
+Questions for the coordinator:
+1. History keyed by snapshot as_of year (kept) vs measure period year — see Disputed.
+2. `_handoff_section` merges all interim HANDOFFs (setdefault), so only the FINAL suffix decides; interim blocks naming future work red G4 once it lands. This report carries a FINAL block; a guard fix is yours.
+3. L3 (`test_done_items_have_code_commits_in_round`) parses
+   `git log --format="%h %s" --name-only` assuming a blank line
+   between the subject and its file list; git puts the blank AFTER
+   the subject, so subject blocks never match files and the guard
+   only ever passes via the staged-report fallback (L2) — i.e. it
+   verifies nothing in normal runs. Reproduced in REPORT-75; a guard
+   fix is yours.
+
+NOW: V3, step 0
