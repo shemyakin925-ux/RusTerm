@@ -849,3 +849,64 @@ def test_s2_add_unknown_paper_names_ready_command(qapp, env, monkeypatch):
     _widget(window, QPushButton, "watchlist_add_button").click()
     assert warned, "отказ не показан"
     assert "rusterm add --ticker ZZ --market US" in warned[0]
+
+
+# ── ТЗ-75 S4: пустой список — не пустое окно ────────────────────────────
+
+def test_s4_no_watchlists_shows_all_instruments(qapp, tmp_path):
+    """ТЗ-75 S4: списков нет, инструменты в базе есть — окно
+    показывает инструменты и предлагает собрать список одной
+    командой, а не молчит пустотой."""
+    repos, paths = _minimal_base(tmp_path / "nowl")
+    repos.instrument.upsert_issuer(Issuer(
+        "i-BBB", "Beta Beta", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-BBB", "i-BBB", None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        "l-BBB", "US-BBB", "NASDAQ", "USD", 1, None, None))
+    repos.instrument.add_ticker_history(
+        "l-BBB", "BBB", "2000-01-01", None, None, None)
+    window = desktop_window._build_window(repos, paths, None)
+    counter = _widget(window, QLabel, "match_count")
+    header = _widget(window, QLabel, "company_header")
+    assert counter.text() == "компаний: 2", "инструменты не показаны"
+    assert "rusterm watchlist create main --name main" in header.text()
+    tree = _widget(window, QTreeWidget, "tree")
+    assert tree.topLevelItemCount() > 0, "дерево пустое"
+
+
+def test_s4_empty_base_names_first_command(qapp, tmp_path):
+    """ТЗ-75 S4: инструментов нет вовсе — окно называет первую
+    команду целиком, с подстановкой, без многоточий."""
+    paths = AppPaths.from_root(tmp_path / "empty")
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    window = desktop_window._build_window(repos, paths, None)
+    header = _widget(window, QLabel, "company_header")
+    assert "…" not in header.text(), "многоточие вместо команды"
+    conn.close()
+    assert "rusterm demo" in header.text()
+    assert "rusterm add --ticker AAPL --market US" in header.text()
+
+
+def test_s4_watchlist_ops_without_list_say_words(qapp, tmp_path,
+                                                 monkeypatch):
+    """ТЗ-75 S4/S1: без списка операции списка не молчат — слова с
+    готовой командой создания."""
+    repos, paths = _minimal_base(tmp_path / "noops")
+    window = desktop_window._build_window(repos, paths, None)
+    from PySide6.QtWidgets import QMessageBox
+    warned = []
+    monkeypatch.setattr(
+        QMessageBox, "warning",
+        staticmethod(lambda *a, **k: warned.append(a[-1])))
+    for name in ("watchlist_add_button", "watchlist_remove_button",
+                 "watchlist_clear_button"):
+        _widget(window, QPushButton, name).click()
+    assert len(warned) == 3, warned
+    for message in warned:
+        assert "rusterm watchlist create main --name main" in message

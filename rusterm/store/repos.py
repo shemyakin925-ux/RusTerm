@@ -106,6 +106,15 @@ class InstrumentRepo:
         ).fetchone()
         return Instrument(*row) if row else None
 
+    def list_instruments(self) -> List[str]:
+        """Все instrument-id справочника: окно без списков наблюдения
+        показывает инструменты базы (ТЗ-75 S4), а не пустоту. SQL в
+        слое хранилища — приёмка, пункт 7."""
+        rows = self.conn.execute(
+            "SELECT instrument_id FROM instrument ORDER BY instrument_id"
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def issuer_count(self) -> int:
         """Эмитентов в локальной базе (ТЗ-21 H1: markets показывает
         счётчик; SQL живёт в слое хранилища — приёмка, пункт 7)."""

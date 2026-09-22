@@ -407,6 +407,8 @@ def _build_window(repos, paths, watchlist_id=None):
 """
         watchlist_id = state.get("watchlist")
         if repos is None or not watchlist_id:
+            QMessageBox.warning(window, "список",
+                                "списков нет; " + data.NO_WATCHLISTS_HINT)
             return
         text, ok = QInputDialog.getText(
             window, "добавить бумагу",
@@ -429,7 +431,13 @@ def _build_window(repos, paths, watchlist_id=None):
         доступна."""
         watchlist_id = state.get("watchlist")
         selected = state.get("selected")
-        if repos is None or not watchlist_id or not selected:
+        if repos is None or not watchlist_id:
+            QMessageBox.warning(window, "список",
+                                "списков нет; " + data.NO_WATCHLISTS_HINT)
+            return
+        if not selected:
+            QMessageBox.warning(window, "удаление",
+                                "выберите бумагу в дереве слева")
             return
         outcome = data.remove_instruments(repos, watchlist_id,
                                           [selected["instrument_id"]])
@@ -446,6 +454,8 @@ def _build_window(repos, paths, watchlist_id=None):
         аудита; без подтверждения слой данных откажет словами."""
         watchlist_id = state.get("watchlist")
         if repos is None or not watchlist_id:
+            QMessageBox.warning(window, "список",
+                                "списков нет; " + data.NO_WATCHLISTS_HINT)
             return
         ids = [c["instrument_id"] for c in state["companies"]]
         outcome = data.remove_instruments(repos, watchlist_id, ids)
@@ -962,10 +972,19 @@ def _build_window(repos, paths, watchlist_id=None):
         # ТЗ-72 Д2: переключатель синхронизируется до боковой панели,
         # чтобы видимый список и состав слева были про одно и то же
         repaint_watchlists()
-        state["companies"] = data.sidebar_companies(
-            repos, state["watchlist"])
+        if data.watchlist_choices(repos):
+            state["companies"] = data.sidebar_companies(
+                repos, state["watchlist"])
+        else:
+            # ТЗ-72 S4: списков нет, инструменты есть — окно показывает
+            # инструменты и предлагает собрать список одной командой
+            state["companies"] = data.all_instruments(repos)
+            if state["companies"]:
+                company_header.setText(
+                    f"списков нет; показаны все инструменты базы — "
+                    f"{data.NO_WATCHLISTS_HINT}")
         if not state["companies"]:
-            company_header.setText(data.empty_watchlist_message())
+            company_header.setText(data.empty_base_instruments_message())
         repaint_sidebar("")
     repaint_watchlists()
     repaint_settings()

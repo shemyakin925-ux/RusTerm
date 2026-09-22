@@ -108,6 +108,44 @@ def sidebar_companies(repos, watchlist_id: Optional[str] = None) -> list[dict]:
     return rows
 
 
+NO_WATCHLISTS_HINT = ("соберите список одной командой: "
+                      "rusterm watchlist create main --name main")
+
+
+def all_instruments(repos) -> list[dict]:
+    """ТЗ-75 S4: списков наблюдения нет — те же строки боковой панели
+    по ВСЕМ инструментам базы (форма как у sidebar_companies), окно
+    показывает инструменты, а не пустоту."""
+    rows = []
+    for iid in repos.instrument.list_instruments():
+        instrument = repos.instrument.get_instrument(iid)
+        name = None
+        if instrument is not None:
+            issuer = repos.instrument.get_issuer(instrument.issuer_id)
+            name = issuer.name if issuer else None
+        peer = repos.peer_set.peer_set_for_instrument(iid)
+        ref = repos.instrument.ticker_for_instrument(iid, _today())
+        rows.append({
+            "instrument_id": iid,
+            "ticker": (ref or {}).get("ticker") if isinstance(ref, dict)
+            else None,
+            "market": (ref or {}).get("market") if isinstance(ref, dict)
+            else None,
+            "name": name,
+            "sector": peer["peer_set_id"] if peer else None,
+            "peer_status": None,
+        })
+    return rows
+
+
+def empty_base_instruments_message() -> str:
+    """ТЗ-75 S4: инструментов нет вовсе — первая команда целиком, с
+    подстановкой, без многоточий (как в ТЗ-61 F4)."""
+    return ("в базе нет инструментов: создайте демо-базу одной "
+            "командой rusterm demo или добавьте первую бумагу: "
+            "rusterm add --ticker AAPL --market US")
+
+
 def matches_query(company: dict, query: str) -> bool:
     """Фильтр поиска: по тикеру и по названию, без учёта регистра."""
     query = (query or "").strip().casefold()
