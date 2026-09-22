@@ -48,8 +48,19 @@ def _sections(text: str) -> dict[str, list[str]]:
     for line in text.splitlines():
         header = re.match(r"^## (.+?)\s*$", line)
         if header:
-            current = header.group(1).strip()
-            sections.setdefault(current, [])
+            # ТЗ-76 W2: повторённый заголовок «## HANDOFF» — НОВАЯ
+            # секция, а не продолжение прежней. setdefault сливал все
+            # промежуточные HANDOFF в один список, и правило «решает
+            # последний» работало лишь через уникальный суффикс
+            # (FINAL …). Одноимённые блоки нумеруются, чтобы
+            # _handoff_section видел именно последний из них.
+            name = header.group(1).strip()
+            current = name
+            dup = 2
+            while current in sections:
+                current = f"{name} #{dup}"
+                dup += 1
+            sections[current] = []
         elif current is not None:
             sections[current].append(line)
     return sections
@@ -226,12 +237,20 @@ def test_done_items_have_code_commits_in_round():
             done_ids += re.findall(r"\b[A-Z]\d+\b", line)
     if not done_ids:
         pytest.skip("в отчёте нет пунктов Items done")
+    # ТЗ-76 W1: делит РАЗДЕЛИТЕЛЬ, а не пустая строка. `--name-only`
+    # ставит пустую строку МЕЖДУ темой и списком файлов, поэтому
+    # split("\n\n") резал блок ровно по теме: первой строкой
+    # следующего блока оказывалось ИМЯ ФАЙЛА, и тема не совпадала
+    # никогда. Страж проходил только через staged-фолбэк — то есть в
+    # обычном прогоне не проверял ничего, а на чистом дереве краснел
+    # (ТЗ-75, Disputed: приёмка 11/13). %x1e начинает каждый коммит
+    # своим байтом, и тема снова первая строка блока.
     log = subprocess.run(
-        ["git", "log", "--format=%h %s", "--name-only"],
+        ["git", "log", "--format=%x1e%h %s", "--name-only"],
         cwd=REPO, capture_output=True, text=True, check=True)
     named: dict[str, bool] = {}
-    for block in log.stdout.split("\ncommit ")[0].split("\n\n"):
-        lines_ = block.strip().splitlines()
+    for block in log.stdout.split("\x1e"):
+        lines_ = [l for l in block.strip().splitlines() if l.strip()]
         if not lines_:
             continue
         sha_subject = lines_[0]

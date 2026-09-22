@@ -5,7 +5,46 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 20.09.2026, after round 75 on `agent/night-11`. Accepted:
+Last updated: 22.09.2026, after round 100 on `agent/night-11`.
+
+**Round 100 (TASK-75) is accepted**, measured in a clean clone of
+`f926b43`: acceptance «пройдено 11, провалено 2» where **both reds are
+one test**, `test_done_items_have_code_commits_in_round` (L3); no
+assert removed (`git diff e1889ee..f926b43 -- tests/ | grep -c
+'^-.*assert'` → 0); `acceptance.sh`, `selfcheck.sh` and
+`agent/githooks/` untouched. The desktop now shows measure history,
+honest watchlist labels, a collapsed stale-input line, an executable
+`rusterm add` refusal, a non-empty window without watchlists and a
+worded thin-source summary; every one of the window's 21 controls is
+driven by a press test.
+
+**Two guard defects were the executor's finding and the coordinator's
+fix** (they deadlocked the relay itself, since `relay.py hand` runs
+acceptance and refuses on red — so neither side could pass the baton):
+L3 split `git log --name-only` on a blank line, but git puts that
+blank AFTER the subject, so a block's first line was a FILENAME and no
+subject ever matched — the guard only ever passed through its staged
+fallback, i.e. verified nothing, and went red on a clean tree. It now
+splits on `%x1e`. `_sections` merged repeated identical `## HANDOFF`
+headers via `setdefault`; they are now numbered, so «the last block
+decides» no longer needs a unique FINAL suffix. TASK-76 W1/W2 make the
+executor put teeth on both.
+
+**Verizon is an accepted Blocked**, not a failure: the shares tag needs
+the VZ payload, the round's network budget was 0, and substituting a
+look-alike tag is forbidden by rule 9. Budget is granted in TASK-76 W5.
+
+**The user's five-paper base no longer exists** — measured: `SELECT
+instrument_id FROM instrument` returns only `US-AAPL`. This makes the
+acceptance criteria of TASK-73 (T0) and TASK-74 (U2), which name
+numbers for five papers, unrunnable. TASK-77 turns that base into a
+reproducible command before those two are taken. Standing rule from
+this: **an acceptance criterion may not rest on state that no command
+in the repository can recreate.**
+
+Queue order: **TASK-76 → TASK-77 → TASK-73 → TASK-74.**
+
+Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
 TASK-60. Acceptance on the branch head in a clean clone: **13/0, exit 0**.
 
@@ -100,7 +139,11 @@ minute, and ran up to **+232 minutes ahead** of real UTC during
 TASK-45/46 — two consecutive commits even carried the same value. This
 is not cosmetic: PROTOCOL §10 ends the shift at 10:00 Danang, so a
 four-hour drift ends the night a third early. The machine is on +07, so
-`TZ=Asia/Bangkok date` is the wall clock. TASK-47 O0 makes this a guard.
+the wall clock is +07 — but the stamp is written in UTC with a `Z`, so
+the command is **`date -u +%Y-%m-%dT%H:%M:%SZ`** and never
+`TZ=Asia/Bangkok date` (TASK-76 ruling 1 on the REPORT-75 dispute: O0
+compares `updated_at` to real UTC within ±15 min, so a +07 wall clock
+stamped `Z` reds it by +420 min). TASK-47 O0 makes this a guard.
 
 **An assertion that exists may still assert nothing (TASK-46 N3).**
 P1 guards against a *deleted* `assert`; `assert <anything> or True` keeps
