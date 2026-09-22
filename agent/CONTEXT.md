@@ -42,7 +42,31 @@ reproducible command before those two are taken. Standing rule from
 this: **an acceptance criterion may not rest on state that no command
 in the repository can recreate.**
 
-Queue order: **TASK-76 → TASK-77 → TASK-73 → TASK-74.**
+**Round 102 (TASK-76) is accepted**, verified on the branch head in a
+separate worktree: «Итог: пройдено 13, провалено 0», exit 0; no assert
+removed; guard scripts, hooks and `docs/` untouched. The coordinator
+checked the new teeth **by mutation, not by quotation**: restoring the
+blank-line split reds `test_l3_finds_the_item_by_subject_with_files_
+attached`, restoring `setdefault` reds three W2 tests with `KeyError:
+'HANDOFF #2'`. `FAKE_LOG` is a literal, so the guard no longer depends
+on branch history.
+
+**A guard hole the coordinator created, found by the executor:** L3
+bounds nothing by round — `_git_log_name_only()` scans the whole branch,
+so `\bW3\b` is satisfied by TASK-53-era commits (`d549f2a`, `892d4c1`,
+`94ed9fa` — they exist). Item ids repeat across tasks, so this is a live
+hole, not a theoretical one; the coordinator's round-99 claim that «the
+guard now discriminates» was too broad (`Z9` was caught only because no
+commit ever mentioned it). TASK-78 Y1 bounds L3 the way G4 already is.
+
+**Verizon: the payload proved a different route, not absent data.** The
+committed fixture (2.7 KB) has no `CommonStockSharesOutstanding`, but it
+does carry `dei:EntityCommonStockSharesOutstanding` plus
+`us-gaap:CommonStockSharesIssued` and `TreasuryStockCommonShares`. Rule
+9 is therefore satisfied and extending the map is now legal — TASK-78 Y2.
+`rusterm/normalize/` was untouched in round 102, as the executor said.
+
+Queue order: **TASK-78 → TASK-77 → TASK-73 → TASK-74.**
 
 Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
