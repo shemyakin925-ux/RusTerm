@@ -167,6 +167,68 @@ def test_company_without_snapshot_is_offered_one_action_series(qapp, env):
     assert "rusterm snapshot --instrument US-BBB" in panel.text()
 
 
+def test_watchlist_label_agrees_with_box(qapp, env):
+    """ТЗ-75 V2 (Д2): список выбран в переключателе — подпись говорит
+    про него, а не «списков нет»."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    box = _widget(window, QComboBox, "watchlist_box")
+    label = _widget(window, QLabel, "watchlist_label")
+    assert box.currentText(), "переключатель пуст при наличии списков"
+    assert "main" in box.currentText()
+    assert "списков нет" not in label.text()
+    assert "v1" in label.text() and "бумаг" in label.text()
+
+
+def test_watchlist_label_agrees_on_stale_id(qapp, env):
+    """ТЗ-75 V2 (Д2): в окно передали id, которого нет в перечне, —
+    переключатель показывает первый список, и подпись говорит про
+    этот же список."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-gone")
+    box = _widget(window, QComboBox, "watchlist_box")
+    label = _widget(window, QLabel, "watchlist_label")
+    assert box.currentIndex() >= 0
+    assert "списков нет" not in label.text()
+
+
+def test_watchlist_window_start_without_id_is_honest(qapp, env):
+    """ТЗ-75 V2 (Д2): окно открыто без явного списка — переключатель
+    и подпись говорят про один и тот же список, состав слева для него
+    и загружен."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, None)
+    box = _widget(window, QComboBox, "watchlist_box")
+    label = _widget(window, QLabel, "watchlist_label")
+    counter = _widget(window, QLabel, "match_count")
+    assert box.count() > 0
+    assert box.currentIndex() >= 0
+    assert "списков нет" not in label.text()
+    assert counter.text() == "компаний: 4"
+
+
+def test_watchlist_label_says_none_when_truly_none(qapp, tmp_path):
+    """ТЗ-75 V2 (Д2): списков действительно нет — подпись честная,
+    переключатель пуст."""
+    paths = AppPaths.from_root(tmp_path / "nolist")
+    ensure_app_dir(paths)
+    conn = sqlite3.connect(str(paths.db_path), timeout=30,
+                           isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-AAA", "Alpha Alpha", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-AAA", "i-AAA", None, "common", "active", None))
+    window = desktop_window._build_window(repos, paths, None)
+    box = _widget(window, QComboBox, "watchlist_box")
+    label = _widget(window, QLabel, "watchlist_label")
+    assert box.count() == 0
+    assert label.text() == "списков нет"
+    conn.close()
+
+
 def test_table_no_data_by_words_and_years(qapp, env):
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")

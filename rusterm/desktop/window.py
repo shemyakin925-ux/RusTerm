@@ -373,8 +373,14 @@ def _build_window(repos, paths, watchlist_id=None):
                 f"{choice['name']} ({choice['watchlist_id']})",
                 userData=choice["watchlist_id"])
         index = watchlist_box.findData(state.get("watchlist"))
+        if index < 0 and choices:
+            # ТЗ-72 Д2: выбранного нет в перечне (не передан или устарел)
+            # — показан первый список, и подпись говорит про него же,
+            # а не «списков нет» при видимом выборе
+            index = 0
         if index >= 0:
             watchlist_box.setCurrentIndex(index)
+            state["watchlist"] = choices[index]["watchlist_id"]
         watchlist_box.blockSignals(False)
         current = next((c for c in choices
                         if c["watchlist_id"] == state.get("watchlist")),
@@ -924,7 +930,11 @@ def _build_window(repos, paths, watchlist_id=None):
         answer_label.setText(message)
         repaint_sidebar("")
     else:
-        state["companies"] = data.sidebar_companies(repos, watchlist_id)
+        # ТЗ-72 Д2: переключатель синхронизируется до боковой панели,
+        # чтобы видимый список и состав слева были про одно и то же
+        repaint_watchlists()
+        state["companies"] = data.sidebar_companies(
+            repos, state["watchlist"])
         if not state["companies"]:
             company_header.setText(data.empty_watchlist_message())
         repaint_sidebar("")
