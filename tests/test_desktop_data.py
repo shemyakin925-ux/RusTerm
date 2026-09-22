@@ -450,3 +450,50 @@ def test_header_info_counts_only_today(env):
     repos.metrics.record_sample(time.time() - 7 * 24 * 3600,
                                 "provider_requests_used", "edgar", 100.0)
     assert data.header_info(repos)["requests_today"] == 3
+
+
+# ── ТЗ-75 S5: «источник почти ничего не даёт» — словами, не прочерки ────
+
+@pytest.fixture()
+def thin_env(tmp_path):
+    """Бумага с 8 мерами карточки, из них значащая одна — тонкий
+    источник, как Kaspi (4 факта) и Vale у живого пользователя."""
+    paths = AppPaths.from_root(tmp_path / "thin")
+    ensure_app_dir(paths)
+    conn = _connect(paths)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-thin", "Thin Corp", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-THIN", "i-thin", None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        "l-thin", "US-THIN", "NASDAQ", "USD", 1, None, None))
+    repos.instrument.add_ticker_history(
+        "l-thin", "THIN", "2000-01-01", None, None, None)
+    repos.snapshot.create_snapshot("s-thin", "US-THIN", 1, "2025-01-01",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-thin-ok", "s-thin", "issuer", "i-thin", "net_margin", "0.2",
+        "ratio", "2024-01-01", "2024-12-31", "f-1", "v1", None, None)
+    for i in range(7):
+        repos.snapshot.insert_measure(
+            f"m-thin-{i}", "s-thin", "issuer", "i-thin",
+            f"concept_{i}", None, "ratio", "2024-01-01", "2024-12-31",
+            None, "v1", f"missing_data: input_{i}", None)
+    yield repos, paths
+    conn.close()
+
+
+def test_thin_source_summary_in_table_and_words(thin_env, env):
+    repos, paths = thin_env
+    table = data.measure_table_rows(repos, "US-THIN")
+    summary = table["summary"]
+    assert summary is not None, "тонкий источник не распознан"
+    assert summary["valued"] == 1 and summary["total"] == 8
+    assert summary["dominant_reason"] == "missing_data"
+    line = table["summary_line"]
+    assert "1 из 8" in line and "missing_data" in line
+    # сытая карточка (3 значения из 4 мер) — сводки нет
+    full = data.measure_table_rows(env[0], "US-AAA")
+    assert full["summary"] is None and full["summary_line"] is None

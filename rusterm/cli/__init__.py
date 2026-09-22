@@ -1003,6 +1003,12 @@ def cmd_export(args) -> int:
         return 1
     snapshot = repo.get_snapshot(snapshot_id)
     measures = repo.get_measures(snapshot_id)
+    # ТЗ-72 S5: источник почти ничего не даёт — слова для человека,
+    # таблица не пересобирается и машину не ломает (stderr)
+    from rusterm.tui import model as tui_model
+    summary = tui_model.measure_summary([(m[4], m[10]) for m in measures])
+    if summary:
+        print(tui_model.measure_summary_line(summary), file=sys.stderr)
     if args.format == "json":
         # ТЗ-22 J1: каждая абсолютная мера несёт валюту, в которой
         # заявлена, или строку отказа с перечнем

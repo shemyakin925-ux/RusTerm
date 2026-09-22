@@ -256,6 +256,11 @@ def measure_table_rows(repos, instrument_id: str,
     else:
         years = []
         suggestion = NO_HISTORY_HINT.format(instrument_id=instrument_id)
+    summary = tui_model.measure_summary(
+        [(m.get("value"), m.get("null_reason"))
+         for m in card["measures"]])
+    summary_line = (tui_model.measure_summary_line(summary)
+                    if summary else None)
     rows = []
     for measure in card["measures"]:
         current = measure["value"]
@@ -290,6 +295,8 @@ def measure_table_rows(repos, instrument_id: str,
         "years": years,
         "card": card,
         "suggestion": suggestion,
+        "summary": summary,
+        "summary_line": summary_line,
     }
 
 

@@ -416,6 +416,45 @@ def render_chat(screen: dict) -> list[str]:
     return lines
 
 
+def measure_summary(rows) -> dict | None:
+    """ТЗ-72 S5: «источник почти ничего не даёт по этой бумаге».
+
+    rows — пары (значение, null_reason): карточка card_rows или сырые
+    меры get_measures, одна реализация для окна и CLI. Правило: мер со
+    значением строго меньше четверти карточки. Причина сводки — самый
+    частый первый токен словарных отказов (выдумки нет); меры без
+    причины не участвуют в подсчёте причин. Сырая карточка — None.
+    """
+    total = len(rows)
+    if total == 0:
+        return None
+    valued = 0
+    counts: dict[str, int] = {}
+    for value, reason in rows:
+        if value is not None and value != NULL_MARK:
+            valued += 1
+            continue
+        if reason:
+            token = reason.split(":", 1)[0]
+            counts[token] = counts.get(token, 0) + 1
+    if valued * 4 >= total:
+        return None
+    dominant = (min(counts, key=lambda t: (-counts[t], t))
+                if counts else None)
+    return {"valued": valued, "total": total,
+            "dominant_reason": dominant,
+            "reason_count": counts.get(dominant, 0) if dominant else 0}
+
+
+def measure_summary_line(summary: dict) -> str:
+    """Слова сводки S5: одна формулировка для окна и CLI."""
+    tail = (f"; массовый отказ: {summary['dominant_reason']}"
+            f" ({summary['reason_count']})"
+            if summary.get("dominant_reason") else "")
+    return (f"источник почти ничего не даёт по этой бумаге: мер со "
+            f"значением {summary['valued']} из {summary['total']}{tail}")
+
+
 def measure_history_by_year(repos, instrument_id: str) -> dict[str, dict[str, float]]:
     """ТЗ-72 Д1: история мер по годам из ВСЕХ сохранённых снапшотов
     инструмента.
