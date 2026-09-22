@@ -224,11 +224,70 @@ clean-tree run is the first measurement (quoted below).
   1 failed, 34 passed in 0.84s
   ```
 
+- **W5 — Verizon shares: payload, not a guess. Honest refusal, now
+  backed by data.** Live fetch used **2 of the 10** budgeted requests
+  (first hit a wrong CIK — 731128 — and returned `404`; second,
+  `CIK0000732712`, returned `VERIZON COMMUNICATIONS INC`, 4 349 995
+  bytes, taxonomies `dei/us-gaap/srt/ecd/ffd`). The real payload answers
+  the question the previous circle could only guess at:
+
+  **`us-gaap:CommonStockSharesOutstanding` — the tag `shares_outstanding`
+  maps to — is absent from Verizon's payload.** Verizon discloses its
+  share count through other tags:
+
+  | tag | latest 10-K value | unit | as of |
+  |---|---|---|---|
+  | `us-gaap:CommonStockSharesIssued` | 4 291 433 646 | shares | 2025-12-31 |
+  | `us-gaap:TreasuryStockCommonShares` | 74 258 296 | shares | 2025-12-31 |
+  | `dei:EntityCommonStockSharesOutstanding` | 4 217 684 168 | shares | 2026-01-30 |
+  | `us-gaap:CommonStockSharesOutstanding` | **нет в payload** | — | — |
+
+  Issued minus treasury is 4 217 175 350, which is not the cover-page
+  4 217 684 168 either (different measurement dates). So no Verizon tag
+  equals outstanding-common as AAPL files it, and per rule 9 / Z1
+  (two tags never summed; a foreign-sense tag does not close the
+  concept) the map is **not widened**. `shares_outstanding` stays an
+  honest refusal for VZ. Before → after, by number: VZ `shares_outstanding`
+  = refused both before and after this circle — but before it was a guess,
+  now it is proven from the payload, and the two candidate substitutes are
+  named with their real values.
+
+  Artifacts: fixture `tests/data/edgar/companyfacts_vz_shares.json`
+  (2 734 bytes ≤ 256 KB B25; shares-family tags only, 10-K, last 6 annual
+  + 6 other per unit, entry fields identical to `tools/trim_companyfacts`,
+  `sort_keys` byte-reproducible; records it came from a live fetch) and
+  guard `tests/test_w5_verizon_shares.py` (6 tests) — every assertion reads
+  the fixture or `CONCEPT_MAP`, none hard-codes a claim the data can't
+  check. `test_the_map_tag_is_absent_from_the_payload` fails loudly the day
+  Verizon starts filing the map tag; `test_map_was_not_widened_to_smuggle_a_substitute`
+  pins `CONCEPT_MAP["shares_outstanding"] == ("CommonStockSharesOutstanding",)`.
+
+  Teeth of the smuggle-pin — `CommonStockSharesIssued` temporarily appended
+  to the tuple (working tree, reverted by copying `/tmp/cg.py` back):
+
+  ```
+  E   AssertionError: assert ('CommonStock...SharesIssued') == ('CommonStock...Outstanding',)
+  E     Left contains one more item: 'CommonStockSharesIssued'
+  E   AssertionError: assert 0 == 1
+  FAILED ...::test_map_was_not_widened_to_smuggle_a_substitute
+  FAILED ...::test_concept_map_refuses_every_vz_shares_tag
+  2 failed, 4 passed
+  ```
+
 ## Blocked
 
 - none so far.
 
 ## What not to trust
+
+- W5's live numbers were read from a one-time `urllib` fetch to
+  `data.sec.gov` saved at `/tmp/vz_companyfacts_raw.json` (not committed;
+  4.3 MB). The committed fixture is a trim of that raw file. If you want to
+  re-verify, the raw payload is reproducible with one request to
+  `CIK0000732712.json` — values change only when Verizon files a new 10-K.
+- W5 mutates nothing in `rusterm/`; the map is unchanged, so the "refusal"
+  is the pre-existing behaviour, now guarded by a test rather than asserted
+  in prose.
 
 - L3 being green for "Items done: W1, W2, W3" is NOT evidence that W3
   has a commit — see the first Disputed entry; the guard matched a
@@ -279,7 +338,8 @@ clean-tree run is the first measurement (quoted below).
 
 ## HANDOFF
 
-Status: in progress.
-Items done: W1, W2, W3, W4
-Items not done: W5 Verizon payload
-NOW: W5, step 1
+Status: DONE — все пункты ТЗ-76 (W1…W5) закоммичены; W6 — запрет, не работа, соблюдён (приёмка, selfcheck, p1/p6-стражи, githooks, PROTOCOL, BACKLOG, LAUNCH, TASK-* не тронуты).
+Items done: W1, W2, W3, W4, W5
+Items not done: none
+Question for coordinator: W1/W3 pin L3 by a bare `\bW3\b` subject match against the whole branch history (see first Disputed entry) — the round-boundary repair is a coordinator-side guard change; the acceptance run is green and `hand` was not forced.
+NOW: hand to coordinator

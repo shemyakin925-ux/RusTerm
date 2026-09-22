@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-76.md",
  "report": "agent/REPORT-76.md",
- "item": "W4",
- "step": "W4 done: V3-страж окна — пин-таблица 33 дверей data.* на реальной базе, зубы через history[мера][год] и через непропиннованный вызов (краснота в отчёте)",
+ "item": "W5",
+ "step": "W5 done: VZ payload живьём (2/10 запросов), CommonStockSharesOutstanding отсутствует, карта НЕ расширена; фикстура + страж test_w5_verizon_shares.py",
  "status": "working",
- "last_commit": "1d39cd2",
- "requests": 3,
- "net_requests": 3,
+ "last_commit": "916489b",
+ "requests": 5,
+ "net_requests": 5,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-22T17:20:13Z"
+ "updated_at": "2026-09-22T17:34:05Z"
 }
