@@ -198,6 +198,20 @@ def _baton_round() -> int:
     return int(baton.get("round", 0))
 
 
+def _round_under_review() -> int:
+    """ТЗ-79 Z1: номер круга, чью РАБОТУ описывает отчёт.
+
+    Пока ход у исполнителя, это текущий круг. Но `hand` увеличивает
+    номер, и во время приёмки у координатора текущий круг — уже его
+    собственный, а отчёт описывает предыдущий. Без этой поправки L3
+    искал пункты отчёта в круге, где их заведомо нет, и краснел у
+    координатора, оставаясь зелёным у исполнителя."""
+    baton = json.loads((REPO / "agent" / "BATON.json").read_text(
+        encoding="utf-8"))
+    rnd = int(baton.get("round", 0))
+    return rnd - 1 if baton.get("holder") == "coordinator" else rnd
+
+
 def test_last_handoff_does_not_call_committed_items_undone():
     """G4: если последний HANDOFF называет пункт несделанным, а
     коммит с этим пунктом на ветке есть — красный с именами пункта
@@ -253,15 +267,29 @@ def _l3_missing(done_ids: list[str], log_text: str,
     `missing` — staged-фолбэк решает исход)."""
     named: dict[str, bool] = {}
     marker_seen = False
+    work_seen = False
     for block in log_text.split("\x1e"):
         lines_ = [l for l in block.strip().splitlines() if l.strip()]
         if not lines_:
             continue
         sha_subject = lines_[0]
-        if round_no is not None and \
-                f"Эстафета: круг {round_no}," in sha_subject:
+        # ТЗ-79 Z1 (починка границы ТЗ-78 Y1). Работа круга N лежит
+        # МЕЖДУ маркером «Эстафета: круг N» и маркером круга N+1.
+        # Прежнее правило упиралось в маркер round_no и собирало всё,
+        # что НОВЕЕ его, — это верно, пока ход у исполнителя. Но после
+        # hand маркер следующего круга становится самым свежим
+        # коммитом, работа оказывается ПОД ним, и окно схлопывалось в
+        # пустоту: страж был зелёным у исполнителя и красным у
+        # координатора, то есть ровно там, где идёт приёмка.
+        # Поэтому верхняя граница — маркер круга round_no + 1, если он
+        # уже есть; нижняя, как и была, — маркер самого round_no.
+        if round_no is not None and "Эстафета: круг" in sha_subject:
+            if f"Эстафета: круг {round_no + 1}," in sha_subject \
+                    and not work_seen:
+                continue
             marker_seen = True
             break
+        work_seen = True
         files = [l for l in lines_[1:] if l and not l.startswith("Эстафета")]
         for iid in done_ids:
             if re.search(rf"\b{iid}\b", sha_subject):
@@ -297,7 +325,7 @@ def test_done_items_have_code_commits_in_round():
         ["git", "diff", "--cached", "--name-only"], cwd=REPO,
         capture_output=True, text=True).stdout.splitlines()
     missing = _l3_missing(done_ids, _git_log_name_only(), staged,
-                          round_no=_baton_round())
+                          round_no=_round_under_review())
     assert not missing, (
         f"пункты {missing} объявлены сделанными, но коммита круга с "
         f"реализацией (не только tests/) не найдено")

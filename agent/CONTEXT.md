@@ -66,7 +66,41 @@ does carry `dei:EntityCommonStockSharesOutstanding` plus
 9 is therefore satisfied and extending the map is now legal — TASK-78 Y2.
 `rusterm/normalize/` was untouched in round 102, as the executor said.
 
-Queue order: **TASK-78 → TASK-77 → TASK-73 → TASK-74.**
+**Round 103 (TASK-78): Y2 accepted, Y1 returned.** Y2 is verified by
+data: the three removed asserts are exactly the ones stating the OLD
+behaviour (`dei_fact["canonical_concept"] is None`), assert count in the
+file 18 → 40, and the route is pinned by tests for priority, «map not
+widened», «dei map is only the cover-page fact» and a measured
+divergence of 508 818 shares.
+
+**Ruling: the dei route supersedes TASK-18 G4 §0.3 in part.** That rule
+was about the *outcome* — `us-gaap` wins when both taxonomies carry the
+tag — and the outcome is preserved and pinned. Read literally («dei never
+reaches the map») it made VZ's only proven route unreachable. Not a
+formula: it is a fact from the filing's cover page.
+
+**Ruling: `РАЗРЕШЕНО ПРАВИТЬ` was mute, and that is the coordinator's
+defect.** `agent/p6_rule.sh:63` greps `'^РАЗРЕШЕНО ПРАВИТЬ:'` and then
+`grep -qF "РАЗРЕШЕНО ПРАВИТЬ: <path>"`: the line must start the line and
+carry a bare path. TASK-75 wrote it correctly; TASK-76/77/78 wrote it as
+a markdown bullet with backticks, so the permission never existed and the
+executor's refusal to edit `CONTEXT.md` was correct obedience. All task
+files now use the flat form; TASK-79 Z2 makes a mute permission loud.
+
+**Y1 returned: the round bound is green for the executor and red for the
+coordinator** — i.e. it fails exactly where acceptance runs. Work of round
+N lies BETWEEN the markers of round N and N+1; bounding by «newer than
+marker(round_no)» is right only while the baton is with the executor,
+because `hand` increments the round and the new marker becomes the newest
+commit, collapsing the window to nothing. This deadlocked the relay again
+(`hand` runs acceptance), so as in round 101 the coordinator applied the
+minimal fix: the upper bound is the marker of `round_no + 1` when it
+exists, plus `_round_under_review()` (round − 1 while the coordinator
+holds the baton). The executor's own teeth were untouched and all 20 pass.
+Measured after the fix: `Y1,Y2 → []`, `W1,W5 → ['W1','W5']`, `W3 → ['W3']`,
+`Z9 → ['Z9']`.
+
+Queue order: **TASK-79 → TASK-77 → TASK-73 → TASK-74.**
 
 Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
