@@ -280,3 +280,45 @@ Questions for the coordinator:
    fix is yours.
 
 NOW: V3, step 0
+
+## HANDOFF (FINAL 3 — the shift is stopped by the user's order)
+
+Status: PARTIAL — shift stopped on the user's order ("finish the item, report, stop")
+Arrival state: selfcheck exit 0, acceptance 13/0, pytest 972p/3s/4x
+Items done: V1, Д2, Д4, S1, S2, S4, S5 (thin-source part)
+Items not done: the Verizon tag fix (blocked, see Done) and the V3 guard — for the next round
+Acceptance: «Итог: пройдено 13, провалено 0» at commits V1/Д4 and before this
+  hand; on the CLEAN tree acceptance is now 11/13 — see Disputed (L3 parser):
+  the same guard passes at every commit-time hook via the staged-report
+  fallback and reds only on a clean tree
+Tests: full suite 998 passed, 2 skipped, 4 xfailed (S5 code); every item's
+  own run is quoted above
+Guards: none touched (no assert removed; guard defects are in Disputed for
+  the coordinator, per «спорное — в отчёт, не в код»)
+Schema: unchanged
+Network: 0 requests used of 0 budget (DART key question untouched: `env |
+  grep -c RUSTERM` = 0)
+Model: app llm_calls 0 of 0; executor model GLM-5.3-Flash
+Secrets: not applicable; no key artifacts touched
+Pushed: yes (1154307, 06e390e, 3f4c366, 4621122, d8134eb, ebc7dc1, fcc2662,
+  0a53190, b667939, and this commit)
+Relay: `hand` REFUSED (exit 5) — «приёмка на дереве красная» — because of
+  the L3 clean-tree red quoted above, not because of shift work. A repeat
+  is futile until the coordinator fixes or adjusts the L3 parser; the baton
+  stays with the executor deliberately, and STATE.json is left at
+  "awaiting_review".
+Questions for the coordinator:
+1. History keyed by snapshot as_of year (kept) vs measure period year — see Disputed.
+2. `_handoff_section` merges all interim HANDOFF blocks (setdefault on the
+   same header); only a UNIQUE FINAL suffix decides. Interim blocks naming
+   future work red G4 once that work lands under a named commit.
+3. L3 (`test_done_items_have_code_commits_in_round`) parses
+   `git log --format="%h %s" --name-only` assuming a blank line between a
+   subject and its file list; git puts the blank AFTER the subject, so
+   subject blocks never contain files and nothing ever matches — the guard
+   only passes via the staged fallback (L2) or skips on Cyrillic-only ids.
+   TASK-75's latin ids (V1, S1...) are the first to trigger it on a clean
+   tree. Reproduction: clean clone of agent/night-11 at this commit, run
+   `bash agent/acceptance.sh` → 11/13 with only this test red, twice.
+
+NOW: stopped by user order
