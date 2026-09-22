@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-72.md",
- "report": "agent/REPORT-72.md",
- "item": "Д1",
- "step": "dirty-tree test fixed for P6-vs-P3P4 ordering; committed and pushed",
+ "task": "agent/TASK-75.md",
+ "report": "agent/REPORT-75.md",
+ "item": "V1",
+ "step": "history reaches the screen: cells read {year:{concept}}, empty columns dropped, suggestion line; committed and pushed",
  "status": "working",
- "last_commit": "03fdbc7",
- "requests": 3,
- "net_requests": 3,
+ "last_commit": "e1889ee",
+ "requests": 0,
+ "net_requests": 0,
  "llm_calls": 0,
- "model": "GLM-5.3",
- "updated_at": "2026-09-21T07:30:48Z"
+ "model": "GLM-5.3-Flash",
+ "updated_at": "2026-09-22T06:16:45Z"
 }

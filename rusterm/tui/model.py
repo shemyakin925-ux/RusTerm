@@ -417,16 +417,16 @@ def render_chat(screen: dict) -> list[str]:
 
 
 def measure_history_by_year(repos, instrument_id: str) -> dict[str, dict[str, float]]:
-    """ТЗ-72 Д1: история мер по годам из ВСЕХ сохранённых снапшотов.
+    """ТЗ-72 Д1: история мер по годам из ВСЕХ сохранённых снапшотов
+    инструмента.
 
-    Проходит по снапшотам инструмента (свежайший период каждой меры в
-    каждом), извлекает год из as_of и строит {год: {концепт: значение}}.
+    Форма результата — ``{год: {концепт: значение}}``: год берётся из
+    as_of снапшота, в пределах года побеждает старшая версия снапшота.
+    Эту же форму словами читает measure_table_rows окна (ТЗ-75 V1) —
+    обе докстроки называют её одинаково, чтобы расхождение не вернулось.
     Используется окном и CLI/TUI — одна реализация для всех лиц."""
     out: dict[str, dict[str, float]] = {}
-    snapshots = repos.snapshot.latest_per_instrument()
-    for s in snapshots:
-        if s["instrument_id"] != instrument_id:
-            continue
+    for s in repos.snapshot.snapshots_of_instrument(instrument_id):
         sid = s["snapshot_id"]
         year = s["as_of"][:4]
         for m in repos.snapshot.get_measures(sid):

@@ -148,6 +148,25 @@ def test_expansion_survives_selection_and_search(qapp, env):
     assert energy_again.isExpanded(), "состояние раскрытия пережило выбор"
 
 
+def test_company_without_snapshot_is_offered_one_action_series(qapp, env):
+    """ТЗ-75 V1: у бумаги без снапшотов годовых колонок нет, а под
+    таблицей — исполнимая строка «посчитать ряд одним действием»."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    tree = _widget(window, QTreeWidget, "tree")
+    energy = tree.topLevelItem(0)
+    bbb = None
+    for i in range(energy.childCount()):
+        if "BBB" in energy.child(i).text(0):
+            bbb = energy.child(i)
+    assert bbb is not None, "BBB нет в дереве"
+    tree.setCurrentItem(bbb)
+    table = _widget(window, QTableWidget, "table")
+    assert table.columnCount() == 2, "пустые годовые колонки запрещены"
+    panel = _widget(window, QLabel, "source_panel")
+    assert "rusterm snapshot --instrument US-BBB" in panel.text()
+
+
 def test_table_no_data_by_words_and_years(qapp, env):
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")

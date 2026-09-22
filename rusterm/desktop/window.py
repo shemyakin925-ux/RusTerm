@@ -475,7 +475,10 @@ def _build_window(repos, paths, watchlist_id=None):
         _repaint_industry()
         repaint_quality()
         repaint_settings()
-        source_panel.setText("клик по ячейке — панель источника")
+        # ТЗ-75 V1: истории нет — под таблицей исполнимая строка
+        # «посчитать ряд одним действием», а не стена пустых колонок
+        source_panel.setText(info.get("suggestion")
+                             or "клик по ячейке — панель источника")
         collect_button.setEnabled(state["worker"] is None)
         for button in (export_csv_button, export_md_button,
                        save_png_button):

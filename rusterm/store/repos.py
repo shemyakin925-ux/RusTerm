@@ -484,6 +484,16 @@ class SnapshotRepo:
         keys = ("instrument_id", "snapshot_id", "version", "as_of")
         return [dict(zip(keys, r)) for r in rows]
 
+    def snapshots_of_instrument(self, instrument_id: str) -> list:
+        """Все снапшоты инструмента по возрастанию версии: история мер
+        по годам (ТЗ-75 V1) идёт по ним, а не по одному последнему."""
+        rows = self.conn.execute(
+            """SELECT instrument_id, snapshot_id, version, as_of
+               FROM snapshot WHERE instrument_id=? ORDER BY version""",
+            (instrument_id,)).fetchall()
+        keys = ("instrument_id", "snapshot_id", "version", "as_of")
+        return [dict(zip(keys, r)) for r in rows]
+
     def latest_annual_fact(self, issuer_id: str, canonical: str,
                            min_days: int = 300) -> Optional[tuple]:
         """ТЗ-69 P1: свежайший годовой (окно >= min_days дней) факт по

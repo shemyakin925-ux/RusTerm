@@ -223,6 +223,59 @@ def test_history_returns_snapshotted_years(env):
     assert len(history) > 0, "история мер пуста при наличии снапшотов"
 
 
+@pytest.fixture()
+def history_env(tmp_path):
+    """ТЗ-75 V1: у одной бумаги снапшоты за прошлые годы — as_of
+    2024 и 2023, у net_margin в каждом своё значение."""
+    paths = AppPaths.from_root(tmp_path / "hist")
+    ensure_app_dir(paths)
+    conn = _connect(paths)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-AAA", "Alpha Alpha", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-AAA", "i-AAA", None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        "l-AAA", "US-AAA", "XNAS", "USD", 1, None, None))
+    repos.instrument.add_ticker_history(
+        "l-AAA", "AAA", "2000-01-01", None, None, None)
+    repos.snapshot.create_snapshot("s-2023", "US-AAA", 1, "2023-06-30",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-2023", "s-2023", "issuer", "i-AAA", "net_margin", "0.226",
+        "ratio", "2023-01-01", "2023-12-31", "f-2", "v1", None, None)
+    repos.snapshot.create_snapshot("s-2024", "US-AAA", 2, "2024-06-30",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-2024", "s-2024", "issuer", "i-AAA", "net_margin", "0.2043",
+        "ratio", "2024-01-01", "2024-12-31", "f-1", "v1", None, None)
+    yield repos, paths
+    conn.close()
+
+
+def test_history_cells_carry_snapshotted_values(history_env):
+    """ТЗ-75 V1: содержимое таблицы, а не форма словаря — у меры есть
+    значение за год N, и это же значение стоит в ячейке года N."""
+    repos, _ = history_env
+    table = data.measure_table_rows(repos, "US-AAA")
+    rows = {r["concept"]: r for r in table["measures"]}
+    assert rows["net_margin"]["years"]["2024"] == "0.2043"
+    assert rows["net_margin"]["years"]["2023"] == "0.226"
+    assert rows["net_margin"]["years"]["2022"] == data.NO_DATA
+
+
+def test_no_history_no_year_columns_and_command_offered(env):
+    """ТЗ-75 V1, правило ТЗ-72 Д1: истории нет ни у одной меры —
+    годовые колонки не рисуются, окно предлагает посчитать ряд одним
+    действием, исполнимой строкой с подстановкой."""
+    repos, _ = env
+    table = data.measure_table_rows(repos, "US-BBB")
+    assert table["years"] == [], "пустая колонка запрещена"
+    assert all(r["years"] == {} for r in table["measures"])
+    assert "rusterm snapshot --instrument US-BBB" in table["suggestion"]
+
+
 def test_census_pair_cnq_roe_refuses_roe_incl_nci_counts(cnq):
     """Пара из переписи: roe — «нет данных» во всех колонках,
     roe_incl_nci — значение; оба из одной карточки."""

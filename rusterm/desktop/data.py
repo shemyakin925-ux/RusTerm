@@ -186,8 +186,15 @@ def history_years(card: dict, count: int = MIN_YEAR_COLUMNS) -> list[str]:
 
 
 def measure_history(repos, instrument_id: str) -> dict[str, dict[str, float]]:
-    """ТЗ-72 Д1: та же дверь, что у CLI/TUI — не пустой заглушка."""
+    """ТЗ-72 Д1: та же дверь, что у CLI/TUI — не пустой заглушка.
+
+    Форма — ``{год: {концепт: значение}}`` (ТЗ-75 V1); ровно эту форму
+    читает measure_table_rows."""
     return tui_model.measure_history_by_year(repos, instrument_id)
+
+
+NO_HISTORY_HINT = ("истории мер нет: посчитайте ряд одной командой — "
+                   "rusterm snapshot --instrument {instrument_id}")
 
 
 def measure_table_rows(repos, instrument_id: str,
@@ -197,19 +204,29 @@ def measure_table_rows(repos, instrument_id: str,
     Ячейка без значения — слова «нет данных», и в текущей колонке, и
     в исторических; причина (какой концепт не подан) — в панели
     источника по клику, не в ячейке.
-    """
+
+    История приходит формой ``{год: {концепт: значение}}`` — ячейка
+    года N читается как history[год][концепт] (ТЗ-75 V1). Истории нет
+    ни у одной меры — годовые колонки не рисуются (пустая колонка
+    запрещена, ТЗ-72 Д1), а ``suggestion`` несёт исполнимую строку
+    «посчитать ряд одним действием»."""
     card = tui_model.card_rows(repos, instrument_id)
-    years = history_years(card, year_count)
     history = measure_history(repos, instrument_id)
+    if history:
+        years = history_years(card, year_count)
+        suggestion = None
+    else:
+        years = []
+        suggestion = NO_HISTORY_HINT.format(instrument_id=instrument_id)
     rows = []
     for measure in card["measures"]:
         current = measure["value"]
         has_value = current is not None and current != tui_model.NULL_MARK
         year_cells = {}
         for year in years:
-            point = history.get(measure["concept"], {}).get(year)
-            year_cells[year] = (format_value(point["value"])
-                                if point else NO_DATA)
+            point = history.get(year, {}).get(measure["concept"])
+            year_cells[year] = (format_value(point)
+                                if point is not None else NO_DATA)
         period_end = measure.get("period") or ""
         rows.append({
             "concept": measure["concept"],
@@ -234,6 +251,7 @@ def measure_table_rows(repos, instrument_id: str,
         "measures": rows,
         "years": years,
         "card": card,
+        "suggestion": suggestion,
     }
 
 
