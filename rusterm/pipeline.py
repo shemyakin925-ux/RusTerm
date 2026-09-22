@@ -96,14 +96,15 @@ def _validate_fact(fact: dict, getter: Callable[[str], bytes]) -> list[str]:
 
 def apply_concept_map(fact: dict) -> int:
     """Заполнить canonical_concept/concept_map_version у словаря факта
-    (TASK-9 V0; TASK-18 G3/G4). Возвращает 1, если тег не отобразился
-    (факт остаётся, каноническое имя — NULL: считается, а не
-    выбрасывается). Таксономия берётся из префикса концепта факта
-    (us-gaap/ifrs-full/cvm-dfp — свои карты и свои версии карт)."""
+    (TASK-9 V0; TASK-18 G3/G4; ТЗ-56 Z2; ТЗ-78 Y2). Возвращает 1, если
+    тег не отобразился (факт остаётся, каноническое имя — NULL:
+    считается, а не выбрасывается). Таксономия берётся из префикса
+    концепта факта (us-gaap / ifrs-full / cvm-dfp / dei — свои карты и
+    свои версии карт)."""
     taxonomy, local = strip_taxonomy(fact.get("concept", ""))
     effective = taxonomy or "us-gaap"
     canonical = canonical_for(local, effective) \
-        if effective in ("us-gaap", "ifrs-full", "cvm-dfp") else None
+        if effective in ("us-gaap", "ifrs-full", "cvm-dfp", "dei") else None
     if canonical is not None:
         fact["canonical_concept"] = canonical
         fact["concept_map_version"] = map_version(effective)

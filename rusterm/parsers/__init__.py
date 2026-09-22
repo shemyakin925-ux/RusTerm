@@ -213,6 +213,12 @@ class CompanyFactsParser:
         # разбираются все разделы как раньше (dei и прочие остаются
         # неотображёнными). Имя таксономии уже живёт в json_pointer
         # каждого факта — видимость без миграции.
+        # ТЗ-78 Y2: dei добавляется как ДОПОЛНИТЕЛЬНЫЙ раздел к любой
+        # основной таксономии, а не заменяет её: обложка 10-K несёт
+        # EntityCommonStockSharesOutstanding, которого нет в us-gaap, и
+        # приоритет решается в snapshot через priority_rank — us-gaap
+        # ранг 0, dei ранг 1000+ (см. _DEI_RANK_OFFSET), поэтому если
+        # эмитент подаёт оба тега для одной меры, us-gaap выигрывает.
         facts_root = doc.get("facts", {})
         if "us-gaap" in facts_root:
             taxonomies = [("us-gaap", facts_root["us-gaap"])]
@@ -220,6 +226,8 @@ class CompanyFactsParser:
             taxonomies = [("ifrs-full", facts_root["ifrs-full"])]
         else:
             taxonomies = list(facts_root.items())
+        if "dei" in facts_root and all(t != "dei" for t, _ in taxonomies):
+            taxonomies = taxonomies + [("dei", facts_root["dei"])]
 
         # Проход 1: конец периода, на который отчитывался каждый accn
         latest_end_by_accn: dict[str, str] = {}

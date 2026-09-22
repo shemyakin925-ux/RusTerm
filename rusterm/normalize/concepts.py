@@ -18,6 +18,16 @@ us-gaap:LongTermDebt (54 факта, 82 300 000 000 USD на 2026-06-27) —
 входят: суммировать два тега запрещено, недоучёт назван здесь);
 st_investments <- us-gaap:MarketableSecuritiesCurrent (62 факта,
 22 855 000 000 USD на 2026-06-27).
+
+Порядок us-gaap vs dei (ТЗ-78 Y2): если эмитент подаёт ОБА —
+us-gaap:CommonStockSharesOutstanding (строка баланса по классу) и
+dei:EntityCommonStockSharesOutstanding (обложка 10-K, сущность в
+целом) — берётся us-gaap. Правило, не вкус: us-gaap несёт разбивку
+по классу и привязан к дате отчётного периода, dei — одна агрегированная
+строка с датой обложки, обычно на 30 дней позднее end. Механика
+приоритета — в `_PRIORITY` против `CONCEPT_MAP_DEI`: таксономия dei
+смещена на _DEI_RANK_OFFSET (=1000), поэтому us-gaap-ранг 0 всегда
+меньше любого dei-ранга, и выбор делает `min(rank)`.
 """
 from __future__ import annotations
 
@@ -196,6 +206,40 @@ _CVM_PRIORITY: dict[str, dict[str, int]] = {
 _CVM_SIGN_NORMALIZED: frozenset[str] = frozenset({"tax_expense"})
 
 
+# ── Четвёртый словарь: DEI (ТЗ-78 Y2) ───────────────────────────────────
+# SEC's Data Types reference (dei = "Data Exchange and Interoperability"):
+# cover-page facts the filer enters once per filing. Not an accounting
+# taxonomy; a distinct concept route. Payload-доказательство тега
+# (правило 9): dei:EntityCommonStockSharesOutstanding на VZ — 6 фактов
+# (10-K, FY2020..FY2025), свежайший val=4 217 684 168 shares на
+# end=2026-01-30 (filed 2026-02-17). Фикстура
+# `tests/data/edgar/companyfacts_vz_shares.json` — тот же payload,
+# собранный живым запросом 22.09.2026 (TASK-76 W5). VZ не подаёт
+# us-gaap:CommonStockSharesOutstanding ни в одном 10-K, поэтому без
+# этого тега shares_outstanding для VZ остаётся честным отсутствием.
+CONCEPT_MAP_VERSION_DEI = "dei.v1"
+
+CONCEPT_MAP_DEI: dict[str, tuple[str, ...]] = {
+    "shares_outstanding": ("EntityCommonStockSharesOutstanding",),
+}
+
+_DEI_TAG_TO_CONCEPT: dict[str, str] = {
+    tag: concept
+    for concept, tags in CONCEPT_MAP_DEI.items()
+    for tag in tags
+}
+
+# Смещение всех dei-рангов: us-gaap-ранг 0 (CommonStockSharesOutstanding)
+# всегда меньше 1000+любой dei-ранг, поэтому если эмитент подаёт ОБА
+# тега для одной меры — us-gaap выигрывает по `min(rank)` в snapshot.
+_DEI_RANK_OFFSET = 1000
+
+_DEI_PRIORITY: dict[str, dict[str, int]] = {
+    concept: {tag: _DEI_RANK_OFFSET + rank for rank, tag in enumerate(tags)}
+    for concept, tags in CONCEPT_MAP_DEI.items()
+}
+
+
 def normalize_sign_cvm(fact: dict) -> bool:
     """Привести знак величины к конвенции словаря мер (cvm-dfp.v2).
     True — знак приведён; меняется только value (модуль), исходное
@@ -224,6 +268,8 @@ def canonical_for(local_tag: str, taxonomy: str = "us-gaap") -> str | None:
         return _IFRS_TAG_TO_CONCEPT.get(local_tag)
     if taxonomy == "cvm-dfp":
         return _CVM_TAG_TO_CONCEPT.get(local_tag)
+    if taxonomy == "dei":
+        return _DEI_TAG_TO_CONCEPT.get(local_tag)
     return _TAG_TO_CONCEPT.get(local_tag)
 
 
@@ -233,6 +279,8 @@ def map_version(taxonomy: str = "us-gaap") -> str:
         return CONCEPT_MAP_VERSION_IFRS
     if taxonomy == "cvm-dfp":
         return CONCEPT_MAP_VERSION_CVM
+    if taxonomy == "dei":
+        return CONCEPT_MAP_VERSION_DEI
     return CONCEPT_MAP_VERSION
 
 
@@ -254,9 +302,13 @@ def priority_rank(concept: str, local_tag: str,
                   taxonomy: str = "us-gaap") -> int:
     """Ранг тега внутри концепта (0 — самый приоритетный). Неизвестный
     тег получает ранг за пределами таблицы. Таксономия выбирает таблицу
-    приоритетов (us-gaap / ifrs-full / cvm-dfp, TASK-18 G3, ТЗ-56 Z2)."""
+    приоритетов (us-gaap / ifrs-full / cvm-dfp / dei, TASK-18 G3,
+    ТЗ-56 Z2, ТЗ-78 Y2). Смещение `_DEI_RANK_OFFSET` даёт us-gaap
+    безусловный приоритет, когда оба тега закрыты одним концептом."""
     if taxonomy == "ifrs-full":
         return _IFRS_PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
     if taxonomy == "cvm-dfp":
         return _CVM_PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
+    if taxonomy == "dei":
+        return _DEI_PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
     return _PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
