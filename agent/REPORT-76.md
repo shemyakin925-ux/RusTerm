@@ -151,6 +151,79 @@ clean-tree run is the first measurement (quoted below).
   not the fix's evidence.
 
 
+- **W4 — V3 returned: every `data.*` door the window calls is pinned on
+  a real base.** New file `tests/test_w4_window_data_contract.py`:
+  `window_calls()` re-extracts the call sites from
+  `rusterm/desktop/window.py` (`data.<fn>(`) and the pin table must equal
+  it — 33 doors, `set(CONTRACTS) == window_calls()` holds. The base is
+  real: `cli init/add/ingest/snapshot` over `tests/data/edgar` fixtures
+  with the transport patched at the provider class (network 0) —
+  US-AAPL/US-MSFT/US-KO, 206/199/132 facts, 28 measures each with 10,
+  10, 11 valued, plus a watchlist and a peer set made through store
+  doors. Shapes are asserted the way the window reads them
+  (`_repaint_table`, `_repaint_measures`, `_repaint_industry`,
+  `repaint_settings`, `show_source_panel`, `ChartArea.set_spec`):
+
+  | door | what the window indexes on it |
+  |---|---|
+  | `add_instrument()` | ok / message |
+  | `all_instruments()` | companies |
+  | `catalog_switch_decision()` | candidate_root / exists |
+  | `catalog_view()` | catalog (root, db_path, exists, then size_bytes / updated_at only under exists) |
+  | `channel_degrees()` | degrees (str per MARKET_CODES) |
+  | `chart_caption()` | str |
+  | `chart_spec()` | spec (kind → years/values, box quartiles, radar axes) |
+  | `chat_sessions()` | sessions_or_none |
+  | `chat_transcript_lines()` | lines |
+  | `chat_unavailable_reason()` | reason |
+  | `empty_base_instruments_message()` | str |
+  | `empty_base_message()` | str |
+  | `expanded_sectors()` | set |
+  | `export_table_csv()` | text_or_none |
+  | `export_table_md()` | text_or_none |
+  | `governance_view()` | rows |
+  | `header_info()` | schema_version / requests_today |
+  | `host_limits_view()` | limit_rows (host, nightly_max, per_second, override) |
+  | `industry_chart_spec()` | spec |
+  | `industry_table_rows()` | industry_rows (concept, p25, median, p75, n, mark, refused) |
+  | `keys_view()` | keys (file, exists, rows — and no value/secret key in a row) |
+  | `llm_usage_line()` | str |
+  | `measure_coverage()` | has_snapshot / green / total / reasons |
+  | `measure_table_rows()` | table (instrument_id, ticker, name, measures, years, card, suggestion, summary, summary_line; per row concept/current/years/has_value/null_reason/unit/measure/stale_mark, and every displayed year present in the row) |
+  | `open_readonly()` | readonly (paths.root/db_path/config_path, conn) |
+  | `peer_screen()` | peer (has_peer_set → peer_set_id/version/scope/markets/rule/members, else message) |
+  | `radar_vs_group_spec()` | spec |
+  | `remove_instruments()` | ok / message |
+  | `sector_tree()` | tree (sector + companies) |
+  | `set_host_rate_limit()` | ok |
+  | `sidebar_companies()` | companies |
+  | `source_panel_view()` | text / open_target / stale_count |
+  | `watchlist_choices()` | watchlists (watchlist_id, name, version, member_count) |
+
+  Run: `python3 -m pytest tests/test_w4_window_data_contract.py` →
+  `35 passed`.
+  Teeth, V1-class mismatch — `measure_table_rows` put back to
+  `history[мера][год]` (one line, working tree, reverted by copying
+  `/tmp/data-good-w4.py` back):
+
+  ```
+  E   AssertionError: ('2025', 'asset_turnover', 'нет данных', '1.1493')
+  E       assert 'нет данных' == '1.1493'
+  FAILED tests/test_w4_window_data_contract.py::test_history_cells_agree_with_the_history_door
+  1 failed, 34 passed in 0.83s
+  ```
+
+  Second pair of teeth, coverage: a call the pin table does not know —
+  `data.brand_new_door(repos)` inserted into `window.py` (working tree,
+  reverted from `/tmp/w4-window-good.py`):
+
+  ```
+  E   AssertionError: двери окна без контракта: ['brand_new_door']
+  E   assert not missing, f"двери окна без контракта: {missing}"
+  tests/test_w4_window_data_contract.py:381: AssertionError
+  1 failed, 34 passed in 0.84s
+  ```
+
 ## Blocked
 
 - none so far.
@@ -207,6 +280,6 @@ clean-tree run is the first measurement (quoted below).
 ## HANDOFF
 
 Status: in progress.
-Items done: W1, W2, W3
-Items not done: W4 whole-window data-shape guard, W5 Verizon payload
-NOW: W3, step 1
+Items done: W1, W2, W3, W4
+Items not done: W5 Verizon payload
+NOW: W5, step 1

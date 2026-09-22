@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-76.md",
  "report": "agent/REPORT-76.md",
- "item": "W3",
- "step": "W3 done: год истории = период меры, as_of только видимый фолбэк (RUN_YEAR_MARK); краснота до правки и числа живой базы в отчёте",
+ "item": "W4",
+ "step": "W4 done: V3-страж окна — пин-таблица 33 дверей data.* на реальной базе, зубы через history[мера][год] и через непропиннованный вызов (краснота в отчёте)",
  "status": "working",
- "last_commit": "3a5b620",
+ "last_commit": "1d39cd2",
  "requests": 3,
  "net_requests": 3,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-22T16:47:55Z"
+ "updated_at": "2026-09-22T17:20:13Z"
 }
