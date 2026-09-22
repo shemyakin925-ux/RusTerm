@@ -83,6 +83,50 @@ pytest 972 passed / 3 skipped / 4 xfailed / 0 failed.
   - After: the three desktop test files → 49 passed (exit 0),
     including the button click/expand/collapse round-trip on a
     25-stale-input base.
+- **S1.** Every control is pressed by a test (Qt offscreen), each
+  with an observable result. Inventory (control → press test →
+  observable):
+
+  | Control | Press test | Observable result |
+  |---|---|---|
+  | search (field) | test_search_filters_live_and_counts | counter text «совпадений: N» |
+  | watchlist_box | test_s1_watchlist_box_switch_reloads_members | companies counter + label switch |
+  | watchlist_add_button | test_s1_watchlist_add_button_press_adds_paper | companies 4→5, label v2 |
+  | watchlist_remove_button | test_s1_watchlist_remove_button_press_removes_selected | companies 4→3 |
+  | watchlist_clear_button | test_s1_watchlist_clear_button_press_asks_and_clears | confirm asked, companies 4→0 |
+  | tree (selection) | test_expansion_survives_selection_and_search | header/table loaded |
+  | table (cell click) | test_cell_click_opens_source_panel_with_reason | panel shows reason |
+  | stale_button | test_stale_inputs_collapse_and_expand_on_click | panel expands/collapses |
+  | kind_box | test_chart_kind_switches_without_restart | chart message changes |
+  | measure_box | test_s1_measure_switch_press_changes_chart | live chart ↔ «нет данных» |
+  | industry_measure_box | test_s1_industry_measure_switch_changes_chart | live box-plot ↔ refusal words |
+  | export_csv_button | test_s1_export_buttons_write_files | csv file with values |
+  | export_md_button | test_s1_export_buttons_write_files | md file with values |
+  | save_png_button | test_s1_save_png_button_writes_file | non-empty png |
+  | open_raw_button | test_window_open_raw_button_opens_existing_file | raw file opened |
+  | collect_button | test_collect_refuses_non_demo_with_cli_words + test_collect_runs_pipeline_and_refreshes_window | status words / pipeline refresh |
+  | cancel_button | test_collect_cancel_button_wires_flag | cancel flag set, «отмена…» |
+  | question_line | test_chat_without_key_speaks_reason_in_placeholder | reason words in answer |
+  | chat_sessions_box | test_s1_chat_sessions_box_honest_empty | honest «ждёт двери list_sessions», no counters change |
+  | switch_root_button | test_s1_switch_root_press_cancel_words | «смена каталога отменена — ничего не создано», no dir created |
+  | tabs | test_s1_tabs_switch_shows_industry | industry tab shows peer set |
+
+  Findings named (S1 rule) and fixed in this round:
+  1. industry box chart crashed on live data (`TypeError: str - str`
+     in `_PyqtgraphView`): the core returns quartiles as `repr()`
+     strings (ТЗ-22 J7), the desktop spec passed them through raw;
+     `industry_chart_spec` now converts to float. Caught exactly
+     because the press test drives the live path, not an invented
+     dict (the old data-level test fed floats by hand).
+  2. `watchlist_add/clear/remove` silently did nothing when no list
+     exists — fixed together with S4 (warning with the ready
+     `rusterm watchlist create` command).
+  3. The add-dialog failure path opens a REAL modal
+     `QMessageBox.warning`; in offscreen tests an unresolved ticker
+     hung the run for minutes (measured: 25s+ sample showed
+     `QDialog::exec`). Not changed — tests patch the dialog; noted
+     for any future headless runs.
+
 ## Blocked
 
 ## What not to trust
@@ -136,3 +180,42 @@ Tests: three desktop test files 49 passed; suite green at V1 (975p/3s/4x)
 Pushed: yes (1154307, 06e390e, 3f4c366, and this commit)
 
 NOW: S1, step 0
+
+## HANDOFF
+
+Status: PARTIAL (V1, Д2, Д4, S1, S2 done; S4, S5, V3 pending)
+Items done: V1, Д2, Д4, S1 (press tests), S2
+Items not done: S4, S5, V3 — in progress this shift
+Acceptance: selfcheck run before S2 commit
+Tests: window file 35 passed (11 S1 presses + S2)
+Pushed: yes (through S2 commit)
+
+NOW: S4, step 0
+
+## HANDOFF (FINAL — supersedes the interim values above)
+
+Status: PARTIAL (V1, Д2, Д4, S1, S2 done; S4, S5, V3 continue this shift)
+Arrival state: selfcheck exit 0, acceptance 13/0, pytest 972p/3s/4x
+Items done: V1, Д2, Д4, S1, S2
+Items not done: the remaining V2 work and the V3 guard — in progress
+Acceptance: «Итог: пройдено 13, провалено 0» at V1 and Д4 commits;
+  two hook rejections during the shift are quoted in Done (Д4) and
+  were repaired, not waived
+Tests: window file 35 passed; desktop files 49 passed at Д4; full
+  suite green at V1 (975p/3s/4x)
+Guards: none touched (no assert removed; new asserts added only)
+Schema: unchanged
+Network: 0 requests used of 0 budget
+Model: app llm_calls 0 of 0; executor model GLM-5.3-Flash
+Secrets: not applicable; `env | grep -c RUSTERM` = 0
+Pushed: yes (1154307, 06e390e, 3f4c366, 4621122, d8134eb, and this commit)
+Questions for the coordinator:
+1. History keyed by snapshot as_of year (kept) vs measure period year —
+   see Disputed; say the word and it becomes an item.
+2. `_handoff_section` merges every interim HANDOFF into one section
+   (setdefault on the same header), so «last supersedes» only works
+   via the FINAL suffix — interim blocks naming future work red G4
+   once that work lands. This report works around it with a FINAL
+   block; a guard fix belongs to the coordinator.
+
+NOW: S4, step 0
