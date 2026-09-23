@@ -209,7 +209,7 @@ this branch at 02:11 and 02:43 UTC while the baton sat with the
 coordinator. The user ruled that this session leads. TASK-82…87 are kept
 and queued; old task files are not rewritten (user, 23.09).
 
-Queue order: **TASK-81 → TASK-82 … TASK-87 → TASK-88 → TASK-77 → TASK-73 → TASK-74.**
+Queue order: **TASK-81 → TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74.** TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
 
 Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
