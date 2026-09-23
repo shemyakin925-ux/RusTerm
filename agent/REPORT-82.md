@@ -204,6 +204,34 @@ One deliberate deviation from the wording of E3, recorded as Disputed 3 (see bel
 against `×1e-3` → `rate=28143926708999996.0000`. Comparing whole strings would
 make the property red on a correct engine; the value comparison stays strict.
 
+### E4 — ноль не равен пропуску
+
+Two properties added to `tests/test_prop_formulas.py`; no source changed (the
+parent tree is already green for them — Run 17, the same demonstration as E3's
+Run 14, is the honest form of "this item fixes nothing"):
+
+* `test_arity_two_pairs_are_not_an_empty_list` — the set below is built by
+  introspection (functions returning the pair with exactly two parameters), and
+  the guard says so out loud when introspection stops seeing formulas instead of
+  quietly checking nothing. Measured count: 10.
+* `test_absent_numerator_is_refused_zero_numerator_is_a_number` — for every
+  two-parameter measure: `f(None, d)` is exactly `(None, "missing_data")` and
+  `f(0.0, d)` is exactly `(0.0, None)`, with `d` drawn finite and positive so
+  the denominator rules stay out of the way. The ten are the nine ratios of
+  E3's list plus `market_cap_per_class` — introspection picks it by arity, and
+  it answers the same way, which is the behaviour worth pinning there too.
+
+Why a fence rather than a fix: a missing fact becoming `0.0` is invisible in the
+base (it looks like a measured zero), and E2's closure property does not see it
+— measured in the mutation run of E3 (Run 15), where `net_margin` taught to
+answer an absent numerator with `0.0` reddened exactly this property and left
+the closure property green. The two checks catch different defects; that is why
+both are in the file.
+
+`git diff 1d50c89..HEAD -- tests/ | grep -c '^-.*assert'` → 0 (Run 19): E1–E4
+added to `tests/` without removing or rewriting a single assert line, which is
+the "Done when" this item names.
+
 ## Blocked
 
 - none.
@@ -232,11 +260,11 @@ make the property red on a correct engine; the value comparison stays strict.
   arithmetic claims start with E2.
 - The suite now hard-requires `hypothesis`: per the fixed decision there is no
   `importorskip`, so collecting the whole suite fails on a machine without the
-  package. That is the documented consequence of the task's own choice, not an
-  accident of this commit — but it is a new hole in the "run the suite anywhere"
-  story, and Disputed 2 records why the install command that closes it is not
-  one this round can run here. Acceptance is unaffected in this environment,
-  where 6.168.1 is installed.
+  package. That is the consequence the task chose, not an accident of this
+  commit — but it is a new hole in the "run the suite anywhere" story. The way
+  to close it is to install the `.[test]` group, and Disputed 2 records why the
+  usual `pip install -e` recipe is not one this round can run on this machine.
+  Acceptance is unaffected here, where 6.168.1 is installed.
 - The arrival numbers come from a tree where `pip install hypothesis` had
   already been issued (it ran while the arrival selfcheck was in progress).
   Nothing imported the package then — no test file used it yet — so it could not
@@ -304,15 +332,19 @@ make the property red on a correct engine; the value comparison stays strict.
 | 14 | worktree на 88e880f (родитель E3) + `cp tests/test_prop_formulas.py` (версия E3) + `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` | `50 passed in 7.40s` — E3 не меняет исходников, зелёный на родителе и есть смысл пункта |
 | 15 | scratch-копия `rusterm/`+`tests/` с тремя намеренными поломками (`gross_margin` → `revenue + 1.0`; `net_margin` → `0.0` при отсутствующем числителе; `ttm` → вес последнего квартала), `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` | `FAILED …test_money_scale_does_not_move_a_ratio[gross_margin-2]`, `FAILED …test_ttm_does_not_care_about_the_order_of_its_window`, `FAILED …test_ttm_refuses_a_short_or_gapped_window`, `FAILED …test_absent_numerator_is_refused_zero_numerator_is_a_number[net_margin]`, `6 failed, 54 passed in 13.02s` (двое из шести — артефакт scratch: нет pyproject.toml, и E1-свойство дыма) |
 | 16 | `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` (клон, E3) | `50 passed in 7.40s` |
+| 17 | worktree на d2af2ff (родитель E4) + `cp tests/test_prop_formulas.py` (версия E4) + `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""`, затем `git worktree remove --force` | `61 passed in 9.91s` — E4 не меняет исходников, зелёный на родителе и есть смысл пункта |
+| 18 | `python3 -m pytest tests/test_prop_formulas.py -q -o addopts="" --durations=5` (клон, E4) | slowest: `enterprise_value 0.31s`, `market_cap_total 0.23s`, `drawdown 0.23s`, `roe_incl_nci 0.22s`, `test_ttm_refuses_a_short_or_gapped_window 0.22s` ; `61 passed in 8.13s` |
+| 19 | `git diff 1d50c89..HEAD -- tests/ \| grep -c '^-.*assert'` ; то же против рабочего дерева с неоткоммиченным файлом E4 (`git diff 1d50c89 -- tests/`) | `0` и `0`; `grep '^-.*assert'` — пустой вывод (нечего показывать) |
 
 ## HANDOFF
 
-Status: PARTIAL — E1, E2, E3 приняты, очередь продолжается.
+Status: PARTIAL — E1–E4 приняты, очередь продолжается.
 Items done: приём круга, E1 (профили и зависимость, ADR-0024), E2
 (closure-свойство по 21 формуле и calculate_measure, non_finite), E3
-(метаморфные свойства: масштаб, порядок, кэр-бэк cagr, границы drawdown/hhi).
-Items not done: E4 (ноль не пропуск), E5 (бюджет времени).
+(метаморфные свойства: масштаб, порядок, кэр-бэк cagr, границы drawdown/hhi),
+E4 (ноль не пропуск: 10 двухместных пар по интроспекции).
+Items not done: E5 (бюджет времени).
 Arrival state: `Итог: пройдено 11, провалено 2`, repaired by `bad057a`.
 Network: pip only — `pip install hypothesis` and one `pip install --dry-run`
 (Runs 3 and Disputed 2); no data-provider request, LLM 0.
-NOW: E4, step 1
+NOW: E5, step 1

@@ -366,3 +366,46 @@ def test_drawdown_lives_between_minus_one_and_zero(series):
     value, reason = formulas.drawdown(sorted(series))
     assert reason is None, f"drawdown({series}) → {reason!r}"
     assert -1.0 <= value <= 0.0, f"drawdown({series}) = {value!r}"
+
+
+# ── E4: ноль — не пропуск ───────────────────────────────────────────────
+
+# Пара «ноль в числителе» и «числителя нет» дают разные ответы, и путать
+# их — значит считать меру там, где факта нет (ТЗ-82 E4). Список
+# двухместных отношений выводится интроспекцией: новая такая формула
+# попадает под проверку сама, без правки теста.
+_ARITY2_PAIRS = sorted(
+    name for name, obj in vars(formulas).items()
+    if not name.startswith("_") and inspect.isfunction(obj)
+    and obj.__module__ == "rusterm.formulas"
+    and typing.get_type_hints(obj).get("return") == PAIR
+    and len(inspect.signature(obj).parameters) == 2
+)
+
+
+def test_arity_two_pairs_are_not_an_empty_list():
+    """Список построен интроспекцией: если она сломалась (аннотация
+    возврата или число аргументов уехало), свойство стало бы зелёным без
+    единого случая — этот тест говорит об этом вслух."""
+    assert len(_ARITY2_PAIRS) >= 9, (
+        f"двухместных пар найдено {len(_ARITY2_PAIRS)} — "
+        "интроспекция больше не видит формулы")
+
+
+@pytest.mark.parametrize("name", _ARITY2_PAIRS)
+@given(denominator=st.floats(min_value=1e-6, max_value=1e12,
+                             allow_nan=False, allow_infinity=False))
+def test_absent_numerator_is_refused_zero_numerator_is_a_number(
+        name, denominator):
+    """Знаменатель — положительное конечное число: правила нулевого и
+    отрицательного знаменателя здесь ни при чём, вопрос только в
+    числителе."""
+    function = getattr(formulas, name)
+    missing, missing_reason = function(None, denominator)
+    assert (missing, missing_reason) == (None, "missing_data"), (
+        f"{name}(None, {denominator}) → {(missing, missing_reason)}: "
+        "пропущенный факт обязан быть отказом, а не 0.0")
+    zero, zero_reason = function(0.0, denominator)
+    assert (zero, zero_reason) == (0.0, None), (
+        f"{name}(0.0, {denominator}) → {(zero, zero_reason)}: ноль при "
+        "годном знаменателе — настоящее значение, а не отказ")
