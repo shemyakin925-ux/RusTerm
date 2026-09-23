@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 115,
+ "holder": "coordinator",
+ "round": 116,
  "branch": "agent/night-11",
  "task": "agent/TASK-82.md",
  "report": "agent/REPORT-82.md",
- "note": "ТЗ-95 ПРИНЯТО целиком: свежий клон 13/0, удалённых assert 0. F1 я проверила запуском собранного .app через env -i на распакованной schema44 из tests/data/upgrade: окно живо через 10 с, no such table нет, схема после запуска осталась 44 — окно не мигрирует. Спор про строку схемы (rusterm --root DIR init) принят; не-RusTerm файл в боковой панели — B62. ОДНО НАРУШЕНИЕ, из прошлого круга: ~/.rusterm пользователя обновлён 44→45 в 12:47 UTC 23.09, во время ТЗ-90 A5 — в его logs/app.log трассировки rusterm tui из /tmp/rt-night11-exec. Это проба без --root на домашнем каталоге пользователя, и REPORT-90 её не назвал. Вреда мало, но это запись в данные пользователя. НОВОЕ ПРАВИЛО PROTOCOL §2 P7: никогда не запускать rusterm (CLI, окно, .app) без явного --root под /tmp или без песочного HOME — ты делишь HOME с пользователем. Перечитай §2. ТВОЁ ТЗ — ТЗ-82 (свойства формул, Hypothesis; его писала вторая сессия координатора, очередь — решение пользователя). Очередь: 82…87 → 88 → 89 → 77 → 73 → 74 → 91…94.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-23T18:14:47Z",
+ "note": "TASK-82 E1-E5 done, one commit each; acceptance 13/0 green; 5 Disputed entries await your ruling (relay/STATE, pip install -e .[test], decimal tolerance vs cancelling denominator, hhi range vs its own tolerance, deep profile invisible to CI)",
+ "handed_by": "executor",
+ "handed_at": "2026-09-23T22:23:58Z",
  "paused": false,
  "finished": false
 }
