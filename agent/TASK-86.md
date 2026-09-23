@@ -63,6 +63,23 @@ the no-skip guard, `schedule:` present; no `secrets.`.
 
 **Done when:** green locally and in CI.
 
+## Q4a. pytest-qt for the desktop
+
+pytest-qt (MIT, free) added to the `desktop` extra only; core and the
+default run never import it.
+
+**Done when:**
+- `_CollectWorker` tested through `qtbot.waitSignal(finished_run,
+  timeout=10000)` — the signal really arrives from the worker thread;
+- window close during a running collect: `cancel_flag` set, worker
+  joined, no `QThread: Destroyed while thread is still running` in
+  captured stderr;
+- at least 3 existing press tests switched to `qtbot.mouseClick` where
+  they call handlers directly — no assert removed
+  (`git diff <base>..HEAD -- tests/ | grep -c '^-.*assert'` → 0);
+- green in the `desktop` CI job on both OS; without PySide6 the files
+  still skip (`importorskip`), acceptance green.
+
 ## Q5. Proof, not claim
 
 **Done when:** report quotes
