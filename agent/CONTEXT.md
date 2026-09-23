@@ -267,7 +267,24 @@ REPORT-95 disputes: the stale-schema line names `rusterm --root DIR init` —
 accepted (the only writing door that migrates without the network); a
 non-RusTerm sqlite file still raises in the sidebar — BACKLOG B62.
 
-Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
+## Round 115 (TASK-82) accepted
+
+Fresh clone at `b696148`: «пройдено 13, провалено 0»; no assert removed; the
+one `docs/` change is the new ADR-0024 (allowed). Teeth checked by mutation:
+making `refuses_non_finite` a no-op reds `test_formula_is_closed_on_generated_
+inputs` for `price_to_sales`, `roe`, `roe_incl_nci`, `roic`, `total_return`,
+`ttm` and more. Disabling only the input check `_has_non_finite` reds nothing:
+the output-side `isfinite` check catches the same cases — defence in depth,
+but the input check is not pinned on its own (BACKLOG B63).
+
+**The executor refused `pip install -e ".[test]"` and measured why:** `rusterm`
+is installed system-wide as an editable link to the user's working copy
+(`/Users/anton/AI agents/RusTerm`); the install would repoint it at a `/tmp`
+clone. Same class as P7. Consequence for anyone probing: bare `python3 -m
+rusterm…` without `PYTHONPATH` runs the user's checkout, not the branch —
+the coordinator fell into exactly this on 23.09.
+
+Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-83 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
 
 **Whole-project review, 23.09 (user's request, separate session) —
 TASK-90…94.** Acceptance on `3f7dcc9` is 13/0, and every finding below
