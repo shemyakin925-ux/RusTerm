@@ -147,10 +147,12 @@ def test_collection_lands_events_and_second_run_is_free(tmp_path):
                "currency": div2013["currency"]}
     assert div2013["amount"] == pytest.approx(2.65, abs=1e-9)
     assert div2013["currency"] == "USD"
-    # payload'ы легли в raw-хранилище с каноническим URL без ключа
+    # payload'ы легли в raw-хранилище с каноническим URL без ключа;
+    # ТЗ-90 A1: URL датированный — он и есть ключ свежести
     for kind in ("splits", "dividends"):
-        url = provider.cache_url_ca(kind, "AAPL")
+        url = provider.cache_url_ca(kind, "AAPL", "2026-09-14")
         assert "TESTONLY" not in url
+        assert "end_date=2026-09-14" in url
         assert repos.raw.find_by_provider_url("twelvedata", url)
 
     code = _ingest_twelvedata_actions(repos, "US-X", "2026-09-14",

@@ -281,11 +281,13 @@ def cmd_ingest(args) -> int:
 def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
                               start: str | None = None,
                               provider=None) -> int:
-    """Котировочный сбор (ТЗ-30 B2, ТЗ-23 K2, ADR-0014): один запрос
-    /time_series, payload в raw-хранилище, строки в price. Повторный
-    сбор того же диапазона находит payload по каноническому URL без
-    ключа (raw_object.url) и тратит ноль запросов (ADR-0003); дубли
-    дат не пишутся (I7). provider инъецируется тестами с фейковым
+    """Котировочный сбор (ТЗ-30 B2, ТЗ-23 K2, ADR-0014, ТЗ-90 A1): один
+    запрос /time_series на дату, payload в raw-хранилище, строки в
+    price. Повторный сбор того же `as_of` находит payload по
+    каноническому URL без ключа (raw_object.url) и тратит ноль
+    запросов (ADR-0003); следующий `as_of` — новый URL, то есть новый
+    запрос, иначе первый сбор оставался последним навсегда. Дубли дат
+    не пишутся (I7). provider инъецируется тестами с фейковым
     транспортом; в команде строится из окружения."""
     from rusterm.providers.base import ProviderError
     from rusterm.providers.budget import (
@@ -310,13 +312,13 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
             print(f"что делать: {key_instruction()}", file=sys.stderr)
         return 1
 
-    cache_url = provider.cache_url(symbol, start, None)
+    cache_url = provider.cache_url(symbol, start, as_of)
     cached_sha = repos.raw.find_by_provider_url("twelvedata", cache_url)
     requests_spent = 0
     if cached_sha is not None:
         payload = json.loads(repos.raw.get(cached_sha).decode("utf-8"))
     else:
-        outcome = provider.time_series(symbol, start=start, end=None)
+        outcome = provider.time_series(symbol, start=start, end=as_of)
         if isinstance(outcome, (ProviderError, ConfigError,
                                 BudgetExceeded)):
             print(f"twelvedata: {outcome.reason}", file=sys.stderr)
@@ -338,10 +340,12 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
 
 def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
                                provider=None) -> int:
-    """Корпоративные действия с вендора (ТЗ-31 C3): /splits и
+    """Корпоративные действия с вендора (ТЗ-31 C3, ТЗ-90 A1): /splits и
     /dividends тем же каналом, что котировки; каждый payload кешируется
-    по каноническому URL без ключа (ADR-0003), события пишутся в
-    corporate_action (I7: уникальность (инструмент, ex_date, вид)).
+    по каноническому URL без ключа (ADR-0003), и URL этот датированный —
+    на следующий `as_of` он другой, то есть свежее событие действительно
+    доходит до нас. События пишутся в corporate_action (I7:
+    уникальность (инструмент, ex_date, вид)).
     Суммы пишутся КАК ОТДАЛ ВЕНДОР — в сегодняшней базе акций, той же,
     в которой вендорский close (ADR-0020): отношение дивиденд/close
     инвариантно к базе, и пересчёт в объявленную сумму на дату в
@@ -374,13 +378,13 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
     requests_spent = 0
     for kind, fetch in (("splits", provider.splits),
                         ("dividends", provider.dividends)):
-        cache_url = provider.cache_url_ca(kind, symbol)
+        cache_url = provider.cache_url_ca(kind, symbol, as_of)
         cached_sha = repos.raw.find_by_provider_url("twelvedata", cache_url)
         if cached_sha is not None:
             payloads[kind] = json.loads(
                 repos.raw.get(cached_sha).decode("utf-8"))
             continue
-        outcome = fetch(symbol)
+        outcome = fetch(symbol, as_of)
         if isinstance(outcome, (ProviderError, ConfigError,
                                 BudgetExceeded)):
             print(f"twelvedata: {kind}: {outcome.reason}", file=sys.stderr)
