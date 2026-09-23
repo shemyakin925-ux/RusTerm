@@ -17,6 +17,11 @@
 ветке. Если он называет пункт несделанным («Items not done», «не
 сделан»), а коммит с этим пунктом на ветке есть — красный с именами
 пункта и коммита. Правило одной строкой живёт в agent/PROTOCOL.md §5.
+
+ТЗ-80 A1 (правило этого файла): **страж не вправе зависеть от того,
+сколько кругов прошло после его написания.** Любое усечение истории
+здесь задаётся номером круга, а не положением головы ветки: тест,
+написанный в круге N, обязан давать тот же результат в круге N+100.
 """
 from __future__ import annotations
 
@@ -601,26 +606,27 @@ def test_round_under_review_and_live_baton_agree():
         f"holder={holder!r}, round={rnd}: получено {_round_under_review()}")
 
 
-def _log_from_top_marker(log: str, round_no: int | None = None) -> str:
+def _log_from_top_marker(log: str, round_no: int) -> str:
     """Лог, усечённый до формы момента приёмки: всё, что лежит ВЫШЕ
     маркера эстафеты, отбрасывается — на живой ветке там стоят коммиты
     следующих кругов, а в приёмный момент их нет.
 
-    ТЗ-81 (починка ТЗ-79 Z1): при заданном `round_no` ищется именно
-    маркер круга `round_no + 1`, а не «самый свежий». Прежняя версия
-    привязывалась к голове ветки: пока сверху стоял маркер 105, тест с
-    `round_no=104` был зелёным, но следующий же круг поднял туда маркер
-    106 — и тест покраснел, не изменившись сам. Страж, зависящий от
-    того, сколько кругов прошло после него, зеленеет у исполнителя и
-    краснеет на приёмке — ровно та болезнь, которую Z1 и лечил."""
+    ТЗ-81 (починка ТЗ-79 Z1): ищется именно маркер круга
+    `round_no + 1`, а не «самый свежий». Прежняя версия привязывалась к
+    голове ветки: пока сверху стоял маркер 105, тест с `round_no=104`
+    был зелёным, но следующий же круг поднял туда маркер 106 — и тест
+    покраснел, не изменившись сам. Страж, зависящий от того, сколько
+    кругов прошло после него, зеленеет у исполнителя и краснеет на
+    приёмке — ровно та болезнь, которую Z1 и лечил.
+
+    ТЗ-80 A1: `round_no` стал обязательным — форма «усечь по самому
+    свежему маркеру» была единственным способом нарушить правило A1, и
+    теперь её нельзя вызвать случайно."""
     blocks = log.split("\x1e")
-    wanted = f"Эстафета: круг {round_no + 1}," if round_no is not None \
-        else None
+    wanted = f"Эстафета: круг {round_no + 1},"
     for i, block in enumerate(blocks):
         lines_ = [l for l in block.strip().splitlines() if l.strip()]
-        if not lines_ or "Эстафета: круг" not in lines_[0]:
-            continue
-        if wanted is None or wanted in lines_[0]:
+        if lines_ and wanted in lines_[0]:
             return "\x1e".join(blocks[i:])
     return log
 
@@ -635,3 +641,79 @@ def test_strictness_holds_on_the_real_branch(tmp_path, monkeypatch):
     assert _l3_missing(["W1", "W5"], log, [], round_no=104) == ["W1", "W5"]
     assert _l3_missing(["W3"], log, [], round_no=104) == ["W3"]
     assert _l3_missing(["Z9"], log, [], round_no=104) == ["Z9"]
+
+
+# ── ТЗ-80 A1: страж не смотрит на голову ветки ──────────────────────────
+
+LIVE_PROBES = (["Y1", "Y2"], ["W1", "W5"], ["W3"], ["Z9"])
+
+# Окно круга 104 — таблица, измеренная в ТЗ-79 Z1 и подтверждённая
+# прогоном координатора. Она же и эталон симуляции: то, что обязано
+# НЕ измениться, сколько бы кругов ни наросло сверху.
+WINDOW_OF_ROUND_104 = {
+    ("Y1", "Y2"): [],
+    ("W1", "W5"): ["W1", "W5"],
+    ("W3",): ["W3"],
+    ("Z9",): ["Z9"],
+}
+
+
+def _top_round_in(log: str) -> int:
+    """Номер самого свежего маркера в логе — нужен только чтобы
+    приставить сверху ЧЕРЕД следующих кругов, а не обрезать по нему."""
+    nums = [int(m.group(1)) for m in re.finditer(r"Эстафета: круг (\d+),",
+                                                 log)]
+    assert nums, "в живом логе нет ни одного маркера эстафеты"
+    return max(nums)
+
+
+def _rounds_later(log: str, count: int) -> str:
+    """Тот же живой лог, но сверху приписано `count` маркеров следующих
+    кругов — так ветка выглядит через 1, 2 и 5 кругов после того, как
+    этот тест написали. Тем самым кругом, что проверяет тест."""
+    top = _top_round_in(log)
+    prefix = "".join(
+        "\x1e%07x Эстафета: круг %d, ход у executor — agent/TASK-80.md\n"
+        "\n"
+        "agent/BATON.json\n" % (0x0A0A0A0 + k, top + k)
+        for k in range(count, 0, -1))
+    return prefix + log
+
+
+def _window_of_round_104(log: str) -> dict[tuple[str, ...], list[str]]:
+    return {tuple(ids): _l3_missing(list(ids),
+                                    _log_from_top_marker(log, round_no=104),
+                                    [], round_no=104)
+            for ids in LIVE_PROBES}
+
+
+def test_the_window_survives_rounds_passing_after_the_test_was_written():
+    """ЗУБ A1 симуляцией: окно круга 104 обязано давать ту же таблицу,
+    сколько бы кругов ни прошло сверху. Прежний `_log_from_top_marker`,
+    резавший по самому свежему маркеру, спотыкается уже на первом
+    приписанном круге и теряет Y1 с Y2 — краснота показана цитатой в
+    отчёте (ТЗ-79 Z1 болел тем же, но с точностью до наоборот: зелёный
+    у исполнителя, красный на приёмке)."""
+    log = _git_log_name_only()
+    for count in (1, 2, 5):
+        moved = _window_of_round_104(_rounds_later(log, count))
+        assert moved == WINDOW_OF_ROUND_104, (
+            f"через {count} круг(ов) сверху окно круга 104 изменилось: "
+            f"{moved}")
+    assert _window_of_round_104(log) == WINDOW_OF_ROUND_104, (
+        "и без приписанных кругов окно обязано давать ту же таблицу")
+
+
+def test_the_helper_refuses_to_cut_by_the_newest_marker():
+    """A1 структурно: `round_no` у `_log_from_top_marker` обязателен,
+    поэтому «усечь по самому свежему маркеру» больше не вызываемо —
+    единственный способ нарушить правило закрыт сигнатурой."""
+    import inspect
+
+    params = inspect.signature(_log_from_top_marker).parameters
+    assert params["round_no"].default is inspect.Parameter.empty, (
+        "round_no снова со значением по умолчанию: вызов без номера "
+        "круга молча режет по голове ветки")
+    assert params["round_no"].annotation in (int, "int"), (
+        f"аннотация round_no = {params['round_no'].annotation!r} — "
+        "Optional[int] возвращает зависимость от головы ветки")
