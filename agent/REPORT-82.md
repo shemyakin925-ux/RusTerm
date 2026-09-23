@@ -159,12 +159,61 @@ because the surviving shares do sum to 1.0, and `[0.5, None]` →
 `missing_data: shares_sum:0.5` — the sum rule is what makes a dropped
 participant visible (measured, Run 13).
 
+### E3 — метаморфные свойства
+
+Nine properties in `tests/test_prop_formulas.py`, inputs finite and inside
+1e-6 ≤ |x| ≤ 1e12 (E3's own domain; the NaN/±inf corner belongs to E2):
+
+* `test_the_ratio_list_matches_the_signatures` — the arity table below is
+  checked against `inspect.signature`, so a formula that grows an argument
+  cannot quietly narrow the property.
+* `test_money_scale_does_not_move_a_ratio` — the twelve money-in/ratio-out
+  measures named by the task: every argument × k, k ∈ {1e-3, 1e3, 1e6}, drawn
+  together with the arguments so the counterexample names the real parameters
+  (`gross_profit`, `revenue`, …). Same value within rel 1e-9, or the same
+  refusal.
+* `test_ttm_does_not_care_about_the_order_of_its_window` (reverse, rotation,
+  sort of the last four) and `test_ttm_refuses_a_short_or_gapped_window`
+  (fewer than four, or any `None` in the window → `missing_data`).
+* `test_market_cap_total_is_never_a_partial_sum`.
+* `test_cagr_reads_back_the_growth_it_was_hand` — `cagr(v, v·(1+g)^n, n) ≈ g`
+  for g ∈ (-0.99, 10), n ∈ 1..30, within rel 1e-6; and
+  `test_cagr_refuses_a_nonpositive_start` — `v_start ≤ 0` → `negative_
+  denominator` (the reason the code actually gives, not the one the task
+  paraphrases as "refusal").
+* `test_hhi_ignores_order_and_stays_in_its_documented_bounds` (0..1, the
+  fraction convention `hhi` documents).
+* `test_a_flat_series_has_no_return_and_no_drawdown` (constant series → 0.0)
+  and `test_drawdown_lives_between_minus_one_and_zero`.
+
+Teeth, measured rather than assumed (Run 15): a scratch copy of the tree with
+three deliberate defects — `gross_margin` dividing by `revenue + 1.0` (a
+constant in the wrong unit), `net_margin` turning an absent numerator into
+`0.0`, and `ttm` weighting the last quarter of its window. The scale property
+named the first, the order/refusal pair named the third, and each was red with
+a shrunk example. (The same run also reddens
+`test_hypothesis_is_declared_in_the_test_extra_only`, which reads
+`pyproject.toml` — that file was not part of the scratch copy; artifact of the
+demonstration, not a finding.)
+
+One deliberate deviation from the wording of E3, recorded as Disputed 3 (see below):
+"same reason" is compared by the first token of the reason, because
+`jurisdiction_rate: rate=…` carries a number in its continuation, and
+`(a·k)/(b·k)` reproduces that number only to ~1e-16 — measured:
+`effective_tax_rate(28143926709.0, 1e-06)` → `rate=28143926709000000.0000`
+against `×1e-3` → `rate=28143926708999996.0000`. Comparing whole strings would
+make the property red on a correct engine; the value comparison stays strict.
+
 ## Blocked
 
 - none.
 
 ## What not to trust
 
+- The metamorphic properties of E3 sample a wide domain, so "green" is a
+  statement about 200 drawn cases per property at the default profile. The
+  mutation run above (Run 15) is the evidence they can fail at all; it is not a
+  proof that every unit-scale defect is found at this seed.
 - The closure property is a search, not an enumeration: on the pre-fix tree 17
   of 21 formulas went red, and the four that stayed green were open too —
   `dividend_yield(inf, 1.0)` gave `(inf, None)`, `market_cap_total([1e308,
@@ -224,6 +273,17 @@ participant visible (measured, Run 13).
   here — `agent/STATE.json` is mine to write, `relay.py` and the guard are not
   named by this task.
 
+- Entry 3 (wording of E3, mine to raise): "all money inputs × k → same value
+  (rel 1e-9) **or same reason**" is read as the same *reason token*, not the
+  same string. Reason continuations carry numbers
+  (`jurisdiction_rate: rate=%.4f`, `missing_data: shares_sum:<x>`), and
+  `(a·k)/(b·k)` reproduces `a/b` only to ~1e-16, so a literal string
+  comparison reddens a correct engine — measured counterexample in the docstring
+  of `_reason_token` (28143926709000000.0000 against 28143926708999996.0000).
+  The value comparison is strict at rel 1e-9 as written. Ruling needed: accept
+  the token, or take the continuation out of reason strings (a source change in
+  `formulas.py`, outside E3's letter).
+
 ## Runs
 
 | # | command | output |
@@ -241,15 +301,18 @@ participant visible (measured, Run 13).
 | 11 | `python3 -m pytest tests/test_prop_formulas.py tests/test_ifrs_map.py -q -o addopts=""` (клон, после правки, baseline перепинен) | `33 passed, 3 xfailed in 4.44s` |
 | 12 | `python3 -c "…gross_margin(nan,100.0); gross_margin(1e308,1e-308); effective_tax_rate(inf,inf); cagr(1.0,inf,2.0); calculate_measure('ebitda', operating_income=0.0, d_and_a=inf)…"` (после правки) | все пять → `non_finite` |
 | 13 | те же пробы на `ca7d9c2` (до правки) + пробы `hhi` | `div_yield(inf,1.0) = (inf, None)`, `mct([1e308,1e308]) = (inf, None)`, `ev(inf,…) = (inf, None)`, `hhi([inf]) = (None, 'missing_data: shares_sum:inf')`, `hhi([0.5,None,0.5]) = (0.5, None)`, `hhi([0.5,None]) = (None, 'missing_data: shares_sum:0.5')` |
+| 14 | worktree на 88e880f (родитель E3) + `cp tests/test_prop_formulas.py` (версия E3) + `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` | `50 passed in 7.40s` — E3 не меняет исходников, зелёный на родителе и есть смысл пункта |
+| 15 | scratch-копия `rusterm/`+`tests/` с тремя намеренными поломками (`gross_margin` → `revenue + 1.0`; `net_margin` → `0.0` при отсутствующем числителе; `ttm` → вес последнего квартала), `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` | `FAILED …test_money_scale_does_not_move_a_ratio[gross_margin-2]`, `FAILED …test_ttm_does_not_care_about_the_order_of_its_window`, `FAILED …test_ttm_refuses_a_short_or_gapped_window`, `FAILED …test_absent_numerator_is_refused_zero_numerator_is_a_number[net_margin]`, `6 failed, 54 passed in 13.02s` (двое из шести — артефакт scratch: нет pyproject.toml, и E1-свойство дыма) |
+| 16 | `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` (клон, E3) | `50 passed in 7.40s` |
 
 ## HANDOFF
 
-Status: PARTIAL — E1 и E2 приняты, очередь продолжается.
+Status: PARTIAL — E1, E2, E3 приняты, очередь продолжается.
 Items done: приём круга, E1 (профили и зависимость, ADR-0024), E2
-(closure-свойство по 21 формуле и calculate_measure, non_finite).
-Items not done: E3 (метаморфные свойства), E4 (ноль не пропуск), E5 (бюджет
-времени).
+(closure-свойство по 21 формуле и calculate_measure, non_finite), E3
+(метаморфные свойства: масштаб, порядок, кэр-бэк cagr, границы drawdown/hhi).
+Items not done: E4 (ноль не пропуск), E5 (бюджет времени).
 Arrival state: `Итог: пройдено 11, провалено 2`, repaired by `bad057a`.
 Network: pip only — `pip install hypothesis` and one `pip install --dry-run`
 (Runs 3 and Disputed 2); no data-provider request, LLM 0.
-NOW: E3, step 1
+NOW: E4, step 1
