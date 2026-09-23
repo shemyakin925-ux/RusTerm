@@ -10,6 +10,7 @@ import argparse
 import importlib
 import json
 import sys
+import time
 import uuid
 
 from rusterm.core.export import format_source_cell, refusal_advice, snapshot_to_csv, snapshot_to_json, \
@@ -1784,7 +1785,11 @@ def cmd_chat(args) -> int:
     from rusterm.core.chat import ChatSession, save_transcript
     from rusterm.core.llm import make_chat_client
     from rusterm.providers.budget import ConfigError, RequestGate
-    client = get_provider("llm-api", gate=RequestGate())
+    # ТЗ-90 A2: один гейт на сессию — та же дверь бюджета и темпа, что у
+    # проверки доступности канала; раньше make_chat_client строил второй,
+    # невидимый, и инъекции теста до него не долетали.
+    gate = RequestGate()
+    client = get_provider("llm-api", gate=gate)
     if isinstance(client, ConfigError):
         # ТЗ-28 R5: отказ называет бесплатный тариф и не предлагает
         # платного плана — платного в проекте нет (ADR-0018).
@@ -1800,7 +1805,7 @@ def cmd_chat(args) -> int:
     # локальным классом здесь: экран разговора звал ту же дверь и падал
     # AttributeError, потому что дверь отдавала клиента без chat
     # (находка координатора 17.09.2026).
-    session = ChatSession(repos, make_chat_client(),
+    session = ChatSession(repos, make_chat_client(gate=gate),
                           max_total=args.max_calls)
     print("чат: пустая строка — выход; модель отвечает только "
           "цитированными числами")
@@ -2388,8 +2393,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p_imp.add_argument("--market", default=None)
     p_imp.add_argument("--dry-run", dest="dry_run", action="store_true",
                        help="извлечь и проверить, ничего не записывая")
-    sub.add_parser("chat",
-                   help="чат с цитатами (ТЗ-26 Q1); нужен ключ модели")
+    p_chat = sub.add_parser("chat",
+                            help="чат с цитатами (ТЗ-26 Q1); нужен ключ "
+                                 "модели")
+    # ТЗ-90 A2: у chat не было ни одного аргумента, а cmd_chat читал
+    # args.max_calls — AttributeError до первого вопроса.
+    from rusterm.core.chat import MAX_TOOL_CALLS_PER_SESSION
+    p_chat.add_argument("--max-calls", dest="max_calls", type=int,
+                        default=MAX_TOOL_CALLS_PER_SESSION,
+                        help="потолок вызовов модели и инструментов за "
+                             f"сессию (по умолчанию "
+                             f"{MAX_TOOL_CALLS_PER_SESSION})")
+    p_chat.add_argument("--instrument", dest="instrument", default=None,
+                        help="к какому инструменту относим расшифровку")
     p_cad = sub.add_parser("cadence",
                            help="кадентность котировок: состояние, дыры,"
                                 " срок опроса (ТЗ-31 C5)")

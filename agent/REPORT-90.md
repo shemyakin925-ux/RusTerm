@@ -104,6 +104,9 @@ request and the new day written (`put_rows` I7 holds, 3 dates, no duplicates);
 a dividend present only in the `D+1` payload lands in `corporate_action`
 with vendor amount and currency.
 
+Committed as `ad4c131` (7 files, +456/−39) and pushed `f94db0f..ad4c131`; the
+pre-commit hook's own run: «Итог: пройдено 13, провалено 0», `SELFCHECK OK`.
+
 ## Blocked
 
 Nothing blocked in A1.
@@ -137,5 +140,75 @@ Schema:          unchanged
 Network:         4 of 4 (twelvedata), budget for A1 spent
 Model:           Qoder executor, llm_calls 0
 Secrets:         0
-Pushed:          no
+Pushed:          yes — ad4c131
 NOW: A2, step 1
+
+## Done (продолжение круга)
+
+### A2 — `rusterm chat` работает у того, у кого есть ключ
+
+Оба дефекта подтверждены командами на родительском коде (`cli/__init__.py`
+восстановлен из `HEAD`, тесты оставлены):
+
+```
+python3 -m pytest -q tests/test_a2_chat_cli.py
+  FAILED ::test_chat_parser_declares_its_arguments
+  FAILED ::test_chat_with_a_key_exits_zero_and_leaves_one_transcript
+  FAILED ::test_chat_max_calls_reaches_the_session
+```
+
+и живым путём из ТЗ (`echo | env -i … RUSTERM_LLM_API_KEY=fake
+RUSTERM_LLM_MODEL=fake RUSTERM_SEC_UA="t t@example.com" python3 -m
+rusterm --root <tmp> chat`): **код возврата 2**,
+`AttributeError: 'Namespace' object has no attribute 'max_calls'`.
+На починке та же команда — **код возврата 0**:
+
+```
+чат: пустая строка — выход; модель отвечает только цитированными числами
+вопрос> вызовов модели/инструментов за сессию: 0
+расшифровка сохранена: chat-1790160403471
+```
+
+то есть и `time.time()` в конце сессии (второй дефект, NameError) больше
+не падает: строка расшифровки доходит до хранилища.
+
+Изменено: `--max-calls` (дефолт `MAX_TOOL_CALLS_PER_SESSION`) и
+опциональный `--instrument` у sub-парсера `chat`; модульный
+`import time`; `cmd_chat` строит ОДИН `RequestGate` и передаёт его двери
+`make_chat_client(gate=…)` — раньше проверка канала и дверь держали по
+гейту, и инъекция нижнего сидa в дверь не проходила. Попутно найден и
+починен ещё один враньё-след: `_ChatAdapter` не отдавал `model`, и
+`save_transcript` getattr'ом писал в `chat_transcript.model` значение
+`unknown`, хотя модель была известна. Теперь у адаптера есть
+`model`-свойство, и тест закрепляет `model == "fake-model"`.
+
+Тесты (`tests/test_a2_chat_cli.py`, 4 шт.) водят полный путь дверью:
+`cli.main(["--root", tmp, "chat"])` с ключом в окружении, настоящим
+`make_chat_client` и фейковым гейтом на нижнем сиде (прецедент —
+`_StubGate` в `tests/test_chat_door.py`), stdin `вопрос` + пустая строка;
+ноль сети доказан autouse-стражем `urlopen` из `conftest.py`.
+`--max-calls 0` отдельно закрепляет, что бюджет сессии удерживает вызовы
+(отказ с именованной причиной, расшифровка всё равно сохранена).
+
+`python3 -m pytest -q tests/test_a2_chat_cli.py tests/test_free_only.py tests/test_chat_door.py tests/test_desktop_chat.py tests/test_b36_live.py`
+→ `........................ [100%]` (24 passed) — прежний пин
+свободности (отказ без ключа словами, код 1) не сломан.
+
+Замечание для координатора: колонка `chat_transcript.calls` — счётчик
+вызовов **инструментов** (`core/chat.py:83`), а не модели; тест закрепил
+это как есть, а не как «ноль сети = ноль вызовов».
+
+## HANDOFF
+
+Status:          WORKING
+Items done:      приём круга (STATE + отчёт), A1, A2
+Items not done:  A3, A4, A5
+Acceptance:      quoted in each item's commit message (hook run)
+Tests:          (полный прогон — в сообщении коммита A2)
+Guards:          none touched
+Schema:          unchanged
+Network:         4 of 4 (twelvedata, A1); A2 — ноль сети
+Model:           Qoder executor, llm_calls 0
+Secrets:         0
+Pushed:          yes — A1 ad4c131
+NOW: A3, step 1
