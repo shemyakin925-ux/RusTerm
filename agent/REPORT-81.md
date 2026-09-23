@@ -571,17 +571,25 @@ as the measurement that forced it.
 Status: DONE (TASK-81 complete: B0 intake repair, B1, B2, B3)
 Arrival state: acceptance «пройдено 11, провалено 2» on efa215e, both reds L3; repaired by 46c0c3b
 Items done: B1, B2, B3
-Items not done: none in TASK-81; next in queue is agent/TASK-77.md
-Acceptance: full run by the pre-commit hook on this tree
-Tests: 4 passed in tests/test_desktop_app.py (smoke, marked run), 10 passed in the B3-build + settings pair, 187 in the desktop+env+contract set, 1086 in the full suite before the B3 edits
+Items not done: none in TASK-81. Queue changed under this round: ae8820d/5de1a72 put agent/TASK-90.md immediately after TASK-81, and TASK-91…94 at the tail after TASK-74 — so the next item taken is TASK-90, not TASK-77
+Acceptance: pre-commit hook on this tree — «Итог: пройдено 13, провалено 0 / Принято.» (`SELFCHECK OK`), commit d68e987
+Tests: 7 passed in the I5+GUIDE pair with the commit message in place (360.00 s, the nested selfcheck is what makes it long), 4 passed in tests/test_desktop_app.py (frozen-app smoke, marked run), 10 passed in the B3-build + settings pair, 187 in the desktop+env+contract set, 1087 passed / 3 failed in the one full manual run (all three reds are B3's own consequences, listed above)
 Guards: none touched; `EquityLab.spec` added to the index, `.gitignore` line removed as the task authorizes
 Schema: unchanged
 Network: 0 requests of the PyInstaller-only budget (PyInstaller was already installed)
 Model: Qoder executor (model id not exposed)
-Secrets: staged diff grepped for each of the four key names — 0 hits; the new settings teeth assert the catalog path does not leak either
-Pushed: yes
+Secrets: the four key NAMES appear in the staged diff (17 hits: the GUIDE
+status sample, the settings panel lists) — no value of any of them does, and
+the new settings teeth assert the catalog path stays out of the panel dump
+Pushed: yes — but read this first: the B3 commit was made as d68e987, then
+the coordinator's three commits (2cd6e2f, 5de1a72, ae8820d) arrived on
+agent/night-11 and the push was refused. While still unpushed it was rebased
+onto ae8820d and is now 195af28; nothing published was rewritten. The hook's
+13/13 verdict was measured on d68e987, whose tree differs from 195af28 only
+by the agent/*.md files the coordinator added, and this bookkeeping commit
+runs the same acceptance again on the new base.
 Questions for the coordinator:
 1. B2's open question stands: should the note also fire for a non-contiguous year set (MSFT's missing 2025)?
 2. B3 made the frozen app report its catalog under the smoke marker only. Say the word if the panel should name the data directory in ordinary runs (it currently never shows the path).
 
-NOW: TASK-81 closed on B0–B3; taking agent/TASK-77.md next unless the coordinator redirects
+NOW: TASK-81 closed on B0–B3; taking agent/TASK-90.md next per the queue in 5de1a72
