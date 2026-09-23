@@ -229,7 +229,23 @@ the read-only window crashes instead of speaking. Catalog choice is TASK-90
 A4/A5; not crashing on an older schema is TASK-95. **Acceptance was 13/0 the
 whole time** — the executor's own line «nobody double-clicked» named the gap.
 
-Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-90 → TASK-95 → TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
+## Round 111 (TASK-90) accepted
+
+Fresh clone at `97673a8`: «пройдено 13, провалено 0». 10 asserts removed in
+catalog-default tests that A5 changed; no file lost assertions
+(`test_desktop_door.py` 18 → 19), 6 `ЗАМЕНА-БУЛАВКИ` blocks. The coordinator
+checked A5 end to end without a shell: a fake HOME whose `~/.rusterm.env`
+holds `RUSTERM_DATA`, `env -i`, the `.app` built from `EquityLab.spec` →
+`rusterm-app root=<that dir> (правило: 2)` and the window stays alive after
+10 s. `app_entry.py` and `desktop/__main__.py` call `load_env()` before
+`resolve_root()`. So for the user one line in `~/.rusterm.env` —
+`RUSTERM_DATA=/Users/anton/equitylab` (schema 45) — makes a double-click
+open their base. An older-schema base still crashes the window: TASK-95.
+Disputed (A5): `rusterm init` in a fresh directory lands in `~/.rusterm`
+because rule 3 needs `./rusterm.db` that `init` is about to create — upheld
+as a real gap, BACKLOG B61.
+
+Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-95 → TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
 
 **Whole-project review, 23.09 (user's request, separate session) —
 TASK-90…94.** Acceptance on `3f7dcc9` is 13/0, and every finding below
