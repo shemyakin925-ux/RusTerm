@@ -18,7 +18,7 @@ file disagree, the task wins only where it says so explicitly.
 8. RECORD   one line in the task's report: command + its output.
 ```
 
-## 2. Five prohibitions
+## 2. Prohibitions
 
 - **P1. Never delete an `assert`.** A genuinely obsolete assertion is
   **replaced by a stronger one**, and the report says how the new one is
@@ -30,6 +30,15 @@ file disagree, the task wins only where it says so explicitly.
 - **P3. Leave nothing outside git.** Everything reported must be in
   `git ls-files`. Fetched data is the exception in §6.
 - **P4. No `.bak`, `.orig`, temp databases, junk.**
+- **P7. Never run `rusterm` against the user's home.** You share `HOME`
+  with the user: a command without `--root` (or a window, or a `.app`
+  run) resolves to `~/.rusterm` or to `RUSTERM_DATA` from
+  `~/.rusterm.env` — the user's real bases — and a writing door there
+  applies migrations. Every probe carries an explicit `--root` under
+  `/tmp`, or runs with `HOME=<sandbox>`. Measured 24.09: during TASK-90
+  A5 a `rusterm tui` probe from `/tmp/rt-night11-exec` migrated the
+  user's `~/.rusterm` 44 → 45 (12:47 UTC, traceback in its
+  `logs/app.log`), and the report did not say so.
 - **P5. Never claim a check you did not run.** "Not run" is acceptable;
   "works" without command output is not.
 

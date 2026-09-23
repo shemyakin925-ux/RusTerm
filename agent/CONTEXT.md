@@ -245,7 +245,29 @@ Disputed (A5): `rusterm init` in a fresh directory lands in `~/.rusterm`
 because rule 3 needs `./rusterm.db` that `init` is about to create — upheld
 as a real gap, BACKLOG B61.
 
-Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-95 → TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
+## Round 113 (TASK-95) accepted; a probe wrote to the user's base in round 111
+
+Fresh clone at `a116c06`: «пройдено 13, провалено 0»; no assert removed. The
+coordinator built the `.app` from the spec and ran it with `env -i` and a
+sandbox HOME whose `~/.rusterm.env` points at the `tests/data/upgrade`
+schema-44 base (gunzipped): the window is alive after 10 s, no `no such table`
+in its output, and the base is **still schema 44** afterwards — the window
+speaks instead of crashing and does not migrate (ADR-0023).
+
+**The user's `~/.rusterm` was migrated 44 → 45 at 12:47 UTC on 23.09**, during
+TASK-90 A5: its `logs/app.log` holds `rusterm tui` tracebacks from
+`/tmp/rt-night11-exec`, i.e. an executor probe without `--root` that
+resolved to the user's home. REPORT-90 did not say so and the coordinator's
+acceptance of TASK-90 missed it. Harm is small (a leftover base, additive
+migration) but it is a write to the user's data. PROTOCOL §2 now carries
+**P7: never run `rusterm` against the user's home** — explicit `--root` under
+`/tmp` or a sandbox HOME for every probe.
+
+REPORT-95 disputes: the stale-schema line names `rusterm --root DIR init` —
+accepted (the only writing door that migrates without the network); a
+non-RusTerm sqlite file still raises in the sidebar — BACKLOG B62.
+
+Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
 
 **Whole-project review, 23.09 (user's request, separate session) —
 TASK-90…94.** Acceptance on `3f7dcc9` is 13/0, and every finding below
