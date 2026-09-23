@@ -12,9 +12,11 @@ tmp_path, изолированный env-файл, ни сети, ни ключ�
 дословно. Тест краснеет, если команда исчезла, переименовалась,
 сменила формат вывода или порядок строк.
 
-Блоки, которые нельзя исполнить без сети, ключа или терминала,
+Блоки, которые нельзя исполнить без сети, ключа, терминала или экрана,
 помечены в самом руководстве строкой-маркером («# требует …») и
-пропускаются с непустой причиной. Сегодня такой ровно один — tui в §9.
+пропускаются с непустой причиной. Их состав зафиксирован точь-в-точь
+(`test_marked_blocks_are_interactive`): mark — это выход из проверки, и
+выход должен быть виден.
 """
 from __future__ import annotations
 
@@ -127,9 +129,24 @@ def _match(expected: list[str], actual: list[str], tmp_root: Path,
     return None
 
 
+GUIDE_MARKERS = [
+    "# требует терминала",
+    "# требует экрана",
+    "# требует PyInstaller и ~20 с: пишет 167 МБ в dist/, поэтому страж "
+    "её не исполняет",
+    "# требует HOME: правит ~/.rusterm.env пользователя, а не tmp-песочницу",
+    "# требует собранный dist/EquityLab.app: эти строки — прогон по файлам "
+    "сборки",
+    "# требует собранный dist/EquityLab.app — без него тест пропускается, "
+    "а не падает",
+    "# требует собранный dist/EquityLab.app: путь существует только после "
+    "сборки",
+]
+
+
 def test_guide_blocks_run_and_match(tmp_path):
     blocks = parse_guide(GUIDE.read_text(encoding="utf-8"))
-    assert len(blocks) == 12, [b.lineno for b in blocks]
+    assert len(blocks) == 17, [b.lineno for b in blocks]
     envfile = tmp_path / "guide-env"
     envfile.write_text("", encoding="utf-8")
     envfile.chmod(0o600)
@@ -175,20 +192,35 @@ def test_guide_blocks_run_and_match(tmp_path):
                     f"  фактический вывод: {actual[:12]}")
     assert not failures, (
         "руководство расходится с прогоном:\n" + "\n".join(failures))
-    assert skipped == 2, skipped
+    assert skipped == 7, skipped
 
 
 def test_marked_blocks_are_interactive():
-    """Блоки под маркером не исполняются стражем: tui требует
-    терминала, прогон окна — экрана (ТЗ-60 E3). Порядок разделов
-    руководства держит tui первым из помеченных."""
+    """Блоки под маркером не исполняются стражем: tui требует терминала,
+    прогон окна — экрана (ТЗ-60 E3), а §10.1 — собранного .app, PyInstaller
+    и домашнего каталога (ТЗ-81 B3). Порядок разделов руководства держит tui
+    первым из помеченных. Список причин зафиксирован целиком: маркер
+    выводит блок из проверки, и прятать за ним обычную команду нельзя."""
     blocks = parse_guide(GUIDE.read_text(encoding="utf-8"))
     marked = [b for b in blocks if b.markers]
-    assert len(marked) == 2
+    assert len(marked) == len(GUIDE_MARKERS)
+    assert [b.markers[0] for b in marked] == GUIDE_MARKERS, \
+        list(zip([b.lineno for b in marked],
+                 [b.markers[0] for b in marked]))
     assert "требует терминала" in marked[0].markers[0]
     assert marked[0].steps[0].command.endswith("tui")
     assert "требует экрана" in marked[1].markers[0]
     assert " desktop" in marked[1].steps[0].command
+    # помеченный блок обязан нести команды (пустой маркер = молчаливый
+    # прогон), а блоки §10.1 — только те, что правда нельзя исполнить в
+    # песочнице: команда ядро проекта там прячется под сборку, значит её
+    # место в непромеченном блоке, где её исполнит страж. Первые два
+    # помеченных — tui и desktop: они вне проверки по другой причине
+    # (терминал и экран, ТЗ-60 E3), и rusterm.cli в них законен.
+    assert all(b.steps for b in marked), [b.lineno for b in marked]
+    hidden = [s.command for b in marked[2:] for s in b.steps
+              if "rusterm.cli" in s.command]
+    assert not hidden, f"под маркером сборки спрятана команда ядра: {hidden}"
 
 
 def test_parser_lists_every_command():
@@ -204,3 +236,6 @@ def test_parser_lists_every_command():
                      "ops --watchlist demo-list --request "
                      "\"добавь AAPL\" --json"):
         assert expected in commands, expected
+    # ТЗ-81 B3: команда сборки — тоже команда руководства, и она
+    # обязана доходить до разбивателя, а не прятаться в прозе
+    assert "python3 -m PyInstaller EquityLab.spec --noconfirm" in commands

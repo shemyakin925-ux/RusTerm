@@ -1063,6 +1063,10 @@ def run(root, watchlist_id=None) -> int:
     if _os.environ.get("RUSTERM_APP_SMOKE"):
         # C10.4: smoke-прогон сборки — окно стартовало и закрывается
         # само; в обычной работе переменной нет и окно живёт
+        # ТЗ-81 B3: строка о том, какой каталог открыт, — чтобы прогон
+        # собранного бинарника доказывал правило поиска, а не только
+        # «запустилось и не упало»
+        print(f"rusterm-app root={paths.root}", flush=True)
         from PySide6.QtCore import QTimer
         QTimer.singleShot(1200, window.close)
     code = app.exec()

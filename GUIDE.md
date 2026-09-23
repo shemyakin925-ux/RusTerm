@@ -111,7 +111,7 @@ concept_map_version: us-gaap.v4
 
 ```console
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide status --json
-{"data_dir": "/private/tmp/rusterm-guide", "schema_version": 45, "schema_version_expected": 45, "schema_version_observed": 45, "instruments": 1, "watchlists": 1, "snapshots": [{"instrument_id": "US-CLI-DEMO", "snapshot_id": "523637c9-89de-4039-a92d-af7c8c80a773", "version": 1, "as_of": "2026-09-18"}], "coverage": {"ready": 2, "stale": 1, "processing": 0, "missing": 5, "error": 0}, "concept_map_version": "us-gaap.v4", "concept_map_version_ifrs": "ifrs-full.v2", "market_codes": ["US", "CA", "OTC", "KR", "BR", "AU"], "peer_sets": [], "budget": {"ceiling_per_night": 5000, "rate_per_second": 5, "provider_ran": false, "used": 0, "samples": {}}, "env": {"file": "/tmp/empty-guide-env", "exists": true, "world_readable": false, "vars": {"RUSTERM_SEC_UA": "—", "RUSTERM_LLM_PROVIDER": "—", "RUSTERM_LLM_API_KEY": "—", "RUSTERM_LLM_MODEL": "—", "RUSTERM_TWELVEDATA_KEY": "—"}}, "chat": {"calls_total": 0, "calls_today": 0, "per_model": {}}}
+{"data_dir": "/private/tmp/rusterm-guide", "schema_version": 45, "schema_version_expected": 45, "schema_version_observed": 45, "instruments": 1, "watchlists": 1, "snapshots": [{"instrument_id": "US-CLI-DEMO", "snapshot_id": "523637c9-89de-4039-a92d-af7c8c80a773", "version": 1, "as_of": "2026-09-18"}], "coverage": {"ready": 2, "stale": 1, "processing": 0, "missing": 5, "error": 0}, "concept_map_version": "us-gaap.v4", "concept_map_version_ifrs": "ifrs-full.v2", "market_codes": ["US", "CA", "OTC", "KR", "BR", "AU"], "peer_sets": [], "budget": {"ceiling_per_night": 5000, "rate_per_second": 5, "provider_ran": false, "used": 0, "samples": {}}, "env": {"file": "/tmp/empty-guide-env", "exists": true, "world_readable": false, "vars": {"RUSTERM_SEC_UA": "—", "RUSTERM_LLM_PROVIDER": "—", "RUSTERM_LLM_API_KEY": "—", "RUSTERM_LLM_MODEL": "—", "RUSTERM_TWELVEDATA_KEY": "—", "RUSTERM_DATA": "—"}}, "chat": {"calls_total": 0, "calls_today": 0, "per_model": {}}}
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide coverage --instrument US-CLI-DEMO
 US-CLI-DEMO	corporate_actions	missing причина: no_data:corporate_actions
@@ -259,6 +259,76 @@ options:
 ```console
 # требует экрана
 $ QT_QPA_PLATFORM=offscreen RUSTERM_APP_SMOKE=1 python3 -m rusterm.cli --root /tmp/rusterm-guide desktop
+```
+
+### 10.1 Приложение без терминала (ТЗ-81 B3)
+
+Собранный `.app` открывается двойным щелчком, и окна терминала рядом нет:
+в спеке стоит `console=False` — это эквивалент ключа `--windowed`.
+Spec лежит в репозитории (`EquityLab.spec`), поэтому сборка воспроизводима
+из клона одной командой:
+
+```console
+# требует PyInstaller и ~20 с: пишет 167 МБ в dist/, поэтому страж её не исполняет
+$ python3 -m PyInstaller EquityLab.spec --noconfirm
+$ open dist/EquityLab.app
+```
+
+Здесь `otool`, `xattr` и smoke-прогон ниже тоже помечены: они смотрят в
+файлы конкретной сборки, а не в песочницу стража на tmp-каталоге.
+
+Каталог данных приложение находит тем же путём, что и CLI: `--root`,
+затем `RUSTERM_DATA`, затем `~/.rusterm`. Двойной щелчок — запуск без
+шелла, поэтому с круга 109 `RUSTERM_DATA` читается и из `~/.rusterm.env`,
+из того же файла, откуда берутся ключи:
+
+```console
+# требует HOME: правит ~/.rusterm.env пользователя, а не tmp-песочницу
+$ grep -q "^RUSTERM_DATA=" ~/.rusterm.env || printf 'RUSTERM_DATA=%s\n' "$HOME/equitylab" >> ~/.rusterm.env
+```
+
+Линковка Qt остаётся динамической (LGPL, ADR-0004 §6): библиотеки лежат
+отдельными Mach-O файлами с `@rpath`-идентичностями, ничего не встраивается
+статически и не сжимается (`upx=False`). Проверяется так — и именно по этим
+файлам, потому что главный бинарник окна к Qt не прилинкован вовсе
+(`otool -L Contents/MacOS/EquityLab | grep Qt` даёт пустой вывод, это не
+признак статической линковки):
+
+```console
+# требует собранный dist/EquityLab.app: эти строки — прогон по файлам сборки
+$ ls dist/EquityLab.app/Contents/Frameworks | grep -c '^Qt'
+18
+$ otool -D dist/EquityLab.app/Contents/Frameworks/QtWidgets
+dist/EquityLab.app/Contents/Frameworks/QtWidgets:
+@rpath/QtWidgets
+$ otool -L dist/EquityLab.app/Contents/Frameworks/PySide6/QtCore.abi3.so | grep '@rpath/Qt'
+	@rpath/QtCore (compatibility version 6.0.0, current version 6.11.2)
+```
+
+Те же три проверки живём не только руками: `otool -D` по каждой из 18
+библиотек сверяется тестом `test_qt_is_linked_dynamically_not_embedded`.
+
+Старт и честный отказ собранного окна проверяет smoke-тест: без собранного
+`.app` и переменной он пропускается, в обычном прогоне набора не участвует:
+
+```console
+# требует собранный dist/EquityLab.app — без него тест пропускается, а не падает
+$ QT_QPA_PLATFORM=offscreen RUSTERM_APP_SMOKE=1 python3 -m pytest tests/test_desktop_app.py -q
+4 passed in 5.59s
+```
+
+В этом прогоне окно до закрытия печатает строку `rusterm-app root=<каталог>` —
+по ней видно, какую базу открыл именно собранный бинарник, а не только то,
+что он запустился.
+
+Подпись и нотаризация не делаются: и то, и другое платно, а всё в проекте
+бесплатно (ADR-0018). Практический смысл: при первом запуске macOS скажет,
+что приложение «повреждено или не от установленного разработчика», и
+потребует снять карантин — один раз, правой кнопкой «Открыть» или командой:
+
+```console
+# требует собранный dist/EquityLab.app: путь существует только после сборки
+$ xattr -dr com.apple.quarantine dist/EquityLab.app
 ```
 
 ## 11. Что дальше
