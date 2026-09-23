@@ -814,19 +814,40 @@ def test_s1_switch_root_press_cancel_words(qapp, env, monkeypatch,
         "каталог создан без подтверждения"
 
 
-def test_s1_chat_sessions_box_honest_empty(qapp, env):
+def test_s1_chat_sessions_box_lists_the_door_and_header_is_inert(qapp, env):
+    """ТЗ-75 S1 + ТЗ-81 B1: дверь list_sessions в store есть, поэтому
+    переключатель показывает заголовок и разговоры из базы. Заголовок по
+    прежнему не выбор — счётчики от него не двигаются."""
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")
     box = _widget(window, QComboBox, "chat_sessions_box")
     usage = _widget(window, QLabel, "llm_usage_label")
     before = usage.text()
-    # двери list_sessions в store нет (Disputed REPORT-C7): переключатель
-    # честно называет причину вместо пустоты
-    assert box.count() == 1
-    assert "ждёт двери list_sessions" in box.itemText(0)
+    assert box.count() == 1, "пустая база: один заголовок, без фантомов"
     assert box.itemData(0) is None
     box.setCurrentIndex(0)
     assert usage.text() == before, "пустое переключение меняло счётчики"
+    window.close()
+
+    # разговор из store — та же строка, что перечитывает дверь, и
+    # выбор строки открывает расшифровку
+    repos.chat_transcript.create_session("s-0001", "fake-model", None,
+                                         1000.0, 2)
+    repos.chat_transcript.add_turn("s-0001", 0, "user",
+                                   "почему roe пустой?", None, None, False)
+    repos.chat_transcript.add_turn("s-0001", 1, "assistant", "roe нет",
+                                   None, None, False)
+    window2 = desktop_window._build_window(repos, paths, "wl-1")
+    box2 = _widget(window2, QComboBox, "chat_sessions_box")
+    assert box2.count() == 2, (box2.itemText(0), box2.itemText(1))
+    assert [box2.itemData(i) for i in range(box2.count())] == [None,
+                                                              "s-0001"]
+    assert "2 вызов" in box2.itemText(1)
+    box2.setCurrentIndex(1)
+    answer = _widget(window2, QLabel, "answer_label")
+    assert "почему roe пустой?" in answer.text()
+    assert "roe нет" in answer.text()
+    window2.close()
 
 
 def test_s1_tabs_switch_shows_industry(qapp, env):

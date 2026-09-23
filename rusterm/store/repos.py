@@ -2104,6 +2104,17 @@ class ChatTranscriptRepo:
              "rejected": bool(t[5])} for t in turns]
         return session
 
+    def list_sessions(self) -> list:
+        """Перечень прошлых разговоров, свежие сверху (ТЗ-C7.1). При
+        равном started_at порядок задаёт вставка: rowid DESC — иначе два
+        разговора, записанные в один тик часов, меняются местами от
+        прогона к прогону."""
+        return [{"session_id": r[0], "model": r[1],
+                 "instrument_id": r[2], "started_at": r[3],
+                 "calls": r[4]} for r in self.conn.execute(
+            """SELECT session_id, model, instrument_id, started_at, calls
+               FROM chat_transcript ORDER BY started_at DESC, rowid DESC""")]
+
     def calls_totals(self) -> dict:
         """Вызовы по моделям и всего (ТЗ-36 H3): сумма по сессиям."""
         per_model = {r[0]: r[1] for r in self.conn.execute(

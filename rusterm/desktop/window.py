@@ -802,13 +802,9 @@ def _build_window(repos, paths, watchlist_id=None):
         переживают перезапуск окна — читаются из базы."""
         chat_sessions_box.blockSignals(True)
         chat_sessions_box.clear()
-        sessions = data.chat_sessions(repos) if repos else None
-        if sessions is None:
-            chat_sessions_box.addItem(
-                "прошлые разговоры: ждёт двери list_sessions в store "
-                "(Disputed REPORT-C7)", userData=None)
-        else:
-            for session in sessions:
+        chat_sessions_box.addItem("прошлые разговоры", userData=None)
+        if repos is not None:
+            for session in data.chat_sessions(repos):
                 chat_sessions_box.addItem(
                     f"{session['session_id'][:8]}… · "
                     f"{session['calls']} вызов.",

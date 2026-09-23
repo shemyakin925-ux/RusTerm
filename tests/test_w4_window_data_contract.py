@@ -205,7 +205,7 @@ CONTRACTS: dict[str, list] = {
         lambda c: data.chart_spec("line", _table(c), _screen(c),
                                   "net_margin"), "spec"),
     "chat_sessions": (lambda c: data.chat_sessions(c["repos"]),
-                      "sessions_or_none"),
+                      "sessions_are_listed"),
     "chat_transcript_lines": (
         lambda c: data.chat_transcript_lines(c["repos"], "no-such"),
         "lines"),
@@ -345,9 +345,13 @@ def _assert_shape(kind, value):
         for attr in ("root", "db_path", "config_path"):
             assert hasattr(paths, attr), attr
         assert conn is not None
-    elif kind == "sessions_or_none":
-        assert value is None or all("session_id" in s and "calls" in s
-                                    for s in value), value
+    elif kind == "sessions_are_listed":
+        # ТЗ-81 B1: дверь list_sessions есть, заглушки None больше нет —
+        # перечень обязан быть списком, а не «списком или отказом»
+        assert isinstance(value, list), value
+        for entry in value:
+            for key in ("session_id", "model", "started_at", "calls"):
+                assert key in entry, (key, entry)
     elif kind == "lines":
         assert isinstance(value, list) and value
         assert all(isinstance(line, str) for line in value), value
