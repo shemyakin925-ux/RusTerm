@@ -470,11 +470,39 @@ class SnapshotRepo:
                 "status": row[7]}
 
     def latest_snapshot_id(self, instrument_id: str) -> Optional[str]:
+        """Последний ГОТОВЫЙ снапшот: строка версии, сборка которой ещё
+        идёт (или сорвалась), читателю не показывается (ТЗ-90 A3)."""
         row = self.conn.execute(
             """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
-               ORDER BY version DESC LIMIT 1""",
+               AND status='ready' ORDER BY version DESC LIMIT 1""",
             (instrument_id,)).fetchone()
         return row[0] if row else None
+
+    def set_status(self, snapshot_id: str, status: str) -> None:
+        """Единственная правка строки снапшота: building -> ready в
+        конце сборки (ТЗ-90 A3). snapshot.status без CHECK — миграция
+        не нужна."""
+        with writer_transaction(self.conn) as c:
+            c.execute("UPDATE snapshot SET status=? WHERE snapshot_id=?",
+                      (status, snapshot_id))
+
+    def delete_snapshot(self, snapshot_id: str) -> None:
+        """Полное удаление строк одной сборки: cascade в схеме нет
+        (db.py: snapshot_block/measure ссылаются без ON DELETE), а
+        measure_lineage ссылается на measure, поэтому порядок
+        фиксирован и всё уходит одной транзакцией (ТЗ-90 A3: сорванная
+        сборка не оставляет половину снапшота)."""
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """DELETE FROM measure_lineage WHERE measure_id IN
+                   (SELECT measure_id FROM measure WHERE snapshot_id=?)""",
+                (snapshot_id,))
+            c.execute("DELETE FROM measure WHERE snapshot_id=?",
+                      (snapshot_id,))
+            c.execute("DELETE FROM snapshot_block WHERE snapshot_id=?",
+                      (snapshot_id,))
+            c.execute("DELETE FROM snapshot WHERE snapshot_id=?",
+                      (snapshot_id,))
 
     def max_version(self, instrument_id: str) -> int:
         row = self.conn.execute(
@@ -532,12 +560,28 @@ class SnapshotRepo:
                 best = (numeric, end, currency, fact_id, start, length)
         return best
 
-    def previous_snapshot(self, instrument_id: str) -> Optional[str]:
-        """Предпоследняя версия: база для diff текущей сборки."""
-        row = self.conn.execute(
-            """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
-               ORDER BY version DESC LIMIT 1 OFFSET 1""",
-            (instrument_id,)).fetchone()
+    def previous_snapshot(self, instrument_id: str,
+                          before_version: Optional[int] = None) -> Optional[str]:
+        """Предпоследняя ГОТОВАЯ версия: база для diff текущей сборки.
+
+        before_version — версия идущей сборки: её строка к этому
+        моменту уже в базе (со статусом building, ТЗ-90 A3), поэтому
+        «предыдущая» выбирается по номеру, а не OFFSET 1 — иначе через
+        строку сборки перескок уехал бы на готовую версию раньше.
+        Без версии (вызов вне сборки) прежнее OFFSET 1 по ready-строкам.
+        """
+        if before_version is not None:
+            row = self.conn.execute(
+                """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
+                   AND status='ready' AND version<?
+                   ORDER BY version DESC LIMIT 1""",
+                (instrument_id, before_version)).fetchone()
+        else:
+            row = self.conn.execute(
+                """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
+                   AND status='ready' ORDER BY version DESC
+                   LIMIT 1 OFFSET 1""",
+                (instrument_id,)).fetchone()
         return row[0] if row else None
 
     def restated_revisions(self, issuer_id: str) -> list:

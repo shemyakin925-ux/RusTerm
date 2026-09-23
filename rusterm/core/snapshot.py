@@ -225,13 +225,40 @@ class SnapshotBuilder:
         source_errors — {block: причина} для блоков, чей сборщик вернул
         внешнюю ошибку (E1/E2): покрытие получает error, сборка продолжается
         на том, что есть (docs/threat-model-sources.md §2 class A).
+
+        ТЗ-90 A3: строка снапшота создаётся со статусом `building` и
+        помечается `ready` последней записью сборки. Любое исключение
+        удаляет строки этого снапшота и перевынивается — половины
+        снапшота в базе не остаётся, читатели (latest_snapshot_id,
+        previous_snapshot) и так видят только `ready`.
         """
         version = self._next_version(instrument_id)
         snapshot_id = str(uuid4())
         self._snapshots.create_snapshot(snapshot_id, instrument_id, version,
                                         as_of, peer_set_version,
                                         "unverified" if peer_set_version else "none",
-                                        "ready")
+                                        "building")
+        try:
+            result = self._assemble(
+                instrument_id, issuer_id, as_of, peer_set_version,
+                peer_measures, peer_members_previous, peer_members_current,
+                source_errors, snapshot_id, version)
+        except BaseException:
+            self._snapshots.delete_snapshot(snapshot_id)
+            raise
+        self._snapshots.set_status(snapshot_id, "ready")
+        return result
+
+    def _assemble(self, instrument_id: str, issuer_id: str, as_of: str,
+                  peer_set_version: str | None,
+                  peer_measures: list | None,
+                  peer_members_previous: list[str] | None,
+                  peer_members_current: list[str] | None,
+                  source_errors: dict | None,
+                  snapshot_id: str, version: int) -> BuildResult:
+        """Тело сборки: меры, блоки, diff и покрытие. Строку создал
+        build() в статусе `building`; готовность ставит build() после
+        возврата отсюда (ТЗ-90 A3)."""
         self._snapshots.add_block(snapshot_id, "fundamentals", "ready", None)
         result = BuildResult(snapshot_id=snapshot_id, version=version)
 
@@ -349,14 +376,19 @@ class SnapshotBuilder:
                     report["reason"])
             else:
                 metrics = report["metrics"]
-                computed = sum(1 for m in metrics
-                               if m["value"] is not None)
+                # ТЗ-90 A3: имя отдельное. Здесь локальная переменная
+                # называлась `computed` и перепривязывала словарь величин
+                # прохода 1 к целому — `computed.get(concept)` ниже падал
+                # AttributeError, а покрытие fundamentals читалось
+                # счётчиком отрасли.
+                industry_computed = sum(1 for m in metrics
+                                        if m["value"] is not None)
                 grey = [f"{m['concept']} ({m['reason']})"
                         for m in metrics if m["value"] is None]
                 method = (metrics[0]["method_version"] if metrics
                           else "unknown")
-                status = "ready" if computed else "missing"
-                reason = (f"computed {computed}/{len(metrics)} "
+                status = "ready" if industry_computed else "missing"
+                reason = (f"computed {industry_computed}/{len(metrics)} "
                           f"method {method}")
                 if grey:
                     reason += "; grey: " + "; ".join(grey[:8])
@@ -462,7 +494,8 @@ class SnapshotBuilder:
                     "percentile_threshold_not_met")
 
         result.diff = self._diff(instrument_id, issuer_id, snapshot_id,
-                                 peer_members_previous, peer_members_current)
+                                 peer_members_previous, peer_members_current,
+                                 version)
 
         # ── Покрытие: все восемь блоков существуют после каждой сборки ──
         known = {
@@ -1088,6 +1121,12 @@ class SnapshotBuilder:
             ps_reason = "missing_data: market_cap_total"
         elif annual_rev is None:
             ps_reason = "missing_data: revenue_ttm"
+        elif annual_rev[0] == 0:
+            # ТЗ-90 A3: нулевая годовая выручка (pre-revenue эмитент) —
+            # отказ по словарю §1.4, а не ZeroDivisionError на всю сборку
+            ps_reason = "denominator_zero"
+        elif annual_rev[0] < 0:
+            ps_reason = "negative_denominator"
         else:
             ps_value = total_value / annual_rev[0]
         ps_lineage = ([{"fact_id": annual_rev[3],
@@ -1234,9 +1273,12 @@ class SnapshotBuilder:
                   self._fact_lineage(ic[3]))
 
     def _diff(self, instrument_id, issuer_id, snapshot_id,
-              peer_prev, peer_cur) -> SnapshotDiff:
+              peer_prev, peer_cur, version) -> SnapshotDiff:
         diff = SnapshotDiff()
-        prev_snapshot_id = self._snapshots.previous_snapshot(instrument_id)
+        # ТЗ-90 A3: базой сравнения служит последняя ГОТОВАЯ версия —
+        # своя building-строка этой сборки версией ниже не является.
+        prev_snapshot_id = self._snapshots.previous_snapshot(
+            instrument_id, before_version=version)
         if prev_snapshot_id:
             prev = {m[3]: m[4] for m in self._snapshots.get_measures(prev_snapshot_id)
                     if m[3] != "percentile" and m[4] is not None}

@@ -198,17 +198,136 @@ rusterm --root <tmp> chat`): **код возврата 2**,
 вызовов **инструментов** (`core/chat.py:83`), а не модели; тест закрепил
 это как есть, а не как «ноль сети = ноль вызовов».
 
+## Done (A3) — snapshot build never crashes, never leaves half a snapshot
+
+Report language note: AGENTS.md asks for English in `agent/`; my A1/A2
+blocks above drifted into Russian. A3 onward is English again.
+
+### 1. Measured before the change (red on parent)
+
+Linked worktree of the parent commit, per PROTOCOL §12
+(`git worktree add --detach "$TMPDIR/rt90-a3-parent" 30eacd2`, new test
+file copied in, removed after the run — `git worktree list` is back to
+the clone + the coordinator's own `rusterm-relay-verify`):
+
+`python3 -m pytest -q tests/test_a3_snapshot.py -p no:randomly` → 7
+failed, each naming its own defect:
+
+```
+E   AttributeError: 'int' object has no attribute 'get'      # A3.1 crash
+E   AssertionError: ('ready', None)  assert 'ready' == 'missing'  # A3.1 lying coverage
+E   ZeroDivisionError: division by zero                     # A3.2 ps, revenue 0
+E   AssertionError: ('-1.4', None)  assert '-1.4' is None   # A3.2 ps, revenue < 0
+E   AssertionError: [['ready', 'ready']] == [['ready', 'building']]  # A3.3 status
+E   AssertionError: assert '4b7f1648-…' == 'a45f6282-…'     # A3.3 latest = the half snapshot
+E   TypeError: SnapshotRepo.previous_snapshot() got an unexpected keyword argument 'before_version'
+```
+
+`addopts` already carries `-q`, so a second `-q` prints no count line;
+counts below are read off the progress line and the exit code.
+
+### 2. What changed
+
+**A3.1 — the rebound local** (`core/snapshot.py`). The industry block
+assigned `computed = sum(1 for m in metrics …)` over the pass-1 dict of
+the same name. Renamed to `industry_computed`; the block's `status` and
+`reason` use the new name and the `reason` text stays byte-identical to
+before (`f"computed {n}/{m} method {v}"`), so the existing industry pins
+hold. `own = computed.get(concept)` in pass 2 and
+`("ready", None) if computed` in coverage see the dict again.
+
+**A3.2 — ps denominators** (`core/snapshot.py`, `_valuation_pass`).
+`ps` is the only valuation measure in that pass dividing by hand without
+checking the denominator (`pe`/`pb`/`ev` go through
+`calculate_measure`). Two branches added, words taken from the closed
+dictionary §1.4 (`rusterm/formulas.py:13`): revenue 0 →
+`denominator_zero`, revenue < 0 → `negative_denominator`, value stays
+NULL. `pe`'s `ni_value <= 0 → "missing_data: net_income"` was left
+alone — pinned by `tests/test_b1_zero_vs_missing.py`, not in this item.
+
+**A3.3 — building → ready** (`core/snapshot.py`, `store/repos.py`).
+`build()` keeps its signature and now: creates the row as `building`,
+calls the moved body `_assemble(…, snapshot_id, version)`, and on
+`BaseException` calls `delete_snapshot(snapshot_id)` and re-raises;
+`set_status(snapshot_id, "ready")` is the last write of a successful
+build. `BaseException` rather than `Exception` so Ctrl-C during a build
+also leaves nothing behind. No migration: `snapshot.status` has no CHECK
+(`store/db.py:163`). `SnapshotRepo` gained `set_status` and
+`delete_snapshot` (drops `measure_lineage` → `measure` →
+`snapshot_block` → `snapshot` in one transaction — those FKs carry no
+`ON DELETE CASCADE`). `latest_snapshot_id` filters `status='ready'`;
+`previous_snapshot(instrument_id, before_version=None)` — with a version
+(inside a build) it takes the newest ready row below that version,
+without it the old `OFFSET 1` over ready rows, which is what
+`cli/__init__.py:960` and `desktop/actions.py:233` call after a finished
+build. `_diff` passes the version, because the row of the build in
+flight is already in the table and would otherwise eat the offset.
+
+`desktop/actions.py`'s promise «половины снапшота не бывает» is now true
+of the storage, not only of the UI.
+
+### 3. Tests
+
+`tests/test_a3_snapshot.py`, 7 tests, all offline:
+- industry metrics + 5 fresh peers build without exception, the
+  percentile is computed from the pass-1 own value, and `fundamentals`
+  coverage is `ready`;
+- coverage truth both ways: no facts + 3 computed industry metrics →
+  `missing` with a named reason; facts + all-grey industry metrics
+  (counter 0) → `ready`;
+- `ps` parametrised over revenue 0 and −50;
+- the row is read as `building` from inside the build (by the industry
+  resolver, which runs after pass 1) and is `ready` afterwards — read
+  straight from the `snapshot` table, not through the repo, so the test
+  does not lean on the reader it also pins;
+- a `RuntimeError` injected mid-build: nothing of that snapshot remains
+  (no orphan rows in `snapshot_block`, `measure`, `measure_lineage`),
+  `latest_snapshot_id` still returns the previous ready snapshot, and
+  the next build lands on version 2 — the version was not burned;
+- `previous_snapshot(before_version=…)` inside a build returns the last
+  ready version, not the row under construction.
+
+`python3 -m pytest tests/test_a3_snapshot.py -q -p no:randomly` →
+`....... [100%]`, exit 0.
+
+Snapshot-adjacent subset (a3, coverage, currency_firewall,
+k4_k6_valuation, snapshot_export, j1_display, j3_fiscal,
+n2_industry_view, industry_aggregate, b1_zero_vs_missing, repos,
+desktop_actions) → exit 0, no FAILED line. Whole default suite
+(`python3 -m pytest -q tests/ -p no:randomly`) → exit 0, `[100%]`, one
+`x` and four `s` (marker exclusions), no failures: `/tmp/a3-suite.log`.
+
+### 4. Not to trust (A3)
+
+- The industry resolver in these tests is a synthetic dict in the shape
+  `build()` reads (`sector/reason/metrics/unmapped`), not the maritime
+  module's own output — `tests/test_n2_industry_view.py` covers the real
+  resolver; both paths meet at the same block.
+- `ps` was tested through hand-inserted `fact` rows (revenue 0 and −50),
+  not through a real pre-revenue filing; how a zero-revenue issuer gets
+  parsed from EDGAR/vendor is untouched by this item.
+- Only the mid-build exception path was tested. A build killed with
+  SIGKILL still leaves a `building` row: readers ignore it and the next
+  successful build reuses the same version number, but nothing deletes
+  that row — no cleanup job exists for it.
+- `latest_per_instrument()` and `snapshots_of_instrument()` still do not
+  filter by status (outside this item's text), so a killed build's row
+  could show in `rusterm status` and in the ТЗ-75 version history.
+  Reported rather than fixed silently.
+
 ## HANDOFF
 
 Status:          WORKING
-Items done:      приём круга (STATE + отчёт), A1, A2
-Items not done:  A3, A4, A5
+Items done:      приём круга (STATE + отчёт), A1, A2, A3
+Items not done:  A4, A5
 Acceptance:      quoted in each item's commit message (hook run)
-Tests:          (полный прогон — в сообщении коммита A2)
+Tests:           full default suite green on the A3 tree (quoted in the
+                 A3 block); per-item subsets quoted per item
 Guards:          none touched
-Schema:          unchanged
-Network:         4 of 4 (twelvedata, A1); A2 — ноль сети
+Schema:          unchanged (A3 needed no migration — `snapshot.status`
+                 has no CHECK)
+Network:         4 of 4 (twelvedata, A1); A2 and A3 — zero network
 Model:           Qoder executor, llm_calls 0
 Secrets:         0
-Pushed:          yes — A1 ad4c131
-NOW: A3, step 1
+Pushed:          yes — A1 ad4c131, A2 30eacd2
+NOW: A4, step 1
