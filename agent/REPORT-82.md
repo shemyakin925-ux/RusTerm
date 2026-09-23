@@ -55,21 +55,85 @@ the coordinator — see Disputed 1.
 file created with the five required sections. No source file touched in this
 commit: the round's first item is E1 and it starts after this record.
 
+### E1 — профили и зависимость
+
+* `pyproject.toml`: `test = ["pytest>=8", "zstandard>=0.22",
+  "hypothesis>=6.100"]`. `dependencies = []` untouched, and the file now pins
+  that both facts stay true (`test_hypothesis_is_declared_in_the_test_extra_only`).
+* `tests/conftest.py`: registers `default` (`derandomize=True`, `database=None`,
+  `deadline=None`, `max_examples=200`) and `deep` (`max_examples=5000`,
+  `derandomize=False`), loads the one `HYPOTHESIS_PROFILE` names. The fixed
+  decision named only `max_examples`/`derandomize` for `deep`; `database=None`
+  was added there too, because Hypothesis's example database is a directory in
+  the working tree (`.hypothesis/`) — that is an untracked file during every
+  acceptance run (P3, acceptance 13) and a write into whoever's home the suite
+  happens to run from (P7). Measured: `settings.get_profile("deep").database`
+  is `None`, and the deep run leaves `git status --porcelain` empty.
+* `tests/test_prop_formulas.py` (new, E1 part): five machine-checked facts about
+  the wiring plus one generated property, so the deep-profile command has a real
+  counter to report. `import hypothesis` without `importorskip`, per the task.
+* `docs/adr/0024-generatory-vkhodov-v-testakh.md` (new; check 10 allows added
+  files under `docs/adr/`), and one sentence in README §15 naming `(0024)` —
+  `tests/test_docs_truth.py::test_readme_lists_every_adr` derives the ADR list
+  from `docs/adr/`, so an ADR the README does not name is a red suite. README is
+  not on P6's blocked list and no count in it was touched (the guard bans
+  hand-typed numbers there).
+
+Measured (Runs 5–8): default profile — `200 passing … Stopped because
+settings.max_examples=200`, `9 passed in 1.96s`; `HYPOTHESIS_PROFILE=deep` —
+`5000 passing … Stopped because settings.max_examples=5000`,
+`6 passed in 1.82s`; `grep -rn hypothesis rusterm/` → exit 1 (no output);
+collection with the new conftest import → `1146/1161 tests collected (15
+deselected) in 1.07s`, no errors. `git status --porcelain` after the deep run
+lists only the five files of this item — no `.hypothesis/` directory.
+
+The generator earned its place before E2 started: the first version of E1's
+smoke property asserted `gross_margin(x, x) == 1.0` for every finite `x`, and
+Hypothesis shrank the counterexample to `x < 0` — which refuses with
+`negative_denominator` (Run 9; the rule lives at formulas.py:222, not a defect).
+The property now states all three branches.
+
 ## Blocked
 
 - none.
 
 ## What not to trust
 
-- Nothing has been implemented yet in this round: E1–E5 are all open below the
-  line "Items not done".
-- The arrival numbers come from a tree where `pip install hypothesis` had already
-  been issued (it ran while the arrival selfcheck was in progress). Nothing
-  imported the package then — no test file uses it yet — so it could not have
-  changed the result, but the pairing is stated rather than assumed.
+- E1 is wiring only — profiles, the dependency, one smoke property. Nothing is
+  yet proved about arithmetic closure; the probes the coordinator measured on
+  `dd11fbd` (`gross_margin(nan, 100.0)` → `(nan, None)` and its two siblings)
+  are still red on this commit. E2 is where they get fixed.
+- The suite now hard-requires `hypothesis`: per the fixed decision there is no
+  `importorskip`, so collecting the whole suite fails on a machine without the
+  package. That is the documented consequence of the task's own choice, not an
+  accident of this commit — but it is a new hole in the "run the suite anywhere"
+  story, and Disputed 2 records why the install command that closes it is not
+  one this round can run here. Acceptance is unaffected in this environment,
+  where 6.168.1 is installed.
+- The arrival numbers come from a tree where `pip install hypothesis` had
+  already been issued (it ran while the arrival selfcheck was in progress).
+  Nothing imported the package then — no test file used it yet — so it could not
+  have changed the result, but the pairing is stated rather than assumed.
 
 ## Disputed
 
+- Entry 2 (budget vs. this machine, not code): the natural way to satisfy E1 —
+  `pip install -e ".[test]"` — is unsafe here, and the task does not name the
+  command. Measured: `python3 -m pip show rusterm` →
+  `Editable project location: /Users/anton/AI agents/RusTerm`, i.e. the user's
+  real working copy is what `import rusterm` resolves to system-wide; and
+  `python3 -m pip install --dry-run --force-reinstall -e ".[test]"` from
+  `/tmp/rt-night11-exec` →
+  `Would install Pygments-2.21.0 hypothesis-6.168.1 iniconfig-2.3.0 packaging-26.3
+  pluggy-1.6.0 pytest-9.1.1 rusterm-0.1.0 sortedcontainers-2.4.0 zstandard-0.25.0`
+  — it would repoint that editable install at a `/tmp` clone and drag pytest,
+  zstandard and the rest along with it (round 114 measured the same class of
+  collision on PyInstaller bundles). So the budgeted action was narrowed to
+  `python3 -m pip install hypothesis` (Run 3), which adds exactly
+  `hypothesis-6.168.1 sortedcontainers-2.4.0` and leaves the editable install
+  and the other test packages as they were. Consequence to rule on: whether the
+  executor should get a per-clone venv instruction in `§9`, so
+  `.[test]` becomes safe to install verbatim.
 - Entry 1 (guard mechanism, not code): `relay.py hand` flips `agent/BATON.json`
   (task/report/round) but leaves `agent/STATE.json` pointing at the closed
   round's report, and `test_done_items_have_code_commits_in_round` reads the
@@ -90,14 +154,19 @@ commit: the round's first item is E1 and it starts after this record.
 | 2 | `python3 -m pytest tests/test_report_sections.py -q -o addopts=""` | `1 failed, 27 passed in 3.11s` |
 | 3 | `python3 -m pip install hypothesis` | `Successfully installed hypothesis-6.168.1 sortedcontainers-2.4.0` |
 | 4 | `python3 -m pytest tests/test_report_sections.py -q -o addopts=""` (после перевода STATE) | `27 passed, 1 skipped in 2.93s` |
+| 5 | `python3 -m pytest tests/test_prop_formulas.py tests/test_docs_truth.py tests/test_adr_numbers.py -q -o addopts="" --hypothesis-show-statistics` ; `HYPOTHESIS_PROFILE=deep python3 -m pytest tests/test_prop_formulas.py -q -o addopts="" --hypothesis-show-statistics` | `200 passing, 0 failing` + `Stopped because settings.max_examples=200`, `9 passed in 1.96s` ; `5000 passing, 0 failing` + `Stopped because settings.max_examples=5000`, `6 passed in 1.82s` |
+| 6 | `grep -rn hypothesis rusterm/` | (нет вывода), `grep exit=1` |
+| 7 | `python3 -m pytest --collect-only` | `1146/1161 tests collected (15 deselected) in 1.07s` |
+| 8 | `git status --porcelain` (после deep-прогона) | только пять файлов E1 + отчёт; каталога `.hypothesis/` нет |
+| 9 | `python3 -c "from rusterm import formulas as f; print(f.gross_margin(-5.0,-5.0), f.gross_margin(0.0,0.0), f.gross_margin(7.0,7.0))"` | `(None, 'negative_denominator') (None, 'denominator_zero') (1.0, None)` |
 
 ## HANDOFF
 
-Status: PARTIAL — круг начат, записи приняты.
-Items done: —
-Items not done: E1 (профили и зависимость), E2 (closure-свойство), E3
-(метаморфные свойства), E4 (ноль не пропуск), E5 (бюджет времени) — очередь
-целиком впереди.
-Arrival state: `Итог: пройдено 11, провалено 2`, repaired by this commit.
-Network: pip only, LLM 0.
-NOW: E1, step 1
+Status: PARTIAL — E1 принят, очередь продолжается.
+Items done: приём круга, E1 (профили и зависимость, ADR-0024).
+Items not done: E2 (closure-свойство), E3 (метаморфные свойства), E4 (ноль не
+пропуск), E5 (бюджет времени).
+Arrival state: `Итог: пройдено 11, провалено 2`, repaired by `bad057a`.
+Network: pip only — `pip install hypothesis` and one `pip install --dry-run`
+(Runs 3 and Disputed 2); no data-provider request, LLM 0.
+NOW: E2, step 1
