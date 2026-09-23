@@ -13,8 +13,9 @@ def main(argv=None) -> int:
         prog="python3 -m rusterm.desktop",
         description="EquityLab — десктопное окно (только чтение)")
     parser.add_argument("--root", default=None,
-                        help="каталог данных (по умолчанию $RUSTERM_DATA"
-                             " или ~/.rusterm)")
+                        help="каталог данных (по умолчанию — те же "
+                             "правила, что у CLI: $RUSTERM_DATA, "
+                             "./rusterm.db, ~/.rusterm)")
     parser.add_argument("--watchlist", default=None,
                         help="список наблюдения (по умолчанию первый)")
     args = parser.parse_args(argv)
@@ -25,11 +26,11 @@ def main(argv=None) -> int:
     from rusterm import env as env_module
     env_module.load_env()
 
-    from rusterm.store.paths import default_root
-    root = args.root or default_root()
+    from rusterm.store.paths import resolve_root
+    root, rule = resolve_root(args.root)
 
     from rusterm.desktop import window
-    return window.run(root, args.watchlist)
+    return window.run(root, args.watchlist, rule)
 
 
 if __name__ == "__main__":

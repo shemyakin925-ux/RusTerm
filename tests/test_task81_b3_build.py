@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 from rusterm import env as env_module
-from rusterm.store.paths import default_root
+from rusterm.store.paths import resolve_root
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "EquityLab.spec"
@@ -65,7 +65,9 @@ def test_data_catalog_is_found_without_a_shell(tmp_path, monkeypatch):
     env_module.load_env()
     assert os.environ.get("RUSTERM_DATA") == str(catalog), \
         "env-файл не доносит каталог данных до запущенного без шелла окна"
-    assert Path(default_root()) == catalog
+    # ТЗ-90 A5: номер правила вместе с путём — Finder-запуск обязан
+    # показать, что взял каталог из файла, а не из ~/.rusterm
+    assert resolve_root() == (catalog, 2)
 
 
 def test_one_documented_command_builds_from_the_committed_spec():

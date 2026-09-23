@@ -15,5 +15,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     from rusterm import env as env_module
     env_module.load_env()
-    from rusterm.store.paths import default_root
-    raise SystemExit(run(args.root or default_root(), args.watchlist))
+    from rusterm.store.paths import resolve_root
+    root, rule = resolve_root(args.root)
+    raise SystemExit(run(root, args.watchlist, rule))

@@ -67,9 +67,32 @@ def ensure_app_dir(paths: AppPaths) -> AppPaths:
     return paths
 
 
-def default_root() -> Path:
-    """Корень данных по умолчанию: $RUSTERM_DATA или ~/.rusterm."""
+def resolve_root(explicit=None) -> tuple[Path, int]:
+    """Каталог данных: один порядок для всех дверей (ТЗ-90 A5).
+
+    | правило | откуда |
+    |---|---|
+    | 1 | явно заданный `--root` (или корень, который выбрало окно) |
+    | 2 | `RUSTERM_DATA` — окружение или `~/.rusterm.env` (пишет load_env) |
+    | 3 | `./rusterm.db` есть — текущий каталог |
+    | 4 | `~/.rusterm` |
+
+    Возвращает `(путь, номер правила)`: номер нужен наружу — `status` и
+    шапка окна печатают, каким правилом получили каталог, иначе
+    «открылось не то» невозможно отличить от «там нет данных». Прежний
+    порядок расходился: CLI по умолчанию молчал про `.` (правило 3), а
+    окно и `.app` из Finder смотрели только 2 и 4 — `rusterm add` в
+    каталоге проекта и `rusterm desktop` из него же открывали две разные
+    базы.
+
+    Правила 2 и 4 не зависят от рабочего каталога; правило 3 зависит —
+    это и есть смысл «база лежит рядом с проектом».
+    """
+    if explicit:
+        return Path(explicit), 1
     env = os.environ.get("RUSTERM_DATA")
     if env:
-        return Path(env)
-    return Path.home() / ".rusterm"
+        return Path(env), 2
+    if Path("rusterm.db").exists():
+        return Path("."), 3
+    return Path.home() / ".rusterm", 4

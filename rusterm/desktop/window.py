@@ -87,8 +87,14 @@ WINDOW_TITLE = "EquityLab"
 ANSWER_MAX_WIDTH = 960
 
 
-def _build_window(repos, paths, watchlist_id=None):
-    """Собрать окно поверх открытого (возможно пустого) каталога."""
+def _build_window(repos, paths, watchlist_id=None, rule=1):
+    """Собрать окно поверх открытого (возможно пустого) каталога.
+
+    `rule` — номер правила из `store.paths.resolve_root`, по которому
+    выбран этот каталог (1 — явно назван). Шапка печатает ту же строку,
+    что и `rusterm status`: «открылась не та база» и «в этой базе нет
+    данных» должны различаться словами, а не догадкой (ТЗ-90 A5).
+    """
     window = _MainWindow()
     window.setWindowTitle(WINDOW_TITLE)
     central = QWidget()
@@ -98,6 +104,10 @@ def _build_window(repos, paths, watchlist_id=None):
     # ── шапка ──────────────────────────────────────────────────────
     header = QHBoxLayout()
     header.addWidget(QLabel(WINDOW_TITLE))
+    root_rule_label = QLabel(objectName="root_rule")
+    root_rule_label.setText(f"каталог данных: {paths.root} "
+                            f"(правило: {rule})")
+    header.addWidget(root_rule_label)
     header.addStretch(1)
     status = QLabel(objectName="status")
     header.addWidget(status)
@@ -1044,8 +1054,12 @@ def _repaint_measures(box, info: dict) -> None:
     box.blockSignals(False)
 
 
-def run(root, watchlist_id=None) -> int:
-    """Точка входа python3 -m rusterm.desktop: только чтение."""
+def run(root, watchlist_id=None, rule=1) -> int:
+    """Точка входа python3 -m rusterm.desktop: только чтение.
+
+    `rule` — номер правила поиска каталога (см. `_build_window`);
+    корень, который назвал сам пользователь, — правило 1.
+    """
     import os as _os
     if not QT_AVAILABLE:
         print("PySide6 не установлен: pip install 'rusterm[desktop]'",
@@ -1057,7 +1071,7 @@ def run(root, watchlist_id=None) -> int:
         from rusterm.store.repos import RepoRegistry
         repos = RepoRegistry(conn, paths)
     app = QApplication.instance() or QApplication([])
-    window = _build_window(repos, paths, watchlist_id)
+    window = _build_window(repos, paths, watchlist_id, rule)
     window.resize(1280, 800)
     window.show()
     if _os.environ.get("RUSTERM_APP_SMOKE"):
@@ -1065,8 +1079,11 @@ def run(root, watchlist_id=None) -> int:
         # само; в обычной работе переменной нет и окно живёт
         # ТЗ-81 B3: строка о том, какой каталог открыт, — чтобы прогон
         # собранного бинарника доказывал правило поиска, а не только
-        # «запустилось и не упало»
-        print(f"rusterm-app root={paths.root}", flush=True)
+        # «запустилось и не упало». С круга 111 номер правила в той же
+        # строке: .app из Finder обязан показать, что взял его из
+        # ~/.rusterm.env, а не из ~/.rusterm.
+        print(f"rusterm-app root={paths.root} (правило: {rule})",
+              flush=True)
         from PySide6.QtCore import QTimer
         QTimer.singleShot(1200, window.close)
     code = app.exec()

@@ -126,7 +126,7 @@ Nothing blocked in A1.
 
 ## Disputed
 
-None yet.
+None through A1 — see «Disputed (A5)» at the end of this report.
 
 ## HANDOFF
 
@@ -427,23 +427,204 @@ and the whole suite runs again inside the pre-commit hook
   Before this commit the file was restored and `git diff HEAD --
   agent/p6_rule.sh` is empty — no guard file is in this item's diff.
 
+## Done (A5) — one default data catalog for the CLI and the window
+
+### 1. Measured before the change (parent `4d0c4d2`, sandbox HOME)
+
+| door | command | what it picked |
+|---|---|---|
+| CLI | `cd work && rusterm status` | `/private/tmp/a5-probe2/work` |
+| window / `.app` | `default_root()` in the same cwd | `/tmp/a5-probe2/home/.rusterm` |
+
+One directory, two catalogs: the CLI's default was the parser's
+`default="."`, the window knew only `$RUSTERM_DATA` and `~/.rusterm`. And
+neither said *why*: `status` on the parent prints
+`каталог данных: /private/tmp/a5-parent-probe` — a path with no reason,
+so «открылась не та база» and «здесь нет данных» look identical.
+
+Measured on the user's machine after the change (paths only, nothing
+read from the base):
+
+| cwd | rule | catalog |
+|---|---|---|
+| `/Users/anton/equitylab` | 3 | `.` — the working 60 MB base |
+| `/tmp` (what a Finder launch looks like) | 4 | `/Users/anton/.rusterm` — the round-100 leftover |
+
+Line for `~/.rusterm.env`, as the task asks (the file has four key lines
+today and no `RUSTERM_DATA`):
+
+```
+RUSTERM_DATA=/Users/anton/equitylab
+```
+
+With it, every door — CLI from any directory, `python3 -m
+rusterm.desktop`, double-clicked `.app` — resolves to rule 2 and the
+same catalog.
+
+### 2. What changed
+
+- `rusterm/store/paths.py` — `default_root()` became
+  `resolve_root(explicit=None) -> (Path, int)`: the task's four-row
+  table, and the rule number is part of the result because both doors
+  print it.
+- `rusterm/cli/__init__.py` — the parser's `--root` default is `None`
+  and `main()` resolves once before dispatch. `load_env()` runs above
+  it, so rule 2 already covers a shell-less launch. `cmd_status` prints
+  `каталог данных: <path> (правило: N)`. `cmd_desktop` forwards the
+  root only when it is rule 1: forwarding a path chosen by rules 2-4
+  would make the window door re-read it as explicit and print a false
+  rule in the header.
+- `rusterm/desktop/__main__.py`, `rusterm/desktop/app_entry.py` — the
+  same function, and the rule travels to the window.
+- `rusterm/desktop/window.py` — `_build_window(..., rule=1)`; header
+  `QLabel` `objectName="root_rule"` holds exactly the `status` line; the
+  `RUSTERM_APP_SMOKE` line became `rusterm-app root=<path> (правило: N)`
+  (the existing `root=` substring assertions still hold — they were not
+  loosened).
+- `GUIDE.md` — the executed `desktop --help` block regenerated, §1 and
+  §10.1 prose now state the four rules, and the smoke-line paragraph
+  says the rule is in the line.
+
+### 3. Tests
+
+- New `tests/test_a5_one_default_catalog.py` (5 tests): the table test
+  walks the four rows and each row is checked where it *contradicts* the
+  next one (explicit beats the environment, the environment beats
+  `./rusterm.db`, that beats home); rule 3 does not fire in an empty
+  directory; an env-file line is rule 2 for a Finder launch; `status`
+  prints rule 1 for `--root` and rule 3 by default; and the grep
+  guard — `default="."` gone from the parser, `default_root` has no
+  readers left, `environ.get("RUSTERM_DATA")` and
+  `home() / ".rusterm"` each appear in exactly one module.
+- The two window assertions first lived in that file and were **moved**
+  to `tests/test_desktop_window.py` (`test_header_names_the_catalog_and_the_rule`,
+  `test_header_and_cli_print_the_same_line`) because acceptance step 6
+  forbids Qt outside `rusterm/desktop/` and `tests/test_desktop_*.py` —
+  measured: `ПРОВАЛ Qt вне слоя интерфейса`, three lines named
+  `tests/test_a5_one_default_catalog.py:41,149,164` (log
+  `/var/folders/…/selfcheck-acc.aCuW3F`). Where they now live they use
+  the file's own migrated base and its `env` fixture, so the header is
+  checked against a real catalog rather than a `repos=None` window.
+- Touched: `tests/test_desktop_door.py` (the recorder now captures the
+  rule; `test_door_without_root_uses_the_window_default`, whose premise
+  *was* the divergence, became `test_door_without_root_shares_the_cli_default`),
+  `tests/test_paths.py` (rules 2 and 4 pinned with their numbers, and
+  with `chdir` so rule 3 cannot leak in from the repo directory),
+  `tests/test_task81_b3_build.py` (`resolve_root() == (catalog, 2)`).
+- Collateral, found by this item and fixed in it:
+  `tests/test_task58_c3.py` and `tests/test_b35_markets_readonly.py`
+  launched the CLI as a subprocess **inheriting `HOME`** and without
+  `--root`, which was safe only while the parser's default was `"."`.
+  With one precedence they resolved to rule 4 — the developer's real
+  `~/.rusterm`, present on this machine. Five read-only refusal tests
+  stopped refusing (their base existed), the writer tests wrote outside
+  the tree they assert on, and the I5 case went red as collateral
+  because acceptance's own `pytest -q` failed. Both `_run` helpers now
+  sandbox `HOME` next to the tree and drop an inherited `RUSTERM_DATA`;
+  the writer positive controls name `--root .` (their assertions are
+  unchanged), and `test_b35_markets_readonly.py` gained
+  `test_writer_without_root_goes_to_the_home_rule_not_the_tree`, which
+  asserts the base appears in the sandbox `~/.rusterm`, the printed
+  `каталог:` line names it, and the git tree stays clean. **Real side
+  effect before the fix:** that run applied migration 45 to
+  `/Users/anton/.rusterm/rusterm.db`, added `metric_sample` rows
+  (`locator_resolve_failure`, `peer_set_coverage`, provider
+  `synthetic`) and appended a traceback to
+  `/Users/anton/.rusterm/logs/app.log`. Nothing was deleted; the base
+  is 45 rows of schema and 5 metric samples.
+- On the parent the new file cannot even be collected:
+  `E ImportError: cannot import name 'resolve_root' from
+  'rusterm.store.paths'` (worktree `/tmp/rt-a5-parent`, exit 2).
+- Runs.
+  - Targeted, final tree: `QT_QPA_PLATFORM=offscreen python3 -m pytest
+    -q tests/test_task58_c3.py tests/test_b35_markets_readonly.py
+    tests/test_a5_one_default_catalog.py tests/test_desktop_door.py
+    tests/test_paths.py tests/test_task81_b3_build.py
+    tests/test_desktop_window.py` → `[100%]`, `exit=0`, 77 tests
+    (`/tmp/a5-targeted.log`).
+  - Full suite on the staged tree: `python3 -m pytest -q
+    -p no:cacheprovider` (`/tmp/a5-full2.log`) → 1124 tests, 1114
+    passed, 5 skipped, 4 xfailed, **1 failed**:
+    `tests/test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green`.
+    Cause is the mid-work state, not the change: that case re-runs
+    `agent/selfcheck.sh` against the *outer* staged tree and P1 reads
+    its declaration from `.git/COMMIT_EDITMSG`, which during a bare
+    `pytest` holds the previous commit's message (A4's) — so my A5
+    `ЗАМЕНА-БУЛАВКИ` lines were not there to be seen. Measured with the
+    A5 message placed in `COMMIT_EDITMSG`, same staged tree:
+    `bash agent/p1_rule.sh` → `P1: OK (staged)`, exit 0 — the guard is
+    satisfied by the declaration, which is exactly what the skipped-in-
+    the-hook case asserts.
+  - First commit attempt (message + this tree): the hook's acceptance
+    passed step 3 — `OK pytest, код возврата 0` on the A5 tree with the
+    I5 cases skipped by `I5_NESTED=1` — and stopped at step 6 on Qt
+    outside the UI layer (quoted above). No commit was created; the
+    window tests were moved and the suite re-run.
+  - The five refusals and the two positive controls that were red at
+    the first full run are green in the targeted run above.
+
+### 4. Not to trust (A5)
+
+- The table says what a fresh project gets: `cd ~/new && rusterm init`
+  with no `rusterm.db` nearby lands in `~/.rusterm` (rule 4). Before
+  this item the same command wrote into `./`. That follows the task's
+  row 3 literally — reported in Disputed rather than quietly patched
+  with an init-specific exception.
+- `status --json` does not carry the rule (its `data_dir` is unchanged),
+  so the GUIDE's JSON sample did not need regenerating for this item.
+- `_build_window(..., rule=1)`'s default is a claim, not a measurement:
+  a window built without a rule says «правило: 1». True for
+  `on_switch_root` (the user picked the folder) and for tests; the
+  production doors always pass the number.
+- Nothing migrates data: the stale `~/.rusterm` base still exists on
+  this machine and still wins rule 4 until the user adds the
+  `RUSTERM_DATA` line above. Deleting it is the coordinator's or the
+  user's call, not an executor's.
+- The TUI door (`cmd_tui`) now receives the resolved catalog instead of
+  `"."`; its own screens were not re-checked beyond the existing PTY
+  tests.
+
+## Disputed (A5)
+
+- TASK-90 A5, table row 3 + `rusterm init`. With one precedence for
+  every door, creating a base in a fresh directory lands in `~/.rusterm`
+  because `./rusterm.db` does not exist yet — `init` is the one command
+  whose job is to create that file, so the rule it consults is always
+  false at the moment it is asked. Either the table gains a row for
+  «init creates where the user stands» (and then `init` must say the
+  rule it used, as `status` now does), or the guide must tell the user
+  to pass `--root` on the first run. Left as specified; the code prints
+  the rule, so the choice is at least visible. Today's GUIDE §1 passes
+  `--root` in every block, so nothing in the docs promises the other
+  behaviour.
+
 ## HANDOFF
 
-Status:          WORKING
-Items done:      приём круга (STATE + отчёт), A1, A2, A3, A4
-Items not done:  A5
-Acceptance:      quoted in each item's commit message (hook run)
-Tests:           full default suite green on the A3 tree and on the A4
-                 tree (quoted in each item's block); per-item subsets
-                 quoted per item
-Guards:          none touched — the A4 commit carries no `agent/` script
-                 diff (the I5 demo's staged line in `p6_rule.sh` was
-                 restored to HEAD bytes first)
-Schema:          unchanged (A3 needed no migration — `snapshot.status`
-                 has no CHECK)
-Network:         4 of 4 (twelvedata, A1); A2, A3 and A4 — zero network
+Status:          DONE — очередь TASK-90 закрыта (A1–A5)
+Items done:      приём круга (STATE + отчёт), A1, A2, A3, A4, A5
+Items not done:  нет в TASK-90; BACKLOG не открывался
+Acceptance:      selfcheck в хуке на каждом коммите предмета; зелёный
+                 случай I5 хук пропускает (`I5_NESTED=1`), поэтому его
+                 утверждение (стейдж + декларация = зелёный) замерен
+                 напрямую: `bash agent/p1_rule.sh` → `P1: OK (staged)`
+Tests:           полный дефолтный прогон: дерево A3 — зелёный, дерево A4 —
+                 зелёный, дерево A5 — 1114 из 1124 с одним артефактом
+                 недокоммиченного состояния (объяснён в блоке A5)
+Guards:          не тронуты — в диффе ни одного предмета нет
+                 `agent/*_rule.sh` (демо-строка I5 возвращена в байты HEAD
+                 перед каждым коммитом)
+Schema:          unchanged
+Network:         4 of 4 (twelvedata, A1); A2–A5 — ноль
 Model:           Qoder executor, llm_calls 0
-Secrets:         0 (A4: the four values on this machine, counted in the
-                 staged diff — 0 hits each; names only in the report)
-Pushed:          yes — A1 ad4c131, A2 30eacd2, A3 faea1ca
-NOW: A5, step 1
+Secrets:         0 — наружу только имена; в A4 staged diff посчитан по
+                 вхождениям значений (0 на каждый ключ)
+Pushed:          yes — A1 ad4c131, A2 30eacd2, A3 faea1ca, A4 4d0c4d2;
+                 A5 — этот коммит
+User line:       `RUSTERM_DATA=/Users/anton/equitylab` в ~/.rusterm.env
+                 (A5); что первый прогон A5 написал в ~/.rusterm — в
+                 блоке A5
+Questions:       1) Disputed (A5): `rusterm init` в пустом каталоге теперь
+                 создаёт базу в ~/.rusterm — предназначена ли строка 3
+                 таблицы для пишущих команд? 2) Очередь TASK-90 пуста:
+                 следующий файл ТЗ или проход по BACKLOG?
+NOW: hand → coordinator, затем wait

@@ -34,7 +34,7 @@ from rusterm.store.db import (
     open_connection,
 )
 from rusterm.store.doctor import doctor_report
-from rusterm.store.paths import AppPaths, ensure_app_dir
+from rusterm.store.paths import AppPaths, ensure_app_dir, resolve_root
 from rusterm.store.repos import (
     Instrument,
     InstrumentRepo,
@@ -1350,7 +1350,11 @@ def cmd_status(args) -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
         return 0
-    print(f"каталог данных: {payload['data_dir']}")
+    # ТЗ-90 A5: путь называется вместе с правилом, по которому его
+    # выбрали, — «открылась не та база» отличается от «тут нет данных»
+    # строкой, а не догадкой
+    print(f"каталог данных: {payload['data_dir']} "
+          f"(правило: {args.root_rule})")
     if observed is not None and applied != observed:
         print(f"схема: найдена версия {observed}, обновлена до {applied}")
     print(f"схема: {('версия ' + str(applied)) if applied else 'нет базы (rusterm init)'}")
@@ -1389,16 +1393,17 @@ def cmd_desktop(args) -> int:
     """Десктопное окно (ТЗ-60 E3): та же дверь, что
     python3 -m rusterm.desktop, — один код, копии нет.
 
-    Каталог данных — по правилам окна: без явного --root это
-    $RUSTERM_DATA или ~/.rusterm (не «.» из общего дефолта CLI).
-    Отказ без PySide6 словами даёт сам window.run — общего кода
-    меньше, а слова не расходятся между точками входа.
+    Каталог выбирает `resolve_root` (ТЗ-90 A5), и окно делает то же
+    самое: явно названный корень передаём дальше, а выбранный по
+    правилам 2-4 не пересылаем — иначе вторая дверь посчитала бы его
+    правилом 1 и шапка окна наврала бы пользователю. Отказ без PySide6
+    словами даёт сам window.run — общего кода меньше, а слова не
+    расходятся между точками входа.
     """
     from rusterm.desktop.__main__ import main as desktop_main
     argv = []
-    root = getattr(args, "root", None)
-    if root not in (None, "."):
-        argv += ["--root", root]
+    if getattr(args, "root_rule", 1) == 1:
+        argv += ["--root", str(args.root)]
     if getattr(args, "watchlist", None):
         argv += ["--watchlist", args.watchlist]
     return desktop_main(argv)
@@ -2261,7 +2266,11 @@ def _build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="rusterm", description="EquityLab: локальный терминал (ядро)")
-    parser.add_argument("--root", default=".", help="каталог данных")
+    parser.add_argument(
+        "--root", default=None,
+        help="каталог данных (по умолчанию — правила 2-4 из "
+             "store/paths.resolve_root: $RUSTERM_DATA, ./rusterm.db, "
+             "~/.rusterm)")
     sub = parser.add_subparsers(dest="command", required=False)
     sub.add_parser("init", help="создать каталог данных и применить миграции")
     p_ing = sub.add_parser("ingest", help="сбор; реальный источник — не дефолт")
@@ -2369,8 +2378,8 @@ def _build_parser() -> argparse.ArgumentParser:
              "как python3 -m rusterm.desktop")
     p_desk.add_argument(
         "--root", default=argparse.SUPPRESS,
-        help="каталог данных (по умолчанию — как у окна: "
-             "$RUSTERM_DATA или ~/.rusterm)")
+        help="каталог данных (по умолчанию — те же правила, что у "
+             "CLI: $RUSTERM_DATA, ./rusterm.db, ~/.rusterm)")
     p_desk.add_argument("--watchlist", default=None)
     p_ref = sub.add_parser("refresh",
                            help="инкрементальный проход по списку наблюдения (для cron)")
@@ -2437,6 +2446,13 @@ def main(argv: list[str] | None = None) -> int:
     env_module.load_env()  # RUSTERM_* из ~/.rusterm.env, если не в окружении
     parser = _build_parser()
     args = parser.parse_args(argv)
+    # ТЗ-90 A5: каталог выбирает одна функция, а не дефолт парсера. До
+    # этого CLI молчал про «.», а окно и .app смотрели только в
+    # $RUSTERM_DATA/~/.rusterm — `rusterm add` в каталоге проекта и
+    # `rusterm desktop` из него же открывали две разные базы.
+    # `load_env` выше уже положил RUSTERM_DATA из ~/.rusterm.env в
+    # окружение, поэтому правило 2 работает и для запуска из Finder.
+    args.root, args.root_rule = resolve_root(args.root)
 
     commands = {
         "init": cmd_init, "ingest": cmd_ingest, "snapshot": cmd_snapshot,

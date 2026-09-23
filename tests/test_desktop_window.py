@@ -28,7 +28,8 @@ from rusterm.desktop import data as desktop_data  # noqa: E402
 from rusterm.desktop import window as desktop_window  # noqa: E402
 from rusterm.desktop.charts import ChartArea  # noqa: E402
 from rusterm.store.db import apply_migrations  # noqa: E402
-from rusterm.store.paths import AppPaths, ensure_app_dir  # noqa: E402
+from rusterm.store.paths import (AppPaths, ensure_app_dir,  # noqa: E402
+                                 resolve_root)
 from rusterm.store.repos import (Instrument, Issuer, Listing,  # noqa: E402
                                  RepoRegistry)
 
@@ -433,6 +434,33 @@ def test_header_shows_budget_numbers(qapp, env):
     status = _widget(window, QLabel, "status")
     assert "потолок 5000" in status.text()
     assert "запросов сегодня 0" in status.text()
+
+
+def test_header_names_the_catalog_and_the_rule(qapp, env):
+    """ТЗ-90 A5: шапка обязана говорить, каким правилом выбрали каталог
+    — «открылась не та база» и «здесь нет данных» различаются строкой."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1", 3)
+    label = _widget(window, QLabel, "root_rule")
+    assert label.text() == f"каталог данных: {paths.root} (правило: 3)"
+
+
+def test_header_and_cli_print_the_same_line(qapp, env, monkeypatch,
+                                            capsys):
+    """ТЗ-90 A5: у окна и у `rusterm status` — одна строка на один
+    каталог: путь и номер правила совпадают посимвольно, потому что и
+    то, и другое пишет один resolve_root."""
+    from rusterm.cli import main as cli_main
+    repos, paths = env
+    monkeypatch.chdir(paths.root)   # рядом rusterm.db каталога → правило 3
+    root, rule = resolve_root()
+    assert (root, rule) == (Path("."), 3)
+    assert cli_main(["status"]) == 0
+    printed = [line for line in capsys.readouterr().out.splitlines()
+               if line.startswith("каталог данных: ")]
+    assert printed == [f"каталог данных: {paths.root} (правило: 3)"]
+    window = desktop_window._build_window(repos, paths, "wl-1", rule)
+    assert _widget(window, QLabel, "root_rule").text() == printed[0]
 
 
 def test_collect_refuses_non_demo_with_cli_words(qapp, env):

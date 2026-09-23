@@ -21,11 +21,11 @@ from rusterm.cli import main as cli_main  # noqa: E402
 @pytest.fixture()
 def run_recorder(monkeypatch):
     from rusterm.desktop import window as desktop_window
-    calls: list[tuple[object, object]] = []
+    calls: list[tuple[object, object, int]] = []
     monkeypatch.setattr(
         desktop_window, "run",
-        lambda root, watchlist_id=None:
-        calls.append((root, watchlist_id)) or 0)
+        lambda root, watchlist_id=None, rule=1:
+        calls.append((root, watchlist_id, rule)) or 0)
     return calls
 
 
@@ -37,27 +37,38 @@ def test_desktop_listed_in_cli_help(capsys):
 
 
 def test_both_doors_call_the_same_run(tmp_path, run_recorder):
+    from pathlib import Path
+
     from rusterm.desktop.__main__ import main as desktop_main
-    root = str(tmp_path / "catalog")
-    assert cli_main(["--root", root, "desktop"]) == 0
-    assert desktop_main(["--root", root]) == 0
-    assert run_recorder == [(root, None), (root, None)]
+    root = Path(tmp_path / "catalog")
+    assert cli_main(["--root", str(root), "desktop"]) == 0
+    assert desktop_main(["--root", str(root)]) == 0
+    # ТЗ-90 A5: явный корень — правило 1, и обе двери доносят его окну
+    # одинаково (путь и номер правила)
+    assert run_recorder == [(root, None, 1), (root, None, 1)]
     # --watchlist проходит в ту же дверь без переписывания
-    assert cli_main(["--root", root, "desktop",
+    assert cli_main(["--root", str(root), "desktop",
                      "--watchlist", "demo-list"]) == 0
-    assert run_recorder[-1] == (root, "demo-list")
+    assert run_recorder[-1] == (root, "demo-list", 1)
 
 
-def test_door_without_root_uses_the_window_default(monkeypatch, run_recorder):
-    """Без --root окно открывается на своём каталоге по умолчанию
-    ($RUSTERM_DATA / ~/.rusterm), а не на «.» из общего дефолта CLI;
-    явный «--root .» — тот же путь к умолчанию окна."""
-    import rusterm.store.paths as paths_module
-    fake = paths_module.Path("/fake/default")
-    monkeypatch.setattr(paths_module, "default_root", lambda: fake)
+def test_door_without_root_shares_the_cli_default(monkeypatch, run_recorder,
+                                                  tmp_path):
+    """ТЗ-90 A5: у двери нет своего значения по умолчанию. Без --root
+    окно открывается там же, где CLI ($RUSTERM_DATA — правило 2), а не
+    «на своём»; явный «--root .» — правило 1, то есть текущий каталог
+    по слову пользователя, а не подменённый дефолт. Прежняя проверка
+    доказывала обратное: что «.» ведёт себя как окно."""
+    from pathlib import Path
+
+    data = tmp_path / "catalog"
+    monkeypatch.setenv("RUSTERM_DATA", str(data))
     assert cli_main(["desktop"]) == 0
+    assert run_recorder == [(data, None, 2)]
+    run_recorder.clear()
+    here = Path(".")
     assert cli_main(["--root", ".", "desktop"]) == 0
-    assert run_recorder == [(fake, None), (fake, None)]
+    assert run_recorder == [(here, None, 1)]
 
 
 def test_door_without_pyside6_speaks_words_not_traceback(
@@ -91,4 +102,4 @@ def test_door_creates_no_data_dir(tmp_path, run_recorder):
     missing = tmp_path / "nope"
     assert cli_main(["--root", str(missing), "desktop"]) == 0
     assert not missing.exists()
-    assert run_recorder == [(str(missing), None)]
+    assert run_recorder == [(missing, None, 1)]
