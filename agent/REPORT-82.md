@@ -246,8 +246,9 @@ about it (Run 24). `bash agent/acceptance.sh` first went **red** on this tree �
 with the word "Disputed" outside `## Disputed`, which
 `test_disputed_lines_live_only_in_disputed_section` forbids and which the I5
 chain then repeats (Run 26). Rewrapped, the two reddened guards pass
-(`32 passed` twice); the verdict of the whole script belongs to the run this
-commit's hook performs (Run 27).
+(`32 passed` twice); the verdict of the whole script is Run 27 — the same
+acceptance chain the E5 commit's hook performs:
+`Итог: пройдено 13, провалено 0`, `Принято.`
 
 The budget measurement is what surfaced two properties that were green only at
 the default profile — 200 examples, derandomized, `database=None`. Both were
@@ -460,7 +461,7 @@ when" prescribes for a bound that is unclear rather than wrong.
 | 24 | `HYPOTHESIS_PROFILE=deep python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` трижды, свежие сиды (после правок E5) | `74 passed in 237.23s`, `74 passed in 239.58s`, `74 passed in 237.26s` — вне бюджета пункта (он про default) и вне приёмки: `grep -rn HYPOTHESIS_PROFILE agent/acceptance.sh agent/selfcheck.sh` → пусто |
 | 25 | `python3 -m pytest tests/test_prop_*.py -q -o addopts="" --durations=5` (default, финальное состояние E5), затем без `--durations` | slowest: `enterprise_value 0.32s`, `market_cap_total 0.24s`, `drawdown 0.23s`, `roe_incl_nci 0.22s`, `total_return 0.22s` ; `75 passed in 10.04s` ; повтор на тихой машине — `75 passed in 11.87s` |
 | 26 | `bash agent/acceptance.sh` (клон, рабочее дерево E5) | `Итог: пройдено 11, провалено 2`, `Не принято`, `EXIT=2`: `FAILED tests/test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green` и `FAILED tests/test_report_sections.py::test_disputed_lines_live_only_in_disputed_section` — перенос строки в отчёте начался со слова «Disputed» вне секции `## Disputed` (секция про это и предупреждает); исходники и тесты не при чём. После перебивки — `python3 -m pytest tests/test_report_sections.py tests/test_i5_guard_source.py -q -o addopts=""` → `32 passed in 558.82s`, повтор `32 passed in 565.24s`. Итог приёмки после правки — строка 27 (её даёт только следующий прогон: этот коммит держит её в своём хуке) |
-| 27 | `bash agent/acceptance.sh` … | _заполняет прогон хука этого коммита_ |
+| 27 | `bash agent/acceptance.sh` внутри хука коммита `22afb31` (`I5_NESTED=1 bash agent/selfcheck.sh` → `agent/acceptance.sh`) | `Итог: пройдено 13, провалено 0`, `Принято.` |
 | 28 | `HYPOTHESIS_PROFILE=deep python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` (после финальных правок файла, свежие сиды) | `75 passed in 238.06s (0:03:58)` |
 
 ## HANDOFF
@@ -489,8 +490,9 @@ deep — три зелёных прогона по 237–240 s (Run 24) и ещ�
 правки файла (Run 28); `bash agent/acceptance.sh` — первый прогон круга дал
 11 из 2 и «Не принято» из-за переноса строки в этом отчёте (слово «Disputed»
 вне секции), а не из-за кода; после перебивки два покрасневших стража зелёные
-(32 passed дважды, Run 26), а итог всего скрипта — строка 27, его даёт хук
-этого же коммита. Ни одна проверка не исчезла молча: две булавки сняты, для
+(32 passed дважды, Run 26), а полный прогон даёт `Итог: пройдено 13, провалено
+0` и `Принято.` — это хук коммита `22afb31` (Run 27). Рука-коммит держит ту же
+цепь, и её собственный итог изнутри себя не цитируется. Ни одна проверка не исчезла молча: две булавки сняты, для
 каждой в сообщении коммита названа преемница и сказано, чем она сильнее
 (снято 2 assert-строки, добавлено 10).
 
