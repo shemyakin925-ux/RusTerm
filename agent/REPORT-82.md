@@ -232,6 +232,77 @@ both are in the file.
 added to `tests/` without removing or rewriting a single assert line, which is
 the "Done when" this item names.
 
+### E5 — бюджет времени, и два дефекта, которые нашёл deep-профиль
+
+Budget (the item's own letter): `tests/test_prop_*.py` is one file, 75 tests at
+the default profile, `10.04 s` and `11.87 s` on two quiet runs — under the 20 s
+ceiling; the five slowest calls are all parametrizations of the E2 closure
+property, 0.22–0.32 s each (Runs 20, 25). The `deep` profile is not part of the
+ceiling and is not what acceptance runs (`grep -rn HYPOTHESIS_PROFILE
+agent/acceptance.sh agent/selfcheck.sh` — no match); it costs 237–240 s for the
+same file and is recorded separately so nobody reads "< 20 s" as a statement
+about it (Run 24). `bash agent/acceptance.sh` first went **red** on this tree —
+11/2 — for a reason outside both code and tests: a wrapped report line began
+with the word "Disputed" outside `## Disputed`, which
+`test_disputed_lines_live_only_in_disputed_section` forbids and which the I5
+chain then repeats (Run 26). Rewrapped, the two reddened guards pass
+(`32 passed` twice); the verdict of the whole script belongs to the run this
+commit's hook performs (Run 27).
+
+The budget measurement is what surfaced two properties that were green only at
+the default profile — 200 examples, derandomized, `database=None`. Both were
+reported rather than worked around, and neither was fixed by deleting a check:
+
+* **`hhi` contradicts its own docstring.** `formulas.hhi` documents
+  "диапазон 0..1" and, in the same paragraph, "доли обязаны суммироваться в 1.0
+  с допуском 1e-6". The second rule lets `hhi([1.0, 1.192092896e-07])` answer
+  `1.0000000000000142` (Run 21) — and the reachable maximum is not a float
+  artifact: a single participant with a 1.0000009 share answers `1.0000018`,
+  i.e. 1.8e-6 above the documented ceiling, which is what `(1 + 1e-6)²`
+  predicts (Run 22). The property now bounds each branch by the rule the code
+  itself declares — `≤ 1.0` when the drawn shares sum to exactly `1.0`
+  (measured: no counterexample among 400 000 normalized draws), and
+  `≤ (1 + 1e-6)²` inside the declared tolerance. Which of the two sentences
+  wins is Disputed 4: clamp the value, tighten the tolerance to an exact sum,
+  or widen the documented range — all three change a measure that already lives
+  in the user's base, so none is the executor's call.
+  `test_hhi_still_outruns_its_own_documented_range` pins the contradiction: it
+  goes red the day the code stops outrunning 1.0, so a ruling cannot leave the
+  two sentences disagreeing quietly.
+* **A fixed relative tolerance is the wrong claim for a cancelling
+  denominator.** `test_money_scale_does_not_move_a_ratio[roic-3]` went red at
+  deep: `roic(1e12, 999999999215.0, -999999962869.0)` = `55026687.943652675`,
+  with every input ×1e-3 → `55026688.01006897` — relative 1.2e-9, just past the
+  1e-9 that E3 pinned (Run 21). Cause is conditioning, not the measure: the
+  denominator is the mean of two ~1e12 numbers cancelling to 3.6e4, so rounding
+  one input by 1 ulp moves the answer by 0.185 absolute (3.4e-9 relative), and
+  the observed 0.066 sits inside that. Two changes, both strengthening:
+  (a) `test_a_binary_scale_of_two_leaves_the_same_bits` — ×2**k is exact in
+  binary floats, so the same twelve ratios are compared with `==`, no tolerance
+  at all; 30 000 random tuples × 12 formulas × 3 scales produced no mismatch
+  (Run 22). (b) the decimal property keeps `_same_number` (rel 1e-9) as its
+  normal path and only when that fails measures the granularity double
+  precision actually offers (`_ulp_noise`: one ulp per argument, both
+  directions, summed) and demands the difference exceed it — so a loose bound
+  is never a number someone typed. Teeth re-measured on the mutated engine
+  (`gross_margin` dividing by `revenue + 1.0`): both properties red, the binary
+  one at `gross_margin[1.0, 1.0] = 0.5` against `9.31e-10` for ×9.31323e-10
+  (Run 23). Entry 3's "value comparison is strict at rel 1e-9" is amended to
+  point here.
+
+Both deep findings are re-told without a generator, which is what ADR-0024's
+consequences section demands before a deep failure is fixed (`derandomize=False`
+plus `database=None` makes a deep seed unreproducible):
+`test_hhi_still_outruns_its_own_documented_range` and
+`test_the_deep_scale_failure_is_retold_without_a_generator` name the two
+examples literally, run in every profile including acceptance's, and each goes
+red in the direction that closes its Disputed entry rather than in the
+direction that hides it.
+
+Source of `rusterm/` is untouched by E5: the two findings are recorded as
+entries 4 and 5 of the `## Disputed` section, which is what E3's own "Done
+when" prescribes for a bound that is unclear rather than wrong.
+
 ## Blocked
 
 - none.
@@ -250,7 +321,27 @@ the "Done when" this item names.
   reason is `non_finite` (Run 13, hand probes). Those four are fixed by the same
   decorator, but the green column of the E2 table is evidence about this seed,
   not a proof of coverage — `HYPOTHESIS_PROFILE=deep` is the way to raise the
-  odds, and it is not part of acceptance.
+  odds, and it is not part of acceptance. E5 did run it (three times, Runs
+  21, 24), and it found two things the default profile had missed; read that as
+  "the default column of this report is thin", not as "deep is now enough".
+- Deep is not a proof either. It is 5000 random examples with `database=None`,
+  so a green deep run says nothing about the next seed — and the two defects E5
+  found arrived at different depths: the `hhi` one on the first deep run, the
+  `roic` one on the second pass over the same file. Neither is registered
+  anywhere as a reproducible case beyond the numbers quoted in Disputed 4 and 5.
+- `_ulp_noise` is a measured estimate of first-order sensitivity, not a bound in
+  the proof sense: it perturbs one argument at a time, so interaction between
+  simultaneous perturbations is outside it (the factor is generous for the
+  measured case — 0.185 against a 0.066 difference, ~3×). What closes that gap
+  is the binary-scale property, which admits no tolerance at all; if a future
+  scale bug has a magnitude inside one ulp, it will be caught there or not at
+  all, and the escape hatch in the decimal branch will stay silent.
+- The permutation asserts in E3 (`hhi`, `ttm`) still compare exactly. Probed:
+  400 000 random normalized draws of `hhi` reordered three ways gave no
+  mismatch (Run 22), and no deep run has flagged them — but that is the same
+  class of claim as the one Disputed 5 just corrected, on a domain the deep
+  profile reaches only by luck. If a seed ever reddens them, the fix is the
+  tolerance Disputed 5 names, not a deleted check.
 - The three probes the coordinator measured on `dd11fbd` are refused now
   (`gross_margin(nan, 100.0)`, `gross_margin(1e308, 1e-308)`,
   `effective_tax_rate(inf, inf)` → `non_finite`, Run 12) — but that is three
@@ -308,9 +399,36 @@ the "Done when" this item names.
   `(a·k)/(b·k)` reproduces `a/b` only to ~1e-16, so a literal string
   comparison reddens a correct engine — measured counterexample in the docstring
   of `_reason_token` (28143926709000000.0000 against 28143926708999996.0000).
-  The value comparison is strict at rel 1e-9 as written. Ruling needed: accept
-  the token, or take the continuation out of reason strings (a source change in
-  `formulas.py`, outside E3's letter).
+  The value comparison was strict at rel 1e-9 as written — amended by E5, see
+  Entry 5: at the deep profile even that could not hold on a cancelling
+  denominator. Ruling needed: accept the token, or take the continuation out of
+  reason strings (a source change in `formulas.py`, outside E3's letter).
+- Entry 4 (wording of `formulas.hhi`, found by E5's deep run): the docstring
+  states "диапазон 0..1" and "доли обязаны суммироваться в 1.0 с допуском 1e-6"
+  in one breath, and the second sentence breaks the first — measured
+  `hhi([1.0, 1.192092896e-07])` = `1.0000000000000142` (Run 21) and reachable up
+  to `1.0000018` on a single 1.0000009 participant (Run 22), so the excess is
+  1.8e-6, not a last-bit artifact. Three ways out and all three change what is
+  already stored in the user's base, so the executor picks none: clamp the
+  result to 1.0, refuse sums that are not exactly 1.0, or document the range as
+  `0..(1+1e-6)²`. Until then the property bounds each branch by the rule the
+  code declares (`≤ 1.0` at an exact sum, `(1+1e-6)²` inside the tolerance) and
+  `test_hhi_still_outruns_its_own_documented_range` keeps the contradiction
+  loud — it goes red the moment the code stops outrunning 1.0, which is the
+  signal to close this entry.
+- Entry 5 (wording of E3, found by E5's deep run): "all money inputs × k → same
+  value" cannot carry a fixed relative tolerance, because the tolerance measures
+  the conditioning of the drawn inputs rather than the measure. Measured:
+  `roic(1e12, 999999999215.0, -999999962869.0)` = `55026687.943652675`, ×1e-3 on
+  every input = `55026688.01006897` — 1.2e-9 relative, past the 1e-9 E3 asked
+  for, with the denominator a mean of two ~1e12 numbers cancelling to 3.6e4
+  (Run 21). Adopted reading, in the stronger of the two available forms: for
+  scales that are exact in binary (×2**k) the answers must be bit-identical, and
+  for decimal scales the 1e-9 comparison stays the normal path, loosening only
+  past a measured bound (one ulp per argument, both directions, summed).
+  Ruling needed: keep this reading, or restrict E3's generator to inputs whose
+  denominator does not cancel (a narrower domain, and the roic case would leave
+  the property's coverage altogether).
 
 ## Runs
 
@@ -335,16 +453,61 @@ the "Done when" this item names.
 | 17 | worktree на d2af2ff (родитель E4) + `cp tests/test_prop_formulas.py` (версия E4) + `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""`, затем `git worktree remove --force` | `61 passed in 9.91s` — E4 не меняет исходников, зелёный на родителе и есть смысл пункта |
 | 18 | `python3 -m pytest tests/test_prop_formulas.py -q -o addopts="" --durations=5` (клон, E4) | slowest: `enterprise_value 0.31s`, `market_cap_total 0.23s`, `drawdown 0.23s`, `roe_incl_nci 0.22s`, `test_ttm_refuses_a_short_or_gapped_window 0.22s` ; `61 passed in 8.13s` |
 | 19 | `git diff 1d50c89..HEAD -- tests/ \| grep -c '^-.*assert'` ; то же против рабочего дерева с неоткоммиченным файлом E4 (`git diff 1d50c89 -- tests/`) | `0` и `0`; `grep '^-.*assert'` — пустой вывод (нечего показывать) |
+| 20 | `python3 -m pytest tests/test_prop_*.py -q -o addopts="" --durations=5` (default, до правок E5; `HYPOTHESIS_PROFILE` не задан) | slowest: `enterprise_value 0.31s`, `drawdown 0.23s`, `market_cap_total 0.23s`, `roe_incl_nci 0.22s`, `test_ttm_refuses_a_short_or_gapped_window 0.22s` ; `61 passed in 8.05s`, повтор — `61 passed in 10.00s` |
+| 21 | `HYPOTHESIS_PROFILE=deep python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` (до правок E5), затем то же после правки `hhi` | `FAILED …test_hhi_ignores_order_and_stays_in_its_documented_bounds` → `AssertionError: hhi([1.0, 1.192092896e-07]) = 1.0000000000000142`, `1 failed, 60 passed in 189.71s` ; затем `FAILED …test_money_scale_does_not_move_a_ratio[roic-3]` → `55026687.943652675` против `55026688.01006897` (`shares`-пример: `nopat=1e12, invested_capital_begin=999999999215.0, invested_capital_end=-999999962869.0`), `1 failed, 61 passed in 196.47s` |
+| 22 | пробы `python3 -c` на движке: `hhi` на 400 000 случайных нормированных наборов с тремя перестановками; максимум `hhi` при сумме на краю допуска; то же при `sum == 1.0` ровно; двоичный масштаб на двенадцати отношениях (30 000 наборов × 3 масштаба) | `reordering counterexample: None` ; `max hhi с суммой ≈ 1+9e-7: 1.0000018` (один участник с долей `1.0000009`) ; `total==1.0 exactly but hhi>1: None` ; `binary-scale mismatches: 0` |
+| 23 | scratch-копия `rusterm/`+`tests/`+`pyproject.toml` с одной поломкой (`gross_margin` делит на `revenue + 1.0`), `python3 -m pytest tests/test_prop_formulas.py -q -o addopts="" -k "scale or ratio"` | `FAILED …test_a_binary_scale_of_two_leaves_the_same_bits[gross_margin-2]` (`gross_margin[1.0, 1.0] = 0.5, ×9.31323e-10 → 9.313225737481168e-10`) и `FAILED …test_money_scale_does_not_move_a_ratio[gross_margin-2]`, `2 failed, 23 passed, 49 deselected in 5.43s` |
+| 24 | `HYPOTHESIS_PROFILE=deep python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` трижды, свежие сиды (после правок E5) | `74 passed in 237.23s`, `74 passed in 239.58s`, `74 passed in 237.26s` — вне бюджета пункта (он про default) и вне приёмки: `grep -rn HYPOTHESIS_PROFILE agent/acceptance.sh agent/selfcheck.sh` → пусто |
+| 25 | `python3 -m pytest tests/test_prop_*.py -q -o addopts="" --durations=5` (default, финальное состояние E5), затем без `--durations` | slowest: `enterprise_value 0.32s`, `market_cap_total 0.24s`, `drawdown 0.23s`, `roe_incl_nci 0.22s`, `total_return 0.22s` ; `75 passed in 10.04s` ; повтор на тихой машине — `75 passed in 11.87s` |
+| 26 | `bash agent/acceptance.sh` (клон, рабочее дерево E5) | `Итог: пройдено 11, провалено 2`, `Не принято`, `EXIT=2`: `FAILED tests/test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green` и `FAILED tests/test_report_sections.py::test_disputed_lines_live_only_in_disputed_section` — перенос строки в отчёте начался со слова «Disputed» вне секции `## Disputed` (секция про это и предупреждает); исходники и тесты не при чём. После перебивки — `python3 -m pytest tests/test_report_sections.py tests/test_i5_guard_source.py -q -o addopts=""` → `32 passed in 558.82s`, повтор `32 passed in 565.24s`. Итог приёмки после правки — строка 27 (её даёт только следующий прогон: этот коммит держит её в своём хуке) |
+| 27 | `bash agent/acceptance.sh` … | _заполняет прогон хука этого коммита_ |
+| 28 | `HYPOTHESIS_PROFILE=deep python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` (после финальных правок файла, свежие сиды) | `75 passed in 238.06s (0:03:58)` |
 
 ## HANDOFF
 
-Status: PARTIAL — E1–E4 приняты, очередь продолжается.
-Items done: приём круга, E1 (профили и зависимость, ADR-0024), E2
-(closure-свойство по 21 формуле и calculate_measure, non_finite), E3
-(метаморфные свойства: масштаб, порядок, кэр-бэк cagr, границы drawdown/hhi),
-E4 (ноль не пропуск: 10 двухместных пар по интроспекции).
-Items not done: E5 (бюджет времени).
-Arrival state: `Итог: пройдено 11, провалено 2`, repaired by `bad057a`.
-Network: pip only — `pip install hypothesis` and one `pip install --dry-run`
-(Runs 3 and Disputed 2); no data-provider request, LLM 0.
-NOW: E5, step 1
+Статус ниже — финальный, он заменяет промежуточный блок, который был
+написан по итогам E4.
+
+Status: DONE — все пять пунктов ТЗ-82 приняты очередью, эстафета
+координатору.
+
+Items done: приём круга (STATE + отчёт, `bad057a`), E1 (hypothesis в
+зависимости, профили default/deep, ADR-0024 — `ca7d9c2`), E2 (closure-свойство
+по 21 формуле и по двери `calculate_measure`, причина `non_finite`, честный
+`missing_data` — `88e880f`), E3 (метаморфные свойства: масштаб денег, порядок
+кварталов, кэр-бэк cagr, границы drawdown/hhi — `d2af2ff`), E4 (ноль не равен
+пропуску: десять двухместных мер по интроспекции — `7987b3e`), E5 (бюджет
+времени плюс два расхождения, найденных deep-профилем: `hhi` против собственного
+docstring и недопустимость фиксированного относительного допуска для
+вычитающего знаменателя).
+
+Items not done: none.
+
+Verification, in the words of the item that owns it: default-профиль —
+`75 passed in 10.04 s` и `75 passed in 11.87 s` под потолком в 20 s (Runs 25);
+deep — три зелёных прогона по 237–240 s (Run 24) и ещё один после финальной
+правки файла (Run 28); `bash agent/acceptance.sh` — первый прогон круга дал
+11 из 2 и «Не принято» из-за переноса строки в этом отчёте (слово «Disputed»
+вне секции), а не из-за кода; после перебивки два покрасневших стража зелёные
+(32 passed дважды, Run 26), а итог всего скрипта — строка 27, его даёт хук
+этого же коммита. Ни одна проверка не исчезла молча: две булавки сняты, для
+каждой в сообщении коммита названа преемница и сказано, чем она сильнее
+(снято 2 assert-строки, добавлено 10).
+
+Open for the coordinator (ничего из этого исполнитель решить не может):
+- Entry 4 — какая из двух фраз docstring `hhi` побеждает (зажимать
+  значение, требовать точной суммы долей или расширить диапазон до
+  (1+1e-6)²); капкан в тестах покраснеет на любом из трёх решений.
+- Entry 5 — прочтение «same value» в E3: принятое (двоичный масштаб до
+  бита + измеренный шум ulp для десятичного) или сужение области генератора.
+- Entry 3 — сравнение причин по первому токену против чисел в continuation.
+- Entry 2 — рецепт установки `.[test]`: `pip install -e` перенацеливает
+  глобальную editable-установку `rusterm` на `/tmp`-клон; нужен пункт §9 про
+  отдельный venv на клон.
+- Entry 1 — `relay.py hand` не переносит `task`/`report` в `STATE.json`,
+  из-за чего голова ветки красная для следующего исполнителя.
+
+Network: pip only — `pip install hypothesis` и один `pip install --dry-run`
+(Runs 3 и Disputed 2); ни одного запроса к провайдерам данных, LLM 0.
+
+NOW: hand to coordinator.

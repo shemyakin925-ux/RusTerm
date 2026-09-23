@@ -220,6 +220,13 @@ _NONZERO = (st.floats(min_value=1e-6, max_value=1e12, allow_nan=False,
             | st.floats(min_value=-1e12, max_value=-1e-6, allow_nan=False,
                         allow_infinity=False))
 _SCALE = st.sampled_from([1e-3, 1e3, 1e6])
+# Двоичный масштаб домножает float ДОЧНО: лишней цифры не появляется,
+# поэтому там сравнение строгое, до бита. Десятичный (×1000 — «деньги в
+# тысячах», ровно та единица измерения, о которой говорит ТЗ) округляется
+# сам, и погрешность входа усиливается там, где знаменатель — разность
+# близких чисел. Граница для него — не выдуманное число, а измеренный шум
+# последнего бита (_ulp_noise).
+_BINARY_SCALE = st.sampled_from([2.0 ** -30, 2.0, 2.0 ** 30])
 
 # Формулы «деньги / деньги»: все аргументы — деньги, масштаб входит и в
 # числитель, и в знаменатель.
@@ -265,19 +272,110 @@ def test_the_ratio_list_matches_the_signatures():
 
 
 @pytest.mark.parametrize("name,arity", sorted(_RATIO_FORMULAS.items()))
-@given(data=st.data(), scale=_SCALE)
-def test_money_scale_does_not_move_a_ratio(name, arity, data, scale):
+@given(data=st.data(), scale=_BINARY_SCALE)
+def test_a_binary_scale_of_two_leaves_the_same_bits(name, arity, data, scale):
+    """×2**k точен, значит и ответ обязан сойтись до бита: допуск здесь
+    не нужен вовсе, и любая разница — настоящая зависимость меры от
+    единицы измерения. 30000 случайных наборов на каждую из двенадцати
+    формул × три масштаба расхождения не дали (строка 22 отчёта)."""
     function = getattr(formulas, name)
     params = list(inspect.signature(function).parameters)
     args = [data.draw(_NONZERO, label=param) for param in params]
     value, reason = function(*args)
     scaled, scaled_reason = function(*[a * scale for a in args])
     assert _reason_token(reason) == _reason_token(scaled_reason), (
+        f"{name}{args} → {reason!r}, а с ×{scale:g} → {scaled_reason!r}")
+    assert value == scaled, (
+        f"{name}{args} = {value!r}, ×{scale:g} → {scaled!r}: двоичный "
+        "масштаб точен, так что расхождение даже до последнего бита — "
+        "это уже не округление")
+
+
+def _ulp_noise(function, args) -> float:
+    """На сколько шевелится ответ, если каждый аргумент сдвинуть на один
+    последний бит (в обе стороны); складывается по аргументам. Умножение
+    на десятичный масштаб двигает вход не больше чем на пол-ulp, поэтому
+    эта величина — граница, до которой «значение не зависит от единицы
+    измерения» вообще выполнимо в float: за её пределами остаётся только
+    настоящая зависимость. Измерено на контрпримере deep-профиля
+    (roic(1e12, 999999999215.0, −999999962869.0), ×1e-3): знаменатель —
+    половина суммы 999999999215.0 и −999999962869.0, то есть вычитание
+    близких чисел; шум последнего бита 0.185, расхождение 0.066 — внутри
+    шума, а относительная разница 1.2e-9 ровно на грани прежнего
+    фиксированного допуска.
+
+    Считается только когда строгая проверка не сошлась — обычный путь
+    (хорошо обусловленные входы) остаётся с допуском 1e-9.
+    """
+    base = function(*args)[0]
+    if base is None:
+        return 0.0
+    noise = 0.0
+    for index, value in enumerate(args):
+        step = 0.0
+        for direction in (math.inf, -math.inf):
+            moved = math.nextafter(value, direction)
+            other = function(*args[:index], moved, *args[index + 1:])[0]
+            if other is not None:
+                step = max(step, abs(other - base))
+        noise += step
+    return noise
+
+
+@pytest.mark.parametrize("name,arity", sorted(_RATIO_FORMULAS.items()))
+@given(data=st.data(), scale=_SCALE)
+def test_money_scale_does_not_move_a_ratio(name, arity, data, scale):
+    function = getattr(formulas, name)
+    params = list(inspect.signature(function).parameters)
+    args = [data.draw(_NONZERO, label=param) for param in params]
+    value, reason = function(*args)
+    scaled_args = [a * scale for a in args]
+    scaled, scaled_reason = function(*scaled_args)
+    assert _reason_token(reason) == _reason_token(scaled_reason), (
         f"{name}{args} → {reason!r}, а с масштабом ×{scale:g} → "
         f"{scaled_reason!r}: отказ зависит от единицы измерения")
     if value is not None:
-        assert scaled is not None and _same_number(value, scaled), (
-            f"{name}{args} = {value!r}, ×{scale:g} → {scaled!r}")
+        assert scaled is not None, (
+            f"{name}{args} = {value!r}, а с масштабом ×{scale:g} → "
+            f"{scaled!r}: отказ там, где ответа нет")
+        if not _same_number(value, scaled):
+            noise = (_ulp_noise(function, args)
+                     + _ulp_noise(function, scaled_args))
+            assert abs(value - scaled) <= noise, (
+                f"{name}{args} = {value!r}, ×{scale:g} → {scaled!r}: "
+                f"разница {abs(value - scaled)!r} больше шума последнего "
+                f"бита ({noise!r}) — масштаб меняет ответ сам")
+
+
+_ROIC_CANCELLATION = (1000000000000.0, 999999999215.0, -999999962869.0)
+
+
+def test_the_deep_scale_failure_is_retold_without_a_generator():
+    """ADR-0024: провал, найденный на deep, надо пересказать default-
+    прогоном, прежде чем чинить, — а deep-сиды не воспроизводимы
+    (derandomize=False, database=None). Здесь пересказ примером: тест
+    запускается в любом профиле и покраснеет, если расхождение пропадёт
+    (тогда Disputed 5 закрывают, а не оставляют висеть).
+
+    Измерено: 55026687.943652675 против 55026688.01006897 при ×1e-3 —
+    1.2e-9 относительно, ровно за допуском 1e-9 и внутри шума последнего
+    бита (0.185 абсолютных на каждой из двух сторон сравнения).
+    """
+    value, reason = formulas.roic(*_ROIC_CANCELLATION)
+    scaled_args = tuple(a * 1e-3 for a in _ROIC_CANCELLATION)
+    scaled, scaled_reason = formulas.roic(*scaled_args)
+    assert (reason, scaled_reason) == (None, None), (
+        f"roic({_ROIC_CANCELLATION}) → {reason!r}, ×1e-3 → "
+        f"{scaled_reason!r}: отказ там, где пример его не даёт")
+    assert not _same_number(value, scaled), (
+        f"roic{_ROIC_CANCELLATION} = {value!r} и ×1e-3 → {scaled!r} "
+        "сошлись в пределах 1e-9: расхождение из Disputed 5 исчезло — "
+        "закрывай его, а не тест")
+    noise = (_ulp_noise(formulas.roic, _ROIC_CANCELLATION)
+             + _ulp_noise(formulas.roic, scaled_args))
+    assert abs(value - scaled) <= noise, (
+        f"разница {abs(value - scaled)!r} вне измеренного шума последнего "
+        f"бита ({noise!r}): масштаб двигает ответ сильнее, чем округление")
 
 
 @given(quarters=st.lists(_NONZERO, min_size=4, max_size=8))
@@ -337,6 +435,16 @@ def test_cagr_refuses_a_nonpositive_start(v, n):
             "не определён")
 
 
+# Верхняя граница hhi — не 1.0, а квадрат того самого допуска, который
+# код объявляет сам: доли обязаны суммироваться в 1.0 с допуском 1e-6
+# (formulas.hhi), и монопольный участник с долей 1.0000009 даёт
+# hhi = 1.0000018 (измерено — строка 21 отчёта). Строка «диапазон 0..1»
+# из того же docstring этим же числом не выполняется; расхождение
+# унесёт решение координатора (Disputed 4), а пока его держат две
+# проверки ниже: граница свойства поbranch-но и капкан на сам факт.
+_HHI_TOLERANCE = 1e-6
+
+
 @given(shares=st.lists(st.floats(min_value=0.0, max_value=1.0,
                                  allow_nan=False, allow_infinity=False),
                        min_size=1, max_size=6))
@@ -345,7 +453,24 @@ def test_hhi_ignores_order_and_stays_in_its_documented_bounds(shares):
     assert formulas.hhi(sorted(shares, reverse=True)) == (value, reason)
     assert formulas.hhi(list(reversed(shares))) == (value, reason)
     if value is not None:
-        assert 0.0 <= value <= 1.0, f"hhi({shares}) = {value!r}"
+        total = sum(float(s) for s in shares)
+        bound = 1.0 if total == 1.0 else (1.0 + _HHI_TOLERANCE) ** 2
+        assert 0.0 <= value <= bound, (
+            f"hhi({shares}) = {value!r} при sum = {total!r} вне границы "
+            f"{bound!r}, которую выводят правила самого hhi")
+
+
+def test_hhi_still_outruns_its_own_documented_range():
+    """Капкан на Disputed 4: краснеет в тот день, когда hhi перестанет
+    выходить за 1.0. Тогда правят не этот тест, а docstring формулы и
+    запись в «Спорном» — расхождение не должно пережить решение молча."""
+    value, reason = formulas.hhi([1.0, 1.192092896e-07])
+    assert reason is None, (
+        f"hhi([1.0, 1.192092896e-07]) → {reason!r}: допуск 1e-6 по сумме "
+        "больше не принимает эту долю — Disputed 4 закрыт иначе")
+    assert value is not None and value > 1.0, (
+        f"hhi([1.0, 1.192092896e-07]) = {value!r}: выход за границу 0..1 "
+        "исчез — закрой Disputed 4 и обнови границу в docstring")
 
 
 @given(price=st.floats(min_value=1e-6, max_value=1e12, allow_nan=False,
