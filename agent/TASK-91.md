@@ -13,7 +13,8 @@
 - **User base:** `/Users/anton/equitylab` is read-only. To measure on
   it: `cp -R /Users/anton/equitylab "$TMPDIR/eqlab-<item>"` and build
   there; never open the original for writing.
-- **Place in queue:** after TASK-90, numeric order.
+- **Place in queue:** after TASK-74 — the tail of the queue:
+  TASK-74 → **91** → 92 → 93 → 94 (user's order, 23.09).
 - **Relation to TASK-59 D1** (formula census): D1 lists behaviours;
   this task fixes the concrete defects below. If D1 already fixed one,
   write «closed by <sha>» and move on.

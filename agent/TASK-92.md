@@ -11,7 +11,7 @@
   `RequestGate`. LLM 0 (manual import runs on recorded answers).
 - **How to work:** as TASK-90. Rule 9 holds: a new alias or tag enters
   the maps only with the payload that proves it.
-- **Place in queue:** after TASK-91, numeric order.
+- **Place in queue:** after TASK-91 (queue tail, see TASK-91).
 
 ## C0. A superseded fact never reaches a formula (take first)
 

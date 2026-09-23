@@ -209,7 +209,20 @@ this branch at 02:11 and 02:43 UTC while the baton sat with the
 coordinator. The user ruled that this session leads. TASK-82…87 are kept
 and queued; old task files are not rewritten (user, 23.09).
 
-Queue order: **TASK-81 → TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74.** TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
+Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-81 → TASK-90 → TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94.** TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
+
+**Whole-project review, 23.09 (user's request, separate session) —
+TASK-90…94.** Acceptance on `3f7dcc9` is 13/0, and every finding below
+passes it; each is reproduced by a command quoted in its task. Most
+urgent: Twelve Data payloads are cached under a date-less URL, so
+prices never refresh — the user base's last close is 2026-09-18 and
+every valuation measure goes `price_close_stale` on **2026-09-26**
+(TASK-90 A1); `rusterm chat` crashes for everyone with a key (A2); the
+citation guard accepts digits taken from measure UUIDs and flipped signs
+(TASK-93 D1). On the user base (read-only): AAPL `roe` is
+`missing_prior_period` because EDGAR dedup drops the as-reported
+original (TASK-92 C1); 0 peer sets, 0 percentiles, 0 `llm_summary`
+rows — pass 2 of the snapshot is called by no command (TASK-94 E2).
 
 Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,

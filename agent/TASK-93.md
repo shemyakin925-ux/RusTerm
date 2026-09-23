@@ -11,7 +11,7 @@
   only). Optional D1 live confirmation: ≤ 5 model calls, `live` marker.
 - **How to work:** as TASK-90. Standing rule 3 of CONTEXT («an uncited
   number rejects the whole answer») is the acceptance bar for D1–D2.
-- **Place in queue:** after TASK-92, numeric order. D1 is the most
+- **Place in queue:** after TASK-92 (queue tail, see TASK-91). D1 is the most
   important item of the whole review — take it first.
 
 ## D1. The guard cites values, not digit runs

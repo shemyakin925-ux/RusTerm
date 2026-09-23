@@ -10,10 +10,9 @@
 - **Budgets:** network 0, except A1: Twelve Data ≤ 4 requests. LLM 0.
 - **How to work:** no questions; forks are closed below; doubtful →
   Disputed, move on; one item = one commit, item id in the subject.
-- **Place in queue:** the coordinator slots it (`agent/CONTEXT.md`
-  queue line or `BATON.json`); recommended right after TASK-81,
-  because **A1 has a calendar deadline** (see «Where we are») and A2/A3
-  are user-facing crashes. Nothing named ⇒ numeric order.
+- **Place in queue:** **right after TASK-81**, before TASK-82 (user's
+  order, 23.09). **A1 has a calendar deadline** (see «Where we are»);
+  A2/A3 are user-facing crashes.
 - **Source:** whole-project review of 23.09.2026 on `3f7dcc9`; every
   defect below was reproduced by the reviewer, command quoted.
 

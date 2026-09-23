@@ -10,7 +10,8 @@
 - **Budgets:** network 0. LLM 0.
 - **How to work:** as TASK-90. A precondition that is missing ⇒
   `SKIPPED — <reason>` for that item, next item.
-- **Place in queue:** after TASK-93, numeric order. Items are ordered
+- **Place in queue:** after TASK-93 (queue tail, see TASK-91); E2
+  needs TASK-73 T2, which the queue puts before it. Items are ordered
   by priority; E6 onwards is reserve.
 
 РАЗРЕШЕНО ПРАВИТЬ: agent/p1_rule.sh
