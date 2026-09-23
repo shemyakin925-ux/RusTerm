@@ -260,6 +260,8 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 - [ ] B51 — the desktop data layer's dictionary shapes are asserted on real data, so a fix that stops at the model never again misses the screen — accept: the guard reds when `measure_table_rows` is returned to `history[мера][год]` — size: M — **выдан ТЗ-76 W4**
 - [ ] B48 — the first-hour scenario becomes a marked test: the measured path (init → add → ingest → snapshot → window → export) runs end to end and prints its own timings — accept: `pytest -m firsthour` passes and the numbers land in the report; default collection deselects it — size: M
 
+- [ ] B60 (координаторский — исполнителю не выдаётся; пользователь, 23.09) — after TASK-94: commit everything, fast-forward `main` from `agent/night-11`, delete dead branches and worktrees, prune old `agent/` files — accept: `agent/CLEANUP.md` K1–K5 «Готово, когда» all hold, acceptance on `main` 13/0 — size: M
+
 - [ ] B38 (координаторский — правит agent/PROTOCOL.md §5, исполнителю не выдаётся) — the interim `## HANDOFF` blocks pile up in a shift report:
   `REPORT-45.md` ends with two of them and a reader must know that the
   second supersedes the first. Once TASK-46 N1 makes the guard read the
