@@ -93,16 +93,94 @@ Hypothesis shrank the counterexample to `x < 0` — which refuses with
 `negative_denominator` (Run 9; the rule lives at formulas.py:222, not a defect).
 The property now states all three branches.
 
+### E2 — закрытость: `non_finite` и честный `missing_data`
+
+Red first (Run 10): a temp worktree of `ca7d9c2` (E1, before this fix) with
+only the new test file copied in — `18 failed, 11 passed in 9.73s`. Each
+counterexample below is what Hypothesis shrank to on that tree; the third
+column is the same call after the fix (Runs 11–13).
+
+| formula | shrunk counterexample on `ca7d9c2` | after |
+|---|---|---|
+| asset_turnover | `TypeError: unsupported operand(s) for /: 'NoneType' and 'float'` at (None, 0.0, 1.0) | `missing_data` |
+| roe | same TypeError (net_income None, equity pair finite) | `missing_data` |
+| roe_incl_nci | same TypeError | `missing_data` |
+| roic | same TypeError (nopat None, 0.0, 1.0) | `missing_data` |
+| cagr | `OverflowError: (34, 'Result too large')` — `**` on a huge ratio | `non_finite` |
+| drawdown | `TypeError: '<=' not supported between 'NoneType' and 'int'` — None price in the series | `missing_data: null_price` |
+| effective_tax_rate | `([inf, inf])` gave `nan` | `non_finite` |
+| ev_to_ebitda | `([222867937.0, 1.2397440473680309e-300])` gave `inf` | `non_finite` |
+| gross_margin | `([3.0361003942458523e+215, 1.6888869047599635e-93])` gave `inf` | `non_finite` |
+| market_cap_per_class | `([3.4915624281554496e+137, 5.14867819737657e+170])` gave `inf` | `non_finite` |
+| net_margin | `([inf, 1.0])` gave `inf` | `non_finite` |
+| operating_margin | `([1.2883469708212328e+16, 7.166667913653163e-293])` gave `inf` | `non_finite` |
+| price_to_book | `([inf, 1.0])` gave `inf` | `non_finite` |
+| price_to_earnings | `([inf, 1.0])` gave `inf` | `non_finite` |
+| price_to_sales | `([0.0, nan])` gave `nan` | `non_finite` |
+| total_return | `([[('2022-12-31', nan), ('2022-12-31', 0.0)]])` gave `nan` | `non_finite` |
+| ttm | `([[0.0, 0.0, 0.0, inf]])` gave `inf` | `non_finite` |
+| calculate_measure | `ebitda(operating_income=0.0, d_and_a=inf)` gave `inf` | `non_finite` |
+
+Mechanism — one decorator, `refuses_non_finite` in `rusterm/formulas.py`, put
+above all 21 paired formulas (the census test pins the number): a non-finite
+float anywhere in the inputs, an arithmetic result that is not finite, and
+`OverflowError`/`ZeroDivisionError` from the arithmetic all become
+`non_finite`. `TypeError` becomes `missing_data` **only** when one of the
+inputs is `None` — otherwise it re-raises, so a real coding error in a formula
+stays loud instead of hiding behind a refusal. That last rule is the second
+family in the table: formulas annotated `float` are called from
+`calculate_measure` with facts that may be absent, and only the denominator was
+checked for `None` in roic/roe/roe_incl_nci/asset_turnover.
+
+Beyond the decorator:
+* `rusterm/reasons.py`: `non_finite` added to `NULL_REASONS` (documented as
+  "the fact is present and spoiled", which is a different conversation from
+  "the fact is absent") and to the `NullReason` literal.
+* `effective_tax_rate` keeps an explicit `math.isfinite(rate)` *inside* the
+  function, because the next line formats the rate into the reason string
+  (`jurisdiction_rate: rate=…`) — without it the refusal would have carried
+  `rate=inf` as its explanation.
+* `drawdown` names its own reason `missing_data: null_price` for a gap in the
+  middle of the series, next to the existing `nonpositive_price` rule.
+* `calculate_measure` screens the value it computed inline (ebitda, fcf,
+  interest_coverage, invested_capital, nopat go around the wrapper functions),
+  so no non-finite number reaches the `measure` table from that door either.
+* `tests/data/formulas_baseline.sha256` re-pinned
+  `015bab5d… → 72035135…` — that is the procedure its own docstring names
+  ("обновляется ТОЛЬКО коммитом своей задачи с учётом в отчёте"); this line is
+  that account. `tests/test_ifrs_map.py` is unchanged, the assertion is intact.
+* ADR-0024 §4 corrected in this commit: it told the reader to run
+  `pip install -e ".[test]"`, which is the command Disputed 2 shows to be unsafe
+  on a shared machine. Statement about the requirement stays, the recipe does
+  not.
+
+`hhi` keeps its documented rule and it is not a hole: `[0.5, None, 0.5]` → 0.5
+because the surviving shares do sum to 1.0, and `[0.5, None]` →
+`missing_data: shares_sum:0.5` — the sum rule is what makes a dropped
+participant visible (measured, Run 13).
+
 ## Blocked
 
 - none.
 
 ## What not to trust
 
-- E1 is wiring only — profiles, the dependency, one smoke property. Nothing is
-  yet proved about arithmetic closure; the probes the coordinator measured on
-  `dd11fbd` (`gross_margin(nan, 100.0)` → `(nan, None)` and its two siblings)
-  are still red on this commit. E2 is where they get fixed.
+- The closure property is a search, not an enumeration: on the pre-fix tree 17
+  of 21 formulas went red, and the four that stayed green were open too —
+  `dividend_yield(inf, 1.0)` gave `(inf, None)`, `market_cap_total([1e308,
+  1e308])` gave `(inf, None)`, `enterprise_value(inf, …)` gave `(inf, None)`,
+  and `hhi([inf])` refused with `missing_data: shares_sum:inf` where the honest
+  reason is `non_finite` (Run 13, hand probes). Those four are fixed by the same
+  decorator, but the green column of the E2 table is evidence about this seed,
+  not a proof of coverage — `HYPOTHESIS_PROFILE=deep` is the way to raise the
+  odds, and it is not part of acceptance.
+- The three probes the coordinator measured on `dd11fbd` are refused now
+  (`gross_margin(nan, 100.0)`, `gross_margin(1e308, 1e-308)`,
+  `effective_tax_rate(inf, inf)` → `non_finite`, Run 12) — but that is three
+  numbers out of a 21-function domain. What the whole domain gets is the
+  property, and its strength is the search described above, not an enumeration.
+- E1 shipped wiring only (profiles, the dependency, one smoke property); the
+  arithmetic claims start with E2.
 - The suite now hard-requires `hypothesis`: per the fixed decision there is no
   `importorskip`, so collecting the whole suite fails on a machine without the
   package. That is the documented consequence of the task's own choice, not an
@@ -159,14 +237,19 @@ The property now states all three branches.
 | 7 | `python3 -m pytest --collect-only` | `1146/1161 tests collected (15 deselected) in 1.07s` |
 | 8 | `git status --porcelain` (после deep-прогона) | только пять файлов E1 + отчёт; каталога `.hypothesis/` нет |
 | 9 | `python3 -c "from rusterm import formulas as f; print(f.gross_margin(-5.0,-5.0), f.gross_margin(0.0,0.0), f.gross_margin(7.0,7.0))"` | `(None, 'negative_denominator') (None, 'denominator_zero') (1.0, None)` |
+| 10 | `git worktree add --detach "$TMPDIR/rt82-e2-prefix-ca7d9c2" ca7d9c2` → `cp tests/test_prop_formulas.py` (версия E2) → `python3 -m pytest tests/test_prop_formulas.py -q -o addopts=""` в том дереве | `FAILED …[roe_incl_nci]`, `FAILED …[roic]`, `FAILED …[total_return]`, `FAILED …[ttm]`, `FAILED tests/test_prop_formulas.py::test_the_calculate_measure_door_is_closed_too`, `18 failed, 11 passed in 9.73s` |
+| 11 | `python3 -m pytest tests/test_prop_formulas.py tests/test_ifrs_map.py -q -o addopts=""` (клон, после правки, baseline перепинен) | `33 passed, 3 xfailed in 4.44s` |
+| 12 | `python3 -c "…gross_margin(nan,100.0); gross_margin(1e308,1e-308); effective_tax_rate(inf,inf); cagr(1.0,inf,2.0); calculate_measure('ebitda', operating_income=0.0, d_and_a=inf)…"` (после правки) | все пять → `non_finite` |
+| 13 | те же пробы на `ca7d9c2` (до правки) + пробы `hhi` | `div_yield(inf,1.0) = (inf, None)`, `mct([1e308,1e308]) = (inf, None)`, `ev(inf,…) = (inf, None)`, `hhi([inf]) = (None, 'missing_data: shares_sum:inf')`, `hhi([0.5,None,0.5]) = (0.5, None)`, `hhi([0.5,None]) = (None, 'missing_data: shares_sum:0.5')` |
 
 ## HANDOFF
 
-Status: PARTIAL — E1 принят, очередь продолжается.
-Items done: приём круга, E1 (профили и зависимость, ADR-0024).
-Items not done: E2 (closure-свойство), E3 (метаморфные свойства), E4 (ноль не
-пропуск), E5 (бюджет времени).
+Status: PARTIAL — E1 и E2 приняты, очередь продолжается.
+Items done: приём круга, E1 (профили и зависимость, ADR-0024), E2
+(closure-свойство по 21 формуле и calculate_measure, non_finite).
+Items not done: E3 (метаморфные свойства), E4 (ноль не пропуск), E5 (бюджет
+времени).
 Arrival state: `Итог: пройдено 11, провалено 2`, repaired by `bad057a`.
 Network: pip only — `pip install hypothesis` and one `pip install --dry-run`
 (Runs 3 and Disputed 2); no data-provider request, LLM 0.
-NOW: E2, step 1
+NOW: E3, step 1

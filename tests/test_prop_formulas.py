@@ -9,13 +9,19 @@ Hypothesis объявлена в группе `test`, профили регис�
 """
 from __future__ import annotations
 
+import inspect
+import math
 import os
 import re
+import typing
 from pathlib import Path
+from typing import Optional, Tuple
 
+import pytest
 from hypothesis import given, settings, strategies as st
 
 from rusterm import formulas
+from rusterm.reasons import is_known_reason
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -80,3 +86,127 @@ def test_generated_equal_amounts_give_one_or_an_honest_refusal(amount):
         assert (value, reason) == (None, "negative_denominator")
     else:
         assert (value, reason) == (1.0, None)
+
+
+# ── E2: closure property — каждая формула, автоматически ────────────────
+
+# Пара «значение или причина» — единственный контракт формулы
+# (rusterm/formulas.py: «Никаких исключений»). Проверка закрытости
+# требует входов за границей арифметики: NaN, ±inf, частное, уехавшее
+# в inf, степень, упёршаяся в OverflowError.
+PAIR = Tuple[Optional[float], Optional[formulas.NullReason]]
+
+FLOAT_OR_NONE = st.one_of(st.floats(allow_nan=True, allow_infinity=True),
+                          st.none())
+_DATE = st.sampled_from(["2022-12-31", "2023-06-30", "2023-12-31",
+                         "2024-06-30", "2024-12-31"])
+_PRICE_POINT = st.tuples(_DATE, FLOAT_OR_NONE)
+
+
+def _census() -> set[str]:
+    """Имена публичных формул движка — интроспекцией, не памятью."""
+    found = set()
+    for name, obj in vars(formulas).items():
+        if name.startswith("_") or not inspect.isfunction(obj):
+            continue
+        if obj.__module__ != "rusterm.formulas":
+            continue
+        if typing.get_type_hints(obj).get("return") == PAIR:
+            found.add(name)
+    return found
+
+
+# Список покрытых формул записан руками: именно он краснеет, когда в
+# движок добавляют меру, для которой свойства нет (CENSUS ниже сверяет
+# его с интроспекцией в обе стороны).
+COVERED = {
+    "asset_turnover", "cagr", "dividend_yield", "drawdown",
+    "effective_tax_rate", "enterprise_value", "ev_to_ebitda",
+    "gross_margin", "hhi", "market_cap_per_class", "market_cap_total",
+    "net_margin", "operating_margin", "price_to_book",
+    "price_to_earnings", "price_to_sales", "roe", "roe_incl_nci", "roic",
+    "total_return", "ttm",
+}
+
+
+def _arg_strategy(annotation):
+    """Стратегия по аннотации аргумента: float (и None), bool, список
+    float (и None), список пар (дата, float|None)."""
+    inner = [a for a in typing.get_args(annotation) if a is not type(None)]
+    if typing.get_origin(annotation) is list:
+        element = inner[0] if inner else float
+        if typing.get_origin(element) is tuple:
+            return st.lists(_PRICE_POINT, max_size=6)
+        return st.lists(FLOAT_OR_NONE, max_size=6)
+    if annotation is bool or bool in inner:
+        return st.booleans()
+    return FLOAT_OR_NONE
+
+
+def test_census_covers_every_paired_formula():
+    """Новая формула без свойства — красное (ТЗ-82 E2)."""
+    found = _census()
+    assert found, ("интроспекция не нашла ни одной формулы — страж "
+                   "стал пустым и зелёным")
+    assert sorted(found - COVERED) == [], (
+        "в движке есть пара-формула без свойства: "
+        + ", ".join(sorted(found - COVERED)))
+    assert sorted(COVERED - found) == [], (
+        "свойство названо для функции, которая больше не возвращает "
+        "пару: " + ", ".join(sorted(COVERED - found)))
+    assert len(COVERED) >= 20, (
+        f"покрыто {len(COVERED)} формул — слишком мало, чтобы быть "
+        "замыслом")
+
+
+@pytest.mark.parametrize("name", sorted(COVERED))
+@given(data=st.data())
+def test_formula_is_closed_on_generated_inputs(name, data):
+    """Каждая формула на сгенерированных входах: без исключения, ровно
+    одна из пары не None, значение конечно, причина из словаря."""
+    function = getattr(formulas, name)
+    hints = typing.get_type_hints(function)
+    args = [data.draw(_arg_strategy(hints[param]), label=param)
+            for param in inspect.signature(function).parameters]
+    value, reason = function(*args)
+    assert (value is None) != (reason is None), (
+        f"{name}({args}) вернул {(value, reason)} — ни значения, ни "
+        "отказа (или и то, и другое)")
+    if value is not None:
+        assert math.isfinite(value), (
+            f"{name}({args}) дал нечисловое значение {value!r}")
+    assert is_known_reason(reason), (
+        f"{name}({args}) сослался на причину вне словаря: {reason!r}")
+
+
+_ARITHMETIC = {
+    "fcf": ("ocf", "capex"),
+    "interest_coverage": ("operating_income", "interest_expense"),
+    "ebitda": ("operating_income", "d_and_a"),
+}
+
+
+@st.composite
+def _arithmetic_payload(draw):
+    concept = draw(st.sampled_from(sorted(_ARITHMETIC)))
+    return concept, {name: draw(FLOAT_OR_NONE)
+                     for name in _ARITHMETIC[concept]}
+
+
+@given(payload=_arithmetic_payload())
+def test_the_calculate_measure_door_is_closed_too(payload):
+    """ТЗ-82 E2: у мер, которые считают прямо в calculate_measure
+    (ebitda, fcf, interest_coverage), та же закрытость — они идут мимо
+    формул-обёрток."""
+    concept, kwargs = payload
+    measure = formulas.calculate_measure(concept, **kwargs)
+    assert (measure.value is None) != (measure.null_reason is None), (
+        f"{concept}({kwargs}) → ({measure.value!r}, "
+        f"{measure.null_reason!r})")
+    if measure.value is not None:
+        assert math.isfinite(measure.value), (
+            f"{concept}({kwargs}) дал нечисловое значение "
+            f"{measure.value!r}")
+    assert is_known_reason(measure.null_reason), (
+        f"{concept}({kwargs}) — причина вне словаря: "
+        f"{measure.null_reason!r}")
