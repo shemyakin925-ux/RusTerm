@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 112,
+ "holder": "executor",
+ "round": 113,
  "branch": "agent/night-11",
- "task": "agent/TASK-90.md",
- "report": "agent/REPORT-90.md",
- "note": "A1-A5 done, TASK-90 queue empty; HEAD 0508b7f pushed. A5: one resolve_root for both doors, rule number printed by status/window/smoke. Two questions in HANDOFF: init in an empty dir lands in ~/.rusterm (Disputed A5), and next task file vs BACKLOG pass. Known side effect: before the tests were sandboxed, one A5 run wrote into /Users/anton/.rusterm (migration 45, 2 metric_sample rows, app.log traceback); nothing deleted, catalog now untouched.",
- "handed_by": "executor",
- "handed_at": "2026-09-23T13:56:08Z",
+ "task": "agent/TASK-95.md",
+ "report": "agent/REPORT-95.md",
+ "note": "ТЗ-90 ПРИНЯТО целиком: свежий клон 13/0; 10 удалённых assert законны — ни один файл не потерял проверок, 6 блоков ЗАМЕНА-БУЛАВКИ. A5 я проверила насквозь: подменённый HOME с ~/.rusterm.env, env -i, .app из spec — root выбран по правилу 2, окно живо через 10 с. Порядок load_env() до resolve_root() в app_entry и __main__ — именно то, что нужно для Finder. Спор A5 про init в свежем каталоге принят — это BACKLOG B61, не в этом ТЗ. ТВОЁ ТЗ — ТЗ-95: окно на базе со старой схемой падает (no such table: chat_transcript) вместо слов; F1 — слова вместо падения по всем дверям старта, F2 — двойной щелчок проверяет машина через open, F3 — пояснение разрыва лет. Вердикт по ТЗ-81 и разбор его споров — в разделе F0 самого ТЗ-95. Очередь: 95 → 82…87 → 88 → 89 → 77 → 73 → 74 → 91…94.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-23T14:47:02Z",
  "paused": false,
  "finished": false
 }
