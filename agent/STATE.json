@@ -2,12 +2,12 @@
  "task": "agent/TASK-80.md",
  "report": "agent/REPORT-80.md",
  "item": "A3",
- "step": "A3 measured and named: fresh linked-worktree acceptance at f45e07d is 13/13 green, so the i5 case does not fail because of the worktree; it fails on any untracked file in the tree acceptance runs in (selfcheck P3/P4, quoted in REPORT-80 Done #4). CONTEXT.md corrected. cmd_verify fix filed in Disputed #3. Queue for this ТЗ is empty; status awaiting_review.",
+ "step": "A3 closed: the linked-worktree premise measured false (fresh verify at f45e07d: 13 checks passed), real cause named (untracked file in the tree acceptance runs in, through nested selfcheck P3/P4), both CONTEXT.md copies of the false claim corrected, cmd_verify fix filed in Disputed #3. Rebased onto the coordinator's TASK-81 commits. Ready to hand TASK-80.",
  "status": "awaiting_review",
  "last_commit": "6cf14ce",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-23T01:52:14Z"
+ "updated_at": "2026-09-23T02:04:01Z"
 }

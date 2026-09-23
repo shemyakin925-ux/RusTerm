@@ -129,13 +129,23 @@ the relay itself and the coordinator has to fix it in place. TASK-80 A2
 at least makes the refusal name the failing tests instead of the bare
 phrase «приёмка красная».
 
-**`verify` runs acceptance in a linked worktree**, where
-`test_i5_staged_and_authorised_widening_is_green` fails while a normal
-clone on the same commit is green (CONTEXT §3: P6 reads
-`.git/COMMIT_EDITMSG` literally and `.git` is a file there). The same test
-also reds on *uncommitted coordinator files* — measured twice this round.
-TASK-80 A3 requires the cause measured and the test either fixed or
-honestly skipped.
+**`verify` runs acceptance in a linked worktree — measured green.**
+TASK-80 A3 ran `relay.py verify` on a fresh worktree at `f45e07d`: the
+pytest check passed and acceptance reported 13 checks passed, 0 failed.
+The claim that `test_i5_staged_and_authorised_widening_is_green` fails
+*because* the tree is linked did not survive the measurement, and its
+stated cause was wrong — no guard reads `.git/COMMIT_EDITMSG` as a
+literal, all four take the path from `git rev-parse --git-path` (§3
+corrected in the same round). What really reddens that case is an
+**untracked file in the tree acceptance runs in**: the test calls
+`selfcheck.sh` nested, and P3/P4 check the outer tree, so one
+`?? path` line fails the assertion for a reason unrelated to the guard
+being demonstrated — that is the same mechanism as the "uncommitted
+coordinator files" observation measured twice this round. The verify
+worktree is where it recurs: `cmd_verify` reuses one machine-global
+path and refreshes it with `checkout --detach` and `reset --hard`,
+which clean tracked state and leave untracked residue in place. Filed
+as Disputed #3 in `agent/REPORT-80.md`.
 
 ## Measured 23.09 from the user's screenshot — two coordinator errors
 
