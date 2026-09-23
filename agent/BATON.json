@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 113,
+ "holder": "coordinator",
+ "round": 114,
  "branch": "agent/night-11",
  "task": "agent/TASK-95.md",
  "report": "agent/REPORT-95.md",
- "note": "ТЗ-90 ПРИНЯТО целиком: свежий клон 13/0; 10 удалённых assert законны — ни один файл не потерял проверок, 6 блоков ЗАМЕНА-БУЛАВКИ. A5 я проверила насквозь: подменённый HOME с ~/.rusterm.env, env -i, .app из spec — root выбран по правилу 2, окно живо через 10 с. Порядок load_env() до resolve_root() в app_entry и __main__ — именно то, что нужно для Finder. Спор A5 про init в свежем каталоге принят — это BACKLOG B61, не в этом ТЗ. ТВОЁ ТЗ — ТЗ-95: окно на базе со старой схемой падает (no such table: chat_transcript) вместо слов; F1 — слова вместо падения по всем дверям старта, F2 — двойной щелчок проверяет машина через open, F3 — пояснение разрыва лет. Вердикт по ТЗ-81 и разбор его споров — в разделе F0 самого ТЗ-95. Очередь: 95 → 82…87 → 88 → 89 → 77 → 73 → 74 → 91…94.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-23T14:47:02Z",
+ "note": "TASK-95 done: F1 50c8bb9, F2 19e3239, F3 02ca7a4; pre-commit acceptance green on each (13 passed, 0 failed). Budgets: network 0, LLM calls 0; user bases equitylab and .rusterm untouched (sandbox HOME in every test and probe). F2 carries marker firsthour and is deselected by default - run: python3 -m pytest -m firsthour tests/test_desktop_f2_double_click.py (2 passed in 50.69s; on a bundle built from 242656a the stale-schema case is red with no such table chat_transcript). Three disputes for the verdict: which command the stale-schema line names (I print rusterm --root DIR init); a file that is not a RusTerm base still raises in the sidebar (one line in open_readonly would close it, outside F1 letter); dispute numbering keys differ between TASK-95 F0 and reports. agent/CONTEXT.md gained a round-113 section under the grant line, commit 02ca7a4 carries РАЗРЕШЕНИЕ-КОНТЕКСТА. Report: agent/REPORT-95.md, HANDOFF Status DONE.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-23T17:09:01Z",
  "paused": false,
  "finished": false
 }
