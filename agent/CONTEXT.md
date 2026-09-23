@@ -209,7 +209,27 @@ this branch at 02:11 and 02:43 UTC while the baton sat with the
 coordinator. The user ruled that this session leads. TASK-82…87 are kept
 and queued; old task files are not rewritten (user, 23.09).
 
-Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-81 → TASK-90 → TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
+## Round 109 (TASK-81): B0–B2 accepted, B3 returned
+
+Fresh clone at `88448c8`: «пройдено 13, провалено 0». 12 asserts removed,
+legitimately — every touched test file grew (`test_desktop_data.py` 81 → 95),
+each commit carries `ЗАМЕНА-БУЛАВКИ` blocks, and only assertions of the old
+behaviour the task changed went away. **B1** verified by content: `git cherry`
+calls `0472136` unpicked (conflicts were resolved), but all 78 lines it added
+are in the working branch and `main` fast-forwards. **B2** measured on the
+user's base read-only: AAPL 1 year column (was 4, three empty) 20 of 28
+filled; MSFT 2026/2024/2023/2022 with the empty 2025 dropped, 47 of 112.
+
+**B3 returned: the `.app` does not open for the user.** The coordinator built
+it from `EquityLab.spec` (22 s, 167 MB) and launched it with `open`, as Finder
+does: no Terminal appeared — but no window either; the process was gone in 9
+s with `no such table: chat_transcript`. A Finder-launched app has no shell
+environment, so no `RUSTERM_DATA`, so it opens `~/.rusterm` (schema 44), and
+the read-only window crashes instead of speaking. Catalog choice is TASK-90
+A4/A5; not crashing on an older schema is TASK-95. **Acceptance was 13/0 the
+whole time** — the executor's own line «nobody double-clicked» named the gap.
+
+Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-90 → TASK-95 → TASK-82 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
 
 **Whole-project review, 23.09 (user's request, separate session) —
 TASK-90…94.** Acceptance on `3f7dcc9` is 13/0, and every finding below
