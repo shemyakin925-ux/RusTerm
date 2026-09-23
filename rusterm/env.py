@@ -23,7 +23,15 @@ ENV_NAMES = ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER", "RUSTERM_LLM_API_KEY",
              "RUSTERM_LLM_MODEL", "RUSTERM_TWELVEDATA_KEY",
              # ТЗ-81 B3: где лежат данные — тот же канал, что у ключей,
              # иначе собранный .app без шелла читает не ту базу
-             "RUSTERM_DATA")
+             "RUSTERM_DATA",
+             # ТЗ-90 A4: GUIDE §0 велит положить эти две строки в
+             # ~/.rusterm.env — без имени в списке load_env выбрасывает
+             # строку молча, и ключ DART никогда не доезжает до
+             # providers/dart.py, а .app из Finder окружения не имеет
+             # вовсе. Список проверяет тест tests/test_a4_env_names.py:
+             # любое RUSTERM_*-имя, читаемое из окружения под rusterm/,
+             # должно быть перечислено здесь.
+             "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL")
 
 # Происхождения последнего load_env: после бутстрапа doctor обязан
 # показывать, ОТКУДА пришла переменная, а не «окружение» (load_env сам

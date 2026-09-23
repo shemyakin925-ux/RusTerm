@@ -315,19 +315,135 @@ desktop_actions) → exit 0, no FAILED line. Whole default suite
   could show in `rusterm status` and in the ТЗ-75 version history.
   Reported rather than fixed silently.
 
+## Done (A4) — every name the code reads loads from `~/.rusterm.env`
+
+### 1. Measured before the change (red on parent)
+
+Evidence tree (main tree untouched):
+
+```
+git worktree add --detach /tmp/rt-a4-parent HEAD
+cp tests/test_a4_env_names.py /tmp/rt-a4-parent/tests/
+cd /tmp/rt-a4-parent && python3 -m pytest tests/test_a4_env_names.py -q
+```
+
+→ exit 1, 5/5 red. The failing lines name the defect, not the fixture:
+
+- `E KeyError: 'RUSTERM_DART_KEY'` — `load_env()` returns no entry for the
+  name, because `parse_env_file` keeps a line only `if name in ENV_NAMES`
+  (`rusterm/env.py:69`). The `RUSTERM_DART_KEY=` line `GUIDE.md:21` tells
+  the user to write is dropped silently.
+- `E AssertionError: assert 'https://openrouter.ai/api/v1' == 'https://llm.example.invalid/v1'`
+  — the file's base URL never reaches `LlmApiClient.from_env`; the client
+  keeps the built-in default.
+- `status`: `'RUSTERM_DART_KEY: задана' in <output>` false — the printed
+  environment block lists six names, DART is not one of them.
+- key view: `assert 'RUSTERM_DART_KEY' in {'RUSTERM_SEC_UA', …}` — the
+  settings panel renders six rows.
+- guard: `{'RUSTERM_DART_KEY': 'rusterm/providers/__init__.py:79',
+  'RUSTERM_LLM_BASE_URL': 'rusterm/providers/llm_api.py:30'}` — the two
+  names the package reads from the environment are exactly the two
+  missing from the tuple.
+
+### 2. What changed
+
+- `rusterm/env.py` — `ENV_NAMES` gained `RUSTERM_DART_KEY` and
+  `RUSTERM_LLM_BASE_URL`. The task names three; `RUSTERM_DATA` has been in
+  the tuple since ТЗ-81 B3, so this item lands two and pins all three by
+  name in the guard test (a future drop of `RUSTERM_DATA` reddens it).
+- One edit propagates: `load_env`, `report()` (→ `doctor`), the `status`
+  environment block and `keys_view` all iterate `ENV_NAMES`, so no
+  surface-specific patch was needed.
+- `rusterm/desktop/data.py` — `KEY_PURPOSE` rows for both names; a panel
+  row without a purpose is a silent line (C9.1).
+- `GUIDE.md` — the §5 `status --json` sample regenerated verbatim (the
+  documented JSON carries both new keys). `tests/test_guide_truth.py`
+  replays that block byte for byte, so it is not an optional edit.
+- `tests/test_desktop_settings.py` — three pinned name sets widened,
+  entries added inside each literal; 0 assert lines removed.
+- Deliberate limit: `RUSTERM_LLM_BASE_URL` is not added to the §0 key
+  table. That table answers "where do I register to get this" — a free
+  API key. The base URL is an optional endpoint override with a working
+  default (ADR-0018); listing it as a key would tell the user it is
+  required. Recorded here instead of decided silently.
+
+### 3. The guard, and which direction it checks
+
+`test_guard_every_env_name_read_by_the_package_is_loadable` walks
+`rusterm/**/*.py` with `ast`, takes every string constant shaped exactly
+like `RUSTERM_[A-Z0-9_]*`, and requires each to be in `ENV_NAMES` or in an
+explicit `NOT_LOADABLE` exemption carrying its reason
+(`RUSTERM_ENV_FILE` locates the file itself; `RUSTERM_APP_SMOKE` is a
+window self-check flag, not user configuration).
+
+- AST rather than grep: docstrings and comments name variables that are
+  never read from the environment (`«нет RUSTERM_SEC_UA — сети нет»`), and
+  multi-line f-strings do not hold a bare name; grep would need exemptions
+  for prose, which is how such a guard dies.
+- The guard also reddens on an exemption whose name nothing reads any more
+  (`NOT_LOADABLE` is a claim, not a dump).
+- Direction is one-way and said in the test docstring: a name in
+  `ENV_NAMES` that nobody reads stays invisible (the tuple is itself a
+  constant in the package, so widening it cannot redden this guard). The
+  opposite half — "in the list but no purpose row" — is covered by
+  `assert all(r["purpose"] for r in view["rows"])` in this item's own test.
+
+### 4. Tests
+
+- New `tests/test_a4_env_names.py`: 5 tests, offline. Values are synthetic
+  (`test-dart-value-0123456789`, `https://llm.example.invalid/v1`); the
+  real `DartProvider.from_env` / `LlmApiClient.from_env` are constructed —
+  they read the environment only, and the conftest network sentinel would
+  fail the test if a request were attempted.
+- `python3 -m pytest tests/test_a4_env_names.py tests/test_env.py
+  tests/test_desktop_settings.py -q` → 17 dots, `[100%]`, exit 0.
+- `python3 -m pytest tests/test_guide_truth.py tests/test_a4_env_names.py
+  -q` → exit 0 (`/tmp/a4-run1.log`).
+- Full default suite: `python3 -m pytest tests/ -q -p no:cacheprovider` → exit 0, `[100%]`,
+1119 progress dots, no FAILED line (`/tmp/a4-full.log`). That run
+collected `tests/test_a4_env_names.py` before the three-name pin was
+added to the guard test; the pinned file was then re-run with its
+neighbours — `python3 -m pytest tests/test_a4_env_names.py
+tests/test_env.py tests/test_desktop_settings.py
+tests/test_guide_truth.py -q` → exit 0, 20 dots (`/tmp/a4-run2.log`) —
+and the whole suite runs again inside the pre-commit hook
+(selfcheck → acceptance step 3 `pytest -q`) on this exact tree.
+
+### 5. Not to trust (A4)
+
+- The guard sees exact literal names. A name built at runtime
+  (`"RUSTERM_" + suffix`) is invisible to it — `providers/__init__.py`
+  keeps one literal per channel today; a future dynamic table would slip
+  through quietly. Fixing that means an import-time check, out of scope.
+- `KEY_PURPOSE` wording ("без него — OpenRouter") restates
+  `providers/llm_api.py`'s default and ADR-0018; no test pins panel prose.
+- `doctor` was not re-tested for the new names: it prints the same
+  `env.report()` dict that `status` covers here. Same source, other
+  printer.
+- Nothing here makes the user's DART key exist. TASK-58 C1 stays blocked
+  on obtaining the key; this item only makes the file line loadable.
+- Housekeeping: a standalone `bash agent/selfcheck.sh` appends
+  `# i5 green case: staged widening` to `agent/p6_rule.sh` and stages it.
+  Before this commit the file was restored and `git diff HEAD --
+  agent/p6_rule.sh` is empty — no guard file is in this item's diff.
+
 ## HANDOFF
 
 Status:          WORKING
-Items done:      приём круга (STATE + отчёт), A1, A2, A3
-Items not done:  A4, A5
+Items done:      приём круга (STATE + отчёт), A1, A2, A3, A4
+Items not done:  A5
 Acceptance:      quoted in each item's commit message (hook run)
-Tests:           full default suite green on the A3 tree (quoted in the
-                 A3 block); per-item subsets quoted per item
-Guards:          none touched
+Tests:           full default suite green on the A3 tree and on the A4
+                 tree (quoted in each item's block); per-item subsets
+                 quoted per item
+Guards:          none touched — the A4 commit carries no `agent/` script
+                 diff (the I5 demo's staged line in `p6_rule.sh` was
+                 restored to HEAD bytes first)
 Schema:          unchanged (A3 needed no migration — `snapshot.status`
                  has no CHECK)
-Network:         4 of 4 (twelvedata, A1); A2 and A3 — zero network
+Network:         4 of 4 (twelvedata, A1); A2, A3 and A4 — zero network
 Model:           Qoder executor, llm_calls 0
-Secrets:         0
-Pushed:          yes — A1 ad4c131, A2 30eacd2
-NOW: A4, step 1
+Secrets:         0 (A4: the four values on this machine, counted in the
+                 staged diff — 0 hits each; names only in the report)
+Pushed:          yes — A1 ad4c131, A2 30eacd2, A3 faea1ca
+NOW: A5, step 1
