@@ -111,3 +111,76 @@ Arrival state: round 107, HEAD `f8534a4`, TASK-80 read in full.
 Items not done: A2 relay output, A3 linked worktree artifact, A4 quote
 versus grant in the Z2 guard.
 NOW: A4, step 1
+
+## Done #2 — A4 (appended; the sections above stay as written)
+
+- **A4 — the Z2 guard no longer mistakes a quote for a grant.**
+  `tests/test_task_authorization_form.py`: `_claimed_paths()` now skips
+  every occurrence of the phrase that sits inside backticks (odd number
+  of `` ` `` before it) or inside guillemets (more « than » before it);
+  a line that *starts* with the phrase remains a claim, exactly as
+  before, so nothing about real authorizations got looser. Three tests
+  added (`8 passed` in the file): the coordinator's own verdict paragraph
+  verbatim from `ca678a1` must be clean, the same form outside quotes
+  must be red, and a flat grant standing next to a quote must still be
+  recognized.
+
+  **Redness of the first case before A4, quoted** (`_is_quoted()`
+  temporarily forced to `return False` in the working tree — the pre-A4
+  shape — and restored from a `/tmp` copy before the commit):
+
+  ```
+  $ python3 -m pytest tests/test_task_authorization_form.py -o addopts='--strict-markers -m "not live"' -p no:randomly -q
+  _______________ test_a_quoted_broken_form_is_not_read_as_a_grant _______________
+          f.write_text(VERDICT_QUOTING_THE_BROKEN_FORM, encoding="utf-8")
+  >       assert _unaccepted(f) == [], _unaccepted(f)
+  E       AssertionError: [('2', '`РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md, GUIDE.md` делала `GUIDE.md`', ['agent/CONTEXT.md', 'GUIDE.md', 'GUIDE.md']), ('6', 'Тот же разбор в кавычках-ёлочках: «РАЗРЕШЕНО ПРАВИТЬ: GUIDE.md».', ['GUIDE.md'])]
+  ______________ test_the_flat_form_is_still_a_grant_after_a_quoted_one __________
+  >       assert len(bad) == 1, bad
+  E       AssertionError: [('1', 'В разборе: `РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md` — это цитата.', ['agent/CONTEXT.md']), ('2', 'РАЗРЕШЕНО ПРАВИТЬ: `agent/CONTEXT.md`', ['agent/CONTEXT.md'])]
+  =========================== short test summary info ============================
+  FAILED tests/test_task_authorization_form.py::test_a_quoted_broken_form_is_not_read_as_a_grant
+  FAILED tests/test_task_authorization_form.py::test_the_flat_form_is_still_a_grant_after_a_quoted_one
+  2 failed, 6 passed in 0.15s
+  ```
+
+  **Both cases measured after the fix**, the checker called directly on
+  three texts:
+
+  ```
+  цитата (вердикт координатора, ca678a1):      нарушений: 0
+  настоящая сломанная форма (ТЗ-76/78):         нарушений: 1
+     :1 '- **РАЗРЕШЕНО ПРАВИТЬ:** `tests/test_report_sections.py`,' -> ['tests/test_report_sections.py']
+  настоящее разрешение (плоская форма):        нарушений: 0
+  ```
+
+- Deliberate limit stated in the module docstring, one paragraph, so the
+  next reader does not mistake it for a hole: a continuation line (paths
+  on the line after the authorization, without the phrase — the old
+  TASK-73 shape) is still not caught, because the parser does not see
+  those either and guessing which file lists were meant as permissions
+  would redden the guard on prose.
+
+## Blocked #2
+
+- Nothing blocked. A2 and A3 remain ahead.
+
+## What not to trust #2
+
+- The quote rule looks at backtick and guillemet parity **within one
+  line**. A broken form quoted inside a fenced code block (``` fences
+  spanning lines) has even parity per line and would still be read as a
+  claim. TASK files do not use fenced blocks today; if one ever does,
+  the guard will red loudly rather than silently pass.
+- `VERDICT_QUOTING_THE_BROKEN_FORM` is a literal copy of a historical
+  file version (`git show ca678a1:agent/TASK-80.md`, line 25), not a
+  live read of TASK-80 — later edits to the coordinator's ТЗ cannot
+  break this tooth, and the same paragraph still exists in git history.
+
+## HANDOFF #2 (interim — supersedes the block above)
+
+Status: PARTIAL — A1 and A4 done and committed; A2, A3 ahead.
+Arrival state: round 107, HEAD `f8534a4`, TASK-80 read in full.
+Items done: A1
+Items not done: A2 relay output, A3 linked worktree artifact.
+NOW: A2, step 1
