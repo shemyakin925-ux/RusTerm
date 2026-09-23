@@ -180,6 +180,63 @@ stale44: alive=False
 ```
 
 
+### F3 — разрыв лет: окно называет пропущенный год
+
+**Where.** `data.year_gap_note(years)` (new) + three lines in
+`measure_table_rows`, so the sentence rides the existing `history_note` key:
+no new key in the door's output, so `tests/test_w4_window_data_contract.py`
+needed no pin change, and the window's `source_panel` line
+(`window.py:525`) renders it without touching `window.py`.
+
+**Why the old line went silent.** ТЗ-81 B2 fires only when
+`len(years) < year_count`. MSFT has four columns against a ceiling of four —
+nothing to apologise for, yet the hole between 2026 and 2024 reads as "nobody
+has these data". The new sentence is computed from the visible columns: gaps
+strictly *between* the newest and the oldest displayed year. A year below the
+oldest column is the edge of the history, not a hole — that is why the
+contiguous case stays quiet.
+
+**Measured on a base written with literal years**
+(`tests/test_desktop_f3_year_gap.py`, 7 tests, real sqlite via the store
+doors — not mocks):
+
+```
+--- MSFT shape, ceiling 4: years=['2026', '2024', '2023', '2022']
+    note='пропущен 2025 год'
+--- MSFT shape, ceiling 6 (окно): years=['2026', '2024', '2023', '2022']
+    note='история за 4 года: снапшоты с 2022-12-31 по 2026-12-31; пропущен 2025 год'
+--- gap 2023: years=['2026', '2025', '2024', '2022']
+    note='пропущен 2023 год'
+--- two gaps: years=['2026', '2024', '2022']
+    note='история за 3 года: снапшоты с 2022-12-31 по 2026-12-31; пропущены 2023, 2025 годы'
+--- contiguous: years=['2026', '2025', '2024', '2023']
+    note=None
+--- short row: years=['2026', '2024']
+    note='история за 2 года: снапшоты с 2024-12-31 по 2026-12-31; пропущен 2025 год'
+```
+
+The "another gap → another year" case is the tooth against a constant: it
+asserts `2025` is absent from the line. One test builds the window, selects
+the instrument in the sidebar and reads `source_panel` — the claim "the window
+says it" is checked through the widget, not through the door.
+
+Red on the pre-fix tree (before `data.py` was touched):
+
+```
+E       AssertionError: история за 4 года: снапшоты с 2022-12-31 по 2026-12-31
+E       assert 'пропущен 2025 год' in 'история за 4 года: снапшоты с 2022-12-31 по 2026-12-31'
+5 failed, 2 passed in 1.79s
+```
+
+The two that already passed were the preconditions (the column list itself,
+and the silent contiguous row) — deliberately split, so a broken fixture
+cannot masquerade as a green gap test. After the fix:
+`.......                                                               [100%]`
+→ `7 passed in 6.94s`; neighbours
+(`tests/test_desktop_data.py`, `tests/test_w4_window_data_contract.py`)
+together: `72 passed in 6.09s`. Full suite after the change: `1533 passed,
+44 deselected in 250.18s`.
+
 ## Blocked
 
 None.
@@ -201,6 +258,21 @@ None.
   artifact the user double-clicks is rebuilt by whoever ships it — this round
   proves the *source* passes the double-click test, not that a stored `.app`
   somewhere on disk carries the fix.
+- F3 names only a year missing **between** the displayed columns. Two shapes
+  are deliberately quiet, and both are measured: a contiguous row (the year
+  below the oldest column is the edge of the history, not a hole) and a row
+  truncated by the ceiling. A missing *newest* year — today is 2026, the base
+  has no 2026 snapshot — produces no line either; nothing in the ТЗ asked for
+  it, and the window would otherwise claim a hole where data simply stop.
+- The window's ceiling is width-derived (`window.py:502`,
+  `max(4, table.width() // 90)`), so which years are visible depends on the
+  window size. Measured at ceiling 4 and ceiling 6 offscreen; the user's own
+  window width was not measured, and the user's MSFT base was not opened for
+  this item — the shape comes from the coordinator's report.
+- The gap sentence is folded into the existing `history_note` key, so a
+  consumer of that key can now receive a line that is not an apology about
+  column count. `tests/test_desktop_data.py` reads it with `startswith` /
+  `is None` only and stays green.
 
 ## Disputed
 
@@ -232,6 +304,12 @@ None.
 | 6 | прогон окна с обёрнутыми дверями (скрипт, не тест) | `errors: []`, список дверей в `## Done` |
 | 7 | `python3 -m pytest -m firsthour tests/test_desktop_f2_double_click.py -o addopts="" -v -s` | `2 passed in 50.69s`, сборка + оба запуска живы |
 | 8 | те же хелперы поверх `/tmp/pre-f1-EquityLab.app` (сборка из `242656a`) | current жив; stale44 `alive=False`, stderr `no such table: chat_transcript` |
+| 9 | `python3 -m pytest tests/test_desktop_f3_year_gap.py -o addopts="" -q` (до правки) | 5 failed, 2 passed, цитата в `## Done` |
+| 10 | то же после правки | `7 passed in 6.94s` |
+| 11 | `test_desktop_f3_year_gap.py` + `test_desktop_data.py` + `test_w4_window_data_contract.py` | `72 passed in 6.09s` |
+| 12 | `python3 -m pytest -q` (полный набор после F3) | `1533 passed, 44 deselected in 250.18s` |
+| 13 | `/tmp/rt-f3-probe/show_note.py` (скрипт вне репозитория, не тест) | шесть строк `years=`/`note=` выше |
+| 14 | `bash agent/p1_rule.sh` (HEAD `19e3239`, после F2) | `P1: OK (HEAD ...)` |
 
 Nothing here touched `~/equitylab` or `~/.rusterm` for writing: both were
 replaced by sandbox `HOME` in tests and probes; the bundle runs above were given
@@ -239,6 +317,16 @@ an explicit `--root` under `/tmp`.
 
 ## HANDOFF
 
-Status: IN PROGRESS — F1 and F2 committed, F3 next in this round.
-Items done: приём круга (STATE + отчёт), F1, F2
-Questions: see Disputed 1 (which command the line should name).
+Status: DONE — F1, F2, F3 of ТЗ-95 are committed; F4 is a list of
+prohibitions, not work, and nothing in it was touched.
+Items done: приём круга (STATE + отчёт), F1, F2, F3
+Also this round: `agent/CONTEXT.md` gained a round-113 section under the
+task's `РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md` (the F3 commit carries
+`РАЗРЕШЕНИЕ-КОНТЕКСТА:`). Full suite on the F3 tree: `1533 passed, 44
+deselected in 250.18s`.
+Questions: entry 1 of Disputed — which command the stale-schema line should
+name (I chose the form «rusterm --root DIR init», DIR being the catalog on
+screen: the only writing door that applies migrations without reaching for the
+network). Entry 2 — a file that is not a RusTerm base still raises in the
+sidebar; one line in `open_readonly` would close it, outside F1's letter.
+Entry 3 — the dispute numbering key differs between TASK-95 F0 and the reports.

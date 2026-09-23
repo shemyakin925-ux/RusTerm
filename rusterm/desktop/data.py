@@ -272,6 +272,28 @@ def _years_word(n: int) -> str:
     return {1: "год", 2: "года", 3: "года", 4: "года"}.get(n % 10, "лет")
 
 
+def year_gap_note(years: list[str]) -> Optional[str]:
+    """Какого года нет в видимом ряду (ТЗ-95 F3).
+
+    У MSFT на базе пользователя колонки 2026, 2024, 2023, 2022: четыре
+    колонки — потолок, и объяснения ТЗ-81 B2 тут нет (лет ровно
+    столько, сколько помещается). Молчащая щель между 2026 и 2024
+    выглядит как «данных нет ни у кого», хотя этого года в базе просто
+    нет. Называются только пропуски между видимыми колонками: год ниже
+    самой старой колонки — не разрыв, а граница истории.
+    """
+    numbers = sorted({int(year) for year in years})
+    if len(numbers) < 2:
+        return None
+    gaps = [year for year in range(numbers[0] + 1, numbers[-1])
+            if year not in numbers]
+    if not gaps:
+        return None
+    listed = ", ".join(str(year) for year in gaps)
+    return (f"пропущен {listed} год" if len(gaps) == 1
+            else f"пропущены {listed} годы")
+
+
 def history_note(repos, instrument_id: str, shown_years: int) -> Optional[str]:
     """Почему лет ровно столько, сколько видно (ТЗ-81 B2): число колонок и
     границы снапшотов из самой базы, не константа. Даты сказать нечем —
@@ -325,7 +347,8 @@ def measure_table_rows(repos, instrument_id: str,
     правило ТЗ-72 Д1 и для частично пустой таблицы); ``year_count`` —
     потолок, а не минимум. Колонок нет вовсе — ``suggestion`` несёт
     исполнимую строку «посчитать ряд одним действием»; колонок меньше
-    потолка — ``history_note`` говорит словами, почему."""
+    потолка — ``history_note`` говорит словами, почему; между колонками
+    нет года — там же назван пропущенный год (ТЗ-95 F3)."""
     card = tui_model.card_rows(repos, instrument_id)
     history = measure_history(repos, instrument_id)
     basis = measure_history_basis(repos, instrument_id)
@@ -334,6 +357,10 @@ def measure_table_rows(repos, instrument_id: str,
         instrument_id=instrument_id)
     note = (history_note(repos, instrument_id, len(years))
             if years and len(years) < max(year_count, 1) else None)
+    # ТЗ-95 F3: щель между колонками — на той же строке. Колонок может
+    # быть ровно потолок, и тогда объяснения ТЗ-81 B2 нет, а год потерян.
+    gap = year_gap_note(years)
+    note = f"{note}; {gap}" if note and gap else (note or gap)
     summary = tui_model.measure_summary(
         [(m.get("value"), m.get("null_reason"))
          for m in card["measures"]])

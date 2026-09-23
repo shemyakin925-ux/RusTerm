@@ -260,6 +260,35 @@ citation guard accepts digits taken from measure UUIDs and flipped signs
 original (TASK-92 C1); 0 peer sets, 0 percentiles, 0 `llm_summary`
 rows — pass 2 of the snapshot is called by no command (TASK-94 E2).
 
+## Round 113 (TASK-95): F1, F2, F3 — awaiting review
+
+**F1 — an older base speaks.** `header_info` gained `schema_notice`:
+«база в <каталог> — схема 44, программе нужна 45; обновите: rusterm --root
+<каталог> init», shown in a `QLabel` named `schema_notice` under the header,
+`None` (hidden) on a current base. Two doors that died there — `chat_sessions`
+and `llm_usage_line` — now answer `[]` and «вызовы: —» through a new store door
+`db.has_table`, so SQL stays in `rusterm/store/` (acceptance check 7). The
+window still does not migrate: a test builds it on the schema-44 fixture and
+re-reads the version. Measured one step back, `44 → 45`.
+
+**F2 — the double-click is a test.** `tests/test_desktop_f2_double_click.py`,
+marker `firsthour` (deselected by `addopts`; `integration` runs in the normal
+set and would not do): builds the bundle with the GUIDE's command into the
+test's own tmp dir, launches it the way Finder does — `open -n -W`, so the
+child has no terminal environment — requires the process alive after 5 s, then
+closes it and asserts nothing is left. Current catalog and schema-44 catalog:
+`2 passed in 50.69s`. On a bundle from `242656a` (before F1) the second case is
+red with `no such table: chat_transcript` — the round-109 B3 gap now has a
+tooth instead of a ritual.
+
+**F3 — a hole in the year row is named.** `data.year_gap_note(years)` folds
+«пропущен 2025 год» into the existing `history_note` line (no new door key, no
+`window.py` change). ТЗ-81 B2 spoke only when columns were fewer than the
+ceiling; on the MSFT shape — 2026, 2024, 2023, 2022 at a ceiling of four —
+nothing was missing by that rule while the hole stayed on screen. Years below
+the oldest column are the edge of the history, not a hole, so a contiguous row
+is still silent.
+
 Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
 TASK-60. Acceptance on the branch head in a clean clone: **13/0, exit 0**.
