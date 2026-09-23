@@ -22,6 +22,7 @@ import argparse
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -504,6 +505,99 @@ def cmd_verify(a: argparse.Namespace) -> int:
     return EXIT_OK if proc.returncode == 0 else EXIT_ERROR
 
 
+# ── красная приёмка: что упало и где полный лог (ТЗ-80 A2) ──────────────
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+FAILED_NAMES_CAP = 20
+
+
+def acceptance_log() -> Path:
+    """Куда relay пишет полный прогон приёмки перед передачей хода.
+
+    Лог живёт в git-каталоге этого дерева, а не в `/tmp`: два рабочих
+    дерева на одной машине делят `/tmp` (CONTEXT §3, круг 56), и
+    прогон координатора затёр бы прогон исполнителя.
+    """
+    return git_dir() / "relay-acceptance.log"
+
+
+def failed_test_names(text: str) -> list[str]:
+    """Строки pytest вида «FAILED файл::тест» из произвольного вывода."""
+    names: list[str] = []
+    for raw in text.splitlines():
+        line = ANSI.sub("", raw).strip()
+        if line.startswith(("FAILED ", "ERROR ")) and line not in names:
+            names.append(line)
+    return names
+
+
+def failed_checks(text: str) -> list[str]:
+    """Проваленные проверки самой приёмки (`bad …`), по именам."""
+    checks: list[str] = []
+    for raw in text.splitlines():
+        line = ANSI.sub("", raw).strip()
+        if line.startswith("ПРОВАЛ ") and line not in checks:
+            checks.append(line)
+    return checks
+
+
+def run_acceptance(cwd: Path) -> tuple[int, str]:
+    """Прогон приёмки: вывод идёт в терминал и сохраняется целиком.
+
+    Сохранение нужно потому, что acceptance.sh печатает только хвост
+    каждой проверки — по одному ему не восстановить, что именно упало.
+    """
+    chunks: list[str] = []
+    with acceptance_log().open("w", encoding="utf-8", buffering=1) as log:
+        proc = subprocess.Popen(("bash", "agent/acceptance.sh"),
+                                cwd=str(cwd),
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True,
+                                errors="replace", bufsize=1)
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            log.write(line)
+            chunks.append(line)
+        proc.wait()
+    return proc.returncode, "".join(chunks)
+
+
+def pytest_failure_names(cwd: Path) -> list[str]:
+    """Имена упавших тестов отдельным прогоном, без трейсбэков.
+
+    Нужно, когда приёмка их не показала: она печатает три последние
+    строки прогона, и при нескольких падениях туда попадает не всё.
+    """
+    proc = subprocess.run(
+        (sys.executable, "-m", "pytest", "-q", "--tb=no", "-rf",
+         "-p", "no:randomly"),
+        cwd=str(cwd), capture_output=True, text=True)
+    return failed_test_names(proc.stdout or "")
+
+
+def red_acceptance(rc: int, text: str, cwd: Path) -> str:
+    """Отказ hand: какие тесты упали, какие проверки красные, где лог."""
+    lines = [f"приёмка на дереве красная (код возврата {rc}) — ход не передан."]
+    names = failed_test_names(text) or pytest_failure_names(cwd)
+    if names:
+        lines.append("упавшие тесты:")
+        lines += [f"  {n}" for n in names[:FAILED_NAMES_CAP]]
+        if len(names) > FAILED_NAMES_CAP:
+            lines.append(f"  … и ещё {len(names) - FAILED_NAMES_CAP}")
+    else:
+        lines.append("упавших тестов нет — красна не проверка тестов, "
+                     "а сама приёмка; смотри проваленные проверки ниже")
+    checks = failed_checks(text)
+    if checks:
+        lines.append("проваленные проверки приёмки:")
+        lines += [f"  {c}" for c in checks]
+    lines.append(f"полный лог прогона: {acceptance_log()}")
+    lines.append("исправь и повтори hand")
+    return "\n".join(lines)
+
+
 def cmd_hand(a: argparse.Namespace) -> int:
     branch = resolve_branch(a.branch)
     if a.to not in ROLES:
@@ -517,13 +611,9 @@ def cmd_hand(a: argparse.Namespace) -> int:
     if acc_script.exists():
         # ТЗ-66 L1: в песочницах unit-тестов relay acceptance.sh нет —
         # проверка опциональна по наличию скрипта
-        acc = subprocess.run(["bash", str(acc_script)],
-                             cwd=str(Path.cwd()), capture_output=True,
-                             text=True)
-        if acc.returncode != 0:
-            die("приёмка на дереве красная — ход не передан. Полный "
-                "вывод: прогоны приёмки сохраняются самим селфчеком; "
-                "исправь и повтори hand")
+        rc, text = run_acceptance(Path.cwd())
+        if rc != 0:
+            die(red_acceptance(rc, text, Path.cwd()))
     fetch(a.remote, branch)
     baton = read_remote_baton(a.remote, branch)
     if baton is None:
