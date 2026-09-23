@@ -126,15 +126,22 @@ item names the file and the defect.
   installed, `zstandard` is not, and acceptance check 11 reruns the
   suite without it.
 - Acceptance is 13/13 at your start and is ground truth about your work.
-  **If it is not green on arrival, the first commit of the night is the
+  **If it is not green on arrival, the first commit of the round is the
   repair**, and the report says what was red when you arrived.
 - `docs/` is frozen. A new ADR is the one permitted change.
 
-## 10. Stop time and the shift's end
+## 10. When work stops, and the HANDOFF block
 
-**10:00 Danang (UTC+7).** No new item after 09:30. Finish the current
-item to a commit and a push, then fill in the HANDOFF block at the end
-of the report:
+**There is no clock-based stop** (user's order, 23.09.2026 — the night
+shift and the 10:00 stop are retired). Work runs round by round through
+the relay (§12). It stops only when:
+
+- `relay.py wait` returns `3` (paused) or `4` (cycle closed), or
+- the user orders it directly.
+
+In either case finish the current item to a commit and a push, then fill
+in the HANDOFF block at the end of the report. Every hand-over to the
+coordinator carries the same block:
 
 ```
 Status:          DONE | PARTIAL | BLOCKED
@@ -153,21 +160,18 @@ Questions for the coordinator:
 1. …
 ```
 
-A night ends when the clock says so, not when the queue is empty: take
-the next `Status: READY` task in numeric order and keep going.
+An empty queue is not a reason to stop: after `hand`, run `wait --for
+executor` and take the next task the baton names.
 
-## 11. Branches, and how a shift is taken from 13.09.2026 on
+## 11. Branches
 
-Tasks are now sized so that **five or six fit into one shift**. A shift
-therefore has **one branch**, not one per task:
+Work goes on **one working branch**, not one per task. The branch is the
+one named in `agent/BATON.json` (today `agent/night-11` — the name is
+historical; there are no night shifts any more). Do not create a new
+branch per task.
 
-```bash
-git checkout main && git pull
-git checkout -b agent/night-<N>     # N = 10 for the first shift after 13.09.2026
-```
-
-Take tasks in **numeric order**, lowest `Status: READY` first, each with
-its own report file, all on the shift branch. A task whose precondition
+Take the task the baton names, each with its own report file, all on the
+working branch. A task whose precondition
 is missing is **skipped, not faked** — write `SKIPPED — <reason>` in its
 report and take the next one. Do not merge into `main`: the release is
 the coordinator's, by the user's word.
@@ -206,5 +210,5 @@ Rules:
   paused by the user, `4` the cycle is closed — in cases 3 and 4 stop and
   write nothing further.
 - The baton does not replace `agent/STATE.json`: keep writing it per §5.
-- The relay is transport, not permission: §10 (stop time) and the
-  prohibitions of §2 outrank it.
+- The relay is transport, not permission: the prohibitions of §2
+  outrank it.

@@ -183,7 +183,33 @@ exists only as a local artifact from lane-C-era code — and the user
 launches `python3`, which is why a Terminal window sits beside the app.
 TASK-81 B3 puts the spec in the repository.
 
-Queue order: **TASK-80 → TASK-81 → TASK-77 (rewritten) → TASK-73 → TASK-74.**
+## Round 107 (TASK-80) accepted; night shift retired; one coordinator
+
+**TASK-80 accepted whole** — fresh clone at `f92eb92`: «Итог: пройдено
+13, провалено 0», exit 0; no assert removed; guard scripts, hooks and
+`docs/` untouched. A2 edited `relay.py` itself, so the coordinator checked
+the gate separately: a red acceptance still stops `hand` (`if rc != 0:
+die(...)`), only the refusal text changed. **A3 corrected a two-week-old
+explanation:** a linked worktree does not break acceptance by itself (a
+fresh `verify` at `f45e07d` is 13/0); `test_i5` reds on an *untracked file
+in the tree acceptance runs in*. The coordinator had seen it red on its
+own uncommitted task files and blamed the worktree — wrongly. TASK-88
+fixes `verify`'s shared default path that let one run's residue poison
+the next.
+
+**No night shift, no 10:00 stop** (user, 23.09). Removed from
+`CLAUDE.md`, `AGENTS.md`, `PROTOCOL.md` §10–§11 and this file. Work stops
+only on `wait` exit `3`/`4` or a direct user order. The branch name
+`agent/night-11` is historical and stays. `acceptance.sh` still calls
+itself «приёмка ночной работы» in line 2 — left, check 12 pins it to
+`main`.
+
+**One coordinator.** A second coordinator session wrote TASK-82…87 on
+this branch at 02:11 and 02:43 UTC while the baton sat with the
+coordinator. The user ruled that this session leads. TASK-82…87 are kept
+and queued; old task files are not rewritten (user, 23.09).
+
+Queue order: **TASK-81 → TASK-82 … TASK-87 → TASK-88 → TASK-77 → TASK-73 → TASK-74.**
 
 Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
@@ -281,8 +307,8 @@ Git stamps its commits from the real clock and those are correct; the
 `updated_at` field of `agent/STATE.json` is typed, always on a round
 minute, and ran up to **+232 minutes ahead** of real UTC during
 TASK-45/46 — two consecutive commits even carried the same value. This
-is not cosmetic: PROTOCOL §10 ends the shift at 10:00 Danang, so a
-four-hour drift ends the night a third early. The machine is on +07, so
+is not cosmetic: the coordinator reads `updated_at` to judge whether the
+executor is alive or stuck. The machine is on +07, so
 the wall clock is +07 — but the stamp is written in UTC with a `Z`, so
 the command is **`date -u +%Y-%m-%dT%H:%M:%SZ`** and never
 `TZ=Asia/Bangkok date` (TASK-76 ruling 1 on the REPORT-75 dispute: O0
