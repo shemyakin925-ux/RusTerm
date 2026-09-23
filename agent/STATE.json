@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-80.md",
  "report": "agent/REPORT-80.md",
- "item": "A2",
- "step": "A2 done: only agent/relay.py changed; hand now streams the run, saves it to <git-dir>/relay-acceptance.log and names the FAILED lines, the ПРОВАЛ checks and the log path. Redness quoted in REPORT-80 (Done #3) from a scratch test plus a real hand. Next: A3 (already measured, see Done #4).",
- "status": "working",
+ "item": "A3",
+ "step": "A3 measured and named: fresh linked-worktree acceptance at f45e07d is 13/13 green, so the i5 case does not fail because of the worktree; it fails on any untracked file in the tree acceptance runs in (selfcheck P3/P4, quoted in REPORT-80 Done #4). CONTEXT.md corrected. cmd_verify fix filed in Disputed #3. Queue for this ТЗ is empty; status awaiting_review.",
+ "status": "awaiting_review",
  "last_commit": "6cf14ce",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-23T01:44:12Z"
+ "updated_at": "2026-09-23T01:52:14Z"
 }

@@ -241,12 +241,15 @@ instead of passing vacuously. **TASK-37 I5** makes selfcheck and the hook run th
 extracts `p1_rule.sh` and `p6_rule.sh` from the index when staged, else
 from `HEAD`, names the source in its output, and an unstaged guard edit
 is red by itself. **I6** routes the git directory through `git rev-parse
---git-path` — except in `agent/p6_rule.sh`, which still reads
-`.git/COMMIT_EDITMSG` literally. Until **I7** lands, a declared
-`РАЗРЕШЕНИЕ-*` marker is invisible to P6 in any linked worktree (no
-error — `.git` is a file there, the test simply goes false), so an
-authorised edit reads as a violation. No I5 test drives that path: the
-green case stages only the guard, the red case is over-determined.
+--git-path`. This paragraph used to claim one exception — a guard still
+reading `.git/COMMIT_EDITMSG` as a literal, with an **I7** to fix it —
+and measured on TASK-80 A3 (`f45e07d`, 2026-09-23) the exception is not
+in the code: `agent/p6_rule.sh:75`, `agent/p1_rule.sh:36`,
+`agent/p7_relay_rule.sh:25` and `agent/selfcheck.sh:59` all take the
+message path from `git rev-parse --git-path COMMIT_EDITMSG`, which
+resolves to the per-worktree directory. A declared `РАЗРЕШЕНИЕ-*` marker
+is visible in a linked worktree: **I7** landed as
+`tests/test_i7_p6_worktree.py`, and the warning above predates it.
 
 **I5 cleans up after itself and survives a fresh tree (TASK-45
 M1–M3).** The guard test module restores `agent/p6_rule.sh` and
