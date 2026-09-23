@@ -108,17 +108,77 @@ the window, the instrumented no-raise sweep, the named command parses and
 updates, and both transcript doors still read real rows *after* the update (so
 the guard did not become a permanent dash).
 
-Red on the pre-fix tree, quoted as the task asked:
+Red on the pre-fix tree, quoted as the task asked (the run was `-q` on top of
+`addopts -q`, so pytest printed the nine `FAILED …` lines and no totals line):
 
 ```
->       per_model = {r[0]: r[1] for r in self.conn.execute(
-            "SELECT model, SUM(calls) FROM chat_transcript"
 E       sqlite3.OperationalError: no such table: chat_transcript
 ...
-9 failed in ...
+FAILED tests/test_desktop_f1_stale_schema.py::test_the_notice_names_the_catalog_both_versions_and_the_command
+FAILED tests/test_desktop_f1_stale_schema.py::test_a_current_base_has_nothing_to_say
+FAILED tests/test_desktop_f1_stale_schema.py::test_the_window_builds_on_the_stale_base_and_shows_the_notice
+FAILED tests/test_desktop_f1_stale_schema.py::test_the_window_does_not_migrate_the_base
+FAILED tests/test_desktop_f1_stale_schema.py::test_every_door_the_window_calls_at_startup_answers_without_raising
+FAILED tests/test_desktop_f1_stale_schema.py::test_the_command_the_window_names_is_parseable_and_updates_the_base
+FAILED tests/test_desktop_f1_stale_schema.py::test_after_the_update_the_same_doors_read_transcripts
+FAILED tests/test_desktop_f1_stale_schema.py::test_the_transcript_doors_say_words_and_the_rest_still_reads
+FAILED tests/test_desktop_f1_stale_schema.py::test_the_chat_box_offers_nothing_to_open_on_a_stale_base
 ```
 
 After the fix: `.........                                                        [100%]`.
+
+### F2 — двойной щелчок проверяет машина
+
+`tests/test_desktop_f2_double_click.py`, marker `firsthour` (registered, and
+deselected by `addopts` — `integration` would NOT have worked, it runs in the
+normal set). Explicit call:
+`python3 -m pytest -m firsthour tests/test_desktop_f2_double_click.py`.
+
+What the test does, in this order:
+
+1. builds the bundle with the same command the GUIDE names
+   (`python3 -m PyInstaller EquityLab.spec --noconfirm`), sending `--distpath`
+   and `--workpath` into the test's own tmp dir, so no 167 МБ trace stays in
+   the clone;
+2. launches it the way Finder does — `open -n -W --stdout … --stderr … <app>
+   --args --root <каталог>`. `open` is the point: the child gets no terminal
+   environment, which is exactly the ТЗ-81 B3 condition;
+3. waits 5 s and requires the process to be alive, counted by `pgrep -f` on the
+   absolute path of the binary inside THIS sandbox bundle (a stray
+   `EquityLab.app` of the user's own checkout is not matched);
+4. closes it: SIGTERM to the new pids, then SIGKILL to stragglers, and asserts
+   none are left;
+5. reads the captured stderr, so "жив" and "не упал" are two separate claims.
+
+Case 1: a catalog built by the current migrations. Case 2: the real
+schema-44 base from `tests/data/upgrade`. Both must be alive, case 2 also
+requires `no such table` absent from stderr.
+
+Measured, post-fix (the whole run, build included):
+
+```
+tests/test_desktop_f2_double_click.py::test_double_click_on_a_current_catalog_keeps_the_process_alive [f2] launch root=current alive_after_5.0s=1 stderr_bytes=0
+PASSED
+tests/test_desktop_f2_double_click.py::test_double_click_on_a_stale_schema_keeps_the_process_alive [f2] launch root=stale44 alive_after_5.0s=1 stderr_bytes=0
+PASSED
+============================== 2 passed in 50.69s ==============================
+```
+
+Measured, on the bundle built from `242656a` (before F1, kept aside at
+`/tmp/pre-f1-EquityLab.app`) through the very same helpers of this test file —
+case 2 red, with the reason the task asked to quote:
+
+```
+[f2] launch root=current alive_after_5.0s=1 stderr_bytes=0
+current: alive=True
+   stderr tail:
+[f2] launch root=stale44 alive_after_5.0s=0 stderr_bytes=1032
+stale44: alive=False
+   stderr tail:   File "rusterm/desktop/data.py", line 913, in llm_usage_line
+ |   File "rusterm/store/repos.py", line 2164, in calls_totals
+ | sqlite3.OperationalError: no such table: chat_transcript
+```
+
 
 ## Blocked
 
@@ -135,8 +195,12 @@ None.
   `current_schema_version` returns `None`) is *not* covered: `schema_notice`
   stays `None` and the doors of the sidebar would still raise. Out of F1's
   letter ("схема старше ожидаемой"); filed under Disputed.
-- The `.app` was not rebuilt for this commit; F2 re-measures the bundle, and
-  only that run will say whether the shipped app carries the fix.
+- F2 builds its bundle inside the test's `tmp_path` (`--distpath`/`--workpath`),
+  so the app it measured is gone with the temp dir; `dist/EquityLab.app` in the
+  clone is still the arrival-state build from `242656a`, i.e. before F1. The
+  artifact the user double-clicks is rebuilt by whoever ships it — this round
+  proves the *source* passes the double-click test, not that a stored `.app`
+  somewhere on disk carries the fix.
 
 ## Disputed
 
@@ -166,6 +230,8 @@ None.
 | 4 | `python3 -m pytest tests/test_desktop_f1_stale_schema.py -q` (до правки) | 9 failed, цитата выше |
 | 5 | то же после правки | 9 passed `[100%]` |
 | 6 | прогон окна с обёрнутыми дверями (скрипт, не тест) | `errors: []`, список дверей в `## Done` |
+| 7 | `python3 -m pytest -m firsthour tests/test_desktop_f2_double_click.py -o addopts="" -v -s` | `2 passed in 50.69s`, сборка + оба запуска живы |
+| 8 | те же хелперы поверх `/tmp/pre-f1-EquityLab.app` (сборка из `242656a`) | current жив; stale44 `alive=False`, stderr `no such table: chat_transcript` |
 
 Nothing here touched `~/equitylab` or `~/.rusterm` for writing: both were
 replaced by sandbox `HOME` in tests and probes; the bundle runs above were given
@@ -173,6 +239,6 @@ an explicit `--root` under `/tmp`.
 
 ## HANDOFF
 
-Status: IN PROGRESS — F1 committed, F2 and F3 next in this round.
-Items done: приём круга (STATE + отчёт), F1
+Status: IN PROGRESS — F1 and F2 committed, F3 next in this round.
+Items done: приём круга (STATE + отчёт), F1, F2
 Questions: see Disputed 1 (which command the line should name).
