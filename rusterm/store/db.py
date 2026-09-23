@@ -780,6 +780,19 @@ def current_schema_version(conn: sqlite3.Connection) -> Optional[int]:
         return None
 
 
+def has_table(conn: sqlite3.Connection, name: str) -> bool:
+    """Есть ли в этой базе такая таблица.
+
+    Слой интерфейса читает базы, которые могут отставать от кода
+    (ТЗ-95 F1: у пользователя `~/.rusterm` — схема 44, таблицы разговоров
+    там нет). Спрашивать надо без исключения, иначе просмотр отставшей
+    базы падает вместо того, чтобы сказать словами.
+    """
+    return conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (name,)).fetchone() is not None
+
+
 def open_connection(paths: AppPaths) -> sqlite3.Connection:
     """Единая точка открытия соединения приложения: WAL, FK, row_factory."""
     conn = sqlite3.connect(str(paths.db_path), timeout=30,

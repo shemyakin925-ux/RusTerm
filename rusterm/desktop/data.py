@@ -20,13 +20,15 @@ import datetime
 import io
 import json
 import os
+import shlex
 import sqlite3
 import uuid
 from pathlib import Path
 from typing import Optional
 
 from rusterm.core.export import snapshot_to_csv, snapshot_to_md
-from rusterm.store.db import current_schema_version, open_connection
+from rusterm.store.db import (_SCHEMA_VERSION, current_schema_version,
+                              has_table, open_connection)
 from rusterm.store.paths import AppPaths
 from rusterm.tui import model as tui_model
 
@@ -40,6 +42,11 @@ NO_SECTOR = "без отрасли"
 # минимум (ТЗ-81 B2) — пустую колонку рисовать нельзя. Сверх этого
 # число решает ширина окна (C1.2)
 DEFAULT_YEAR_COLUMNS = 4
+
+# Разговоры живут в таблице, добавленной миграцией 45 (ТЗ-36 H1). В базе,
+# отставшей от кода, её нет — двери разговоров отвечают словами, а не
+# исключением (ТЗ-95 F1).
+TRANSCRIPT_TABLE = "chat_transcript"
 
 
 def open_readonly(root: str | Path) -> tuple[AppPaths, Optional[sqlite3.Connection]]:
@@ -73,10 +80,32 @@ def header_info(repos) -> dict:
     БЕЗ тихой миграции: окно читает). «Запросов сегодня» — агрегат
     хранилища (requests_used_today, ТЗ-61 F1): одно число из одной
     двери для окна и rusterm status, окно не суммирует само.
+
+    «schema_notice» (ТЗ-95 F1) — одна строка словами, когда база в этом
+    каталоге отстала от программы: окно не мигрирует (ADR-0023), поэтому
+    называет команду, которой пользователю поднять схему. Актуальная база
+    — None: это строка про отставание, а не постоянная подпись шапки.
     """
-    return {"schema_version": current_schema_version(repos.conn)
-            if hasattr(repos, "conn") else None,
-            "requests_today": repos.metrics.requests_used_today()}
+    schema = (current_schema_version(repos.conn)
+              if hasattr(repos, "conn") else None)
+    return {"schema_version": schema,
+            "requests_today": repos.metrics.requests_used_today(),
+            "schema_notice": _stale_schema_notice(repos, schema)}
+
+
+def _stale_schema_notice(repos, observed: Optional[int]) -> Optional[str]:
+    """Что сказать об отставшей базе (ТЗ-95 F1).
+
+    Команда с явным `--root`: окно открыло каталог по одному из четырёх
+    правил (ТЗ-90 A5), и опустить его здесь значило бы предложить
+    пользователю поднять не ту базу, которую он видит.
+    """
+    if observed is None or observed >= _SCHEMA_VERSION:
+        return None
+    root = str(repos.paths.root)
+    return (f"база в {root} — схема {observed}, программе нужна "
+            f"{_SCHEMA_VERSION}; обновите: rusterm --root "
+            f"{shlex.quote(root)} init")
 
 
 # ── Левая колонка: поиск и дерево отраслей (C1.1) ────────────────────────
@@ -887,6 +916,10 @@ def chat_sessions(repos) -> list[dict]:
     ChatTranscriptRepo.list_sessions: SQL живёт в rusterm/store, а не
     здесь (инвариант I10). Таблица та же, что читает
     rusterm export --chat."""
+    if not has_table(repos.conn, TRANSCRIPT_TABLE):
+        # ТЗ-95 F1: в отставшей базе таблицы разговоров ещё нет — пустой
+        # перечень, а не исключение: про отставание говорит строка шапки.
+        return []
     return repos.chat_transcript.list_sessions()
 
 
@@ -910,6 +943,10 @@ def llm_usage_line(repos) -> str:
     """C7.2: вызовы — из calls_totals(), того же места, что
     rusterm status. Ключ модели не показывается никогда: в строке
     только счётчики."""
+    if not has_table(repos.conn, TRANSCRIPT_TABLE):
+        # ТЗ-95 F1: та же деградация, что у перечня: прочерк — то же
+        # слово, что окно говорит без базы вовсе.
+        return "вызовы: —"
     totals = repos.chat_transcript.calls_totals()
     per = ", ".join(f"{model}: {calls}" for model, calls
                     in sorted(totals["per_model"].items()))

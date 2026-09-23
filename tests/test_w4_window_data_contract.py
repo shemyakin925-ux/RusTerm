@@ -227,7 +227,7 @@ CONTRACTS: dict[str, list] = {
     "governance_view": (
         lambda c: data.governance_view(_table(c)["card"]), ["rows"]),
     "header_info": (lambda c: data.header_info(c["repos"]),
-                    ["schema_version", "requests_today"]),
+                    ["schema_version", "requests_today", "schema_notice"]),
     "host_limits_view": (lambda c: data.host_limits_view(c["paths"]),
                          "limit_rows"),
     "industry_chart_spec": (

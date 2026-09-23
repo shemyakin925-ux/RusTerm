@@ -112,6 +112,13 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     status = QLabel(objectName="status")
     header.addWidget(status)
     root_layout.addLayout(header)
+    # ТЗ-95 F1: отставшая от кода база — не падение окна, а одна строка
+    # под шапкой: какие схемы сошлись и какой командой поднять базу.
+    # Окно по-прежнему только читает (ADR-0023).
+    schema_notice = QLabel(objectName="schema_notice")
+    schema_notice.setWordWrap(True)
+    schema_notice.setVisible(False)
+    root_layout.addWidget(schema_notice)
 
     body = QSplitter(Qt.Orientation.Horizontal)
     root_layout.addWidget(body, 1)
@@ -324,10 +331,15 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     def repaint_header() -> None:
         if repos is None:
             status.setText("")
+            schema_notice.setText("")
+            schema_notice.setVisible(False)
             return
         info = data.header_info(repos)
         budget = desktop_actions.budget_view(repos)
         schema = info["schema_version"]
+        notice = info["schema_notice"]
+        schema_notice.setText(notice or "")
+        schema_notice.setVisible(bool(notice))
         status.setText(
             f"схема {schema if schema is not None else '—'}"
             f" · запросов сегодня {budget['used_today']}"
