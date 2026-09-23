@@ -137,7 +137,43 @@ also reds on *uncommitted coordinator files* — measured twice this round.
 TASK-80 A3 requires the cause measured and the test either fixed or
 honestly skipped.
 
-Queue order: **TASK-80 → TASK-77 → TASK-73 → TASK-74.**
+## Measured 23.09 from the user's screenshot — two coordinator errors
+
+**The five-paper base exists.** It lives in `/Users/anton/equitylab`
+(schema 45; AAPL, ADBE, KSPI, MSFT, VALE, VZ; watchlist «Мой список»;
+28 snapshots), not in the default root. Round 100's «only US-AAPL
+remains» was measured against `~/.rusterm` — the default root, schema
+43, a forgotten leftover. **The coordinator accepted that measurement
+and built TASK-77 on it; TASK-77 is rewritten.** Standing rule earned:
+**when measuring «the live base», name the directory you measured** —
+the default root and the user's working catalog are different things.
+
+Values on the real base: AAPL 40 of 56 measures valued, ADBE 40, MSFT
+184 of 504, VZ 14, VALE 12, **KSPI 0**; all six registered on market
+`US` (KSPI and VALE as depositary receipts).
+
+**The user runs a branch without any of our work.** Their checkout is on
+`agent/night-13`, which is missing **124 commits** of the shift branch
+(merge base `5357b51`, TASK-C10). Every symptom in the screenshot — the
+stale-input wall instead of one line (Д4), the «no lists» label under a
+selected list (Д2), the empty history (V1) — is that branch, not a
+broken fix. TASK-81 B1 brings the one night-13 commit over and makes the
+shift branch fast-forwardable into `main`.
+
+**Even on the shift branch the year columns are mostly empty.** Measured
+on the real base with shift-branch code: the 2026 cell fills (20
+measures, `asset_turnover` = 0.2901) while 2025/2024/2023 say «нет
+данных», because every snapshot was taken in 2026 and the measure period
+is June 2026. The «no empty column» rule only fires when history is
+empty *entirely*. TASK-81 B2 extends it to partially empty tables.
+
+**The `.app` is not reproducible.** TASK-C10 built `dist/EquityLab.app`
+with `--windowed`, but its spec file is in `.gitignore`, so the build
+exists only as a local artifact from lane-C-era code — and the user
+launches `python3`, which is why a Terminal window sits beside the app.
+TASK-81 B3 puts the spec in the repository.
+
+Queue order: **TASK-80 → TASK-81 → TASK-77 (rewritten) → TASK-73 → TASK-74.**
 
 Accepted:
 TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
