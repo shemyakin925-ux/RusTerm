@@ -36,9 +36,10 @@ NO_DATA = "нет данных"
 # Инструменты без peer set группируются честно названной строкой
 NO_SECTOR = "без отрасли"
 
-# Минимум годовых колонок; сколько показать сверх того, решает
-# ширина окна (C1.2)
-MIN_YEAR_COLUMNS = 4
+# Сколько годовых колонок просит окно по умолчанию: это ПОТОЛОК, а не
+# минимум (ТЗ-81 B2) — пустую колонку рисовать нельзя. Сверх этого
+# число решает ширина окна (C1.2)
+DEFAULT_YEAR_COLUMNS = 4
 
 
 def open_readonly(root: str | Path) -> tuple[AppPaths, Optional[sqlite3.Connection]]:
@@ -206,21 +207,53 @@ def format_value(value) -> str:
         return str(value)
 
 
-def history_years(card: dict, count: int = MIN_YEAR_COLUMNS) -> list[str]:
-    """Годовые колонки: от свежайшего периода мер вниз, минимум четыре.
+def history_years(card: dict, count: int = DEFAULT_YEAR_COLUMNS,
+                  history: dict | None = None) -> list[str]:
+    """Годовые колонки: только те годы, где хотя бы одна мера имеет значение.
 
-    Периодов нет вовсе — якорем текущий год: колонки есть и честно
-    говорят «нет данных», окно не схлопывается.
+    ТЗ-81 B2: правило ТЗ-72 Д1 («пустую колонку не рисуют») распространено
+    на частично пустую таблицу. Прежняя версия выдавала ровно `count`
+    колонок от года самого свежего периода вниз и додумывала текущий год,
+    когда периодов нет вовсе, — на живой базе пользователя это четыре
+    колонки, из них заполнена одна.
+
+    `count` — потолок (окно считает его из ширины), а не минимум: один год
+    законен, четыре пустых — нет. Значений нет ни в одном году — колонок
+    нет, и вызывающий обязан сказать это словами (`suggestion`).
     """
-    periods = [m.get("period") for m in card.get("measures", [])
-               if m.get("period")]
-    try:
-        anchor = max(periods)[:4]
-        anchor_year = int(anchor)
-    except (ValueError, TypeError):
-        anchor_year = datetime.date.today().year
-    count = max(count, MIN_YEAR_COLUMNS)
-    return [str(anchor_year - i) for i in range(count)]
+    concepts = {m.get("concept") for m in card.get("measures", [])}
+    filled = [year for year, cells in (history or {}).items()
+              if any(concept in concepts for concept in cells)]
+    return sorted(filled, reverse=True)[: max(count, 1)]
+
+
+def snapshot_span(repos, instrument_id: str) -> Optional[tuple[str, str]]:
+    """Границы дат снапшотов бумаги — через дверь store (I10: SQL живёт
+    в rusterm/store, здесь только чтение её результата)."""
+    dates = sorted({s["as_of"] for s in
+                    repos.snapshot.snapshots_of_instrument(instrument_id)
+                    if s["as_of"]})
+    return (dates[0], dates[-1]) if dates else None
+
+
+def _years_word(n: int) -> str:
+    """Склонение числа лет: 1 год, 2 года, 5 лет; 11–14 — лет."""
+    if 11 <= n % 100 <= 14:
+        return "лет"
+    return {1: "год", 2: "года", 3: "года", 4: "года"}.get(n % 10, "лет")
+
+
+def history_note(repos, instrument_id: str, shown_years: int) -> Optional[str]:
+    """Почему лет ровно столько, сколько видно (ТЗ-81 B2): число колонок и
+    границы снапшотов из самой базы, не константа. Даты сказать нечем —
+    строки нет."""
+    span = snapshot_span(repos, instrument_id)
+    if span is None:
+        return None
+    lo, hi = span
+    dates = (f"снапшот от {lo}" if lo == hi
+             else f"снапшоты с {lo} по {hi}")
+    return f"история за {shown_years} {_years_word(shown_years)}: {dates}"
 
 
 def measure_history(repos, instrument_id: str) -> dict[str, dict[str, float]]:
@@ -248,7 +281,7 @@ NO_HISTORY_HINT = ("истории мер нет: посчитайте ряд о
 
 
 def measure_table_rows(repos, instrument_id: str,
-                       year_count: int = MIN_YEAR_COLUMNS) -> dict:
+                       year_count: int = DEFAULT_YEAR_COLUMNS) -> dict:
     """Строки центральной таблицы из card_rows: сейчас + годы.
 
     Ячейка без значения — слова «нет данных», и в текущей колонке, и
@@ -258,19 +291,20 @@ def measure_table_rows(repos, instrument_id: str,
     История приходит формой ``{год: {концепт: значение}}`` — ячейка
     года N читается как history[год][концепт] (ТЗ-75 V1), а год —
     период меры (ТЗ-76 W3): ячейка, отнесённая к году прогона потому,
-    что у меры нет периода, помечена ``RUN_YEAR_MARK``. Истории нет
-    ни у одной меры — годовые колонки не рисуются (пустая колонка
-    запрещена, ТЗ-72 Д1), а ``suggestion`` несёт исполнимую строку
-    «посчитать ряд одним действием»."""
+    что у меры нет периода, помечена ``RUN_YEAR_MARK``. Годовые
+    колонки — только годы со значением хотя бы у одной меры (ТЗ-81 B2,
+    правило ТЗ-72 Д1 и для частично пустой таблицы); ``year_count`` —
+    потолок, а не минимум. Колонок нет вовсе — ``suggestion`` несёт
+    исполнимую строку «посчитать ряд одним действием»; колонок меньше
+    потолка — ``history_note`` говорит словами, почему."""
     card = tui_model.card_rows(repos, instrument_id)
     history = measure_history(repos, instrument_id)
     basis = measure_history_basis(repos, instrument_id)
-    if history:
-        years = history_years(card, year_count)
-        suggestion = None
-    else:
-        years = []
-        suggestion = NO_HISTORY_HINT.format(instrument_id=instrument_id)
+    years = history_years(card, year_count, history)
+    suggestion = None if years else NO_HISTORY_HINT.format(
+        instrument_id=instrument_id)
+    note = (history_note(repos, instrument_id, len(years))
+            if years and len(years) < max(year_count, 1) else None)
     summary = tui_model.measure_summary(
         [(m.get("value"), m.get("null_reason"))
          for m in card["measures"]])
@@ -316,6 +350,7 @@ def measure_table_rows(repos, instrument_id: str,
         "years": years,
         "card": card,
         "suggestion": suggestion,
+        "history_note": note,
         "summary": summary,
         "summary_line": summary_line,
     }

@@ -279,7 +279,8 @@ def _assert_shape(kind, value):
         _check_company_rows(value)
     elif kind == "table":
         for key in ("instrument_id", "ticker", "name", "measures", "years",
-                    "card", "suggestion", "summary", "summary_line"):
+                    "card", "suggestion", "history_note", "summary",
+                    "summary_line"):
             assert key in value, key
         for row in value["measures"]:
             for key in ("concept", "current", "years", "has_value",

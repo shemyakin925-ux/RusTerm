@@ -498,9 +498,12 @@ def _build_window(repos, paths, watchlist_id=None):
         repaint_settings()
         # ТЗ-75 V1: истории нет — под таблицей исполнимая строка
         # «посчитать ряд одним действием», а не стена пустых колонок;
-        # ТЗ-72 S5: тонкий источник — слова вместо стены прочерков
+        # ТЗ-72 S5: тонкий источник — слова вместо стены прочерков;
+        # ТЗ-81 B2: колонок меньше запрошенных — словами почему
         source_panel.setText(info.get("suggestion")
-                             or info.get("summary_line")
+                             or " · ".join(x for x in
+                                           (info.get("history_note"),
+                                            info.get("summary_line")) if x)
                              or "клик по ячейке — панель источника")
         # ТЗ-72 Д4: панель источника новой бумаги — свёрнутая
         state["source_measure_row"] = None

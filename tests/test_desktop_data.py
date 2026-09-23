@@ -201,6 +201,10 @@ def test_search_and_tree_coherence(env):
 # ── C1.2: таблица «сейчас плюс годы истории» ─────────────────────────────
 
 def test_measure_table_no_data_by_words_in_every_column(env):
+    """ТЗ-72 C1.2 в силе, ТЗ-81 B2 его усиливает: «нет данных» словами
+    — в каждой ячейке меры, которая молчит, а колонка, в которой молчат
+    все, не рисуется вовсе. Прежняя проверка требовала >= 4 колонок и
+    потому проверяла обещание данных, которых нет."""
     repos, _ = env
     table = data.measure_table_rows(repos, "US-AAA")
     rows = {r["concept"]: r for r in table["measures"]}
@@ -209,8 +213,12 @@ def test_measure_table_no_data_by_words_in_every_column(env):
     assert all(cell == data.NO_DATA
                for cell in rows["roe"]["years"].values())
     assert rows["net_margin"]["current"] == "0.2043"
-    assert len(table["years"]) >= data.MIN_YEAR_COLUMNS
-    assert table["years"][0] == "2024"
+    # в этой базе значение есть только за 2024 — значит одна колонка
+    assert table["years"] == ["2024"], table["years"]
+    for year in table["years"]:
+        assert any(r["years"][year] != data.NO_DATA
+                   for r in table["measures"]), \
+            f"колонка {year} без единого значения — рисовать нельзя"
 
 
 def test_history_returns_snapshotted_years(env):
@@ -250,19 +258,32 @@ def history_env(tmp_path):
     repos.snapshot.insert_measure(
         "m-nm-2024", "s-2024", "issuer", "i-AAA", "net_margin", "0.2043",
         "ratio", "2024-01-01", "2024-12-31", "f-1", "v1", None, None)
+    # ТЗ-81 B2: мера с одним годом внутри колонки, которую заполняет
+    # другая, — носитель слова «нет данных»; 2023 для неё пуст, но
+    # колонка 2023 законна (её держит net_margin)
+    repos.snapshot.insert_measure(
+        "m-rev-2024", "s-2024", "issuer", "i-AAA", "revenue",
+        "416161000000", "USD", "2024-01-01", "2024-12-31", "f-3", "v1",
+        None, None)
     yield repos, paths
     conn.close()
 
 
 def test_history_cells_carry_snapshotted_values(history_env):
     """ТЗ-75 V1: содержимое таблицы, а не форма словаря — у меры есть
-    значение за год N, и это же значение стоит в ячейке года N."""
+    значение за год N, и это же значение стоит в ячейке года N.
+    ТЗ-81 B2: годом раньше тут стояло `years["2022"] == NO_DATA` — теперь
+    2022 нет ни в колонках, ни в ячейке, а словом «нет данных» остаётся
+    ячейка revenue внутри колонки 2023, которую держит net_margin."""
     repos, _ = history_env
     table = data.measure_table_rows(repos, "US-AAA")
     rows = {r["concept"]: r for r in table["measures"]}
     assert rows["net_margin"]["years"]["2024"] == "0.2043"
     assert rows["net_margin"]["years"]["2023"] == "0.226"
-    assert rows["net_margin"]["years"]["2022"] == data.NO_DATA
+    assert table["years"] == ["2024", "2023"], table["years"]
+    assert "2022" not in rows["net_margin"]["years"]
+    assert rows["revenue"]["years"]["2024"] == "416161000000"
+    assert rows["revenue"]["years"]["2023"] == data.NO_DATA
 
 
 def test_history_year_is_the_measure_period(env):
@@ -367,12 +388,17 @@ def test_run_year_fallback_shows_in_the_cell(no_period_env):
 
 def test_run_year_mark_does_not_steal_the_chart_point(no_period_env):
     """ТЗ-76 W3: пометка — аннотация отображения, а не ещё один отказ:
-    клетка «0.2 · год прогона» остаётся точкой линии, а не разрывом."""
+    клетка «0.2 · год прогона» остаётся точкой линии, а не разрывом.
+    ТЗ-81 B2: прежний ряд был [0.2, None, None, None] — три разрыва из
+    трёх пустых колонок; теперь колонок столько, сколько лет со
+    значением, и ряд обязан сохранить ту же точку, не потеряв её."""
     repos, _ = no_period_env
     table = data.measure_table_rows(repos, "US-AAA")
+    assert table["years"] == ["2026"], table["years"]
     spec = data.chart_spec("line", table, None, "net_margin")
     assert spec["kind"] == "line"
-    assert spec["values"] == [0.2, None, None, None]
+    assert spec["values"] == [0.2]
+    assert spec["years"] == [2026]
 
 
 @pytest.fixture()
@@ -436,6 +462,80 @@ def test_source_panel_collapses_stale_inputs(stale_env):
                  if "устаревший (последний" in l]
     assert len(per_entry) == 25
     assert "устаревших входов:" not in detail["text"]
+
+
+@pytest.fixture()
+def one_year_env(tmp_path):
+    """ТЗ-81 B2: форма живой базы пользователя — все снапшоты одного года
+    (2026), период мер — июнь 2026. Три прочие колонки нынешнего
+    правила стоят пустыми."""
+    paths = AppPaths.from_root(tmp_path / "one-year")
+    ensure_app_dir(paths)
+    conn = _connect(paths)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        "i-AAA", "Alpha Alpha", "US", None, None, "us-gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        "US-AAA", "i-AAA", None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        "l-AAA", "US-AAA", "XNAS", "USD", 1, None, None))
+    repos.instrument.add_ticker_history(
+        "l-AAA", "AAA", "2000-01-01", None, None, None)
+    repos.snapshot.create_snapshot("s-jun", "US-AAA", 1, "2026-06-30",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-jun", "s-jun", "issuer", "i-AAA", "net_margin", "0.2043",
+        "ratio", "2026-01-01", "2026-06-30", "f-1", "v1", None, None)
+    repos.snapshot.create_snapshot("s-sep", "US-AAA", 2, "2026-09-22",
+                                   None, None, "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-sep", "s-sep", "issuer", "i-AAA", "net_margin", "0.21",
+        "ratio", "2026-01-01", "2026-06-30", "f-2", "v1", None, None)
+    yield repos, paths
+    conn.close()
+
+
+def test_only_years_with_values_get_a_column(one_year_env):
+    """ТЗ-81 B2: колонку года рисуют, только если хотя бы одна мера имеет
+    значение за этот год. Всё значение в 2026 — значит одна колонка;
+    три «нет данных» рядом были бы обещанием данных, которых нет
+    (правило ТЗ-72 Д1, распространено на частично пустую таблицу)."""
+    repos, _ = one_year_env
+    table = data.measure_table_rows(repos, "US-AAA")
+    assert table["years"] == ["2026"], table["years"]
+    rows = {r["concept"]: r for r in table["measures"]}
+    assert list(rows["net_margin"]["years"]) == ["2026"]
+    assert rows["net_margin"]["years"]["2026"] != data.NO_DATA
+    assert table["suggestion"] is None, "год есть — исполнимая строка не нужна"
+
+
+def test_note_says_why_the_years_are_few(one_year_env):
+    """ТЗ-81 B2: окно говорит словами, ПОЧЕМУ лет столько — из данных, не
+    из константы: число колонок и границы дат снапшотов."""
+    repos, _ = one_year_env
+    table = data.measure_table_rows(repos, "US-AAA")
+    note = table["history_note"]
+    assert note is not None, "лет меньше запрошенных — окно обязано объяснить"
+    assert note.startswith("история за 1 год"), note
+    assert "2026-06-30" in note and "2026-09-22" in note, note
+
+
+def test_full_history_has_no_apology(one_year_env, tmp_path):
+    """Обратный случай той же правды: четыре года со значениями — колонки
+    все четыре, и объяснять «почему лет мало» нечего."""
+    repos, _ = one_year_env
+    for year in ("2025", "2024", "2023"):
+        sid = f"s-{year}"
+        repos.snapshot.create_snapshot(sid, "US-AAA", int(year[-1]),
+                                       f"{year}-06-30", None, None, "ready")
+        repos.snapshot.insert_measure(
+            f"m-{year}", sid, "issuer", "i-AAA", "net_margin", "0.2",
+            "ratio", f"{year}-01-01", f"{year}-12-31", "f-x", "v1",
+            None, None)
+    table = data.measure_table_rows(repos, "US-AAA")
+    assert table["years"] == ["2026", "2025", "2024", "2023"], table["years"]
+    assert table["history_note"] is None
 
 
 def test_no_history_no_year_columns_and_command_offered(env):

@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-81.md",
  "report": "agent/REPORT-81.md",
- "item": "B2",
- "step": "B1 done: 0472136 cherry-picked onto the shift branch (6 files, 70/70 added lines proven present), fast-forward into main verified, user command named in REPORT-81",
+ "item": "B3",
+ "step": "B2 closed: a year column is drawn only where at least one measure has a value (DEFAULT_YEAR_COLUMNS is now a ceiling), the window says why in words (history_note from snapshot dates, not a constant), measured on the user's base AAPL 4 columns -> 1 with all 20 filled cells kept, full suite 1086 passed. Starting B3 (reproducible .app build).",
  "status": "working",
- "last_commit": "6cf14ce",
+ "last_commit": "3f7dcc9",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-23T04:53:15Z"
+ "updated_at": "2026-09-23T05:58:41Z"
 }

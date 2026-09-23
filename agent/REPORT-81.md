@@ -196,3 +196,147 @@ Questions for the coordinator:
 1. After B1 the user can switch to the shift branch; do you want LAUNCH.md rewritten to that one command, or is naming it in this report enough for now?
 
 NOW: B2, step 1
+
+## Done #3 — B2 (an unfillable year column is not drawn)
+
+**Redness first, as the task demands.** Four new tests, run against the
+code as it stood at `3f7dcc9`:
+
+```
+$ python3 -m pytest tests/test_desktop_data.py::test_only_years_with_values_get_a_column \
+    tests/test_desktop_data.py::test_note_says_why_the_years_are_few \
+    tests/test_desktop_data.py::test_full_history_has_no_apology \
+    tests/test_desktop_window.py::test_one_year_table_is_straight_and_says_why \
+    -o addopts='--strict-markers -m "not live"' -p no:randomly -q
+E   AssertionError: ['2026', '2025', '2024', '2023']
+E   KeyError: 'history_note'
+E   AssertionError: мера + сейчас + один год
+E   assert 8 == 3
+4 failed in 1.39s
+```
+
+`assert 8 == 3` is the whole disease in one line: an 8-column table for a
+paper whose every value lives in one year.
+
+`rusterm/desktop/data.py`:
+
+- `history_years()` used to emit exactly `count` years stepping down from
+  the newest measure period, and invented the current year when there was
+  no period at all. It now takes the history itself and keeps only years
+  where at least one measure of this card has a value — the ТЗ-72 Д1 rule
+  applied to a *partially* empty table, not just an entirely empty one.
+  `count` became a ceiling (`DEFAULT_YEAR_COLUMNS`, renamed from
+  `MIN_YEAR_COLUMNS`, which is now a lie), and the window's
+  `max(4, width // 90)` stays a request, not a floor.
+- `snapshot_span()` reads the paper's snapshot dates through the store
+  door (`repos.snapshot.snapshots_of_instrument`) — no SQL in this module
+  (I10), no constant.
+- `history_note()` words why the count is what it is:
+  `история за 1 год: снапшот от 2026-09-21`, plural-aware
+  (`_years_word`: год/года/лет, 11–14 → лет), `снапшоты с X по Y` when the
+  base spans several dates. It is attached to the table as
+  `history_note`, and only when fewer columns are shown than were asked
+  for — a full history gets no apology (`test_full_history_has_no_apology`).
+- `measure_table_rows()` no longer branches on `if history:`: columns come
+  from the values, `suggestion` fires when the filtered list is empty, and
+  the new key joins the W4 window-data contract list.
+
+`rusterm/desktop/window.py`: the source panel line is
+`suggestion or " · ".join(history_note, summary_line) or <hint>` — the
+explanation and the thin-source summary do not crowd each other out.
+`test_one_year_table_is_straight_and_says_why` checks the single-year
+table does not come apart: 3 columns, headers `мера/сейчас/2024`, no
+missing cell items, and both `история за 1 год` and the snapshot date in
+the panel.
+
+**Three assertions pinned the old promise and were replaced, not relaxed**
+(`ЗАМЕНА-БУЛАВКИ` declared per line in the commit body, assert delta
+measured in `tests/test_desktop_data.py`: 4 lines removed, 18 added):
+
+| removed | why the replacement is stronger |
+|---|---|
+| `len(table["years"]) >= data.MIN_YEAR_COLUMNS` | `table["years"] == ["2024"]` + a loop asserting every drawn column carries at least one non-`NO_DATA` cell: the old line demanded four columns, i.e. it *demanded* the broken promise |
+| `table["years"][0] == "2024"` | subsumed by the exact list equality above |
+| `rows["net_margin"]["years"]["2022"] == data.NO_DATA` | `"2022" not in rows[…]` plus `rows["revenue"]["years"]["2023"] == data.NO_DATA` — the word-in-a-cell survives where it is legal (a measure silent inside a column another measure fills); the fixture gained that second measure for exactly this case |
+| `spec["values"] == [0.2, None, None, None]` | `spec["values"] == [0.2]` + `spec["years"] == [2026]`: the marked cell still yields its point, and the three `None`s that used to be asserted were three empty columns |
+
+**Measured on the user's real base** (`/Users/anton/equitylab`, read-only
+connection, no writes; `data.measure_table_rows` per instrument, columns
+and filled year cells before → after):
+
+```
+before (3f7dcc9):  US-AAPL  years ['2026','2025','2024','2023']  rows 28  filled cells 20
+                   (2026 → 20, 2025 → 0, 2024 → 0, 2023 → 0)
+after  (working tree):
+US-AAPL  cols=1 ['2026']                    filled=20  note='история за 1 год: снапшот от 2026-09-21'
+US-ADBE  cols=1 ['2026']                    filled=20  note='история за 1 год: снапшот от 2026-09-21'
+US-KSPI  cols=0 []                          filled=0   note=None  suggestion='истории мер нет: …'
+US-MSFT  cols=4 ['2026','2024','2023','2022'] filled=47  note=None
+US-VALE  cols=1 ['2012']                    filled=6   note='история за 1 год: снапшот от 2026-09-21'
+US-VZ    cols=1 ['2026']                    filled=7   note='история за 1 год: снапшот от 2026-09-21'
+```
+
+AAPL keeps all 20 filled cells and loses three empty columns — the answer
+to the task's «сколько колонок и сколько заполненных ячеек» is **4 → 1
+columns, 20 → 20 filled cells**. MSFT is the interesting one: its 2025 has
+no values at all and drops out while 2022/2023/2024 stay, so the rule is
+「год со значением», not «последние N лет подряд». KSPI (0 valued measures,
+TASK-61 F4's case) now gets the executable line instead of four columns of
+«нет данных».
+
+Full suite after the change, one run at a time (a second concurrent run
+was started by mistake and its I5 demo mutation of `agent/p6_rule.sh`
+showed up staged while both were alive; it restored itself, `git status`
+afterwards is only the five files of this item):
+
+```
+$ python3 -m pytest tests/ -o addopts='--strict-markers -m "not live"' -p no:randomly -q
+1086 passed, 2 skipped, 11 deselected, 4 xfailed, 3 warnings in 767.07s (0:12:47)
+```
+
+## Blocked #3
+
+None.
+
+## What not to trust #3
+
+- The `history_note` fires only when fewer columns are drawn than the
+  window asked for. MSFT asks 4, gets 4, and says nothing — even though
+  its 2025 hole was dropped. Explaining a *non-contiguous* year set is a
+  real gap in this item, not covered by the task's Done-when; if the
+  coordinator wants it, it is a one-line change of the trigger condition.
+- The user's base was measured, not modified: `sqlite3.connect(uri
+  mode=ro)` was used on purpose, because `open_connection()` executes
+  `PRAGMA journal_mode=WAL`, which is a write.
+- No screenshot of the running window exists for the single-year case:
+  the assertions come from the offscreen `QTableWidget` in
+  `test_desktop_window.py`, which is what the press tests drive, not from
+  a human-visible run.
+
+## Disputed #3
+
+- The task's example string is «история за 1 год: снапшоты с <дата> по
+  <дата>». With one snapshot date both bounds are the same day, and
+  repeating it («с 2026-09-21 по 2026-09-21») is the kind of wording this
+  project calls a lie; the note says «снапшот от 2026-09-21». "вида" in
+  the Done-when was read as a pattern, not a template — flagging it in
+  case the coordinator reads it the other way.
+
+## HANDOFF #3
+
+Status: PARTIAL (B0, B1 and B2 done, B3 ahead)
+Arrival state: acceptance «пройдено 11, провалено 2» on efa215e, both reds L3; repaired by 46c0c3b
+Items done: B1, B2
+Items not done: B3 — not started at the time of this block
+Acceptance: full run by the pre-commit hook on this tree
+Tests: 30 passed in tests/test_desktop_data.py, 74 in the window+contract pair, 1086 in the full suite
+Guards: none touched
+Schema: unchanged
+Network: 0 requests of the PyInstaller-only budget so far
+Model: Qoder executor (model id not exposed)
+Secrets: staged diff grepped for each of the four key names — 0 hits
+Pushed: yes
+Questions for the coordinator:
+1. Should the note also fire for a non-contiguous year set (MSFT's missing 2025), or is «колонок меньше запрошенных» the right trigger for now?
+
+NOW: B3, step 1

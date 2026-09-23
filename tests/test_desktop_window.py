@@ -850,6 +850,27 @@ def test_s1_chat_sessions_box_lists_the_door_and_header_is_inert(qapp, env):
     window2.close()
 
 
+def test_one_year_table_is_straight_and_says_why(qapp, env):
+    """ТЗ-81 B2: после отбора остаётся один год — это законно, одна
+    колонка лучше четырёх пустых. Таблица в этом случае не разъезжается,
+    и окно словами говорит, почему лет столько: границы снапшотов из
+    самой базы, не константа."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    table = _widget(window, QTableWidget, "table")
+    assert table.columnCount() == 3, "мера + сейчас + один год"
+    headers = [table.horizontalHeaderItem(c).text()
+               for c in range(table.columnCount())]
+    assert headers == ["мера", "сейчас", "2024"], headers
+    for row in range(table.rowCount()):
+        assert all(table.item(row, col) is not None
+                   for col in range(table.columnCount())), row
+    panel = _widget(window, QLabel, "source_panel")
+    assert "история за 1 год" in panel.text(), panel.text()
+    assert "2026-09-01" in panel.text(), panel.text()
+
+
 def test_s1_tabs_switch_shows_industry(qapp, env):
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")
