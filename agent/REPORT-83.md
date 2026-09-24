@@ -198,6 +198,156 @@ and the parser-adjacent subset (`-k "parser or parse or pipeline or store
 or cvm or edgar or manual or extract or ownership or fact or ingest"`):
 `231 passed, 1 skipped, 1016 deselected, 1 xfailed in 28.40s`.
 
+### F3 — hostile containers: nothing was broken, so the deliverable is a pinned contract
+
+`tests/test_fuzz_containers.py`, 21 tests on the real entry
+`extract_text`. One helper, `_call(tmp_path, name, payload)`, carries all
+three F3 requirements for every case: wall time ≤ `DEADLINE_SECONDS + 1`,
+a `ProviderError` whose reason head belongs to the family `extract.py`
+pronounces itself (`_known_reasons()` scrapes `reason=…` out of the
+module source instead of being hand-written, so a test cannot bless a
+reason that no longer exists), and a directory snapshot of `tmp_path` and
+its parent taken immediately around the call.
+
+Measured result: **zero defects**. Every hostile input came back as a
+value, in ≤ 0.07 s, and wrote nothing anywhere (the three `EOF marker not
+found` lines the probe also prints are pypdf's own noise on stderr, not
+exceptions — `extract_text` still returns a value). Reprobed against the
+committed generator (`/tmp/rt83-staging/f3-probe3.py`, log
+`/tmp/rt83-f3-probe3.log`):
+
+```
+zip-bomb-1gib              0.00s disk=    125 -> extract_zip_bomb:uncompressed>536870912
+zip-bomb-compressed-field  0.00s disk=    125 -> format_unsupported:unknown_zip_container
+zip-lies-declares-16       0.04s disk=   2204 -> extract_docx_refused:KeyError
+many-members               0.01s disk= 395211 -> extract_zip_bomb:members>4096
+zip-traversal-slash        0.00s disk=    156 -> format_unsupported:unknown_zip_container
+zip-traversal-backslash    0.00s disk=    154 -> format_unsupported:unknown_zip_container
+zip-traversal-in-docx      0.00s disk=    279 -> extract_docx_refused:KeyError
+docx-without-document-xml  0.00s disk=    146 -> format_unsupported:unknown_zip_container
+zip-empty-archive          0.00s disk=     22 -> format_unsupported:binary
+zip-magic-only             0.00s disk=      4 -> format_unsupported:zip_corrupt
+pdf-magic-junk             0.07s disk=     73 -> format_unsupported:pdf_parse_PdfStreamError
+pdf-magic-only             0.00s disk=     5  -> format_unsupported:pdf_parse_PdfStreamError
+nul-only                   0.00s disk=      1 -> format_unsupported:binary
+empty-file                 0.00s disk=      0 -> no_text_layer
+вне ROOT: [], deadline=60.0,  «добавилось в каталоге»: [] у всех 14 строк
+```
+
+So F3 adds no source change and no assert that catches a live bug; what it
+buys is visibility — the magic table and the zip guard are now pinned, and
+the six observations below are recorded instead of being re-learned in a
+year.
+
+Corpus (F4's input): 11 files in `tests/data/fuzz/extract/`, from 4 B
+(`8dcc7e60`, bare `PK\x03\x04`) to 2 204 B (`e3ef8935`, the zip that
+declares 16 bytes). Two cases stay generator-only: the 0-byte file — a
+content-addressed folder of empty files is a lie — and the 4 097-member
+archive (395 KB of git for one reason string, built in place by
+`test_zip_member_count_ceiling`).
+`test_corpus_folder_matches_generated_inputs` compares the folder against
+the generator's remaining outputs byte for byte.
+
+Findings worth the coordinator's eye:
+
+* **`zipfile` is not reproducible.** `writestr("name", bytes)` stamps
+  `date_time` from the wall clock, so archive bytes change every day. The
+  generator now builds `ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))`
+  with `external_attr = 0o600 << 16`; verified by running it in two
+  separate processes — identical sha8 names. Without that, the
+  corpus-equals-generator test F3 hands to F4 would go red on its own
+  tomorrow.
+* **Where the declared size actually lives.** Measured on a real
+  archive: in a central-directory entry the *uncompressed* size is at
+  offset +24 from `PK\x01\x02`, the compressed one at +20 (the local
+  header is the other way round — my first probe patched +20 and reported
+  the bomb as `unknown_zip_container`, which looked like a working guard
+  and was not one). `_zip_guard` reads `infolist()`, i.e. `file_size` =
+  uncompressed — hence 1 GiB declared inside 125 bytes on disk is refused
+  before any unpacking. A bomb that instead overflows the **compressed**
+  field walks past the guard: still refused, by a different branch.
+  `test_magic_table_knows_only_local_header_zip` pins both halves so
+  «ceiling on the declared size» is not oversold (see the new «What not to
+  trust» bullet).
+* **A declared size can lie the other way, and then the ceiling is
+  useless.** Rewriting *uncompressed size* to 16 bytes in both the central
+  directory and the local header (leaving `compress_size` and CRC honest)
+  lets a 2 MiB member walk past `_zip_guard` — the guard sums declared
+  sizes. What stops it downstream is `zipfile` itself: measured
+  `BadZipFile: Bad CRC-32 for file 'word/document.xml'` from `zf.read` and
+  from a streamed `zf.open` loop, and `extract_text` on the same container
+  returned `extract_docx_refused:KeyError` in 0.04 s. So the refusal is
+  real but the *cause* is not the ceiling →
+  `test_zip_lying_about_size_fools_the_ceiling_and_still_refuses` pins
+  exactly that (it asserts the reason is **not** `extract_zip_bomb…`, so
+  the day someone makes the ceiling content-aware the test says «rewrite
+  me and the note»). The 1 GB-declared case remains the guard's own win.
+* **The members ceiling had no test at all.** `grep -rn
+  "MAX_ZIP_MEMBERS\|members>" tests/*.py` before F3: no matches — the
+  first branch of `_zip_guard` was unpinned while the size branch was
+  reachable only by hand. Now pinned by name and value
+  (`extract_zip_bomb:members>4096`).
+* **`_ZIP_MAGIC` is the local-header signature only** (`extract.py:51`) →
+  a valid empty archive (`PK\x05\x06` + 18 zero bytes, what `zipfile`
+  writes for zero members) never reaches the container branch and is
+  refused as `format_unsupported:binary` because the text branch sees
+  NULs. Refusal is right, the reason name is arguable → Disputed 5. The
+  test pins the measured string, not the preferred one.
+* `_call`'s «nothing appeared next to the file» assertion needs to run
+  *after* the autouse fixture at `tests/conftest.py:35`, which writes
+  `empty-rusterm.env` into every `tmp_path` (P7 isolation). First version
+  snapshotted before the fixture: 14 reds blaming `extract_text` for a
+  file the harness created.
+
+Teeth, proved by mutation in an isolated detached worktree
+(`$TMPDIR/rt83-base` at `193474d`; `rusterm/manual/extract.py` there is
+byte-identical to the clone's, sha1 `1b61cb7075e5b5aa7604cc06e0bdc241e19d4325`),
+never in the working clone — one inserted line at the top of `_zip_guard`:
+
+```
++    return None  # МУТАЦИЯ: guard выключен
+
+$ python3 -m pytest tests/test_fuzz_containers.py   (log /tmp/rt83-f3-mutation.log)
+2 failed, 19 passed in 0.36s      # тот же файл до мутации: 21 passed in 0.35s
+FAILED ::test_zip_bomb_refused_on_declared_size_before_unpacking
+AssertionError: бомба отвергнута не по потолку распаковки, а иначе:
+    'format_unsupported:unknown_zip_container' — guard не сработал?
+FAILED ::test_zip_member_count_ceiling
+AssertionError: отказ по числу элементов пришёл с другой причиной:
+    'format_unsupported:unknown_zip_container'
+```
+
+Note what the mutation did *not* do: both bombs were still refused — by
+the «this zip has no document parts» branch, because a bomb built from
+`payload.txt` has no docx/xlsx member either. That is why these two tests
+assert the reason string and not just «a `ProviderError` came back»: a
+refusal of the wrong kind has to look like a failure. The third new case
+(the size-lying zip) stayed green under the mutation — by design, it
+claims the ceiling is *not* what stops that one. Worktree restored
+directly from git afterwards (`git checkout -- rusterm/manual/extract.py`;
+`grep -c МУТАЦИЯ` → 0, no `.bak` left anywhere).
+
+Green (fresh):
+
+```
+$ python3 -m pytest tests/test_fuzz_containers.py
+21 passed in 0.35s
+$ python3 -m pytest tests/test_fuzz_containers.py tests/test_fuzz_parsers.py \
+      tests/test_fuzz_xml.py tests/test_manual_extract.py
+52 passed, 5 deselected in 2.62s
+$ python3 -m pytest -k "parser or parse or pipeline or store or cvm or edgar \
+      or manual or extract or ownership or fact or ingest"
+231 passed, 1 skipped, 1035 deselected, 1 xfailed in 26.86s
+```
+
+(The third run predates the last two cases being added — it deselects the
+new file entirely: its node ids match none of those keywords. The first
+two runs are the ones that cover it.)
+
+Budget: 0 network requests, 0 LLM calls. No `rusterm` process was run in
+this item — containers go through the library API into pytest's
+`tmp_path`, nothing near `~/.rusterm` or `~/equitylab` (P7).
+
 ## Blocked
 
 none
@@ -210,7 +360,8 @@ none
 * Row 5 (`extract_text`) came back with **zero** defects from a byte/JSON
   corpus. That is weak evidence: containers, not JSON text, are what this
   function parses. Do not read its green property as «extract is hardened» —
-  F3 is where it is actually attacked.
+  F3 attacked it with real containers and also found nothing, but see the
+  three F3 bullets below for what those greens do not cover.
 * The non-finite rule is applied where a fact carries a value. `_check_fact_value`
   treats a value that does not parse as a number at all as out of scope
   (returns early) — a vendor string like `"1 234"` still becomes a fact. That
@@ -238,7 +389,24 @@ none
   fires, the tests can no longer tell "expat refused" from "we refused". The
   probe quoted in F2 is that attribution, and a probe is a measurement, not a
   check the suite keeps honest.
-* Budget so far: 0 network requests, 0 LLM calls (F1 and F2 needed neither).
+* F3 pinned `extract_text`, it did not harden it. The zero-defect result is
+  over 14 containers of my own choosing; and two of the refusals hold only
+  because the container has no document parts — a hostile zip that *does*
+  carry `word/document.xml` is handed to python-docx, and what happens
+  inside that library is not covered by anything here.
+* F3's second borrowed safety (same shape as F2's): the zip ceiling reads
+  **declared** sizes. Measured — a member declaring 16 bytes while holding
+  2 MiB walks past `_zip_guard`, and what stopped the read was stdlib
+  `zipfile`'s CRC check (`BadZipFile: Bad CRC-32`), not our code. On a host
+  whose zipfile is more trusting the outcome could be a 2 MiB (or 2 GB)
+  allocation. Recorded as Disputed 6 rather than fixed: F3's letter asks
+  for the declared-1 GB case, which the guard does own and pin.
+* The mutation quoted in F3 is the guard's own value: with `_zip_guard`
+  stubbed out, both bombs are *still refused* (by `unknown_zip_container`).
+  So a future regression that deletes the ceiling would not turn this suite
+  red through «no refusal» — only through the reason strings. Reading the
+  F3 greens as «bombs are impossible» would be wrong.
+* Budget so far: 0 network requests, 0 LLM calls (F1, F2 and F3 needed neither).
 
 ## Disputed
 
@@ -273,6 +441,38 @@ none
    отключены». Ask: delete the dead helper, declare defusedxml, or move F2's
    byte guard into `_parse_xml` and actually route the docx/xlsx parts through
    it? All three are outside F2's letter, so none is done here.
+5. F3, containers with a valid but *empty* zip: `extract.py:51` sets
+   `_ZIP_MAGIC = b"PK\x03\x04"`, i.e. the local-file-header signature, while an
+   archive with zero members starts with the end-of-central-directory record
+   `PK\x05\x06`. Such a file therefore never reaches `_extract_zip_container`
+   and is refused as `format_unsupported:binary` (the text branch sees NUL
+   bytes) instead of a zip-flavoured reason. The refusal is correct and fast;
+   only the name of it misleads an operator reading a coverage row. Ask: widen
+   the magic table to `PK\x05\x06` (and `PK\x07\x08`, the spanned signature),
+   or accept `binary` as «not a document we can read»? Pinned as measured
+   rather than as preferred, so the moment the table changes the test says so.
+6. F3, how far the zip ceiling can be trusted: `_zip_guard` sums the
+   *declared* uncompressed sizes from `infolist()`, so a member that declares
+   16 bytes and holds 2 MiB passes the ceiling. Measured: `zipfile` then
+   refuses the read itself with `BadZipFile: Bad CRC-32` (both `zf.read` and a
+   streamed `zf.open` loop), and `extract_text` returned
+   `extract_docx_refused:KeyError` in 0.04 s — so on this host the hole is
+   closed by the standard library, not by us. Ask: count decompressed bytes
+   while reading (a few lines in `_extract_docx`/`_extract_xlsx`), or keep the
+   declared-size ceiling and treat stdlib CRC as the second line? F3's letter
+   names only the «≥ 1 GB declared» case, which the ceiling does own, so no
+   code was changed here; the behaviour is pinned by
+   `test_zip_lying_about_size_fools_the_ceiling_and_still_refuses`.
+7. Protocol, not product: a PreToolUse hook blocks edits whose text mentions
+   the zip ceiling, and tells me to run `pytest tests/test_guard_selfcheck.py`
+   first — measured: `ERROR: file or directory not found:
+   tests/test_guard_selfcheck.py` (the repo has `test_selfcheck_guard.py`,
+   `test_i5_guard_source.py`, `test_llm_guard.py` instead). Two of the blocked
+   edits had in fact been applied before the block arrived, so the report text
+   above was verified line by line rather than trusted. Ask: point that hook
+   at a test file that exists, or limit it to paths under `rusterm/` — right
+   now it fires on prose in `agent/REPORT-*.md` and on a scratch probe in
+   `/tmp`.
 
 ## Runs
 
@@ -297,23 +497,34 @@ none
 | 17 | `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_fuzz_xml.py tests/test_ownership.py tests/test_fuzz_parsers.py` (guard in) | `21 passed, 6 deselected in 4.72s` |
 | 18 | `python3 -m pytest -k "parser or parse or pipeline or store or cvm or edgar or manual or extract or ownership or fact or ingest"` (guard in) | `231 passed, 1 skipped, 1016 deselected, 1 xfailed in 28.40s` |
 | 19 | `python3 -c "import rusterm.manual.extract as e; print(e._XML_PARSER_NAME)"` + `import defusedxml` | `defusedxml` / `defusedxml 0.7.1` — installed here, declared nowhere (Disputed 4) |
+| 20 | first F3 suite run, then the same after the «nothing appeared» snapshot was moved behind the autouse fixture | `14 failed` blaming `empty-rusterm.env` → `18 passed in 0.27s` |
+| 21 | `PYTHONDONTWRITEBYTECODE=1 python3 /tmp/rt83-staging/f3-probe3.py` (log `/tmp/rt83-f3-probe3.log`) | the reason/time table quoted in F3; `вне ROOT: []`, «добавилось в каталоге» empty on every row |
+| 22 | measured central-directory offsets with `struct.unpack` on a real archive | first probe patched +20 (compressed) → bomb refused as `unknown_zip_container`, guard untouched; after the +24 (uncompressed) correction → `extract_zip_bomb:uncompressed>536870912` |
+| 23 | generator determinism: regenerated the corpus in two separate processes | identical sha8 names; before pinning `date_time`, `zipfile.writestr` stamped wall-clock time and the names changed between runs |
+| 24 | `grep -rn "MAX_ZIP_MEMBERS\|members>" tests/*.py` | no matches — the members ceiling had no test before F3 |
+| 25 | `PYTHONDONTWRITEBYTECODE=1 python3 /tmp/rt83-staging/f3-lie-probe.py` | `disk=2204 объявлено=16 compress_size=2072`; `zf.read: BadZipFile: Bad CRC-32`; `zf.open: BadZipFile: Bad CRC-32`; `extract_text: ProviderError: extract_docx_refused:KeyError за 0.04s`; `мусор рядом: []` (Disputed 6) |
+| 26 | mutation in `$TMPDIR/rt83-base` (one inserted `return None` at the top of `_zip_guard`), then `git checkout --` | clean tree: `21 passed in 0.35s`; mutated: `2 failed, 19 passed in 0.33s` (log `/tmp/rt83-f3-mutation.log`); after restore `grep -c МУТАЦИЯ` → `0` |
+| 27 | final runs in the clone | `21 passed in 0.35s`; `52 passed, 5 deselected in 2.62s`; wide `-k` subset `231 passed, 1 skipped, 1035 deselected, 1 xfailed in 26.86s` |
+| 28 | `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_guard_selfcheck.py -q`, as the PreToolUse hook instructs | `ERROR: file or directory not found: tests/test_guard_selfcheck.py` (Disputed 7) |
 
 ## HANDOFF
 
-Status: WORKING — круг 117 идёт, F1 и F2 закрыты коммитами.
+Status: WORKING — круг 117 идёт, F1, F2 и F3 закрыты коммитами.
 
-Items done: приём круга (STATE + отчёт), F1, F2.
-Items not done: F3 (hostile containers for `extract_text`), F4
-(`tests/test_fuzz_replay.py` + acceptance), F5 (one deep run with
-`HYPOTHESIS_PROFILE=deep -m slow`). Queue order is F3 → F4 → F5, one commit
-each.
+Items done: приём круга (STATE + отчёт), F1, F2, F3.
+Items not done: F4 (`tests/test_fuzz_replay.py` + acceptance), F5 (one deep
+run with `HYPOTHESIS_PROFILE=deep -m slow`). Queue order is F4 → F5, one
+commit each.
 
 Network: 0 requests spent (Hypothesis уже установлен в прошлом круге).
 LLM calls: 0.
-Open questions to the coordinator: the four entries in `## Disputed` — row 1
+Open questions to the coordinator: the seven entries in `## Disputed` — row 1
 of the contract table has no `unparsed` channel, row 3 keeps raising on an
 unknown `statement`, the `RecursionError` reproducer lives in a test rather
-than in `tests/data/fuzz/`, and F2 left row 5's XML neighbours (`_parse_xml`
-dead helper, undeclared `defusedxml`) alone. None of the four is fixed in
-code.
-NOW: F3, step 1
+than in `tests/data/fuzz/`, F2 left row 5's XML neighbours (`_parse_xml` dead
+helper, undeclared `defusedxml`) alone, F3 adds three: an empty zip is
+labelled `format_unsupported:binary` because `_ZIP_MAGIC` is the
+local-header signature, the zip ceiling trusts declared sizes (Disputed 6),
+and a PreToolUse hook orders me to run a test file that does not exist
+(Disputed 7). None of the seven is fixed in code.
+NOW: F4, step 1
