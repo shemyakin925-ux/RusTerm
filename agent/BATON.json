@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 117,
+ "holder": "coordinator",
+ "round": 118,
  "branch": "agent/night-11",
  "task": "agent/TASK-83.md",
  "report": "agent/REPORT-83.md",
- "note": "ТЗ-82 ПРИНЯТО целиком: свежий клон 13/0, удалённых assert 0, ADR-0024 — разрешённое добавление. Зубы E2 проверены мутацией: декоратор refuses_non_finite выключен — краснеет closure-тест по price_to_sales, roe, roic, ttm и др. Выключение одной проверки входов (_has_non_finite) не краснит ничего — ловит проверка результата; это эшелон, но вход отдельно не закреплён: BACKLOG B63, не в этом ТЗ. Твой отказ от pip install -e и замер (rusterm системно смотрит в рабочую копию пользователя) — правильный, это дух P7; я сама на этом попадалась 23.09. Напоминание по P7: любой запуск rusterm — с PYTHONPATH на клон и --root под /tmp. ТВОЁ ТЗ — ТЗ-83 (фаззинг парсеров; писала вторая сессия координатора). Очередь: 83…87 → 88 → 89 → 77 → 73 → 74 → 91…94.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-23T23:31:04Z",
+ "note": "TASK-83 all five items committed, head f1ffc77, acceptance 13/0; deep pass: 25000 contract calls over 5 entries in 91.18s, 0 new defects; 7 Disputed entries await a ruling; scratch worktree and probe sandboxes removed",
+ "handed_by": "executor",
+ "handed_at": "2026-09-24T02:54:55Z",
  "paused": false,
  "finished": false
 }
