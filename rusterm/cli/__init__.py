@@ -1538,6 +1538,29 @@ def cmd_add(args) -> int:
     return 0
 
 
+def cmd_reparse(args) -> int:
+    """Заново разобрать сохранённые companyfacts нынешним разборщиком и
+    выровнять basis фактов (регрессия ТЗ-78 Y2: дата обложки dei делала
+    каждый факт restated). Сеть не нужна; меняется только basis. После
+    — пересчитайте снапшоты: rusterm snapshot --watchlist <id>."""
+    from rusterm.core.reparse import rebasis_companyfacts
+
+    paths, conn = _open(args.root)
+    repos = RepoRegistry(conn, paths)
+    res = rebasis_companyfacts(repos)
+    print(f"повторный разбор companyfacts: объектов {res.objects}, "
+          f"фактов сверено {res.facts_checked}")
+    print(f"basis исправлен у {res.changed}: в as_reported "
+          f"{res.to_as_reported}, в restated {res.to_restated}; "
+          f"не найдено среди сохранённых {res.unmatched}")
+    for line in res.unreadable:
+        print(f"не прочитан сырой объект: {line}")
+    if res.changed:
+        print("дальше: пересчитайте снапшоты — rusterm snapshot "
+              "--watchlist <id> (или --ticker T --market M)")
+    return 0 if not res.unreadable else 1
+
+
 def cmd_cadence(args) -> int:
     """Кадентность котировок — на поверхность (ТЗ-31 C5, ruling
     REPORT-30 Q1: «да, команда»). По каждому инструменту: состояние
@@ -2415,6 +2438,9 @@ def _build_parser() -> argparse.ArgumentParser:
                              f"{MAX_TOOL_CALLS_PER_SESSION})")
     p_chat.add_argument("--instrument", dest="instrument", default=None,
                         help="к какому инструменту относим расшифровку")
+    sub.add_parser("reparse",
+                   help="заново разобрать сохранённые companyfacts и "
+                        "выровнять basis фактов (без сети)")
     p_cad = sub.add_parser("cadence",
                            help="кадентность котировок: состояние, дыры,"
                                 " срок опроса (ТЗ-31 C5)")
@@ -2470,6 +2496,7 @@ def main(argv: list[str] | None = None) -> int:
         "markets": cmd_markets,
         "import": cmd_import,
         "cadence": cmd_cadence,
+        "reparse": cmd_reparse,
         "census": cmd_census,
     }
     if args.command is None:

@@ -363,6 +363,15 @@ class CompanyFactsParser:
                             continue
                         accn, end = (_text(entry.get("accn")),
                                      _text(entry.get("end")))
+                        # Обложка (dei) датирована днём подачи — позже
+                        # конца отчётного периода. С тех пор как ТЗ-78 Y2
+                        # стал разбирать dei, её дата сдвигала «конец
+                        # периода подачи», и каждый финансовый факт подачи
+                        # становился restated (Oracle: 13 982 против 69
+                        # as_reported). Конец периода задают только
+                        # финансовые факты.
+                        if _taxonomy == "dei":
+                            continue
                         if accn and (accn not in latest_end_by_accn
                                      or end > latest_end_by_accn[accn]):
                             latest_end_by_accn[accn] = end
