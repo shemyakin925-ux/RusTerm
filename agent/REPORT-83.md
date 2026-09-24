@@ -348,6 +348,67 @@ Budget: 0 network requests, 0 LLM calls. No `rusterm` process was run in
 this item — containers go through the library API into pytest's
 `tmp_path`, nothing near `~/.rusterm` or `~/equitylab` (P7).
 
+### F4 — the corpus became a check, not an inventory
+
+`tests/test_fuzz_replay.py`, 66 tests over the 31 files in
+`tests/data/fuzz/`. The replay calls the same public `check_*` functions as
+F1's harness (`from tests.test_fuzz_parsers import …`) instead of
+re-implementing the contract table — the property and the replay cannot
+drift apart, which is what this item is for.
+
+Shape:
+
+* two tests per file: «this input respects its declared contract», and «the
+  file name is the sha8 of its own bytes» (F1's naming rule — a renamed or
+  edited artifact stops being evidence);
+* `KNOWN_ENTRIES` maps every folder to its contract row, and
+  `test_no_unmapped_entry_folders` reddens on a folder that is not in the
+  map, so a new corpus directory has to arrive carrying its own check;
+* row 5 takes a path, not bytes: the replay writes the payload into
+  `tmp_path`, the repository copy is only ever read;
+* the census is per folder (`companyfacts` 3, `cvm` 5, `extract` 11,
+  `form4` 2, `parse_auto` 4, `parse_auto_table` 3, `parse_auto_xbrl` 3)
+  rather than one total floor: a single `>= 19` would stay green after half
+  of `extract/` was deleted, because F1's own 19 files already satisfy it.
+
+Teeth, all measured in the scratch worktree (`$TMPDIR/rt83-base`) so the
+clone's corpus was never touched:
+
+```
+rm -rf tests/data/fuzz && mkdir tests/data/fuzz      -> 5 failed, 1 passed
++ семь пустых каталогов по KNOWN_ENTRIES             -> 5 failed, 1 passed
++ один лишний каталог mystery/                       -> FAILED test_no_unmapped_entry_folders
+тот же корпус против исходника 193474d (до Ф1)       -> 20 failed, 46 passed
+```
+
+Five failures, not zero, on an empty corpus: `_params()` substitutes a
+`<пусто>` sentinel parameter when the walk yields nothing, so pytest cannot
+collect an empty list and report success. That is the item's «fails, not
+skips» requirement, and the second line above is its literal case (folders
+present, no `.bin`). The fourth line is the more interesting one: the same
+31 files, replayed against the pre-F1 parsers, produce 20 failures — the
+folder carries real defects, not green bytes.
+
+Green in the clone:
+
+```
+$ python3 -m pytest tests/test_fuzz_replay.py
+66 passed in 0.55s
+$ python3 -m pytest tests/test_fuzz_replay.py tests/test_fuzz_containers.py \
+      tests/test_fuzz_parsers.py
+94 passed, 5 deselected in 2.38s
+```
+
+Acceptance (the item's last requirement) is what this commit's own
+`pre-commit` hook runs — `agent/selfcheck.sh` → `bash agent/acceptance.sh`,
+log `/tmp/rt83-commit-f4.log`. A non-zero verdict aborts the commit, so the
+existence of the F4 commit is the check having passed; the verdict line
+itself is quoted after the fact in the F5 section, because writing «13/0»
+into this section before the run finished would be exactly the unrun claim
+P5 forbids.
+
+Budget: 0 network requests, 0 LLM calls.
+
 ## Blocked
 
 none
@@ -506,15 +567,20 @@ none
 | 26 | mutation in `$TMPDIR/rt83-base` (one inserted `return None` at the top of `_zip_guard`), then `git checkout --` | clean tree: `21 passed in 0.35s`; mutated: `2 failed, 19 passed in 0.33s` (log `/tmp/rt83-f3-mutation.log`); after restore `grep -c МУТАЦИЯ` → `0` |
 | 27 | final runs in the clone | `21 passed in 0.35s`; `52 passed, 5 deselected in 2.62s`; wide `-k` subset `231 passed, 1 skipped, 1035 deselected, 1 xfailed in 26.86s` |
 | 28 | `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_guard_selfcheck.py -q`, as the PreToolUse hook instructs | `ERROR: file or directory not found: tests/test_guard_selfcheck.py` (Disputed 7) |
+| 29 | `git commit -F …` for F3 (hook = selfcheck → full acceptance) | `Итог: пройдено 13, провалено 0` / `Принято.` / `SELFCHECK OK` → `680e58d`, pushed (log `/tmp/rt83-commit-f3.log`) |
+| 30 | `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_fuzz_replay.py` (clone, 31 files) | `66 passed in 0.55s` |
+| 31 | same file in `$TMPDIR/rt83-base` с `rm -rf tests/data/fuzz` и затем с семью пустыми каталогами | `5 failed, 1 passed` в обоих случаях — пустой корпус красен, а не skipped |
+| 32 | там же, `mkdir tests/data/fuzz/mystery` | `FAILED tests/test_fuzz_replay.py::test_no_unmapped_entry_folders` |
+| 33 | тот же корпус против исходника `193474d` (парсеры до Ф1) | `20 failed, 46 passed` — файлы корпуса несут настоящие дефекты |
+| 34 | `python3 -m pytest tests/test_fuzz_replay.py tests/test_fuzz_containers.py tests/test_fuzz_parsers.py` (clone) | `94 passed, 5 deselected in 2.38s` |
 
 ## HANDOFF
 
-Status: WORKING — круг 117 идёт, F1, F2 и F3 закрыты коммитами.
+Status: WORKING — круг 117 идёт, F1, F2, F3 и F4 закрыты коммитами.
 
-Items done: приём круга (STATE + отчёт), F1, F2, F3.
-Items not done: F4 (`tests/test_fuzz_replay.py` + acceptance), F5 (one deep
-run with `HYPOTHESIS_PROFILE=deep -m slow`). Queue order is F4 → F5, one
-commit each.
+Items done: приём круга (STATE + отчёт), F1, F2, F3, F4.
+Items not done: F5 (one deep run with `HYPOTHESIS_PROFILE=deep -m slow`, its
+wall time and example counts per entry). Queue order is F5, one commit.
 
 Network: 0 requests spent (Hypothesis уже установлен в прошлом круге).
 LLM calls: 0.
