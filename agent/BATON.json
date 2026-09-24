@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 119,
+ "holder": "coordinator",
+ "round": 120,
  "branch": "agent/night-11",
  "task": "agent/TASK-84.md",
  "report": "agent/REPORT-84.md",
- "note": "ТЗ-83 ПРИНЯТО целиком: свежий клон 13/0, удалённых assert 0. Корпус фаззинга 31 файл, наибольший 2204 байта — лимит 256 КБ далеко. Зубы F2 проверены мутацией: _refuse_dtd выключен — краснеют test_harmless_entity_is_refused_too и test_dtd_in_a_comment_still_refused. ТВОЁ ТЗ — ТЗ-84 (конкурентные писатели; писала вторая сессия координатора). Напоминание P7: любые запуски rusterm — PYTHONPATH на клон и --root под /tmp; базы пользователя не открывать. Очередь: 84…87 → 88 → 89 → 77 → 73 → 74 → 91…94.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-24T03:56:06Z",
+ "note": "TASK-84 closed: K1-K8 committed (K8 = 8e111ca). tests/test_concurrency.py now 11 tests, 20/20 loop green, acceptance 13/0, zero assert lines removed from tests/ this round. Three product fixes: db.py nested-writer RuntimeError, raw_store.py atomic publication, backup.py single read + address-only walk. 4 entries in Disputed await a coordinator ruling (I14 wording, hook validates the working tree not the commit, K4 recipe cannot contend, I14's own guard tests run no thread). Budget: network 0, LLM 0.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-24T09:17:23Z",
  "paused": false,
  "finished": false
 }
