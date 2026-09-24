@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-96.md",
  "report": "agent/REPORT-96.md",
- "item": "R2",
- "step": "отчёт R2 дополнен замерами проверки",
+ "item": "R3",
+ "step": "живой прогон шести бумаг (31 запрос наружу, счётчик базы назвал 26), сверка с базой пользователя только чтением, офлайн-эталон из 12 фикстур + 7 тестов, третий счётчик отказов починен",
  "status": "working",
- "last_commit": "eaf3899",
- "requests": 0,
- "net_requests": 0,
+ "last_commit": "cb59c5d",
+ "requests": 39,
+ "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-24T14:16:30Z"
+ "updated_at": "2026-09-24T15:31:55Z"
 }

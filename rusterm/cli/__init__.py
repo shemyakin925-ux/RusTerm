@@ -324,6 +324,10 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
         outcome = provider.time_series(symbol, start=start, end=as_of)
         if isinstance(outcome, (ProviderError, ConfigError,
                                 BudgetExceeded)):
+            # Отказ — тоже запрос: гейт его пропустил, значит budget
+            # обязан его назвать (ТЗ-96 R3: на живом прогоне 403-ный
+            # вызов исчезал из счётчика).
+            _record_gate_usage(repos, "twelvedata", price_gate)
             print(f"twelvedata: {outcome.reason}", file=sys.stderr)
             return 1
         payload = outcome
@@ -397,6 +401,9 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
         outcome = fetch(symbol, as_of)
         if isinstance(outcome, (ProviderError, ConfigError,
                                 BudgetExceeded)):
+            # Тот же счёт, что у котировок: отказанный вызов гейт уже
+            # пропустил, и терять его на выходе из стадии нельзя.
+            _record_gate_usage(repos, "twelvedata", ca_gate)
             print(f"twelvedata: {kind}: {outcome.reason}", file=sys.stderr)
             return 1
         payloads[kind] = outcome

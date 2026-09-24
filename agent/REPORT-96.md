@@ -176,8 +176,152 @@ unknown market refusing to write; the counted-calls equality.
 
 Commit: `eaf3899` (hook: 13 acceptance checks passed, 0 failed).
 
+### R3 — the live run over six papers, and the offline reference built from it
+
+**The live run.** Six `rusterm follow` invocations, one per paper, into
+`$TMPDIR/rt96-r3/live` with an explicit `--root` (P7: the user's base was
+opened `mode=ro` for the comparison rows and never written). The six logs are
+Runs 24.
+
+| Paper | How far the path got | Measures with a value | Years of price history | Requests out / named by the base |
+|---|---|---|---|---|
+| AAPL | stages 1–5, snapshot v1 | **21 / 28** | 21 (2006-11-06 … 2026-09-23, 5000 rows) | 6 / 6 |
+| ADBE | 1–4, aborted at corp actions | **20 / 28** | 21 (5000 rows) | 5 / 4 |
+| KSPI | 1–4, aborted | **2 / 28** | 3 (2024-01-19 …, 672 rows) | 5 / 4 |
+| MSFT | 1–4, aborted | **22 / 28** | 21 (5000 rows) | 5 / 4 |
+| VALE | 1–4, aborted | **17 / 28** | 21 (5000 rows) | 5 / 4 |
+| VZ | 1–4, aborted | **16 / 28** | 21 (5000 rows) | 5 / 4 |
+
+Prices landed in all six rows — stage 4 wrote 5000 (KSPI: 672) quote rows and
+*then* the optional corp-actions call failed — so five of the six papers were
+complete enough for a snapshot; `follow` itself built only one. The other five
+`мер со значением` numbers come from a snapshot built afterwards by
+`rusterm snapshot --instrument …` in the same catalog, i.e. the very builder
+stage 5 calls, and that five-command run moved the request counter
+26 → 26, delta 0 (Runs 25, 26). That `follow` built one snapshot of six is the
+behaviour named as entry 5 of the list below.
+
+**Spend.** 31 requests out: 18 to SEC (2 ticker-map + 1 `companyfacts` per
+paper) and 13 to TwelveData (6 quotes, AAPL's 2 actions, 5 refused `/splits`).
+The base's own counter names 26 — that gap is the third accounting defect
+below, and it is why the aborted rows print `(запросов 4)`. Diagnostics after
+the run: 8 more (Runs 30–32). **39 of the 60 the spec allows**, R4 and R5 need
+none.
+
+**Where it stopped, and why the run cannot be repeated today.** Both ends are
+the vendor's, and both are measured rather than assumed:
+
+* `/splits` and `/dividends` answer 403 with the plan named in words:
+  `/splits is available exclusively with grow or pro or ultra or venture or
+  enterprise plans.` — while AAPL's own two calls had succeeded forty minutes
+  earlier (88 actions are in the base, Run 24). The gate is the vendor's, and
+  it is not stable across one evening.
+* ~40 minutes after the run the *key itself* began to be refused on
+  `/time_series`: `{"code":401,"message":"**apikey** parameter is incorrect or
+  not specified…"}` — for the exact URL shape the run used
+  (`time_series?symbol=AAPL&interval=1day&outputsize=5000&end_date=2026-09-24`,
+  which had returned 5000 rows) and for a minimal one (Runs 31, 32).
+
+Consequence, stated plainly: the table above is one evening's record, and a
+`follow` on this key today fails at stage 4 with `http_401` where it failed
+with `http_403` last night. What carries R3's Done-when now is the offline
+reference below.
+
+**The same numbers from the user's base, read-only, differences explained by
+source.** Latest snapshot per paper, `percentile` rows excluded (only a base
+with a peer set has them: 8–12 per snapshot in the user's base, 0 in the run —
+Runs 27, 28).
+
+| Paper | Run | User's base | Concepts that differ | Source of the difference |
+|---|---|---|---|---|
+| AAPL | 21 | 21 | none | the run wrote 86 `dei:*` facts the base does not have; AAPL already had `us-gaap:CommonStockSharesOutstanding` to 2026-06-27, so no measure moved |
+| ADBE | 20 | 21 | `roe` | the run's filing is *newer* (15368 facts vs 15102) and the new period has no pair: `missing_prior_period` |
+| KSPI | 2 | 0 | `market_cap`, `market_cap_total` | base reason `missing_data: shares_outstanding`; the base has **0 rows on both** shares tags, the run parsed 3 `dei:` rows out of the same payload |
+| MSFT | 22 | 22 | none | as AAPL |
+| VALE | 17 | 7 | 10: `ev, ev_ebitda, fcf_yield, market_cap, market_cap_total, net_debt, net_debt_ebitda, pb, pe, ps` | foreign issuer (6-K/20-F): the cover `dei:` fact is the only shares source, and the base has none of it (17 `dei:*` rows in the run) |
+| VZ | 16 | 8 | 8: `ev, ev_ebitda, market_cap, market_cap_total, net_debt, net_debt_ebitda, pe, ps` | same cause: `missing_data: shares_outstanding` in the base, 87 `dei:*` rows in the run |
+
+The pattern is a date, not a code path: 37 of the user's 44 issuers *do* carry
+`dei:*` facts and every one of those rows was ingested 2026-09-24 05:30–05:45,
+i.e. after the coordinator's `fd40f7a`; the 7 issuers with no `dei:*` at all
+include exactly this round's six papers, last ingested 2026-09-21
+04:25–05:39 (Runs 33). The payloads themselves are in the base and
+byte-identical to the run's — VZ `raw_object.sha256`
+`69e11989…082ed1` / 345682 bytes in both, AAPL `4ac7958f…53496` — so this is a
+parse-time loss that no command today can undo: `ingest` skips the object
+because its sha is already in the store (`cli:486-488`) and `reparse` rewrites
+only `basis` (`cmd_reparse`, `cli:1566-1586`, «меняется только basis»). Filed
+as Disputed 6: a data-recovery gap, not a criterion of this spec.
+
+**The offline reference.** 12 fixtures committed under `tests/data/` — the
+run's own responses, cut with `tools/trim_companyfacts.trim` plus the `dei`
+section and, for the two foreign issuers, `ifrs-full` through the same rules.
+Largest 121 KB, all ≤ 256 KB, each pinned by sha256 inside the test, so they
+are a recording and not something a test regenerates; a secrets scan over
+every byte of all twelve is one of the tests.
+
+`tests/test_task96_r3_replay.py` (4 tests): the catalog is seeded offline with
+`add --cik/--name` and asserted at 0 requests; then each paper goes through the
+real post-response doors (`CompanyFactsParser` → `apply_concept_map` →
+`persist_ingestion_results`; `_ingest_twelvedata_prices` over a `RequestGate`
+whose transport raises if it is ever called) and a real `rusterm snapshot`.
+Pinned numbers, with `gate.calls_made == 0` per paper and the DB counter at 0
+at the end:
+
+| Paper | Facts | Fact years | Price rows | Price years | Measures with a value |
+|---|---|---|---|---|---|
+| AAPL | 230 | 20 | 1000 | 5 | 23 |
+| ADBE | 191 | 19 | 1000 | 5 | 22 |
+| KSPI | 3 | 3 | 672 | 3 | 2 |
+| MSFT | 217 | 18 | 1000 | 5 | 23 |
+| VALE | 5 | 2 | 1000 | 5 | 2 |
+| VZ | 181 | 20 | 1000 | 5 | 17 |
+
+Read that as *the same path*, not *the same base*: trim keeps six fresh periods
+per tag/unit and one taxonomy, and the price fixture holds 1000 of the run's
+5000 days. That is why VALE is 2 here and 17 live (its 4712 facts trim to 5),
+and it is why the live table is printed with its own numbers instead of being
+replaced by the reference. `test_dei_input_survives_the_trim` keeps the one
+input the finding rests on (`dei:EntityCommonStockSharesOutstanding` →
+`market_cap` → `ev`/`pe`/`ps`) inside VZ's trimmed file, so the reference cannot
+silently stop covering it.
+
+**Third accounting defect, found by measuring and fixed.** A refused call
+through a `RequestGate` was invisible to `budget`: both TwelveData doors
+returned on `ProviderError` *before* `_record_gate_usage`, so the five aborted
+`/splits` calls of the run above are in the vendor's log and not in ours —
+`rusterm budget` reads 26 for a base that spent 31. Both doors now record on
+the refusal exit. `tests/test_task96_r3_refused_calls.py` (3 tests) pins
+refused splits (2 transport calls, counter 2), refused dividends after
+successful splits (3 calls, counter 3 — no double count from a cumulative
+gate), and a refused quote through the price door (counter 1).
+
+**Done-when, line by line.** Live run over six papers in a `/tmp` catalog:
+done. ≤ 60 requests: 39 spent. Table бумага → меры со значением → лет истории →
+запросов: done, with both the counted and the recorded request numbers. Same
+numbers from the user's base read-only, differences explained by source: done
+(the `dei` / `shares_outstanding` mechanism above). Responses as fixtures
+≤ 256 KB via `trim_companyfacts`: done. Offline replay "rebuilding the same
+base": **partially — it rebuilds the same code path over reduced payloads, and
+the reduction is visible in VALE's 2 vs 17**. Zero requests proven by the
+`RequestGate` counter: done (7 tests green, Run 34; adjacent suites 17 and 36
+green, Runs 35, 36).
+
 ## Blocked
-none
+
+* **TwelveData free key: the corp-actions half of the price stage, and as of
+  22:20 the quotes too.** `/splits` and `/dividends` answer 403 «available
+  exclusively with grow or pro or ultra or venture or enterprise plans», and
+  ~40 minutes after the six-paper run the same key began to answer 401
+  «**apikey** parameter is incorrect or not specified» for `/time_series` in
+  the exact shape that had returned 5000 rows. Nothing in the code can be
+  finished against that: R3's live table is closed at six papers, the
+  reference is offline, and the corp-actions path is exercised offline only by
+  the pre-existing fixtures (`tests/data/twelvedata/{splits,dividends}_AAPL_full`).
+  What the coordinator needs to decide: whether the project buys a plan that
+  has these endpoints, or drops the claim that `follow` collects corporate
+  actions. Spending more of the 60 will not tell us anything Runs 30–32 do not
+  already say.
 
 ## What not to trust
 
@@ -211,6 +355,26 @@ none
   was pushed: the tests in `tests/test_concurrency.py`, the three product
   fixes, and the quoted outputs in `REPORT-84.md`. Treat a report row that
   cites a `/tmp/rt84-*` path as "re-run to see it", not "open this file".
+* R3's live table is **not reproducible**: it was one evening on one key, and
+  the vendor closed both endpoints (Blocked). The six logs and the run's catalog
+  live under `$TMPDIR/rt96-r3/`, which is as disposable as the `/tmp` that ate
+  round 119's scratch; what is durable is the fixtures and the 7 tests. If a
+  re-checker needs the live numbers again, they cost requests and today they
+  would come back as 401/403.
+* The offline reference is *a* reference, not *the* base: trimmed fundamentals
+  (230 facts for AAPL where the run wrote 12452) and 1000 of 5000 price days.
+  The pinned per-paper numbers are only comparable with themselves; the live
+  column of the comparison table is the one that describes a real base. VALE's
+  2-vs-17 difference is the fixture rule, not a defect in the formulas.
+* The `dei` finding is a statement about **the user's base as it stands**
+  (7 issuers with no `dei:*`, six of them this round's papers, payloads
+  byte-identical to the run's). It is read from a `mode=ro` connection plus the
+  source of `ingest`/`reparse`; it was not verified by *fixing* anything,
+  because fixing it means writing to the user's data (P7 forbids that here).
+* 39 of 60 requests are spent and the accounting fixes record only what happens
+  after them: the 5 refused calls of this run are still missing from that base's
+  counter (26 vs 31 out). `rusterm budget` is now right going forward, not
+  retroactive.
 
 ## Disputed
 
@@ -271,8 +435,54 @@ none
    44». `git show --stat 46c0c3b` (ТЗ-81 B0) lists only `agent/REPORT-81.md`
    and `agent/STATE.json`, so it is not the commit that placed anything on a
    market — the `US-` prefix comes from `rusterm add --market US`. This is
-   not cosmetic: R3's budget is stated per paper, so R3 will name its own
-   count (six chosen papers) instead of repeating «the user's base is six».
+   not cosmetic: R3's budget is stated per paper, so R3 named its own count
+   (six chosen papers, 31 requests out of them) instead of repeating «the
+   user's base is six».
+
+5. `follow` treats a refusal from an *optional, plan-gated* endpoint as the
+   failure of the whole price stage, and the live run measured what that costs:
+   five of six papers wrote their quotes (5000 rows, KSPI 672) and then the
+   command stopped with rc=1 and no snapshot, because `/splits` answered 403
+   (Run 24). The printed advice — `совет: rusterm ingest --source twelvedata
+   --instrument US-ADBE` — leads the user to the same wall: successful payloads
+   are the only thing cached under the canonical URL, so a retry re-pays the
+   `/splits` request and gets the same plan message (Runs 30), deterministically,
+   as long as the key is on this plan. Two of R2's accepted properties are in
+   tension here: «стадия не прошла → стоп, дальше не идём» and «цены —
+   обязательная часть пути». Ask: when quotes landed and only corporate actions
+   failed, say so in words, count the stage as passed, and let stage 5 build the
+   snapshot (the numbers above show the snapshot is meaningful without actions:
+   VZ 16 measures with a value, KSPI 2); or keep the abort and print
+   «решение вендора, не данные» instead of a retry command that cannot succeed.
+   Not implemented in R3: R2 is accepted with the current behaviour, the fix is
+   a product decision about what a stage means, and changing it silently in the
+   round that measures it would make this table describe a command that no
+   longer exists.
+
+6. Facts that the *current* parser would produce from an *already stored*
+   payload cannot be recovered by any command in the tree. Measured on the
+   user's base, read-only: 7 issuers have no `dei:*` facts at all (six of them
+   are this round's papers, last ingested 2026-09-21), while their stored
+   `companyfacts` payloads are byte-identical to the ones the live run parsed
+   into 3–135 `dei:*` rows each (Run 33). The two candidate doors both miss it:
+   `ingest --source edgar` short-circuits on `repos.raw.has(sha)` with «уже в
+   store — пропущено» and returns 0 (`cli:486-488`), and `reparse` — the command
+   this round's `fd40f7a` added precisely for a parser fix — recomputes `basis`
+   only (`cli:1566-1586`). So the coordinator's own «данные (новая команда
+   `rusterm reparse`)» recovery route does not reach the class of loss its
+   parser fix created: 54 measures in the user's base refuse with
+   `missing_data: shares_outstanding` for exactly this reason, and a user who
+   re-runs every documented command keeps them empty. Ask: either extend
+   `reparse` to re-persist facts from the raw store (0 requests, same doors
+   `ingest` calls after a response), or record in `GUIDE.md` that a parser fix
+   needs `ingest --force` and name that command. Related to ТЗ-92 `C1`, which
+   R6 assigns to me in the same parser file — the two should be decided
+   together, and this round deliberately touched neither (P7: the fix would
+   have to be run against the user's base to prove anything). Not a re-opening
+   of ТЗ-76 W5 («`us-gaap:CommonStockSharesOutstanding` отсутствует у VZ, карту
+   не расширяем», `REPORT-76.md:227-245`): the `dei.v1` map that came later
+   does answer that input, which is exactly why a base that never re-parsed is
+   now the odd one out.
 
 ## Runs
 
@@ -301,6 +511,19 @@ none
 | 21 | `python3 -m pytest tests/test_i5_guard_source.py -q` (with the new test file staged) | `4 passed` — the earlier `1 failed` in the full run was `SELFCHECK FAIL (P3/P4): untracked files present`, i.e. my uncommitted test file, not the guard |
 | 22 | `python3 -m pytest -q --tb=no` (full default run, after both accounting fixes) | exit code 0, progress reached `[100%]`. The run's own `N passed` line is *not* in the captured output (the pty tests leave a child on the same pipe and the summary is lost), so no test count is quoted here |
 | 23 | the commit's own hook: `I5_NESTED=1 bash agent/selfcheck.sh` → `agent/acceptance.sh` (two full pytest passes inside) | `Итог: пройдено 13, провалено 0` / `Принято.` → `eaf3899` — 13 is the number of acceptance checks, not of tests; the guard prints no test count either |
+| 24 | six live runs, one per paper: `python3 -m rusterm --root "$TMPDIR/rt96-r3/live" follow <TICKER>` (cwd the clone, `--root` explicit — P7; each log kept as `$TMPDIR/rt96-r3/live-<TICKER>.log`) | AAPL: `2/5 поиск в SEC — готово (запросов 2)` → `фактов: 12452` (1) → `строк получено: 5000 … корп.действия: сплитов 5; дивидендов 83; записано новых: 88` (3) → `снапшот v1`, `мер: 28 — со значением 21`, `всего запросов: 6`. ADBE/KSPI/MSFT/VALE/VZ: same three stages, then `twelvedata: splits: source_unreachable:http_403`, `4/5 цены — отказ (запросов 1)`, `совет: rusterm ingest --source twelvedata --instrument US-<T>`, rc=1; quotes had already been written (5000 rows; KSPI 672), facts 15368 / 7 / 16498 / 4712 / 14254 |
+| 25 | `python3 "$TMPDIR/rt96-r3/snap_five.py"` — five `python3 -m rusterm --root "$TMPDIR/rt96-r3/live" snapshot --instrument US-<T>` calls | `rc=0` for all five; last line `запросов: до 26.0 после 26.0 (дельта 0)` |
+| 26 | `python3 "$TMPDIR/rt96-r3/table_final.py"` (the run's own base, `mode=ro`) | `budget: 26.0`; `status фактов: {'ok': 63291}`; per paper the measures/years/rows of the two tables in the R3 section; `корп-действий` 88 for AAPL and 0 for the other five |
+| 27 | `python3 "$TMPDIR/rt96-r3/like_for_like.py"` (both bases, `mode=ro`, `concept<>'percentile'`, latest snapshot by `built_at`) | user base 21 / 21 / 0 / 22 / 7 / 8 valued with 8–12 percentile rows and 35–110 governance rows per instrument; run 21 / 20 / 2 / 22 / 17 / 16 with 0 percentile rows and 5 governance rows |
+| 28 | `python3 "$TMPDIR/rt96-r3/user_base.py ~/equitylab "$TMPDIR/rt96-r3/live"` | user base: 44 instruments, 285 snapshots, 207036 price rows, prices to 2026-09-18; run: 6 instruments, 6 snapshots, 25672 rows, prices to 2026-09-23 |
+| 29 | `python3 "$TMPDIR/rt96-r3/diff_concepts.py"` | per-concept disagreements: ADBE `roe` (base has the value, run `missing_prior_period`); KSPI 2 concepts, VALE 10, VZ 8 — all valued only in the run; 0 measure differences for AAPL and MSFT; every `dei:*` concept «база 0 / прогон 3…135» |
+| 30 | `python3 "$TMPDIR/rt96-r3/probe6.py"` — the real provider, real transport, 3 requests out, key redacted in every print | `splits: error code=403 message=/splits is available exclusively with grow or pro or ultra or venture or enterprise plans. Consider upgrading your API Key now at https://twelvedata.com/pricing`; `dividends:` the same wording for `/dividends`; `/time_series` (with `start_date`) reported `code=401` — `запросов outward: 3` |
+| 31 | `python3 "$TMPDIR/rt96-r3/probe7.py"` — the exact shape the run used: `time_series?symbol=AAPL&interval=1day&outputsize=5000&end_date=2026-09-24` (1 request) | `как живой прогон (без start_date): HTTP 401 status=error code=401 строк=0 message='**apikey** parameter is incorrect or not specified…'` |
+| 32 | `python3 "$TMPDIR/rt96-r3/probe8.py"` (1 request, `outputsize=5`, whole body with the key replaced by `<KEY>`) | `HTTP 401` / `{"code":401,"message":"**apikey** parameter is incorrect or not specified. You can get your free API key instantly following this link: https://twelvedata.com/pricing. If you believe that everything is correct, you can contact us at https://twelvedata.com/contact/customer","status":"error"}` |
+| 33 | `dei` census and payload hashes over the user's base (`mode=ro` only, P7) | `dei:EntityCommonStockSharesOutstanding` 1951 rows / 37 issuers, all ingested `2026-09-24 05:30:48 … 05:45:38`; **7 issuers with no `dei:*` at all, six of them this round's six papers** (last ingestion `2026-09-21 04:25:49 … 05:39:45`); `raw_object.sha256` for VZ fundamentals `69e11989…082ed1` 345682 bytes **identical in both bases**, AAPL `4ac7958f…53496` identical; 54 measures in the base carry a `shares_outstanding` refusal; the base's VZ rows on both shares tags: 0 |
+| 34 | `python3 -m pytest tests/test_task96_r3_replay.py tests/test_task96_r3_refused_calls.py -v` | `7 passed in 8.55s` |
+| 35 | `python3 -m pytest tests/test_task96_r3_refused_calls.py tests/test_task96_r3_replay.py tests/test_task96_r2_follow.py tests/test_task64_j1_budget_truth.py -v` | `17 passed in 40.80s` |
+| 36 | `python3 -m pytest tests/test_budget.py tests/test_c3_actions.py tests/test_c5_cadence_cli.py tests/test_div_yield_from_filings.py tests/test_task65_k4_firsthour.py tests/test_a1_refresh.py tests/test_free_only.py -v` | `36 passed, 1 deselected in 38.36s` |
 
 ## HANDOFF
 
