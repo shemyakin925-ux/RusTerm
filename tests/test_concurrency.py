@@ -28,7 +28,8 @@ import time
 from rusterm.store import db
 from rusterm.store.db import apply_migrations
 from rusterm.store.paths import AppPaths, ensure_app_dir
-from rusterm.store.repos import Instrument, Issuer, RepoRegistry
+from rusterm.desktop import actions
+from rusterm.store.repos import Instrument, Issuer, Listing, RepoRegistry
 
 # Сколько транзакций делает каждый из двух потоков (строка K1).
 N_WRITES = 200
@@ -707,3 +708,384 @@ def test_reader_sees_only_whole_batches(tmp_path):
     assert observed[-1] == N_BATCHES * BATCH, (
         f"последнее наблюдение {observed[-1]} ≠ {N_BATCHES * BATCH}: "
         "пачки потеряны")
+
+
+# ── K6: сбор из окна под записями UI ─────────────────────────────────
+
+# Минимальное число подходов «UI»: цикл продолжается, пока рабочий поток
+# собирает (см. `running` в `_k6_ui_churn`), так что это пол, а не потолок:
+# добавление, удаление и откат версии успевают попасть и до стадий сбора,
+# и после них.
+K6_CHURN_ROUNDS = 12
+# Потолок подходов: зависший сбор не должен превратить тест в ожидание —
+# для этого есть `JOIN_TIMEOUT` на `thread.join`.
+K6_CHURN_MAX_ROUNDS = 120
+# Пауза между подходами UI: без неё подходы укладываются в один шаг
+# сборщика, и «запись поверх его коммита» остаётся неиспытанной.
+K6_CHURN_PAUSE = 0.03
+# Как часто UI опрашивает прогресс сборщика, ожидая первого коммита.
+K6_POLL = 0.005
+# Пауза вокруг обращений к индексу и документам (см. `_k6_paced_providers`).
+K6_PAUSE = 0.05
+# Инструменты, которыми UI наполняет список: FK `watchlist_member` ведёт в
+# `instrument`, так что выдуманный id дал бы ошибку целостности вместо
+# проверки конкурентности.
+K6_MEMBERS = tuple(f"US-K6-m{i}" for i in range(6))
+# Таблицы, по которым видно, что конвейер закоммитил: их заполняет только
+# сборщик (цикл UI трогает `watchlist_*`), и их общее число внутри одного
+# сбора монотонно не убывает, а растёт шагами — по шагам и проверяется
+# перемешивание двух писателей.
+K6_PROGRESS_TABLES = ("job", "fact", "raw_object", "coverage")
+
+
+def _k6_progress(conn) -> int:
+    return sum(conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+               for t in K6_PROGRESS_TABLES)
+
+
+def _k6_seed(paths, conn) -> str:
+    """Демо-инструмент — теми же дверями, что `rusterm demo` (identifiers
+    импортируются, не копируются), плюс список и инструменты для его
+    состава."""
+    from rusterm.cli import DEMO_INSTRUMENT, DEMO_ISSUER
+    repos = RepoRegistry(conn, paths)
+    repos.instrument.upsert_issuer(Issuer(
+        DEMO_ISSUER, "CLI Demo Corp (synthetic)", "US", None, None,
+        "us_gaap", "USD"))
+    repos.instrument.upsert_instrument(Instrument(
+        DEMO_INSTRUMENT, DEMO_ISSUER, None, "common", "active", None))
+    repos.instrument.upsert_listing(Listing(
+        f"{DEMO_INSTRUMENT}-listing", DEMO_INSTRUMENT, "XNAS", "USD", 1,
+        None, None))
+    repos.instrument.add_ticker_history(f"{DEMO_INSTRUMENT}-listing",
+                                        "DEMO", "2020-01-01", None, None,
+                                        None)
+    for instrument_id in K6_MEMBERS:
+        repos.instrument.upsert_instrument(
+            _instrument(instrument_id, DEMO_ISSUER))
+    repos.watchlist.create_watchlist("K6", "K6 watchlist", None, None)
+    repos.watchlist.new_version("K6-v1", "K6", 1, "create", None)
+    return DEMO_INSTRUMENT
+
+
+def _k6_paced_providers(cancel=None):
+    """Настоящий синтетический провайдер, у которого шаги идут медленнее.
+
+    Без паузы сбор демо-инструмента занимает доли миллисекунды между
+    коммитами, и «окно пишет поверх сборщика» сводится к редким шагам,
+    между которыми UI не успевает сделать ни одной записи. Пауза ставится
+    вокруг `poll_index` и `fetch_document` — между записями конвейера, а не
+    внутри них, — и ничего не подменяет: данные отдаёт тот же
+    `SyntheticDisclosuresProvider` с той же фикстурой. Приём `providers=` —
+    дверь продукта, ею пользуются тесты самого окна.
+
+    `cancel` поднимается после ответа индекса: это отмена на лету, а не до
+    старта.
+    """
+    inner = actions._synthetic_providers()["synthetic"]
+
+    class Paced:
+        reason = None
+
+        def poll_index(self, cursor):
+            index = inner.poll_index(cursor)
+            time.sleep(K6_PAUSE)
+            if cancel is not None:
+                cancel.cancel()
+            return index
+
+        def fetch_document(self, url):
+            document = inner.fetch_document(url)
+            time.sleep(K6_PAUSE)
+            return document
+
+    return {"synthetic": Paced()}
+
+
+def _k6_ui_churn(paths, rounds: int, log: list, errors: list,
+                 running=None, witnesses=None, gate=None) -> None:
+    """«UI» в основном потоке: добавляет участника, убирает участника,
+    каждую четвёртую итерацию откатывает версию.
+
+    Три разные двери записи списка — `new_version`+`copy_members_except`
+    (единственная дверь удаления, ТЗ-62 G2), `add_member` и `rollback_to`;
+    у каждой своё `writer_transaction` в этом же процессе. `log` — то, что
+    UI прочитал сразу после своей записи: по нему тест проверяет, что ни
+    одна правка не пропала в гонке со сборщиком.
+
+    Три рычага делают пересечение проверкой, а не удачей. `gate` — сколько
+    записей конвейера обязано быть видно до первой записи UI: иначе сборщик
+    управляется раньше, чем окно начинает писать. `running` — пока поток
+    сбора жив, цикл не останавливается на `rounds`: интервал UI заведомо
+    накрывает сбор. `witnesses` — пары «прогресс сборщика до записи UI и
+    после неё»; по ним видно, что коммиты двух писателей шли вперемешку, а
+    не друг за другом.
+    """
+    mine = db.open_connection(paths)
+    try:
+        w = RepoRegistry(mine, paths).watchlist
+        if gate is not None:
+            deadline = time.monotonic() + JOIN_TIMEOUT
+            while _k6_progress(mine) <= gate:
+                if time.monotonic() > deadline:
+                    errors.append(
+                        f"UI не дождался коммитов сборщика: на {K6_PROGRESS_TABLES} "
+                        f"так и не стало больше {gate} записей за "
+                        f"{JOIN_TIMEOUT} с")
+                    return
+                time.sleep(K6_POLL)
+        n = 0
+        while (n < rounds
+               or (running is not None and running()
+                   and n < K6_CHURN_MAX_ROUNDS)):
+            pre = _k6_progress(mine)
+            current = w.current_version("K6")
+            assert current is not None, "список K6 исчез из базы"
+            prev = [row["instrument_id"] for row in
+                    w.members("K6", current["version"])]
+            number = current["version"] + 1
+            vid = f"K6-churn-{n}"
+            w.new_version(vid, "K6", number, "edit", None)
+            dropped = K6_MEMBERS[n % len(K6_MEMBERS)]
+            w.copy_members_except(current["watchlist_version_id"], vid,
+                                  [dropped])
+            kept = [m for m in prev if m != dropped]
+            added = next((m for m in K6_MEMBERS if m not in kept), None)
+            if added is not None:
+                w.add_member(vid, added, None)
+            log.append((number, sorted(row["instrument_id"]
+                                       for row in w.members("K6"))))
+            if n % 4 == 3:
+                rolled = w.rollback_to("K6", max(1, n // 2))
+                log.append((rolled["version"],
+                            sorted(row["instrument_id"]
+                                   for row in w.members("K6"))))
+            if witnesses is not None:
+                witnesses.append((pre, _k6_progress(mine)))
+            n += 1
+            time.sleep(K6_CHURN_PAUSE)
+    except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+        errors.append(f"UI: {type(exc).__name__}: {exc}")
+    finally:
+        mine.close()
+
+
+def _k6_snapshots(conn, instrument_id: str) -> list:
+    """Снапшоты инструмента с числом мер у каждого: «половина набора мер»
+    ищется здесь, поэтому считается не только число строк в `snapshot`, но
+    и полнота мер каждой версии."""
+    rows = conn.execute(
+        "SELECT snapshot_id, version FROM snapshot WHERE instrument_id=? "
+        "ORDER BY version", (instrument_id,)).fetchall()
+    return [(row["snapshot_id"], row["version"],
+             conn.execute("SELECT COUNT(*) FROM measure WHERE snapshot_id=?",
+                          (row["snapshot_id"],)).fetchone()[0])
+            for row in rows]
+
+
+def test_desktop_collect_finishes_under_ui_writes(tmp_path):
+    """K6: рабочий поток собирает, пока основной поток правит список.
+
+    `desktop_actions.collect_synthetic` — та дверь, из которой окно пишет в
+    ту же базу: конвейер, coverage, снапшот. Пока она идёт, «UI» добавляет и
+    убирает участников списка и откатывает версии — все его записи идут
+    через `writer_transaction` этого же процесса. Ровно та пара писателей,
+    о которой говорит I14, и ровно та, которой в тестах не было.
+
+    Пересечение доказывается не часами: UI начинает писать только после
+    первого коммита сборщика (`gate`), кончает только после его смерти
+    (`running`), а пары `witnesses` показывают, что коммиты двух писателей
+    чередовались. Замеры того, что остаётся без этих рычагов, — в отчёте.
+    """
+    paths, conn = _fresh_root(tmp_path)
+    instrument_id = _k6_seed(paths, conn)
+    conn.close()
+
+    outcome: list = []
+    stages: list = []
+    churn_log: list = []
+    churn_errors: list = []
+    witnesses: list = []
+    span: list = []
+    underway = threading.Event()
+
+    def on_stage(name: str) -> None:
+        stages.append(name)
+        underway.set()  # сборщик в деле — «UI» может писать поверх него
+
+    def worker() -> None:
+        began = time.monotonic()
+        try:
+            outcome.append(actions.collect_synthetic(
+                paths.root, instrument_id, on_stage=on_stage,
+                providers=_k6_paced_providers()))
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            outcome.append(exc)
+        finally:
+            span.append((began, time.monotonic()))
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    assert underway.wait(JOIN_TIMEOUT), (
+        "сбор не объявил ни одной стадии — «UI» не дождался бы его")
+    ui_began = time.monotonic()
+    _k6_ui_churn(paths, K6_CHURN_ROUNDS, churn_log, churn_errors,
+                 running=thread.is_alive, witnesses=witnesses, gate=0)
+    ui_finished = time.monotonic()
+    thread.join(JOIN_TIMEOUT)
+
+    assert not thread.is_alive(), (
+        f"сбор не вернулся за {JOIN_TIMEOUT} с под записями UI — это "
+        "зависание на локе, а не медленная работа")
+    assert not churn_errors, f"запись UI упала: {churn_errors}"
+    assert outcome, "поток сбора не сообщил результат"
+    result = outcome[0]
+    assert not isinstance(result, BaseException), (
+        f"сбор под записями UI упал исключением: {type(result).__name__}: "
+        f"{result}")
+    assert result.ok, (f"сбор не завершился: reason={result.reason} "
+                       f"detail={result.detail}")
+    assert "конвейер" in " ".join(stages) and "снапшот" in " ".join(stages), (
+        f"стадии сообщены не полностью: {stages}")
+    assert span and ui_began < span[0][1] < ui_finished, (
+        f"сбор кончился не посреди записей UI (UI {ui_began:.3f}…"
+        f"{ui_finished:.3f}, сбор {span[0][0]:.3f}…{span[0][1]:.3f}) — тест "
+        "проверял двух последовательных писателей, а не двух одновременных")
+    assert witnesses, "UI не записал ни одного свидетельства прогресса"
+
+    check = db.open_connection(paths)
+    try:
+        # Перемешивание по коммитам, а не по часам: первая запись UI легла
+        # после коммита сборщика, и после неё сборщик закоммитил ещё что-то.
+        assert all(pre > 0 for pre, _post in witnesses), (
+            f"запись UI легла до первого коммита сборщика: {witnesses[0]} — "
+            "одновременность по часам ещё не конкурентная запись")
+        final = _k6_progress(check)
+        assert final > witnesses[0][1], (
+            f"сборщик не добавил ни одной записи после первой записи UI "
+            f"(после неё {witnesses[0][1]}, всего {final}) — коммиты шли "
+            "последовательно, а не вперемешку")
+        assert len({pre for pre, _post in witnesses}) >= 2, (
+            f"UI за все подходы не увидел ни одного промежуточного шага "
+            f"сборщика: {sorted({pre for pre, _ in witnesses})}")
+        snaps = _k6_snapshots(check, instrument_id)
+        assert snaps, "сбор не оставил ни одного снапшота"
+        assert all(measures > 0 for _s, _v, measures in snaps), (
+            f"снапшот без мер: {snaps}")
+        # Ни одна правка UI не потерялась: число версий и состав последней
+        # версии — те же, что записал и прочитал сам UI.
+        versions = check.execute(
+            "SELECT COUNT(*) FROM watchlist_version "
+            "WHERE watchlist_id='K6'").fetchone()[0]
+        assert versions == len(churn_log) + 1, (
+            f"версий списка {versions} вместо {len(churn_log) + 1} — часть "
+            "записей UI в гонке пропала")
+        last = sorted(row["instrument_id"] for row in
+                      RepoRegistry(check, paths).watchlist.members("K6"))
+        assert last == churn_log[-1][1], (
+            f"состав последней версии разошёлся с тем, что записывал UI: "
+            f"{last} против {churn_log[-1][1]}")
+        assert check.execute(
+            "PRAGMA integrity_check").fetchone()[0] == "ok", (
+            "база повреждена после одновременной записи сборщика и UI")
+    finally:
+        check.close()
+
+
+def test_cancelled_desktop_collect_leaves_no_half_snapshot(tmp_path):
+    """K6, вторая половина: отмена посреди сбора, пока UI пишет.
+
+    Флаг поднимается после ответа `poll_index` — то есть тогда, когда
+    конвейер уже начал работу, а снапшот ещё не строился. Проверка отмены в
+    двери идёт после конвейера и до снапшота, поэтому второй сбор обязан
+    честно вернуться «отменён» и не изменить числа снапшотов: ни половины
+    набора мер, ни новой версии пополам.
+
+    Здесь сборщик после дедупликации заданий не оставляет ни одной новой
+    строки (замер — в отчёте), поэтому пересечение доказывается часами и
+    живостью потока: UI пишет, пока поток сбора жив, и кончается только
+    после его конца.
+    """
+    paths, conn = _fresh_root(tmp_path)
+    instrument_id = _k6_seed(paths, conn)
+    conn.close()
+
+    # Первый сбор — целиком: с ним и сравнивается «old».
+    first = actions.collect_synthetic(paths.root, instrument_id)
+    assert first.ok, f"первый сбор не удался: {first.reason} {first.detail}"
+
+    base = db.open_connection(paths)
+    try:
+        before = _k6_snapshots(base, instrument_id)
+    finally:
+        base.close()
+    assert before, "первый сбор не оставил снапшота — сравнивать не с чем"
+
+    flag = actions.CancelFlag()
+    outcome: list = []
+    churn_errors: list = []
+    churn_log: list = []
+    span: list = []
+    underway = threading.Event()
+
+    def worker() -> None:
+        began = time.monotonic()
+        try:
+            outcome.append(actions.collect_synthetic(
+                paths.root, instrument_id, cancel=flag,
+                on_stage=lambda _name: underway.set(),
+                providers=_k6_paced_providers(cancel=flag)))
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            outcome.append(exc)
+        finally:
+            span.append((began, time.monotonic()))
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    assert underway.wait(JOIN_TIMEOUT), "отменённый сбор не объявил стадии"
+    ui_began = time.monotonic()
+    _k6_ui_churn(paths, K6_CHURN_ROUNDS, churn_log, churn_errors,
+                 running=thread.is_alive)
+    ui_finished = time.monotonic()
+    thread.join(JOIN_TIMEOUT)
+
+    assert not thread.is_alive(), "отменённый сбор не вернулся за потолок"
+    assert not churn_errors, f"запись UI упала: {churn_errors}"
+    assert outcome, "второй сбор не сообщил результат"
+    result = outcome[0]
+    assert not isinstance(result, BaseException), (
+        f"отмена уронила сбор исключением: {type(result).__name__}: "
+        f"{result}")
+    assert result.cancelled, (
+        f"отменённый сбор вернулся не статусом «отменён»: ok={result.ok} "
+        f"reason={result.reason} detail={result.detail}")
+    assert result.snapshot_id is None, (
+        f"отменённый сбор построил снапшот {result.snapshot_id}, хотя "
+        "отмена проверяется до этой стадии")
+    assert span and ui_began < span[0][1] < ui_finished, (
+        f"отменённый сбор кончился не посреди записей UI (UI "
+        f"{ui_began:.3f}…{ui_finished:.3f}, сбор {span[0][0]:.3f}…"
+        f"{span[0][1]:.3f})")
+
+    check = db.open_connection(paths)
+    try:
+        after = _k6_snapshots(check, instrument_id)
+        assert len(after) - len(before) in (0, 1), (
+            f"снапшотов было {len(before)}, стало {len(after)}: Done when "
+            "разрешает old или old+1, а не «сколько успело дойти»")
+        assert [v for _s, v, _m in after] == sorted(
+            {v for _s, v, _m in after}), (
+            f"версии снапшотов перестали быть рядом без повторов: {after}")
+        assert all(measures > 0 for _s, _v, measures in after), (
+            f"половина набора мер осталась: {after}")
+        assert check.execute(
+            "PRAGMA integrity_check").fetchone()[0] == "ok", (
+            "база повреждена после отмены сбора")
+        versions = check.execute(
+            "SELECT COUNT(*) FROM watchlist_version "
+            "WHERE watchlist_id='K6'").fetchone()[0]
+        assert versions == len(churn_log) + 1, (
+            f"версий списка {versions} вместо {len(churn_log) + 1}: отмена "
+            "сбора задела и записи UI")
+    finally:
+        check.close()

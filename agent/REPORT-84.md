@@ -413,6 +413,83 @@ Runs: `python3 -m pytest tests/test_concurrency.py` → `6 passed in 9.44s`; the
 test alone ten times in a row → `1 passed, 5 deselected` every time, wall
 `0.93, 0.93, 0.94, 0.95, 0.94, 0.95, 0.95, 0.97, 0.95, 0.96` s.
 
+### K6 — the desktop collector and the window's writer, at once, in one process
+
+Spec: `desktop_actions.collect_synthetic` in a thread; the main thread adds and
+removes watchlist entries meanwhile; a second run cancelled mid-way via
+`CancelFlag`. Done when: both complete; `PRAGMA integrity_check` = `ok`; after
+the cancelled run the snapshot count is old or old+1, never a half row set.
+`tests/test_concurrency.py::test_desktop_collect_finishes_under_ui_writes` and
+`::test_cancelled_desktop_collect_leaves_no_half_snapshot`; helpers `_k6_seed`,
+`_k6_paced_providers`, `_k6_ui_churn`, `_k6_progress`, `_k6_snapshots`.
+
+The churn uses three different watchlist doors per round — `new_version` +
+`copy_members_except` (the only removal door, ТЗ-62 G2), `add_member`, and
+`rollback_to` every fourth round — 12 rounds minimum, extended while the
+collector thread is alive (cap `K6_CHURN_MAX_ROUNDS = 120`). This is the pair
+I14 names: a collect from the window and the window's own writes, in one
+process, through `writer_transaction`.
+
+**Interval overlap was not a check.** The draft asserted only that the two
+wall-clock intervals touch, and it gated the churn on `on_stage` — an event the
+collector sets *before* its last commit, so `ui_began < collect_end` held by
+construction and could not fail. Measured instead, three levers:
+
+| lever | what it forces |
+| --- | --- |
+| `gate=0` | the UI does not write until the collector's rows are visible to a second connection |
+| `running=thread.is_alive` | the UI keeps writing while the collector works, and stops only after it is gone |
+| `witnesses` | per UI round: collector progress before the write and after it |
+
+Progress is counted over `job`, `fact`, `raw_object`, `coverage` — tables only
+the collector fills (the churn touches `watchlist_*`), so a change in the count
+is one of the collector's commits. Measured with `python3
+/tmp/rt84-staging/k6_witness.py` (three trials):
+
+| trial | collector commits (wall) | progress steps the UI saw | first round pre/post | final |
+| --- | --- | --- | --- | --- |
+| 1 | 0.201 s | 2, 9, 14, 18 | 2 / 2 | 18 |
+| 2 | 0.309 s | 2, 9, 14, 18 | 2 / 2 | 18 |
+| 3 | 0.184 s | 2, 9, 18 | 2 / 2 | 18 |
+
+So the UI's first write landed after the collector's first commit and before
+its last (`final 18 > post 2`), and the UI's rounds straddle three or four of
+its commits. Every round has `pre == post`: the two writers are never inside
+the door at the same instant — commits interleave rather than overlap, which is
+what serialising them means (K1, K2). What K6 adds is that both writers'
+committed state survives the interleaving: version count equals what the UI
+wrote and read back, its last composition equals its own, the snapshot has
+measures, `integrity_check` is `ok`.
+
+Teeth (lab detached at `ed8a8bc`; `rusterm/store/db.py` and
+`rusterm/desktop/actions.py` restored after every step, marker counted before
+the restore; the test file re-copied before every step — the first version of
+this script ran `git checkout -- tests/test_concurrency.py`, which silently
+deleted the K6 tests from the lab, so steps C and J of that run measured
+nothing; see Runs):
+
+| mutation | result | reading |
+| --- | --- | --- |
+| none | `2 passed, 6 deselected in 1.29s` | — |
+| 10 repeats of the pair | `2 passed, 6 deselected` every time, walls 1.17…1.49 s | — |
+| H: `BEGIN IMMEDIATE` → `BEGIN` inside `writer_transaction` | `2 failed, 6 deselected in 1.25s` | **red.** First mutation in this file where a deferred begin matters: K5's E ran the same swap against one writer and stayed green. Here the two doors really meet. |
+| I: `_writer_lock` → no-op | `2 passed, 6 deselected in 1.53s` | **green** — the third independent measurement that the in-process lock is not what protects the data (K1 finding, K5 E). |
+| J: the cancel check after the pipeline removed from `collect_synthetic` | `1 failed, 7 deselected in 0.91s` — `assert result.cancelled` (test_concurrency.py:1059) | **red** — without the check the cancelled run builds a snapshot, the exact half-state Done when forbids. |
+| K: `gate` removed from the test | `1 failed, 7 deselected in 0.73s` — `assert all(pre > 0 …)` (test_concurrency.py:960); 10/10 runs red | **red** — without the gate the UI's writes precede the collector's first commit: two sequential writers, which is what the clock assertion used to accept. |
+| L: sequential variant — `thread.join()` before the churn | `1 failed, 7 deselected in 0.90s` (test_concurrency.py:951) | **red** — the collector must *end* inside the UI's interval; that half of the clock assertion does carry a constraint. |
+| pacing off: `K6_PAUSE = 0`, `K6_CHURN_PAUSE = 0`, gate kept | 10/10 `1 passed, 7 deselected`, 0.35…0.82 s | green: on this machine the pauses buy margin, not correctness — gate, `running` and the witnesses do the work. |
+
+The cancelled half is honest about its own limit. After the first collect the
+store holds `job 2 / fact 6 / raw_object 2 / coverage 8`; the second, cancelled
+collect leaves Δ = 0 on all four and 0.058 s of wall (`k6_probe2.py`) — the jobs
+dedupe and the cancel lands before the snapshot. So that test's concurrency
+witness is structural (the churn runs while the worker lives and ends after it)
+rather than two interleaved commit sequences, and what it proves is the
+Done-when itself: `result.cancelled`, `snapshot_id is None`, snapshot count
+unchanged, versions a gapless set, every snapshot with measures, `integrity_check`
+`ok`.
+
+Runs: `python3 -m pytest tests/test_concurrency.py` in the clone → `8 passed in 8.36s`.
 ## Blocked
 
 none
@@ -477,6 +554,33 @@ none
   is that the reader need not wait for the writer (193 175 polls against
   75 989 during one held transaction) — that is a rate, so the file does not
   assert it.
+
+* K6's watchlist checks compare the UI with itself. The collector writes only
+  `job`/`fact`/`raw_object`/`coverage`/`snapshot`/`measure`, never `watchlist_*`,
+  so «version count equals what the UI wrote» and «last composition equals the
+  UI's own read-back» prove that the churn survived the interleaving, not that
+  the two writers agree on a shared table. What they genuinely share is the
+  door and the file — and the collector's commits are witnessed mid-churn
+  (progress 2 → 9 → 14 → 18 while the UI writes), so the concurrency is real;
+  the row-level cross-check between the two is not there to be had.
+* The cancelled second collect commits nothing new: measured Δ = 0 on all four
+  progress tables in 0.058 s (`k6_probe2.py`), because the jobs dedupe and the
+  cancel lands before the snapshot. Its overlap claim is therefore structural
+  (the churn runs while the worker lives, and ends after it) rather than two
+  interleaved commit sequences — read that test as the Done-when check
+  (`cancelled`, `snapshot_id is None`, count unchanged, gapless versions,
+  `integrity_check ok`), which is what it asserts.
+* `pre == post` in every UI round is read as «commits interleave, never overlap
+  inside the door». That is inference from a progress counter over four tables,
+  not a trace of the lock — K1's and K2's direct measurements of the door are
+  the evidence, and K6 only shows the pairing does not lose either writer's
+  work.
+* The pauses are margin, not correctness, on this machine: with `K6_PAUSE = 0`
+  and `K6_CHURN_PAUSE = 0` and the gate kept, the gated test passed 10/10
+  (0.35…0.82 s). The reverse risk is a false red: if a slower machine let the
+  collect finish inside one UI round, `final > witnesses[0][1]` (test_concurrency.py:964)
+  would fail on timing, not on a lost write. K8's 20-run loop is the bound
+  being put on that claim.
 
 ## Disputed
 
@@ -562,15 +666,20 @@ none
 | 38 | `python3 -m pytest tests/test_concurrency.py` и десять прогонов одного теста K5 | `6 passed in 9.44s`; K5 — `1 passed, 5 deselected` десять раз подряд, wall `0.93 / 0.93 / 0.94 / 0.95 / 0.94 / 0.95 / 0.95 / 0.97 / 0.95 / 0.96` с |
 | 39 | `python3 -m pytest tests/test_report_sections.py` — до `git add` и после него | без индекса `1 failed, 27 passed in 1.92s` (`пункты ['K5'] … коммита круга с реализацией … не найдено`), после `git add` — `28 passed in 1.76s`: L3 прощает объявление «сделано», только если в индексе есть файл не из `tests/` |
 | 40 | правка собственного промаха круга: `git diff --cached -- agent/REPORT-84.md \| grep -n "K4's «Done when»"` | запись 3 из «## Disputed» коммитом `c476283` уехала в конец файла (паттерн вставил её после `## HANDOFF`) и рядом осталась строка-дубль `NOW: K4, step 1`; перенесена в раздел, дубль удалён; ссылка `cli/__init__.py:1436` в разделе K4 исправлена на `:1440` (проверено `sed -n '1440p'`) |
+| 41 | `bash /tmp/rt84-staging/k6_teeth.sh` — первая версия скрипта о зубах | часть прогона ничего не измерила: скрипт в конце каждого шага делал `git checkout -- tests/test_concurrency.py`, а файл K6 в лаборатории был только скопирован (не в коммите), поэтому мутации C и J прогнались по файлу без тестов K6 (`6 deselected in 0.04s`), и печать `МУТАЦИЯ=…:0` стояла уже после откатa. Выводы этого лога в отчёт не взяты |
+| 42 | `bash /tmp/rt84-staging/k6_teeth2.sh` (лаборатория на `ed8a8bc`; тест копируется заново перед каждым шагом, маркер печатается до откатa) | baseline `2 passed, 6 deselected in 1.29s`; десять прогонов пары — `2 passed, 6 deselected` все десять, wall 1.17…1.49 с; весь файл `8 passed in 30.39s`; мутация «B» скрипта (`BEGIN IMMEDIATE` → `BEGIN`, в отчёте — H) `2 failed, 6 deselected in 1.25s`; «C» (`_writer_lock` → no-op, в отчёте — I) `2 passed, 6 deselected in 1.53s`; `gate=None` `1 failed, 7 deselected in 0.73s`; без пауз (`K6_PAUSE = 0`, `K6_CHURN_PAUSE = 0`) — `1 passed, 7 deselected` десять раз, 0.35…0.82 с; выключенные свидетели (`assert True or all(pre > 0 …)`) — `1 passed` пять раз; после всех шагов `8 passed in 31.81s` и `git status --porcelain` пусто. Первая строка лога — артефакт скрипта: `$(git -C \"$LAB\" …)` с лишними кавычками дала `fatal: cannot change to` и пустое `лаборатория на:`; `cd "$LAB"` ниже сработал, и в этом же логе есть `HEAD is now at ed8a8bc` — все шаги прошли в лаборатории |
+| 43 | `bash /tmp/rt84-staging/k6_teeth3.sh` — дочитать обрезанные `head -6` отказы | J → `tests/test_concurrency.py:1059: AssertionError`, `1 failed, 7 deselected in 0.91s`; снятый gate → `:960`, `1 failed, 7 deselected in 0.73s`, десять прогонов подряд красные (0.57…0.63 с); «последовательно» (churn после `join`) → `:951`, `1 failed, 7 deselected in 0.90s`; весь файл трижды — `8 passed` за 11.82 / 14.28 / 15.19 с; те же шесть тестов без K6 — `6 passed, 2 deselected in 13.30s` |
+| 44 | `python3 /tmp/rt84-staging/k6_witness.py`, `k6_probe.py`, `k6_probe2.py` | свидетели: сбор 0.201 / 0.309 / 0.184 с, шаги прогресса 2→9→14→18 (в одной пробе 2→9→18), `pre == post` в каждом раунде, финал 18; отменённый второй сбор — Δ = 0 по `job`/`fact`/`raw_object`/`coverage` за 0.058 с |
+| 45 | `python3 -m pytest tests/test_concurrency.py` и `python3 -m pytest tests/test_report_sections.py tests/test_state_report_tracked.py` (клон, K6 установлен) | `8 passed in 8.36s`; защита отчёта и STATE — `29 passed in 1.06s` |
 
 ## HANDOFF
 
-Status: WORKING — круг 119 идёт, K1, K2, K3, K4 и K5 закрыты
+Status: WORKING — круг 119 идёт, K1, K2, K3, K4, K5 и K6 закрыты
 коммитами; K2 — двумя, первый был красным (см. постскриптум и
 запись 2 ниже).
 
-Items done: приём круга (STATE + отчёт), K1, K2, K3, K4, K5.
-Items not done: K6, K7, K8 — очередь ТЗ-84, по одному коммиту на пункт.
+Items done: приём круга (STATE + отчёт), K1, K2, K3, K4, K5, K6.
+Items not done: K7, K8 — очередь ТЗ-84, по одному коммиту на пункт.
 
 Open questions for the coordinator: 3 entries below — I14's wording, the hook
 validating the working tree instead of the commit, and K4's recipe, which
@@ -579,7 +688,7 @@ K5 added none: its finding (WAL is not what hides a half batch) is a limit
 of the item's own metric, and it is in «What not to trust».
 
 Network: 0 requests spent. LLM calls: 0.
-NOW: K6, шаг 1 (сбор десктопа под записью UI).
+NOW: K7, шаг 1 (бэкап во время инжеста).
 
 First finding for the coordinator: entry 1 of `## Disputed` — with
 `_writer_lock` removed, K1 stays green, so I14's wording is about latency and
