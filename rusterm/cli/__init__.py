@@ -951,8 +951,15 @@ def cmd_snapshot(args) -> int:
                                            repos, iid, issuer,
                                            args_as_of_default())}))
     as_of = args.as_of or args_as_of_default()
+    from rusterm.core.peer_sets import peer_inputs
     for instrument_id, issuer_id in targets:
-        result = builder.build(instrument_id, issuer_id, as_of)
+        # ТЗ-94 E2: набор аналогов и величины участников — во второй
+        # проход; без этого перцентили считались только в тестах
+        peer_version, peer_measures = peer_inputs(repos, instrument_id,
+                                                  as_of)
+        result = builder.build(instrument_id, issuer_id, as_of,
+                               peer_set_version=peer_version,
+                               peer_measures=peer_measures)
         print(f"{instrument_id}: снапшот v{result.version}: "
               f"{result.snapshot_id}")
         # ТЗ-64 J5: вторая сборка на тех же входах честно говорит
@@ -964,12 +971,20 @@ def cmd_snapshot(args) -> int:
             print(f"{instrument_id}: без изменений — значения "
                   f"идентичны предыдущей версии")
         # «написано» и «имеет значение» — разные счётчики (TASK-8 U3)
-        measures = repos.snapshot.get_measures(result.snapshot_id)
+        rows = repos.snapshot.get_measures(result.snapshot_id)
+        # строки перцентилей — не меры: считаются отдельно, и отказ
+        # перцентиля (валюты, периоды) не выдаётся за перцентиль
+        # (координатор, 24.09: «мер 28 — со значением 29»)
+        measures = [m for m in rows if m[3] != "percentile"]
+        pct = [m for m in rows if m[3] == "percentile"]
         with_value = sum(1 for m in measures if m[4] is not None)
         null_measures = len(measures) - with_value
+        pct_value = sum(1 for m in pct if m[4] is not None)
+        refused = (f", отказов по набору: {len(pct) - pct_value}"
+                   if len(pct) > pct_value else "")
         print(f"{instrument_id}: мер: {result.measures} — со значением "
               f"{with_value}, пусто {null_measures}; "
-              f"перцентилей: {result.percentiles}")
+              f"перцентилей: {pct_value}{refused}")
         if result.diff.metric_changes:
             print("изменение метрик: " + "; ".join(
                 f"{c}: {o} -> {n}" for c, o, n in result.diff.metric_changes))
@@ -1885,6 +1900,67 @@ def _next_version_full_composition(watchlist_repo, watchlist_id: str,
     return version_id
 
 
+def cmd_peers(args) -> int:
+    """Отраслевые наборы аналогов (ТЗ-73 T2, ADR-0002): записать новую
+    версию набора или показать действующие. Раньше набор нельзя было
+    завести ни одной командой — вкладка «Отрасль» не наполнялась."""
+    from rusterm.core.peer_sets import PeerSetRefused, set_industry_peers
+
+    paths, conn = _open(args.root)
+    repos = RepoRegistry(conn, paths)
+    if args.action == "show":
+        ids = [args.sector] if args.sector else repos.peer_set.all_ids()
+        if not ids:
+            print("наборов аналогов нет; заведите: rusterm peers set "
+                  "<сектор> --tickers T1,T2,... --market US")
+            return 0
+        for sid in ids:
+            cur = repos.peer_set.open_version(sid)
+            if cur is None:
+                print(f"{sid}: действующей версии нет")
+                continue
+            mark = "подтверждён" if cur["approved"] else "не подтверждён"
+            print(f"{sid}: v{cur['version']} с {cur['valid_from']}, "
+                  f"{cur['origin']}, {mark}, аналогов {len(cur['members'])}"
+                  f": {', '.join(sorted(cur['members']))}")
+        return 0
+
+    as_of = args_as_of_default()
+    tickers = [t.strip() for t in args.tickers.split(",") if t.strip()]
+    instrument_ids, missing = [], []
+    for t in tickers:
+        found = repos.instrument.resolve_ticker_candidates(
+            t, args.market, as_of)
+        if len(found) == 1:
+            instrument_ids.append(found[0])
+        else:
+            missing.append(t)
+    if missing:
+        for t in missing:
+            print(f"тикер {t!r} на {args.market!r} не разрешён в один "
+                  f"инструмент; добавьте компанию: rusterm add --ticker {t} "
+                  f"--market {args.market}", file=sys.stderr)
+        return 1
+    try:
+        res = set_industry_peers(repos, args.sector, instrument_ids,
+                                 args.origin, args.approve, as_of,
+                                 {"note": args.note} if args.note else None)
+    except PeerSetRefused as exc:
+        print(f"набор аналогов не записан: {exc}", file=sys.stderr)
+        return 1
+    if not res.created:
+        print(f"{res.peer_set_id}: состав и происхождение не изменились — "
+              f"остаётся v{res.version} ({res.members} аналогов)")
+    else:
+        closed = (f"; v{res.closed_version} закрыта {as_of}"
+                  if res.closed_version else "")
+        print(f"{res.peer_set_id}: записана v{res.version}, {args.origin}, "
+              f"аналогов {res.members}{closed}")
+        print(f"дальше: rusterm snapshot --watchlist <id> — перцентили и "
+              f"отраслевой агрегат по набору")
+    return 0
+
+
 def cmd_watchlist(args) -> int:
     paths, conn = _open(args.root)
     repos = RepoRegistry(conn, paths)
@@ -2350,6 +2426,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_st = sub.add_parser("status", help="что у меня есть: база, снапшоты, покрытие, сеть")
     p_st.add_argument("--json", action="store_true")
 
+    p_peers = sub.add_parser("peers",
+                             help="отраслевые наборы аналогов (ADR-0002)")
+    peers_sub = p_peers.add_subparsers(dest="action", required=True)
+    p_pset = peers_sub.add_parser(
+        "set", help="записать новую версию набора аналогов сектора")
+    p_pset.add_argument("sector")
+    p_pset.add_argument("--tickers", required=True,
+                        help="тикеры через запятую")
+    p_pset.add_argument("--market", required=True)
+    p_pset.add_argument("--origin", required=True,
+                        choices=("manual", "catalog", "classifier",
+                                 "llm_suggested"))
+    p_pset.add_argument("--approve", action="store_true",
+                        help="набор подтверждён пользователем")
+    p_pset.add_argument("--note", default=None)
+    p_pshow = peers_sub.add_parser("show", help="действующие наборы")
+    p_pshow.add_argument("sector", nargs="?", default=None)
     p_wl = sub.add_parser("watchlist", help="списки наблюдения")
     wl_sub = p_wl.add_subparsers(dest="action", required=True)
     p_create = wl_sub.add_parser("create")
@@ -2487,6 +2580,7 @@ def main(argv: list[str] | None = None) -> int:
         "chat": cmd_chat,
         "demo": cmd_demo,
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
+        "peers": cmd_peers,
         "metrics": cmd_metrics, "budget": cmd_budget,
         "status": cmd_status, "tui": cmd_tui, "add": cmd_add,
         "desktop": cmd_desktop,
