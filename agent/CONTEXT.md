@@ -284,7 +284,15 @@ clone. Same class as P7. Consequence for anyone probing: bare `python3 -m
 rusterm…` without `PYTHONPATH` runs the user's checkout, not the branch —
 the coordinator fell into exactly this on 23.09.
 
-Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-83 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
+## Round 117 (TASK-83) accepted
+
+Fresh clone at `cca499d`: «пройдено 13, провалено 0»; no assert removed. The
+fuzz corpus is 31 files, largest 2 204 bytes — far under the 256 KB rule. F2
+refuses a Form 4 carrying `<!DOCTYPE`/`<!ENTITY` by bytes before the parser;
+disabling `_refuse_dtd` in a copy reds `test_harmless_entity_is_refused_too`
+and `test_dtd_in_a_comment_still_refused` — the teeth are real.
+
+Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-84 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
 
 **Whole-project review, 23.09 (user's request, separate session) —
 TASK-90…94.** Acceptance on `3f7dcc9` is 13/0, and every finding below
