@@ -174,6 +174,32 @@ is a guard rail, not a live break. Full suite with the change:
 (0:11:13)` — no regression from the `db.py` edit; the file alone:
 `2 passed in 1.26s`.
 
+### K2, postscript — the item's first commit was red, and how it was caught
+
+`bf7bf68` carried the test but not the fix. The per-item committer
+(`/tmp/rt84-staging/commit_item.sh`) staged `agent/` and `tests/` only — it was
+written for K1, which touched no source — so `rusterm/store/db.py` stayed in the
+working tree: P3 («leave nothing outside git») breached, and the pushed HEAD was
+red for its own new test. Measured in a clean worktree at that commit:
+
+```
+git worktree add --detach "$TMPDIR/rt84-head" bf7bf68
+cd "$TMPDIR/rt84-head" && python3 -m pytest tests/test_concurrency.py
+1 failed, 1 passed in 6.49s
+```
+
+The round's own guard could not see this: `agent/acceptance.sh` runs pytest
+against the working tree, which still held the unstaged fix, so the hook printed
+`Итог: пройдено 13, провалено 0` for a commit whose tree fails. The hole is in
+the check and not in this item's code, so entry 2 of the disputed list below
+carries the ask; `acceptance.sh` itself is off-limits here.
+
+Repaired by the follow-up commit that lands `db.py` (this one). Published
+history was not rewritten: `bf7bf68` stays where the coordinator can read what
+went wrong. The committer now stages tracked modifications in `rusterm/` too
+(`git add -u agent/ rusterm/ tests/`), so an item that edits source cannot be
+committed half-way again.
+
 ## Blocked
 
 none
@@ -226,6 +252,16 @@ none
    device? Not fixed here: I14's text is coordinator-owned (`agent/CONTEXT.md`,
    P6), and TASK-84 authorises no doc edits.
 
+2. K2's postscript is the evidence: `agent/acceptance.sh` step 3 (`pytest
+   целиком`) and the pre-commit hook both run against the **working tree**, so a
+   commit that leaves a fix unstaged still prints `Итог: пройдено 13, провалено
+   0` — measured: `bf7bf68` checked out clean is `1 failed, 1 passed`, while at
+   that same commit the hook said 13/0. Ask: should the hook verify the *commit*
+   instead — run the suite in a throwaway checkout of the staged tree, or refuse
+   when `git diff --cached` and `git diff` disagree? Not fixed here:
+   `acceptance.sh` is never edited (it is diffed against `origin/main`), and the
+   guard scripts around it belong to the coordinator.
+
 ## Runs
 
 | # | command | output |
@@ -246,10 +282,15 @@ none
 | 13 | `python3 -m pytest tests/test_concurrency.py` (клон, после правки) | `2 passed in 1.26s` |
 | 14 | `grep -c 'with writer_transaction(' rusterm/store/repos.py`, тот же греп по `rusterm/`, AST-обход тел транзакций | 51 сайт (50 на `self.conn`), других файлов греп не нашёл, `кандидатов на вложенную запись: 0` |
 | 15 | `python3 -m pytest -p no:cacheprovider` (полный прогон после правки лока) | `1309 passed, 5 skipped, 20 deselected, 4 xfailed, 3 warnings in 673.38s (0:11:13)` |
+| 16 | `bash /tmp/rt84-staging/commit_item.sh K2 …` (первый коммит пункта) | hook `Итог: пройдено 13, провалено 0` → `bf7bf68`; но `git status` после него — `M rusterm/store/db.py`: правка осталась вне коммита |
+| 17 | `git show --stat bf7bf68`; `git show HEAD:rusterm/store/db.py`, `grep -c _writer_owner` там и в рабочем дереве | в коммите `agent/REPORT-84.md`, `agent/STATE.json`, `tests/test_concurrency.py` без `db.py`; счётчик: HEAD → `0`, дерево → `4` |
+| 18 | `git worktree add --detach "$TMPDIR/rt84-head" bf7bf68` и `python3 -m pytest tests/test_concurrency.py` в нём | `1 failed, 1 passed in 6.49s` — запушенный HEAD красен для собственного теста K2; полный прогон над ним же — `1309 passed`, то есть сломан только новый тест, а не сборка |
+| 19 | первая попытка коммита починки (`commit_item.sh K2 …msg-k2fix.txt`) | хук отклонил: `FAILED tests/test_report_sections.py::test_disputed_lines_live_only_in_disputed_section` — постскриптум начинал строку со слова Disputed; `commit exit=1`, `git log` не изменился. Правка текста + повторный прогон `tests/test_report_sections.py`: `28 passed in 1.05s` |
 
 ## HANDOFF
 
-Status: WORKING — круг 119 идёт, K1 и K2 закрыты коммитами.
+Status: WORKING — круг 119 идёт, K1 и K2 закрыты коммитами; K2 — двумя,
+первый был красным (см. постскриптум и Disputed 2).
 
 Items done: приём круга (STATE + отчёт), K1, K2.
 Items not done: K3, K4, K5, K6, K7, K8 — очередь ТЗ-84, по одному коммиту

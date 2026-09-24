@@ -803,14 +803,29 @@ def open_connection(paths: AppPaths) -> sqlite3.Connection:
     return conn
 
 
+# Кто держит писательский лок: нужен, чтобы вложенный вызов падал
+# ошибкой, а не ждал вечно (ТЗ-84 K2). `threading.Lock` непереживаемый, а
+# SQLite не умеет вложенный BEGIN, так что «подождать» здесь не существует
+# как вариант — поток заблокировал бы сам себя.
+_writer_owner = threading.local()
+
+
 @contextmanager
 def writer_transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     """Контекст для записи под единым писательским локом (I14).
 
     Гарантирует сериализацию: только один поток пишет в одну транзакцию.
+    Вложенный вызов на том же потоке — ошибка вызывающего кода, и
+    обнаруживается он сразу: `RuntimeError`, названия двери в тексте.
     При выходе — COMMIT, при исключении — ROLLBACK.
     """
+    me = threading.get_ident()
+    if getattr(_writer_owner, "ident", None) == me:
+        raise RuntimeError(
+            "writer_transaction уже открыт в этом потоке: вложенная "
+            "транзакция невозможна, SQLite не умеет вложенный BEGIN")
     with _writer_lock:
+        _writer_owner.ident = me
         try:
             conn.execute("BEGIN IMMEDIATE")
             yield conn
@@ -821,3 +836,5 @@ def writer_transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]
             except sqlite3.Error:
                 pass
             raise
+        finally:
+            _writer_owner.ident = None
