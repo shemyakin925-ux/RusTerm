@@ -409,6 +409,63 @@ P5 forbids.
 
 Budget: 0 network requests, 0 LLM calls.
 
+### F5 — one deep pass, and what it counted
+
+`Done when`: `HYPOTHESIS_PROFILE=deep python3 -m pytest -m slow tests/test_fuzz_parsers.py -q`, run once, wall time and example counts per entry in the report. Run once, nothing else touching pytest at the same time (a parallel pass makes every timing number here lie — measured in an earlier round: 10.04 s quiet against 12.57 s under contention).
+
+```
+$ PYTHONPATH="$PWD:/tmp/rt83-staging" PYTHONDONTWRITEBYTECODE=1 \
+      HYPOTHESIS_PROFILE=deep python3 -m pytest -m slow \
+      tests/test_fuzz_parsers.py --durations=0 -p f5_counter -p no:cacheprovider
+старт 02:03:55Z
+.....                                                                    [100%]
+====================== F5: примеры на точку входа (deep) =======================
+hypothesis 6.168.1, профиль из окружения: deep, max_examples=5000, derandomize=False, database=None
+check_form4_contract               примеров   5000  внутри check_*    0.11s
+check_companyfacts_contract        примеров   5000  внутри check_*    0.46s
+check_parse_auto_contract          примеров   5000  внутри check_*    0.13s
+check_cvm_contract                 примеров   5000  внутри check_*    0.18s
+check_extract_contract             примеров   5000  внутри check_*    3.63s
+итого вызовов контракта: 25000
+============================== slowest durations ===============================
+48.68s call     tests/test_fuzz_parsers.py::test_cvm_rows_never_yield_non_finite_fact_deep
+22.26s call     tests/test_fuzz_parsers.py::test_extract_text_never_raises_deep
+ 6.76s call     tests/test_fuzz_parsers.py::test_parse_auto_returns_result_or_none_deep
+ 5.91s call     tests/test_fuzz_parsers.py::test_companyfacts_returns_parse_result_deep
+ 5.28s call     tests/test_fuzz_parsers.py::test_form4_refuses_or_returns_filing_deep
+
+(10 durations < 0.005s hidden.  Use -vv to show these durations.)
+5 passed, 7 deselected in 91.18s (0:01:31)
+exit=0
+финиш 02:05:28Z
+```
+
+Verdict: **5 passed, 0 new defects**. `git status --porcelain` after the run is empty — the pass added no file to `tests/data/fuzz/` and left no `.hypothesis` store behind (`database=None`), so the deep pass is evidence, not a harvest.
+
+Per entry — the wall time is what pytest measured for the property, the contract seconds are what the counter accumulated inside the `check_*` body:
+
+| entry | examples | property wall | inside `check_*` | avg per call |
+| --- | --- | --- | --- | --- |
+| form4 (`OwnershipFilingParser.parse`) | 5000 | 5.28s | 0.11s | 0.022 ms |
+| companyfacts (`CompanyFactsParser.parse`) | 5000 | 5.91s | 0.46s | 0.092 ms |
+| parse_auto | 5000 | 6.76s | 0.13s | 0.026 ms |
+| cvm (`CvmDfpParser.parse_rows`) | 5000 | 48.68s | 0.18s | 0.036 ms |
+| extract (`extract_text`) | 5000 | 22.26s | 3.63s | 0.726 ms |
+| **total** | **25000** | **91.18s** | **4.51s** | **0.18 ms** |
+
+The ratio is the interesting number: 4.51 s of the 91.18 s pass, 4.9 %, is spent inside the code under test. Everything else is the generator — `cvm_rows(max_rows=24)` asks Hypothesis for a per-row dict copy plus a per-field mutation draw (that strategy alone is the difference between cvm's 48.68 s and its 0.18 s of contract time), and `extract` writes one file per example through `tmp_path_factory`. That attribution of the remainder is read off the strategies in `tests/test_fuzz_parsers.py`, not measured separately — recorded in `## What not to trust`. What *is* measured: `extract_text` is 20–60× more expensive per call than the four JSON/XML entries, which is the deadline guard's cost, not a defect.
+
+Why a plugin for the counts: the `deep` profile is `derandomize=False, database=None`, so it leaves no example database behind and pytest prints no per-property count. `/tmp/rt83-staging/f5_counter.py` lives outside the repository on purpose — it wraps the five public `check_*` after module import (the properties look them up by name in their own module, which is what makes the wrapper see every real call) and prints the tally in `pytest_terminal_summary`. Putting a counter into the shipped test file would have baked measurement scaffolding into the product's suite.
+
+Deviations from the command as written in the ТЗ, both so the evidence exists at all:
+* `-q` dropped, `--durations=0` added: `addopts` already carries `-q`, so a second `-q` runs at `-qq` and hides the `5 passed … in 91.18s` totals line that is this item's deliverable.
+* `PYTHONPATH`, `-p f5_counter`, `-p no:cacheprovider`: the counter is loaded from outside the repo, and no `.pytest_cache` may be written into the clone (P3/P4).
+* The first attempt at this run exited 1: the counter read `settings.default_string`, which hypothesis 6.168.1 does not have, and crashed in `pytest_terminal_summary` *after* all five properties had passed (log `/tmp/rt83-f5-deep.log`, `AttributeError: type object 'settings' has no attribute 'default_string'`). The properties themselves were green in that pass; it produced no counts, so the same command was run again and the second log is the one quoted above. The wall time of the discarded pass is not included anywhere.
+
+Consequence for the round's other claim: F4's acceptance verdict, promised in that section, is `Итог: пройдено 13, провалено 0` / `Принято.` (log `/tmp/rt83-commit-f4.log`, lines 7–9).
+
+Budget: 0 network requests, 0 LLM calls.
+
 ## Blocked
 
 none
@@ -467,7 +524,22 @@ none
   So a future regression that deletes the ceiling would not turn this suite
   red through «no refusal» — only through the reason strings. Reading the
   F3 greens as «bombs are impossible» would be wrong.
-* Budget so far: 0 network requests, 0 LLM calls (F1, F2 and F3 needed neither).
+* F5's 25 000 contract calls found nothing new, and their distribution is
+  unrepeatable: `derandomize=False` with `database=None` means the pass can
+  only be re-run, not replayed — no seed is recorded, because the shipped
+  harness has no `.hypothesis` store to record it from. The number of
+  *examples* is solid (the counter saw every call); the identity of those
+  examples is gone.
+* The 4.51 s / 91.18 s split from F5 is a measurement of where the counter
+  sat, not of where Hypothesis spends its time; the attribution to the
+  strategies (a 24-row draw for cvm, a file write per example for extract) is
+  read off `tests/test_fuzz_parsers.py` and was not isolated by a separate
+  experiment.
+* F5 ran `-m slow`, i.e. only the five deep properties. The other seven tests
+  of that file were deselected by that marker (`5 passed, 7 deselected`), so
+  this pass says nothing about them — their evidence is the runs in F1 and F4.
+* Budget so far: 0 network requests, 0 LLM calls (no item of the round needed
+  either).
 
 ## Disputed
 
@@ -573,24 +645,50 @@ none
 | 32 | там же, `mkdir tests/data/fuzz/mystery` | `FAILED tests/test_fuzz_replay.py::test_no_unmapped_entry_folders` |
 | 33 | тот же корпус против исходника `193474d` (парсеры до Ф1) | `20 failed, 46 passed` — файлы корпуса несут настоящие дефекты |
 | 34 | `python3 -m pytest tests/test_fuzz_replay.py tests/test_fuzz_containers.py tests/test_fuzz_parsers.py` (clone) | `94 passed, 5 deselected in 2.38s` |
+| 35 | `git commit -F …` for F4 (hook = selfcheck → full acceptance) | `Итог: пройдено 13, провалено 0` / `Принято.` / `SELFCHECK OK` → `14ab6d2`, pushed (log `/tmp/rt83-commit-f4.log`) |
+| 36 | first F5 deep pass: `PYTHONPATH="$PWD:/tmp/rt83-staging" HYPOTHESIS_PROFILE=deep python3 -m pytest -m slow tests/test_fuzz_parsers.py --durations=0 -p f5_counter` | five properties `.....` green, then `AttributeError: type object 'settings' has no attribute 'default_string'` inside the counter's `pytest_terminal_summary`, `exit=1` — no counts, no totals line (log `/tmp/rt83-f5-deep.log`) |
+| 37 | same command again, alone, after the plugin was fixed outside the repo (profile read from `os.environ["HYPOTHESIS_PROFILE"]`), plus `PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider` | the block quoted in F5: `5 passed, 7 deselected in 91.18s (0:01:31)`, `итого вызовов контракта: 25000`, `exit=0`, 02:03:55Z → 02:05:28Z (log `/tmp/rt83-f5-deep2.log`) |
+| 38 | `ls tests/data/fuzz/*/ \| grep -c "\.bin"` and `git status --porcelain` after the deep pass | `31` (same as before it — the run harvested nothing), ` M agent/REPORT-83.md` only |
+| 39 | `git worktree remove --force "$TMPDIR/rt83-base"` after `diff`-ing every copy against the clone | `same: pyproject.toml / tests/test_fuzz_parsers.py / tests/test_fuzz_containers.py`, `corpus identical`; `tests/test_fuzz_replay.py` differed only because the worktree held the pre-F4 version (one shared ceiling instead of per-entry floors), so the weaker copy is what was dropped; `git worktree list` → clone + `rusterm-relay-verify` |
+| 40 | `rm -rf "$TMPDIR"/rt83-{lab,f3*,lie-*,mut.*,xxe-*}` (this round's probe sandboxes) + `rm -f /tmp/rt83-staging/replay-probe.bin` | `no matches found: $TMPDIR/rt83-*` — nothing of mine left outside the repo; the round's logs stay in `/tmp/rt83-*.log` because the report cites them by path |
 
 ## HANDOFF
 
-Status: WORKING — круг 117 идёт, F1, F2, F3 и F4 закрыты коммитами.
+Status: DONE — ТЗ-83 closed, all five items committed on `agent/night-11`.
 
-Items done: приём круга (STATE + отчёт), F1, F2, F3, F4.
-Items not done: F5 (one deep run with `HYPOTHESIS_PROFILE=deep -m slow`, its
-wall time and example counts per entry). Queue order is F5, one commit.
+Items done: приём круга (STATE + отчёт), F1, F2, F3, F4, F5.
 
-Network: 0 requests spent (Hypothesis уже установлен в прошлом круге).
-LLM calls: 0.
-Open questions to the coordinator: the seven entries in `## Disputed` — row 1
-of the contract table has no `unparsed` channel, row 3 keeps raising on an
-unknown `statement`, the `RecursionError` reproducer lives in a test rather
-than in `tests/data/fuzz/`, F2 left row 5's XML neighbours (`_parse_xml` dead
-helper, undeclared `defusedxml`) alone, F3 adds three: an empty zip is
-labelled `format_unsupported:binary` because `_ZIP_MAGIC` is the
-local-header signature, the zip ceiling trusts declared sizes (Disputed 6),
-and a PreToolUse hook orders me to run a test file that does not exist
-(Disputed 7). None of the seven is fixed in code.
-NOW: F4, step 1
+| item | commit | what it left behind |
+| --- | --- | --- |
+| F1 | `779422d` | `tests/test_fuzz_parsers.py` (12 tests: 5 properties + census + deep-nesting case, plus the same five properties under `-m slow`), 19 reпро-файлов, four JSON/XML entries refuse as values instead of raising |
+| F2 | `7f1190d` | `rusterm/parsers/ownership.py` + `tests/test_fuzz_xml.py` (7 tests): hostile-XML guard turns libexpat's `ParseError` into a declared refusal, billion-laughs reпро in the corpus |
+| F3 | `680e58d` | `tests/test_fuzz_containers.py` (21 tests), 11 container reпро, `extract_text` pinned — zero defects found |
+| F4 | `14ab6d2` | `tests/test_fuzz_replay.py` (66 tests): the corpus is now a check with per-entry floors, red-not-skipped when emptied |
+| F5 | this commit | the deep pass evidence in `### F5`: 25 000 contract calls over 5 entries, 91.18 s, 0 new defects |
+
+Items not done: none. Nothing in `## Blocked`.
+
+Network: 0 requests spent (Hypothesis was already installed from the previous
+round). LLM calls: 0.
+
+The F5 commit's own acceptance verdict cannot be quoted here — the hook that
+produces it runs *on* this commit, and pre-writing `13/0` would be the unrun
+claim P5 forbids; `relay hand` re-runs acceptance before the baton moves, so
+the verdict arrives in the log path named in the hand note.
+
+Open questions to the coordinator: the seven entries in `## Disputed` — none is
+fixed in code, and four need a ruling rather than a patch: row 1 has no
+`unparsed` channel, row 3 keeps raising on an unknown `statement`, the
+`RecursionError` reпро lives in a test instead of `tests/data/fuzz/`, and F2
+left row 5's XML neighbours (`_parse_xml` dead helper, undeclared `defusedxml`)
+alone. F3 adds three: an empty zip is labelled `format_unsupported:binary`
+because `_ZIP_MAGIC` is the local-header signature, the zip ceiling trusts
+declared sizes (entry 6), and a PreToolUse hook orders the executor to run a
+test file that does not exist (entry 7).
+
+What the next round should not re-learn: `extract_text` is now pinned twice
+(byte corpus in F1, containers in F3) and survived 5 000 deep examples in F5
+without a new defect; the remaining exposure there is inside python-docx /
+python-pptx, which no test in this repo reaches.
+
+NOW: hand to coordinator.
