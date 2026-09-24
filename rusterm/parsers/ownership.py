@@ -11,6 +11,7 @@ nonDerivativeTable (обычные бумаги); производная таб�
 """
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
@@ -20,6 +21,28 @@ _ROLE_FLAGS = (("isDirector", "director"),
                ("isOfficer", "officer"),
                ("isTenPercentOwner", "ten_percent_owner"),
                ("isOther", "other"))
+
+_DTD = re.compile(rb"<!DOCTYPE|<!ENTITY", re.IGNORECASE)
+
+
+def _refuse_dtd(raw: bytes) -> None:
+    """ТЗ-83 F2: обложка Form 4 — всегда <ownershipDocument> без DTD. В
+    записанном корпусе (tests/data/edgar/ownership, и grep по всему
+    tests/data) нет ни DOCTYPE, ни CDATA, поэтому объявленная сущность —
+    не «странный, но разборный» вход, а признак атаки: разрастание
+    (billion laughs) либо чтение файла с машины (внешняя сущность).
+    Отказываем по байтам ДО парсера: на этой машине expat 2.8.1
+    останавливает разрастание сам (замер: 0.115s, «limit on input
+    amplification factor breached»), но на libexpat < 2.6 того потолка
+    нет, и контракт «ValueError за 2s» держался бы на версии библиотеки
+    хоста. Ищем по всему буферу, а не в прологе: срез пролога обходится
+    комментарием («<!-- <x> --> <!DOCTYPE ...>», тест Ф2), а в настоящем
+    XML-тексте литерала «<!» быть не может — он оттуда экранируется."""
+    found = _DTD.search(raw)
+    if found is not None:
+        raise ValueError(
+            f"неразобран XML: в обложке Form 4 объявлена DTD "
+            f"({found.group().decode()}) — отказ до разбора")
 
 
 @dataclass
@@ -88,7 +111,9 @@ def _relationship(rel_node) -> tuple[str | None, str | None]:
 def parse_form4(raw: bytes) -> OwnershipFiling:
     """Байты Form 3/4/5 XML -> OwnershipFiling; невалидный XML —
     ValueError наверх (парсер честен: разбор идёт по записанному
-    сырью, отказ — значение вызывающему)."""
+    сырью, отказ — значение вызывающему). DTD в обложке отвергается до
+    разбора — см. _refuse_dtd."""
+    _refuse_dtd(raw)
     try:
         root = ET.fromstring(raw.decode("utf-8", "replace"))
     except ET.ParseError as exc:
