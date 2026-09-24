@@ -200,6 +200,64 @@ went wrong. The committer now stages tracked modifications in `rusterm/` too
 (`git add -u agent/ rusterm/ tests/`), so an item that edits source cannot be
 committed half-way again.
 
+### K3 — an exception inside the door releases everything
+
+Done when, verbatim: «a raise inside `writer_transaction` → ROLLBACK (row
+absent) and a second thread's transaction starts within 1 s». No product change
+was needed: this item is the first executable proof of the second half of the
+door's own docstring («при исключении — ROLLBACK»), which until now was only
+asserted by reading `db.py`.
+
+Two tests, because the door fails in two different ways:
+
+| test | how the failure is produced | what it pins |
+|---|---|---|
+| `test_raise_inside_transaction_rolls_back_and_frees_lock` | hand-opened `writer_transaction`, one `INSERT`, then `raise _K3Boom` — a type that is **not** `sqlite3.Error`, so the generic `except Exception` branch runs | the same type escapes the door; the row is absent; a fresh writer writes within 1 s; after the release only that writer's row exists |
+| `test_repo_integrity_error_releases_everything` | no hand-rolled SQL at all: `repos.instrument.upsert_instrument` under a dangling `issuer_id`, which `PRAGMA foreign_keys=ON` turns into `IntegrityError` inside the repository's own door | `sqlite3.IntegrityError` escapes; no row survives; a fresh writer writes within 1 s |
+
+The design point that decided the test's value: **the failing connection is
+held open while the second writer is tried** (`_fail_and_hold`). `close()` in
+sqlite3 rolls an unfinished transaction back by itself, so if the first thread
+closed before the check, the test would pass with `ROLLBACK` removed — a green
+that proves nothing. Measured, in `$TMPDIR/rt84-lab` at `7966097`:
+
+| run | output |
+|---|---|
+| baseline, K3 only | `2 passed, 2 deselected in 0.07s` |
+| mutation C: `conn.execute("ROLLBACK")` → `pass` | `2 failed, 2 deselected in 2.16s` |
+| after `git checkout -- rusterm/store/db.py` | `МУТАЦИЯ=0`, `2 passed, 2 deselected in 0.06s` |
+
+The mutation's message is the interesting part:
+
+```
+AssertionError: писатель не вошёл за 1.0 с (ошибки: []) — отказавшая
+транзакция оставила замок занятым
+```
+
+Empty error list, not `database is locked`: the second writer is parked inside
+sqlite3's busy-retry (`timeout=30` in `open_connection`), still hoping the
+aborted transaction will end. That is what a missing ROLLBACK does to a process
+— it does not error, it stalls, and only the 1-second ceiling of the test makes
+it visible.
+
+A finding on the way, in the other direction: the first draft of K3 called a
+repository method inside an outer `writer_transaction`, and what came out was
+K2's new error, not the intended exception:
+
+```
+AssertionError: из транзакции должен выйти тот же тип, что брошен, получено
+RuntimeError: RuntimeError('writer_transaction уже открыт в этом потоке:
+вложенная транзакция невозможна, SQLite не умеет вложенный BEGIN')
+```
+
+So K2's guard is confirmed reachable through a product door (`upsert_instrument`
+→ `writer_transaction`), not only through the hand-built nesting in K2's own
+test. The draft was rewritten to keep transaction bodies free of repository
+calls — which is also what the AST scan says about the product.
+
+Cost of the whole file after K3: `4 passed in 0.16s`, slowest call — K1's 400
+concurrent transactions at 0.08 s.
+
 ## Blocked
 
 none
@@ -214,6 +272,13 @@ none
   nothing about WAL side effects after a nested failure — `PRAGMA integrity_check`
   under a real mixed workload is K6/K7's job, and K2 must not be read as
   covering it.
+* K3 measures the same-process door only. Its «second writer gets in» is about
+  `_writer_lock` and SQLite's write lock inside one process; across processes
+  there is no `_writer_lock` at all, and that is K4's question, not K3's answer.
+* The `ошибки: []` in K3's mutation run is read as «the second writer is busy
+  waiting», which is the only reading consistent with `timeout=30` and a 1 s
+  ceiling — but it was not traced with a debugger, so the mechanism sentence in
+  the K3 section is inference from the timing, and the timing is the measurement.
 
 * K1's green does **not** mean the writer lock works: measured, deleting
   `with _writer_lock:` leaves K1 green (`1 passed in 0.09s`), because SQLite
@@ -286,18 +351,25 @@ none
 | 17 | `git show --stat bf7bf68`; `git show HEAD:rusterm/store/db.py`, `grep -c _writer_owner` там и в рабочем дереве | в коммите `agent/REPORT-84.md`, `agent/STATE.json`, `tests/test_concurrency.py` без `db.py`; счётчик: HEAD → `0`, дерево → `4` |
 | 18 | `git worktree add --detach "$TMPDIR/rt84-head" bf7bf68` и `python3 -m pytest tests/test_concurrency.py` в нём | `1 failed, 1 passed in 6.49s` — запушенный HEAD красен для собственного теста K2; полный прогон над ним же — `1309 passed`, то есть сломан только новый тест, а не сборка |
 | 19 | первая попытка коммита починки (`commit_item.sh K2 …msg-k2fix.txt`) | хук отклонил: `FAILED tests/test_report_sections.py::test_disputed_lines_live_only_in_disputed_section` — постскриптум начинал строку со слова Disputed; `commit exit=1`, `git log` не изменился. Правка текста + повторный прогон `tests/test_report_sections.py`: `28 passed in 1.05s` |
+| 20 | чистый worktree на `7966097`: `git worktree add --detach "$TMPDIR/rt84-head" …` + `python3 -m pytest tests/test_concurrency.py` | `правка в дереве коммита: 4`, `2 passed in 0.11s` — HEAD после починки зелёный сам в себе |
+| 21 | первая версия K3: репозиторий внутри внешней транзакции | `1 failed, 2 passed in 1.57s` → `получено RuntimeError: 'writer_transaction уже открыт в этом потоке…'`: защиту K2 поймал живой вложенный вызов; тест переписан |
+| 22 | проба ошибки продукта: `upsert_instrument` под несуществующий эмитент | чужое соединение → `ProgrammingError: SQLite objects created in a thread…`; своё соединение → `IntegrityError: FOREIGN KEY constraint failed`, `строк instrument: 0` — тип из пробы, а не из догадки |
+| 23 | `python3 -m pytest tests/test_concurrency.py --durations=3` (после v2) | `4 passed in 0.16s`; call: K1 `0.08s`, K2 `0.01s`, K3-репозиторий `0.01s` |
+| 24 | `bash /tmp/rt84-staging/k3_teeth.sh` (лаборатория на `7966097`; первая попытка молча осталась на `b1d0890`, потому что `checkout` без `--force` прервался на изменённом файле) | baseline `2 passed, 2 deselected in 0.07s`; мутация C `2 failed, 2 deselected in 2.16s` с `писатель не вошёл за 1.0 с (ошибки: [])`; после восстановления `МУТАЦИЯ=0`, `2 passed, 2 deselected in 0.06s` |
 
 ## HANDOFF
 
-Status: WORKING — круг 119 идёт, K1 и K2 закрыты коммитами; K2 — двумя,
-первый был красным (см. постскриптум и Disputed 2).
+Status: WORKING — круг 119 идёт, K1, K2 и K3 закрыты коммитами; K2 — двумя,
+первый был красным (см. постскриптум и entry 2 ниже).
 
-Items done: приём круга (STATE + отчёт), K1, K2.
-Items not done: K3, K4, K5, K6, K7, K8 — очередь ТЗ-84, по одному коммиту
-на пункт.
+Items done: приём круга (STATE + отчёт), K1, K2, K3.
+Items not done: K4, K5, K6, K7, K8 — очередь ТЗ-84, по одному коммиту на пункт.
+
+Open questions for the coordinator: 2 entries below — I14's wording, and the
+hook validating the working tree instead of the commit.
 
 Network: 0 requests spent. LLM calls: 0.
 First finding for the coordinator: entry 1 of `## Disputed` — with
 `_writer_lock` removed, K1 stays green, so I14's wording is about latency and
 nesting, not about lost writes.
-NOW: K3, step 1
+NOW: K4, step 1

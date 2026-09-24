@@ -17,6 +17,7 @@ daemon, и у ожидания есть потолок (`join(JOIN_TIMEOUT)`,
 """
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
 
@@ -235,3 +236,169 @@ def test_nested_writer_transaction_fails_fast(tmp_path):
     assert entered.is_set(), (
         f"замок не освободился за 1 с (ошибки: {late_errors}) — вложенный "
         f"вызов оставил процесс без писателя")
+# ── K3: исключение внутри транзакции отпускает всё ───────────────────
+
+# Сколько ждать следующего писателя: строка «a second thread's transaction
+# starts within 1 s» из Done when.
+RESUME_TIMEOUT = 1.0
+
+
+class _K3Boom(Exception):
+    """Исключение самого теста. Важно, что это не `sqlite3.Error`: ветка
+    `except Exception` в `writer_transaction` обязана отработать и с чужим
+    типом — иначе половина записанного висела бы в открытой транзакции."""
+
+
+def _instrument(instrument_id: str, issuer_id: str) -> Instrument:
+    return Instrument(instrument_id, issuer_id, None, "common", "active", None)
+
+
+def _fail_and_hold(paths, body):
+    """Выполняет `body(conn)` на своём потоке, ловит исключение и ДЕРЖИТ соединение открытым.
+
+    Держать — обязанность теста: `close()` у sqlite3 откатывает незавершённую
+    транзакцию сам, и иначе «откат не сработал» было бы не отличить от
+    «молча откатилось при закрытии». Вызывающий код обязан позвать
+    `release.set()` и `join`: поток — daemon, так что затяжного зависания
+    прогона не будет, но смысл проверки без релиза потеряется.
+    """
+    outcome: list = []
+    ready = threading.Event()
+    release = threading.Event()
+
+    def worker() -> None:
+        mine = db.open_connection(paths)
+        try:
+            try:
+                body(mine)
+                outcome.append("вышел без ошибки")
+            except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+                outcome.append(exc)
+            ready.set()
+            release.wait(JOIN_TIMEOUT)
+        finally:
+            mine.close()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    assert ready.wait(JOIN_TIMEOUT), (
+        "поток не сообщил о результате за потолок ожидания — это зависание, "
+        "а не медленная работа")
+    return thread, outcome, release
+
+
+def _next_writer_writes(paths, instrument_id: str, issuer_id: str) -> None:
+    """Отдельный поток обязан записать за секунду: и Python-лок, и писательский
+    lock SQLite после отказа свободны.
+
+    Ошибки собираются, а не пробрасываются: из чужого потока они всё равно не
+    дошли бы до отчёта, а «молча не записал» и «записал с ошибкой» — разные
+    диагнозы.
+    """
+    entered = threading.Event()
+    errors: list[str] = []
+
+    def late_writer() -> None:
+        mine = db.open_connection(paths)
+        try:
+            RepoRegistry(mine, paths).instrument.upsert_instrument(
+                _instrument(instrument_id, issuer_id))
+            entered.set()
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            errors.append(f"{type(exc).__name__}: {exc}")
+        finally:
+            mine.close()
+
+    late = threading.Thread(target=late_writer, daemon=True)
+    late.start()
+    late.join(RESUME_TIMEOUT)
+    assert entered.is_set(), (
+        f"писатель не вошёл за {RESUME_TIMEOUT} с (ошибки: {errors}) — "
+        f"отказавшая транзакция оставила замок занятым")
+
+
+def _instruments_like(paths, like: str) -> list[str]:
+    conn = db.open_connection(paths)
+    try:
+        rows = conn.execute(
+            "SELECT instrument_id FROM instrument WHERE instrument_id "
+            "LIKE ?", (like,)).fetchall()
+    finally:
+        conn.close()
+    return sorted(r[0] for r in rows)
+
+
+def test_raise_inside_transaction_rolls_back_and_frees_lock(tmp_path):
+    """K3, первая половина: `raise` внутри двери = откат + свободный замок.
+
+    Внутри транзакции — только `execute`, без вызовов репозитория: репозиторий
+    сам открывает `writer_transaction`, и на внешнем потоке это та самая
+    вложенность, которую K2 превращает в `RuntimeError` (первая версия этого
+    теста на неё и напоролась — см. отчёт). Здесь исключение бросается уже
+    после записи, когда транзакция открыта и о репозиториях не знает.
+    """
+    paths, conn = _fresh_root(tmp_path)
+    _seed_issuer(RepoRegistry(conn, paths), "K3")
+    conn.close()
+
+    def body(mine) -> None:
+        with db.writer_transaction(mine):
+            mine.execute(
+                "INSERT INTO instrument(instrument_id, issuer_id, class, "
+                "status) VALUES (?, ?, ?, ?)",
+                ("US-K3-inside", "K3", "common", "active"))
+            raise _K3Boom("строка записана — и намеренно брошена")
+
+    worker, outcome, release = _fail_and_hold(paths, body)
+    try:
+        error = outcome[0]
+        assert isinstance(error, _K3Boom), (
+            f"наружу должен уйти тот же тип, что брошен, получено "
+            f"{type(error).__name__}: {error!r}")
+        assert _instruments_like(paths, "US-K3%") == [], (
+            "откат не сработал: строка из отменённой транзакции осталась в "
+            "базе")
+        # Следующий писатель проверяется, пока отказавшее соединение ещё
+        # открыто: только так видно, что отпустил его именно ROLLBACK.
+        _next_writer_writes(paths, "US-K3-after", "K3")
+    finally:
+        release.set()
+        worker.join(JOIN_TIMEOUT)
+    assert not worker.is_alive(), "поток не закрыл соединение после релиза"
+    assert _instruments_like(paths, "US-K3%") == ["US-K3-after"], (
+        "после отказа должен пережить только следующий писатель")
+
+
+def test_repo_integrity_error_releases_everything(tmp_path):
+    """K3, вторая половина: то же обязательство на настоящей двери продукта.
+
+    Ни ручного `BEGIN`, ни ручного `INSERT`: пишется инструмент под
+    несуществующий эмитент, и `PRAGMA foreign_keys=ON` из `open_connection`
+    превращает это в `IntegrityError` внутри `writer_transaction`
+    репозитория. Отказ в продукте выглядит именно так, а не вымышленным
+    `raise` в тестовом коде.
+    """
+    paths, conn = _fresh_root(tmp_path)
+    _seed_issuer(RepoRegistry(conn, paths), "K3R")
+    conn.close()
+
+    def body(mine) -> None:
+        RepoRegistry(mine, paths).instrument.upsert_instrument(
+            _instrument("US-K3-dangling", "K3-нет-такого"))
+
+    worker, outcome, release = _fail_and_hold(paths, body)
+    try:
+        error = outcome[0]
+        assert isinstance(error, sqlite3.IntegrityError), (
+            f"ожидался IntegrityError от включённого FK, получено "
+            f"{type(error).__name__}: {error!r}")
+        assert _instruments_like(paths, "US-K3%") == [], (
+            "ошибочная запись оставила строку — откат не покрыл дверь "
+            "репозитория")
+        _next_writer_writes(paths, "US-K3-good", "K3R")
+    finally:
+        release.set()
+        worker.join(JOIN_TIMEOUT)
+    assert not worker.is_alive(), "поток не закрыл соединение после релиза"
+    assert _instruments_like(paths, "US-K3%") == ["US-K3-good"], (
+        "после ошибки целостности должен пережить только следующий писатель")
