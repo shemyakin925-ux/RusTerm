@@ -490,6 +490,117 @@ unchanged, versions a gapless set, every snapshot with measures, `integrity_chec
 `ok`.
 
 Runs: `python3 -m pytest tests/test_concurrency.py` in the clone → `8 passed in 8.36s`.
+### K7 — a backup taken during ingest did not restore, and a half-written object was addressable
+
+Spec: `create_backup` while an ingest thread writes → the archive restores via
+`restore_backup` into a fresh root, `PRAGMA integrity_check` = `ok`, schema
+version = `_SCHEMA_VERSION`, every manifest member present; *if a half-written
+raw file can enter the archive — fix, and say how*.
+Tests: `tests/test_concurrency.py::test_backup_taken_during_ingest_restores_completely`,
+`::test_half_written_object_never_becomes_addressable`,
+`::test_backup_archives_only_objects`; helpers `_k7_is_object_name`,
+`_k7_check_backup`, constants `K7_OBJECTS/K7_PAYLOAD/K7_BACKUPS/K7_LARGE_PAYLOAD/K7_RACE_TRIALS`.
+
+Running the geometry found three things that reading the code had not surfaced.
+
+**1. Every file was read twice.** `create_backup` (`backup.py:56`) collected
+members with `_member_from_file` — one `read_bytes()` to hash — and only later
+wrote the bodies with `zf.write(member["_source"], …)`, a second read of the same
+path. Ingest appends a line to `raw/manifests/manifest-<date>.jsonl` between the
+two reads, so MANIFEST records the hash of the shorter file and the archive
+carries the longer bytes; `restore_backup` checks hashes before writing anything
+and refuses the archive. Measured before the fix at `ed8a8bc` (`k7_probe.py`,
+40 objects × 200 KB, up to 5 archives per trial; the step asked for 3 trials and
+the log keeps 2), each of them `ошибок 4`, and every error the same:
+
+```
+restore_backup: BackupError('хеш члена raw/manifests/manifest-2026-09-24.jsonl
+не совпал — архив повреждён')
+```
+
+Fix: `_add_member(zf, path, source)` — one read, and the bytes it hashed are the
+bytes `zf.writestr` puts in the archive. `_member_from_file` is gone with it
+(`grep` over the repo: no other caller).
+
+**2. Publication was not atomic.** `put_object` (`raw_store.py:128`) guarded
+duplicates with `if not target_path.exists()` and then `write_bytes`. Two fetches
+of the same document: the loser passes the `exists()` check while the winner is
+still writing, and truncates a file whose name *is* its content hash — an address
+pointing at a partial object. Measured at `ed8a8bc` with the same poller the test
+now uses (`k7_same_object.py`, 4 MB payload, 20 trials): `проб с обрезанным
+чтением 20, наблюдений укороченного файла 30, из них нулевой длины 30, финальный
+размер [4001243]` — every trial, and every short sighting was a zero-length file.
+(The first version of that probe reported `15 … 35 … 35`; both readings are
+pre-fix and both say the window is wide, the shipped numbers are the later,
+tighter poller.) Fix: `_write_atomic` — `mkstemp` in the same directory, write,
+`flush` + `os.fsync`, `os.replace`; unlink the temp on failure.
+
+**3. The second fix needs a walk rule, and only a planted name proves it.**
+Atomic publication leaves an in-flight `<имя>.<случайное>.tmp` next to the
+target, inside the directory `create_backup` walks. That the temp really is there
+is measured, not assumed: the poller in the race test now also counts names
+starting with the address, and `python3 /tmp/rt84-staging/k7_temps_probe.py 20
+4000000` gives `проб с временным именем 20 из 20, всего наблюдений 3040` — 2
+distinct temp names per trial, i.e. both publishers did pass `exists()` and both
+wrote. An unfiltered walk takes such a file: `test_backup_archives_only_objects`
+plants one name — built exactly the way `mkstemp` builds it — and asserts no
+non-address member reaches the archive and none reaches the restored root.
+Fix: `is_object_filename` (a 64-hex stem plus optional `.zst`/`.gz`) filters the
+walk; it is the same "name = address" rule the cleaner already relies on
+(`prune_raw_store`).
+
+One retraction belongs here. An earlier probe run (`/tmp/rt84-k7-lab2.log`)
+printed `архив 1: файлов 1, битых 1, не-адресных 0` and the first draft of this
+section quoted it as «the archive gained a file that was not an object». That is
+wrong: the same line's `не-адресных 0` says the opposite, and the `битых` counter
+was the probe hashing compressed bytes against the address. After fixing the
+counter, no archive gained a temp file at the atomic-writes stage on natural
+timing (7 trials — 3 small-object, 4 large-object — all `с битым объектом 0,
+ошибок 0`, `/tmp/rt84-k7-lab3.log`). The filter's justification is
+therefore the two measurements above, not that line, and the teeth run confirms
+the gap: with the filter removed, `test_backup_taken_during_ingest…` stays green
+5/5 while the planted-name test goes red 5/5.
+
+What the tests assert, per archive, is recomputed from the archive itself —
+member present, hash and size against the bytes in the zip — so the red does not
+come from trusting `restore_backup`'s own check (mutations P and M+P below). Then
+in the restored root: no non-address file, every address file decompresses to its
+own name, every `raw_object` row resolves to a file, every manifest line parses as
+JSON, `PRAGMA integrity_check` = `ok`, and both `manifest["schema_version"]` and
+the restored base's version equal `db._SCHEMA_VERSION`. The ingest thread writes
+through the product door (`repos.raw.put` — file, manifest line, index row) with
+its own connection, and the archiver is gated on the first visible `raw_object`
+row (the K6 lesson: an archive of an idle base is not the case being asked
+about); `any(alive_at_backup)` keeps the gate honest. The race test publishes one
+4 MB object from two threads and polls the three address names — any sighting
+shorter than the final file is the defect, and it asserts both witnesses
+(`trials_with_sightings > 0`, `trials_with_temps > 0`) so neither check can pass
+by seeing nothing.
+
+Teeth (lab detached at `58a89e4`, `bash k7_teeth3.sh` then `k7_teeth4.sh`; the
+test file re-copied before every run, mutation markers counted before each
+product revert; every mutation applied on top of the **full** patch — the first
+version of this script reverted to HEAD before applying N and O, their anchors
+were absent, and those two steps measured nothing):
+
+| step | result | reading |
+| --- | --- | --- |
+| no fix (HEAD `58a89e4`) | ingest `1 failed` 5/5 (`:1265`, `хеш члена … не совпал`), race `1 failed` 5/5 (`:1359`, `проба 0: … [0] против 4001243`), plant `1 failed` 5/5 (`:1420`, `в архив попали не-объекты […tmp]`) | all three red before the fix — that is the item's «if a half-written raw file can enter the archive — fix, and say how» |
+| fixes 1+2, no walk filter | plant `1 failed` 5/5; ingest `1 passed` 5/5; race `1 passed` 2/2 | the filter is needed and is not reachable by natural timing — hence the planted name |
+| full patch | `3 passed, 8 deselected in 1.97s`; 10/10 repeats green, 1.79…1.95 s | |
+| full patch, product text = the clone's | `backup.py` byte-identical to the clone, `raw_store.py` differs only in `is_object_filename`'s docstring; trio `3 passed` 3/3 (1.70…1.74 s) | the teeth run is about the shipped text |
+| M: two reads left, but adjacent (`zf.write` then `read_bytes`) | `1 passed` 10/10 | green. The gap is microseconds and a 5 ms-per-line ingest cannot land in it. Not a strawman test — see M2 |
+| M2: the two-phase order restored (hash pass, then body pass; filter and atomicity kept) | ingest `1 failed` 5/5, same `BackupError`; plant 2/2 green, race green | the test catches the defect's real geometry, and only that geometry |
+| N: `_write_atomic` → `write_bytes` (filter kept) | race `1 failed` 5/5 (`[0] против 4001243`) | red: the address becomes observable while empty |
+| O: walk filter removed (atomic writes kept) | plant `1 failed` 5/5; ingest `1 passed` 5/5 | red: the planted temp reaches the archive — this is the coverage the pair of tests did not have |
+| P: `restore_backup`'s hash check disabled, on the **unfixed** tree | `1 failed` 3/3, and by a different assert: `:1273` `хеш члена … разошёлся с манифестом`, `размер члена … разошёлся` | the red is the test's own recomputation, not the product refusing the archive |
+| M+P together (patched tree) | `1 failed`, `:1273`, 1/5 | consistent with M's adjacency limit: with the product's check silenced the test still sees the mismatch, when the window is hit |
+| Q: `os.fsync` removed from publication | `3 passed, 8 deselected in 1.62s` | green — durability is not what this item asserts (see «What not to trust») |
+| existing suites, full patch | `test_j4_backup + test_raw_store + test_raw_prune` `24 passed, 1 skipped`; `test_cli` `35 passed`; whole `tests/test_concurrency.py` `11 passed in 8.41s` | the fix breaks nothing that was already checked |
+
+Runs: `python3 -m pytest tests/test_concurrency.py -k "backup_taken_during_ingest
+or half_written_object or backup_archives_only_objects"` in the clone → `3 passed
+in 1.99s`, 12 consecutive repeats green (12/12).
 ## Blocked
 
 none
@@ -582,11 +693,50 @@ none
   would fail on timing, not on a lost write. K8's 20-run loop is the bound
   being put on that claim.
 
+* K7's green says nothing about durability. Mutation Q (`os.fsync` removed from
+  publication) leaves all three tests green (`3 passed in 1.62s`): what is pinned
+  is that no partially written object is addressable while the process lives. A
+  crash between `os.replace` and the platter is not tested here, and SQLite's
+  plain-`fsync` caveat from K1 applies unchanged.
+* The archive test pins ordering, not the number of reads. Mutation M — both
+  reads kept but adjacent — is green 10/10 (v3) and red 1/3 (v2): the window is
+  microseconds and whether a 5 ms-per-line ingest lands in it is a coin flip.
+  M2, which restores the two-phase order, is red 5/5. So «this test would catch a
+  double read» is only true of a double read that separates its passes.
+* Natural timing does not exercise the walk filter at all: with mutation O the
+  ingest test is green 5/5 and the race test green. `test_backup_archives_only_objects`
+  is the filter's only coverage, and it plants the name itself rather than
+  racing for it. The tripwire that the planted shape is still the real shape is
+  `trials_with_temps > 0` in the race test, measured 20/20 trials and 3040
+  sightings (`k7_temps_probe.py`).
+* The racy `if not exists()` guard in `put_object` is still racy — that is not
+  what K7 fixed. 20/20 trials produced *two* distinct temp names, i.e. both
+  publishers compressed and wrote the same 4 MB; the fix makes the duplicate
+  harmless (same bytes, one name, last `os.replace` wins), it does not remove the
+  wasted work. Removing it needs `O_EXCL`/link semantics or a store-level lock,
+  outside this item.
+* `is_object_filename` is stricter than the cleaner's rule (`prune_raw_store`
+  strips one extension and compares length only, no hex alphabet). Reasoned, not
+  measured end-to-end: a temp's stem is longer than 64 characters and dotted, so
+  prune's walk cannot mistake one for a `raw_object.sha256`. K7 does not touch
+  prune, and its docstring says the hex check is the backup's, not prune's.
+* Atomic publication introduces one new piece of garbage: a publication killed
+  between `mkstemp` and `os.replace` leaves `<имя>.<случайное>.tmp` in the shard
+  forever — `put_object` unlinks it on a caught exception, but a hard kill does
+  not, and neither backup (filtered out) nor prune (base ≠ 64 chars) will take
+  it. Bounded to one file per crashed publish; a cleaner rule for it belongs to
+  the coordinator, not to this item.
+* The ingest test's overlap witness is `any(alive_at_backup)` — one of five
+  archives taken while the writer is alive is enough for the item's claim, and
+  the per-run count of overlapping archives is not asserted. What every archive
+  must satisfy is `_k7_check_backup`, which is where the defect actually showed.
+
 ## Disputed
 
 1. K1's mutation A says the round's premise needs a sharpening, and the place
-   to say it is here rather than in code: `agent/CONTEXT.md`'s invariant I14
-   («один писатель» через `_writer_lock`) is treated as the thing that protects
+   to say it is here rather than in code: `tests/test_invariants.py:423`'s invariant I14
+   («В базу пишет один поток»; запись 4 ниже — о том, где именно живёт I14
+   и что проверяет его собственный тест) is treated as the thing that protects
    concurrent writes, but measured, it is not — with the lock removed the
    two-thread case still produces exactly the right 400 rows, because SQLite
    allows one writer and `open_connection` carries `timeout=30`. What the lock
@@ -595,8 +745,9 @@ none
    nothing at all across processes, which is K4's whole point. Ask: restate
    I14 as «одна транзакция за раз на соединение + сериализация писателей на
    уровне базы», or keep the wording and accept that the lock is a latency
-   device? Not fixed here: I14's text is coordinator-owned (`agent/CONTEXT.md`,
-   P6), and TASK-84 authorises no doc edits.
+   device? Not fixed here: I14's wording belongs to the coordinator (that test
+   file and `rusterm/store/db.py:815`, where the door cites it), and
+   TASK-84 authorises edits only in `tests/test_concurrency.py`.
 
 2. K2's postscript is the evidence: `agent/acceptance.sh` step 3 (`pytest
    целиком`) and the pre-commit hook both run against the **working tree**, so a
@@ -620,6 +771,28 @@ none
    Not changed here: `source_cursor`'s key and the job key are product design
    (and TASK-84 authorises no `agent/CONTEXT.md` or provider edits), so the
    finding is filed instead of fixed.
+
+4. I14's own guard tests contain no thread. `tests/test_invariants.py:423`
+   («I14. В базу пишет один поток») is enforced by
+   `test_i14_writer_thread_is_serialized` (`tests/test_invariants.py:424`): one
+   connection, two `writer_transaction` blocks run one after the other, assert
+   `n == 2`. `tests/test_db.py:89` (`test_writer_transaction_basic`, docstring
+   «I14: writer_transaction сериализует запись») is the same shape. Neither
+   creates a thread or a process, so neither can go red for the reason the
+   invariant names — and measured, that is not a hypothetical: deleting
+   `_writer_lock` keeps K1 green (mutation A) and keeps K4's two processes green
+   (mutation C), while these two tests stay green in both worlds because they
+   only ever ask «does the door write twice in a row». `tests/test_concurrency.py`
+   is now the only place I14 executes as a concurrency property. Ask: rename
+   `test_i14_writer_thread_is_serialized` to something like
+   `test_i14_two_sequential_writes_through_the_door`, or fold it into this
+   round's file, so the invariant list does not read as if threading were
+   covered? Not fixed here: `tests/test_invariants.py` is outside TASK-84 (the
+   item names `tests/test_concurrency.py`), and renaming an invariant test —
+   which `acceptance.sh` and the L-guards look up by id — is the coordinator's
+   call. This entry also corrects entry 1: its first version cited
+   `agent/CONTEXT.md` as I14's home, and `grep -n "I14" agent/CONTEXT.md` returns
+   nothing (measured, this item). Entry 1's finding stands; its citation did not.
 
 ## Runs
 
@@ -671,26 +844,35 @@ none
 | 43 | `bash /tmp/rt84-staging/k6_teeth3.sh` — дочитать обрезанные `head -6` отказы | J → `tests/test_concurrency.py:1059: AssertionError`, `1 failed, 7 deselected in 0.91s`; снятый gate → `:960`, `1 failed, 7 deselected in 0.73s`, десять прогонов подряд красные (0.57…0.63 с); «последовательно» (churn после `join`) → `:951`, `1 failed, 7 deselected in 0.90s`; весь файл трижды — `8 passed` за 11.82 / 14.28 / 15.19 с; те же шесть тестов без K6 — `6 passed, 2 deselected in 13.30s` |
 | 44 | `python3 /tmp/rt84-staging/k6_witness.py`, `k6_probe.py`, `k6_probe2.py` | свидетели: сбор 0.201 / 0.309 / 0.184 с, шаги прогресса 2→9→14→18 (в одной пробе 2→9→18), `pre == post` в каждом раунде, финал 18; отменённый второй сбор — Δ = 0 по `job`/`fact`/`raw_object`/`coverage` за 0.058 с |
 | 45 | `python3 -m pytest tests/test_concurrency.py` и `python3 -m pytest tests/test_report_sections.py tests/test_state_report_tracked.py` (клон, K6 установлен) | `8 passed in 8.36s`; защита отчёта и STATE — `29 passed in 1.06s` |
+| 46 | первая версия скрипта о зубах K7 (`k7_teeth.sh`) — отказ от выводов | шаги N и O ничего не измерили: перед ними `revert_prod` возвращал лабораторию на HEAD, якоря мутаций (`_write_atomic(target_path, compressed)`, `if not is_object_filename(fname):`) в этом тексте отсутствуют, наложение прервалось на `AssertionError`, а «красные» прогоны этих двух шагов были красным незамазанным деревом. В v2 и v3 каждая мутация накладывается на полный патч, и перед ней печатается счётчик маркеров |
+| 47 | `bash /tmp/rt84-staging/k7_teeth2.sh` (лаборатория на `58a89e4`) | до починки пара красная: вся пара `2 failed`, затем по одному тесту `1 failed` трижды подряд; этап writes без фильтра — прогон 1 `2 passed`, прогон 2 `1 failed` (гонка), прогон 3 `2 failed`; полный патч — из 11 прогонов пары 3 зелёных и 8 красных, все красные по `test_half_written_object…`: мой `leftovers` искал временные файлы по всему шарду и натыкался на чужой `<sha2>.gz` (совпадение двух первых hex-символов за 20 проб), правка — искать только среди имён этого адреса; мутация M — красная 1 раз из 3; мутация O — зелёная 10/10, то есть фильтр обхода тестами не покрыт; P — красная 3/3; Q — зелёная; существующие тесты `24 passed, 1 skipped` и `35 passed`; строки «весь `tests/test_concurrency.py` в лаборатории» этот лог не содержит |
+| 48 | правка теста + замер временных имён: `python3 /tmp/rt84-staging/k7_temps_probe.py 20 4000000` | `проб с временным именем 20 из 20, всего наблюдений 3040`, уникальных имён на пробу — 2 (оба писателя проходят проверку `exists()`); в тест добавлены свидетели `temps`/`trials_with_temps` и третий тест `test_backup_archives_only_objects` |
+| 49 | `bash /tmp/rt84-staging/k7_teeth3.sh` (лаборатория на `58a89e4`), полный лог `/tmp/rt84-k7-teeth3.log` | до починки: бэкап `1 failed` 5/5 (`:1265`), гонка `1 failed` 5/5 (`:1359`, `[0] против 4001243`), высаженный не-адрес `1 failed` 5/5 (`:1420`); этап writes — высаженный 5/5 красный, бэкап 5/5 зелёный, гонка 2/2 зелёная; полный патч — `3 passed, 8 deselected` и 10/10 зелёных (1.79…1.95 с); M зелёная 10/10; N красная 5/5; O — высаженный красная 5/5, бэкап зелёная 5/5; P на HEAD — красная 3/3 через `:1273`; M+P — красная 1/5; Q — зелёная; существующие тесты `24 passed, 1 skipped`, `test_cli` `35 passed`, весь файл `11 passed in 8.41s`; после откатa `git status --porcelain` пуст |
+| 50 | `bash /tmp/rt84-staging/k7_teeth4.sh` (текст продукта против клона + мутация M2), лог `/tmp/rt84-k7-teeth4.log` | `rusterm/store/backup.py — идентичен клону`, `raw_store.py` отличается только docstring'ом `is_object_filename` (код совпадает); trio на тексте клона — `3 passed` 3/3 (1.70…1.74 с); M2 (двухфазная сборка возвращена) — бэкап `1 failed` 5/5 с тем же `BackupError`, высаженный 2/2 зелёный, гонка зелёная; после откатa изменённых файлов 0 |
+| 51 | `python3 -m pytest tests/test_concurrency.py -k "backup_taken_during_ingest or half_written_object or backup_archives_only_objects"` (клон, 12 прогонов подряд), затем весь файл и защита отчёта | trio — `3 passed in 1.99s`, 12/12 зелёных; весь файл — `11 passed in 8.28s`; `tests/test_report_sections.py tests/test_state_report_tracked.py` — `29 passed in 0.41s` |
 
 ## HANDOFF
 
-Status: WORKING — круг 119 идёт, K1, K2, K3, K4, K5 и K6 закрыты
-коммитами; K2 — двумя, первый был красным (см. постскриптум и
-запись 2 ниже).
+Status: WORKING — круг 119 идёт, K1, K2, K3, K4, K5, K6 и K7 закрыты
+коммитами; K2 — двумя, первый был красным (см. постскриптум и запись 2 ниже).
 
-Items done: приём круга (STATE + отчёт), K1, K2, K3, K4, K5, K6.
-Items not done: K7, K8 — очередь ТЗ-84, по одному коммиту на пункт.
+Items done: приём круга (STATE + отчёт), K1, K2, K3, K4, K5, K6, K7.
+Items not done: K8 — закрытие круга (20 прогонов файла, `acceptance.sh`,
+счётчик снятых assert в `tests/`).
 
-Open questions for the coordinator: 3 entries below — I14's wording, the hook
-validating the working tree instead of the commit, and K4's recipe, which
-cannot make two ingest processes contend without a widened race window.
-K5 added none: its finding (WAL is not what hides a half batch) is a limit
-of the item's own metric, and it is in «What not to trust».
+Open questions for the coordinator: 4 entries below — I14's wording, the hook
+validating the working tree instead of the commit, K4's recipe, which cannot
+make two ingest processes contend without a widened race window, and I14's own
+guard tests, which run no thread at all (entry 4, and it corrects entry 1's
+citation).
 
 Network: 0 requests spent. LLM calls: 0.
-NOW: K7, шаг 1 (бэкап во время инжеста).
+NOW: K8 — цикл из 20 прогонов `tests/test_concurrency.py`, `bash
+agent/acceptance.sh` и счётчик снятых assert в `tests/` на интервале от
+`b1d0890` (приём круга) до HEAD.
 
 First finding for the coordinator: entry 1 of `## Disputed` — with
 `_writer_lock` removed, K1 stays green, so I14's wording is about latency and
 nesting, not about lost writes. K4's mutation C repeats that measurement in a
-two-process setting.
+two-process setting, and entry 4 shows that the invariant's own tests cannot see
+the difference.

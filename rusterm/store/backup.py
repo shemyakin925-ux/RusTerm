@@ -26,6 +26,7 @@ from pathlib import Path
 
 from .db import current_schema_version
 from .paths import AppPaths
+from .raw_store import is_object_filename
 
 ARCHIVE_DB_MEMBER = "rusterm.db"
 MANIFEST_MEMBER = "MANIFEST.json"
@@ -75,27 +76,29 @@ def create_backup(paths: AppPaths, archive_path: str | Path) -> BackupSummary:
 
     members: list[dict] = []
     try:
-        members.append(_member_from_file(ARCHIVE_DB_MEMBER, snapshot_db))
-        manifests = sorted(paths.raw_manifests.glob("manifest-*.jsonl"))
-        for m in manifests:
-            # пути членов — относительно корня каталога данных, как на диске
-            members.append(_member_from_file(
-                f"raw/manifests/{m.name}", m))
-        if paths.raw_store.is_dir():
-            for dirpath, _dirs, files in os.walk(paths.raw_store):
-                for fname in sorted(files):
-                    full = Path(dirpath) / fname
-                    rel = full.relative_to(paths.root)
-                    members.append(_member_from_file(str(rel), full))
-        manifest = {
-            "schema_version": schema_version,
-            "created_at": time.time(),
-            "members": members,
-        }
         with zipfile.ZipFile(archive_path, "w",
                              compression=zipfile.ZIP_DEFLATED) as zf:
-            for member in members:
-                zf.write(member["_source"], member["path"])
+            members.append(_add_member(zf, ARCHIVE_DB_MEMBER, snapshot_db))
+            manifests = sorted(paths.raw_manifests.glob("manifest-*.jsonl"))
+            for m in manifests:
+                # пути членов — относительно корня каталога данных, как на диске
+                members.append(_add_member(
+                    zf, f"raw/manifests/{m.name}", m))
+            if paths.raw_store.is_dir():
+                for dirpath, _dirs, files in os.walk(paths.raw_store):
+                    for fname in sorted(files):
+                        if not is_object_filename(fname):
+                            # не-адрес в хранилище — не объект: публикация
+                            # держит временный файл рядом с целевым
+                            continue
+                        full = Path(dirpath) / fname
+                        rel = full.relative_to(paths.root)
+                        members.append(_add_member(zf, str(rel), full))
+            manifest = {
+                "schema_version": schema_version,
+                "created_at": time.time(),
+                "members": members,
+            }
             zf.writestr(MANIFEST_MEMBER,
                         json.dumps(manifest, ensure_ascii=False,
                                    indent=1))
@@ -117,10 +120,15 @@ def create_backup(paths: AppPaths, archive_path: str | Path) -> BackupSummary:
         created_at=manifest["created_at"])
 
 
-def _member_from_file(member_path: str, source: Path) -> dict:
+def _add_member(zf: zipfile.ZipFile, member_path: str, source: Path) -> dict:
+    """Член архива — ОДНО чтение файла: те же байты идут в архив и в хеш
+    манифеста. Прежний порядок (хеш по первому чтению, тело по второму) на
+    живой базе ловил дописанную строку манифеста между чтениями и выдавал
+    архив, который не восстанавливается (ТЗ-84 K7)."""
     data = source.read_bytes()
+    zf.writestr(member_path, data)
     return {"path": member_path, "sha256": _sha256(data),
-            "bytes": len(data), "_source": str(source)}
+            "bytes": len(data)}
 
 
 def restore_backup(archive_path: str | Path, target: AppPaths,

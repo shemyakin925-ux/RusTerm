@@ -17,6 +17,7 @@ daemon, и у ожидания есть потолок (`join(JOIN_TIMEOUT)`,
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import sqlite3
@@ -24,9 +25,14 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 
 from rusterm.store import db
+from rusterm.store.backup import MANIFEST_MEMBER, create_backup, restore_backup
 from rusterm.store.db import apply_migrations
+from rusterm.store.raw_store import (GZIP_EXTENSION, ZSTD_EXTENSION,
+                                     decompress_object, has_object,
+                                     object_path, sha256_bytes)
 from rusterm.store.paths import AppPaths, ensure_app_dir
 from rusterm.desktop import actions
 from rusterm.store.repos import Instrument, Issuer, Listing, RepoRegistry
@@ -1089,3 +1095,345 @@ def test_cancelled_desktop_collect_leaves_no_half_snapshot(tmp_path):
             "сбора задела и записи UI")
     finally:
         check.close()
+
+
+# ── K7: бэкап во время инжеста ────────────────────────────────────────
+
+# Размерность взята из замера, по которому эти тесты выросли: 40 объектов
+# по 200 КБ и до пяти архивов, снятых поверх записи (отчёт ТЗ-84 K7).
+# Мельче — инжест успевает кончиться между архивами, и диагонали не будет.
+K7_OBJECTS = 40
+K7_PAYLOAD = 200_000
+K7_BACKUPS = 5
+# Один и тот же объект публикуют два писателя. 4 МБ заведомо выше
+# `COMPRESS_THRESHOLD`, поэтому путь публикации — сжатый, и окно записи
+# длиннее.
+K7_LARGE_PAYLOAD = 4_000_000
+K7_RACE_TRIALS = 20
+_HEX_DIGITS = set("0123456789abcdef")
+
+
+def _k7_is_object_name(fname: str) -> bool:
+    """Файл хранилища — это адрес: 64 шестнадцатеричных символа и
+    опциональное расширение сжатия.
+
+    Предикат повторён здесь намеренно, а не импортирован из продукта: тест
+    обязан исполняться и против непочиненного кода, иначе его краснота до
+    починки была бы ImportError'ом, а не свойством.
+    """
+    base = fname
+    for ext in (ZSTD_EXTENSION, GZIP_EXTENSION):
+        if base.endswith(ext):
+            base = base[:-len(ext)]
+            break
+    return len(base) == 64 and all(ch in _HEX_DIGITS for ch in base)
+
+
+def _k7_check_backup(archive_path, restored: AppPaths) -> list:
+    """Что обязано быть правдой про архив, снятый во время записи, и про
+    каталог, развёрнутый из него. Возвращает список несоответствий."""
+    bad: list = []
+    with zipfile.ZipFile(archive_path) as zf:
+        names = set(zf.namelist())
+        manifest = json.loads(zf.read(MANIFEST_MEMBER))
+        member_data = {m["path"]: zf.read(m["path"]) for m in manifest["members"]
+                       if m["path"] in names}
+    members = manifest["members"]
+    if not members:
+        bad.append("в манифесте нет ни одного члена")
+    for member in members:
+        path = member["path"]
+        if path not in names:
+            bad.append(f"члена {path} нет в архиве")
+            continue
+        data = member_data[path]
+        if sha256_bytes(data) != member["sha256"]:
+            bad.append(f"хеш члена {path} разошёлся с манифестом")
+        if len(data) != member["bytes"]:
+            bad.append(f"размер члена {path} разошёлся с манифестом")
+    if manifest["schema_version"] != db._SCHEMA_VERSION:
+        bad.append(f"схема архива {manifest['schema_version']} вместо "
+                   f"рабочей {db._SCHEMA_VERSION}")
+
+    # Развёрнутый каталог: ни одного не-адреса, каждый адрес хешуется в своё
+    # имя, каждая строка манифеста — JSON.
+    store = restored.raw_store
+    if store.is_dir():
+        for dirpath, _dirs, files in os.walk(store):
+            for fname in files:
+                if not _k7_is_object_name(fname):
+                    bad.append(f"в развёрнутом хранилище не-адрес "
+                               f"{pathlib.Path(dirpath).name}/{fname}")
+                    continue
+                sha = fname.split(".")[0]      # адрес точек не содержит
+                try:
+                    data = decompress_object(store, sha)
+                except BaseException as exc:  # noqa: BLE001 — текст и есть ответ
+                    bad.append(f"{fname}: не читается — "
+                               f"{type(exc).__name__}: {exc}")
+                    continue
+                if sha256_bytes(data) != sha:
+                    bad.append(f"{fname}: содержимое хешуется не в своё имя")
+    else:
+        bad.append("развёрнутого хранилища нет")
+    manifests = sorted(restored.raw_manifests.glob("manifest-*.jsonl"))
+    if not manifests:
+        bad.append("развёрнутый манифест отсутствует")
+    for m in manifests:
+        for n, line in enumerate(m.read_text(encoding="utf-8").splitlines(),
+                                 1):
+            try:
+                json.loads(line)
+            except ValueError as exc:
+                bad.append(f"{m.name}:{n}: строка манифеста не JSON — {exc}")
+
+    conn = db.open_connection(restored)
+    try:
+        for row in conn.execute("SELECT sha256 FROM raw_object").fetchall():
+            if not has_object(store, row["sha256"]):
+                bad.append(f"строка raw_object {row['sha256'][:12]} без файла")
+        if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            bad.append("развёрнутая база не проходит integrity_check")
+        if db.current_schema_version(conn) != db._SCHEMA_VERSION:
+            bad.append("схема развёрнутой базы не равна рабочей")
+    finally:
+        conn.close()
+    return bad
+
+
+def test_backup_taken_during_ingest_restores_completely(tmp_path):
+    """K7: инжест пишет, `create_backup` снимает архивы — и каждый обязан
+    развернуться в свежий корень целиком.
+
+    Диагональ настоящая: рабочий поток пишет теми же дверями, что и CLI
+    (`repos.raw.put` — файл хранилища, строка манифеста, строка
+    `raw_object`), а основной поток в это же время вызывает продуктовый
+    `create_backup` и тут же `restore_backup`. До починки такие архивы не
+    восстанавливались: файл читался дважды, и между чтениями инжест
+    дописывал строку в манифест (замер — 2–4 отказа на пробу из пяти
+    архивов).
+    """
+    paths, conn = _fresh_root(tmp_path)
+    errors: list = []
+    checked: list = []
+    alive_at_backup: list = []
+
+    def ingest() -> None:
+        # Соединение между потоками не переносится — окно и CLI открывают
+        # своё ровно так же.
+        mine = db.open_connection(paths)
+        try:
+            repos = RepoRegistry(mine, paths)
+            for i in range(K7_OBJECTS):
+                data = f"k7-{i}-".encode() + os.urandom(K7_PAYLOAD)
+                repos.raw.put(data, provider="probe", url=f"probe://k7/{i}",
+                              block="fundamentals")
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            errors.append(f"инжест: {type(exc).__name__}: {exc}")
+        finally:
+            mine.close()
+
+    thread = threading.Thread(target=ingest, daemon=True)
+    thread.start()
+    # Калитка как в K6: архивём не раньше, чем первая строка `raw_object`
+    # видна со стороны, — иначе пять лёгких архивов снялись бы до первого
+    # коммита и тест проверял бэкап пустой базы.
+    deadline = time.monotonic() + JOIN_TIMEOUT
+    while conn.execute("SELECT COUNT(*) FROM raw_object").fetchone()[0] == 0:
+        assert thread.is_alive(), (
+            f"инжест умер, не дописав ни одной строки: {errors[:2]}")
+        assert time.monotonic() < deadline, (
+            f"инжест не объявил ни одной строки за {JOIN_TIMEOUT} с: "
+            f"{errors[:2]}")
+    while len(checked) < K7_BACKUPS:
+        alive_at_backup.append(thread.is_alive())
+        archive = tmp_path / f"k7-backup-{len(checked)}.zip"
+        create_backup(paths, archive)
+        restored = AppPaths.from_root(tmp_path / f"k7-restored-{len(checked)}")
+        try:
+            info = restore_backup(archive, restored, force=True)
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            errors.append(f"архив {len(checked)}: {type(exc).__name__}: {exc}")
+            break
+        assert info["restored"] > 0, f"развёрнуто ни одного члена: {info}"
+        checked.append((archive, restored))
+    thread.join(JOIN_TIMEOUT)
+
+    assert not thread.is_alive(), (
+        f"инжест не вернулся за {JOIN_TIMEOUT} с под бэкапами — это "
+        "зависание, а не медленная работа")
+    assert not errors, f"бэкап во время инжеста сломался: {errors[:4]}"
+    assert len(checked) == K7_BACKUPS, (
+        f"успешно развёрнутых архивов {len(checked)} вместо {K7_BACKUPS}")
+    assert any(alive_at_backup), (
+        f"ни один из {K7_BACKUPS} архивов не снимался во время записи "
+        f"({alive_at_backup}) — тест проверял бэкап покоящейся базы")
+    for archive, restored in checked:
+        bad = _k7_check_backup(archive, restored)
+        assert not bad, f"{archive.name}: {bad[:4]}"
+    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok", (
+        "исходная база повреждена после бэкапов во время записи")
+    conn.close()
+
+
+def test_half_written_object_never_becomes_addressable(tmp_path):
+    """K7, вторая половина: тот же самый объект публикуют два писателя сразу.
+
+    `put_object` от повтора защищён только `if not exists()` и до починки
+    писал `write_bytes`: второй писатель того же адреса усекал уже
+    существующий файл, и в окно усечения по этому адресу доступен обрезанный
+    объект — бэкап, который хешет и кладёт в архив одни и те же байты, его
+    не заметит (замер `k7_same_object.py`: обрезанное чтение в 20 пробах из
+    20, 30 наблюдений укороченного файла, все — нулевой длины).
+
+    Опросчик смотрит ровно на адресные имена (`sha`, `sha.zst`, `sha.gz`) и
+    не трогает временные файлы публикации: свойство в том, что по имени
+    адреса файл либо есть целиком, либо его ещё нет. Тем же обходом он
+    считает встречи с временным именем публикации — это свидетель того, что
+    проверка «рядом с адресом ничего не осталось» не пуста: публикация
+    действительно идёт через временный файл рядом с целевым.
+    """
+    paths, conn = _fresh_root(tmp_path)
+    store = paths.raw_store
+    errors: list = []
+    trials_with_sightings = 0
+    trials_with_temps = 0
+
+    for trial in range(K7_RACE_TRIALS):
+        data = os.urandom(K7_LARGE_PAYLOAD)   # один адрес на оба потока
+        sha = sha256_bytes(data)
+        names = {sha, sha + ZSTD_EXTENSION, sha + GZIP_EXTENSION}
+        seen: list = []
+        temps: list = []
+        stop = threading.Event()
+
+        def publish() -> None:
+            mine = db.open_connection(paths)
+            try:
+                RepoRegistry(mine, paths).raw.put(
+                    data, provider="probe", url=f"probe://race/{trial}")
+            except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+                errors.append(f"писатель: {type(exc).__name__}: {exc}")
+            finally:
+                mine.close()
+
+        def poll() -> None:
+            shard = store / sha[:2]
+            while not stop.is_set():
+                if not shard.is_dir():
+                    continue
+                for fname in os.listdir(shard):
+                    if fname in names:
+                        size = (shard / fname).stat().st_size
+                        if not seen or seen[-1] != size:
+                            seen.append(size)
+                    elif fname.startswith(sha):
+                        # имя временного файла публикации:
+                        # `<адрес>.<расш>.<случайное>.tmp`
+                        if fname not in temps:
+                            temps.append(fname)
+
+        writers = [threading.Thread(target=publish, daemon=True)
+                   for _ in range(2)]
+        poller = threading.Thread(target=poll, daemon=True)
+        poller.start()
+        for writer in writers:
+            writer.start()
+        for writer in writers:
+            writer.join(JOIN_TIMEOUT)
+            assert not writer.is_alive(), (
+                f"публикация не вернулась за {JOIN_TIMEOUT} с — зависание")
+        stop.set()
+        poller.join(JOIN_TIMEOUT)
+        assert not poller.is_alive(), "опросчик не завершился за потолок"
+
+        published = [n for n in names if (store / sha[:2] / n).exists()]
+        assert len(published) == 1, (
+            f"проба {trial}: по адресу {sha[:12]} лежат {published} — "
+            "один объект обязан давать одно имя")
+        final = (store / sha[:2] / published[0]).stat().st_size
+        if seen:
+            trials_with_sightings += 1
+        if temps:
+            trials_with_temps += 1
+        assert all(s == final for s in seen), (
+            f"проба {trial}: по имени адреса файл наблюдался короче "
+            f"финального ({[s for s in seen if s != final][:3]} против "
+            f"{final}) — недописанный объект доступен по адресу")
+        # Временный файл публикации ищется только среди имён этого адреса:
+        # в шарде `store/<sha[:2]>/` лежат и объекты других проб — то, что
+        # рядом есть чужой `<sha2>.gz`, правдой быть не обязано.
+        leftovers = [f for f in os.listdir(store / sha[:2])
+                     if f.startswith(sha) and f not in names]
+        assert not leftovers, (
+            f"проба {trial}: после публикации рядом с адресом остались "
+            f"временные файлы {leftovers[:3]}")
+    conn.close()
+
+    assert not errors, f"публикация упала: {errors[:4]}"
+    assert trials_with_sightings > 0, (
+        f"за {K7_RACE_TRIALS} проб опросчик ни разу не увидел файл по его "
+        "имени — тест проверял ничего")
+    assert trials_with_temps > 0, (
+        f"за {K7_RACE_TRIALS} проб не наблюдался ни один временный файл "
+        "публикации: рядом с адресом писать нечего, и проверка «после "
+        "публикации ничего не осталось» проверяла ничего")
+
+
+def test_backup_archives_only_objects(tmp_path):
+    """K7, третья половина: в архив из обхода хранилища попадает только адрес.
+
+    Атомарная публикация держит незаконченный файл рядом с целевым, то есть
+    в том же шаре, который обходит `create_backup`. Снимешь фильтр по имени —
+    и временный файл уедет в архив, `restore_backup` распишет его в свежий
+    корень, и «хранилище» начнёт содержать файл, чьё имя не является адресом
+    его содержимого.
+
+    Имя высажено руками, а не поймано в гонке: проверка обязана краснеть на
+    снятом фильтре всегда, а не в те пробы, когда опросчик успел посмотреть в
+    нужное окно. Построена она по тому же правилу, по которому её строит
+    публикация — `tempfile.mkstemp(prefix=<имя объекта> + ".", suffix=".tmp")`.
+    """
+    paths, conn = _fresh_root(tmp_path)
+    registry = RepoRegistry(conn, paths)
+    shas = []
+    for i in range(4):
+        obj = registry.raw.put(f"k7-filter-{i}-".encode() + os.urandom(1000),
+                               provider="probe", url=f"probe://filter/{i}")
+        shas.append(obj.sha256)
+
+    target = object_path(paths.raw_store, shas[0])
+    live = [f for f in os.listdir(target.parent)
+            if _k7_is_object_name(f) and f.split(".")[0] == target.name]
+    assert len(live) == 1, (
+        f"объект {shas[0][:12]} опубликован как {live} — искать временное "
+        "имя рядом не с чем")
+    temp = target.parent / f"{live[0]}.{os.urandom(4).hex()}.tmp"
+    temp.write_bytes(b"publication in flight")
+
+    archive = tmp_path / "k7-filter.zip"
+    create_backup(paths, archive)
+    with zipfile.ZipFile(archive) as zf:
+        stored = [n for n in zf.namelist() if n.startswith("raw/store/")]
+    stray = [m for m in stored
+             if not _k7_is_object_name(pathlib.PurePosixPath(m).name)]
+    assert not stray, (
+        f"в архив попали не-объекты {stray[:3]} — обход хранилища берёт "
+        "всё подряд")
+    for sha in shas:
+        assert any(m.rsplit("/", 1)[-1].split(".")[0] == sha for m in stored), (
+            f"объект {sha[:12]} пропал из архива — фильтр перестал пропускать "
+            "адреса")
+    assert temp.exists(), (
+        f"бэкап тронул чужой файл хранилища {temp.name}: вычитка из архива "
+        "не должна ничего удалять")
+
+    restored = AppPaths.from_root(tmp_path / "k7-filter-restored")
+    info = restore_backup(archive, restored, force=True)
+    assert info["restored"] > 0, f"развёрнуто ни одного члена: {info}"
+    bad = _k7_check_backup(archive, restored)
+    assert not bad, f"архив с высаженным временным файлом: {bad[:4]}"
+    for sha in shas:
+        assert has_object(restored.raw_store, sha), (
+            f"объект {sha[:12]} не развёрнут из архива")
+    conn.close()
