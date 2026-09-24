@@ -292,6 +292,32 @@ refuses a Form 4 carrying `<!DOCTYPE`/`<!ENTITY` by bytes before the parser;
 disabling `_refuse_dtd` in a copy reds `test_harmless_entity_is_refused_too`
 and `test_dtd_in_a_comment_still_refused` — the teeth are real.
 
+## Round 119 (TASK-84) accepted; coordinator work merged; night shift over
+
+Fresh clone at `7e2952a`: «пройдено 13, провалено 0»; no assert removed;
+guards and `docs/` untouched. `tests/test_concurrency.py` run three more
+times by the coordinator on a quiet machine — green each time (~10 s),
+on top of the executor's own 20. K7 fixed three product places
+(`backup.py`, `raw_store.py`, `db.py`). The four Disputed entries are
+accepted as written: I14's wording is narrower than what K1–K5 prove
+(restate it when the invariants file is next touched), the hook checks
+the working tree rather than the commit (BACKLOG B66), K4 needs a widened
+race window to make two ingests contend (acceptable in a test), and the
+old I14 guard ran no thread — K1–K5 now do.
+
+**Coordinator work merged (`fb3ac93`):** `coord/thin-snapshots` (the TASK-78
+Y2 regression: the `dei` cover date made nearly every fact `restated`;
+parser fixed + `rusterm reparse`) and `coord/dividends` (dps from filings:
+four consecutive quarters or a fresh annual; stale refused). On the
+user's base (44 papers, 38 peers collected 24.09 into watchlist `peers`,
+backup `~/equitylab-backup-2026-09-24`): valued measures 334 → 627 of
+1232, `div_yield` 1 → 24.
+
+**Split agreed with the user 24.09:** the coordinator does TASK-73 (with
+TASK-87 G2/G3), TASK-91, TASK-94 E1/E2, gross-profit formula, price
+measures, work on the user's data; the executor takes TASK-96 then
+88 → 89 → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
+
 Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-84 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
 
 **Whole-project review, 23.09 (user's request, separate session) —
