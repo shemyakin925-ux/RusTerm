@@ -570,3 +570,140 @@ def test_two_ingest_processes_match_the_sequential_run(tmp_path):
         assert _k4_counts(root) == baseline, (
             f"повтор {i}: счётчики разошлись с последовательного "
             f"прогона: {_k4_counts(root)} против {baseline}")
+
+
+# ── K5: читатель не видит половины транзакции ─────────────────────────
+
+# Размер атомарной пачки: счётчик у читателя обязан быть кратен именно ему.
+BATCH = 100
+N_BATCHES = 5
+# Пауза после коммита пачки: без неё состояние «100 строк видно» живёт
+# миллисекунды, и «читатель ничего не увидел» нельзя отличить от
+# «читатель не успел спросить».
+PLATEAU = 0.02
+# Пауза между отдельными строками в контрольном прогоне: частичное
+# состояние обязано наблюдаться, иначе контроль ничего не контролирует.
+ROW_PAUSE = 0.001
+# Сколько наблюдений обязан сделать читатель за прогон: ниже этого
+# зелёный результат значит лишь «не успел спросить».
+MIN_OBSERVATIONS = 50
+
+
+def _poll_batches(root, prefix: str, atomic: bool):
+    """Писатель кладёт N_BATCHES×BATCH строк, читатель непрерывно опрашивает счётчик.
+
+    `atomic=True` — каждая пачка одной транзакцией (то, что обязан
+    гарантировать `writer_transaction`); `atomic=False` — каждая строка
+    своей транзакцией, то есть ровно та поломка, которую проверяющий
+    обязан заметить. Возвращает список наблюдённых счётчиков.
+
+    Instrument_id строится как «US-<prefix>-<пачка>-<строка>», поэтому
+    фильтр читателя — `LIKE 'US-<prefix>%'`: чужие инструменты (K1, K3) в
+    той же базе на него не влияют.
+    """
+    paths = AppPaths.from_root(root)
+    ensure_app_dir(paths)
+    conn = db.open_connection(paths)
+    apply_migrations(conn)
+    RepoRegistry(conn, paths).instrument.upsert_issuer(Issuer(
+        prefix, f"Issuer {prefix}", "US", None, None, "us_gaap", "USD"))
+    conn.close()
+
+    like = f"US-{prefix}%"
+    count_sql = ("SELECT COUNT(*) FROM instrument "
+                 "WHERE instrument_id LIKE ?")
+    seen: list[int] = []
+    errors: list[str] = []
+    stop = threading.Event()
+    written = threading.Event()
+    # Читатель обязан догнать писателя: без этого «зелёный» мог означать,
+    # что опрос закончился, когда в базе было десять строк.
+    reached = threading.Event()
+
+    def reader() -> None:
+        mine = db.open_connection(paths)
+        try:
+            while not stop.is_set():
+                n = mine.execute(count_sql, (like,)).fetchone()[0]
+                seen.append(n)
+                if n == N_BATCHES * BATCH:
+                    reached.set()
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            errors.append(f"читатель: {type(exc).__name__}: {exc}")
+        finally:
+            mine.close()
+
+    def writer() -> None:
+        mine = db.open_connection(paths)
+        row = ("INSERT INTO instrument(instrument_id, issuer_id, class, "
+               "status) VALUES (?, ?, ?, ?)")
+        try:
+            for b in range(N_BATCHES):
+                if atomic:
+                    # Вся пачка — одна транзакция: наружу выходит сразу
+                    # BATCH строк либо ничего.
+                    with db.writer_transaction(mine):
+                        for i in range(BATCH):
+                            mine.execute(row, (f"US-{prefix}-{b}-{i}",
+                                               prefix, "common", "active"))
+                    time.sleep(PLATEAU)
+                else:
+                    for i in range(BATCH):
+                        with db.writer_transaction(mine):
+                            mine.execute(row, (f"US-{prefix}-{b}-{i}",
+                                               prefix, "common", "active"))
+                        time.sleep(ROW_PAUSE)
+            written.set()
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            errors.append(f"писатель: {type(exc).__name__}: {exc}")
+        finally:
+            mine.close()
+
+    rd = threading.Thread(target=reader, daemon=True)
+    wr = threading.Thread(target=writer, daemon=True)
+    rd.start()
+    wr.start()
+    wr.join(JOIN_TIMEOUT)
+    stop.set()
+    rd.join(JOIN_TIMEOUT)
+    assert not wr.is_alive(), "писатель не завершился за потолок ожидания"
+    assert not rd.is_alive(), "читатель не завершился за потолок ожидания"
+    assert written.is_set(), f"писатель не дописал: {errors}"
+    assert not errors, f"гонка уронила поток: {errors}"
+    assert reached.is_set(), (
+        f"читатель не досчитался {N_BATCHES * BATCH} строк "
+        f"(наблюдений {len(seen)}, максимум {max(seen) if seen else 'нет'}) "
+        "— опрос закончился раньше записи")
+    assert len(seen) >= MIN_OBSERVATIONS, (
+        f"читатель сделал {len(seen)} наблюдений — слишком редко, чтобы "
+        "отличить атомарную пачку от построчной записи")
+    return seen
+
+
+def test_reader_sees_only_whole_batches(tmp_path):
+    """K5: каждое наблюдение читателя кратно пачке.
+
+    В WAL читатель по устройству видит последний коммит, а не середину
+    транзакции; смысл теста — не поверить этому на слово, а измерить
+    часами на настоящем писателе. Контрольный прогон (`atomic=False`)
+    обязателен: он показывает, что тот же способ опроса частичное
+    состояние замечает. Без него зелёный результат означал бы лишь то,
+    что читатель не успевал спросить.
+    """
+    control = _poll_batches(tmp_path / "control", "K5C", atomic=False)
+    partial = sorted({n for n in control if n % BATCH != 0})
+    assert partial, (
+        f"построчный писатель показал только кратные счётчики "
+        f"({sorted(set(control))}) — опрос читателя слишком редкий, и "
+        f"настоящий прогон ничего бы не доказал")
+
+    atomic = _poll_batches(tmp_path / "atomic", "K5A", atomic=True)
+    halves = sorted({n for n in atomic if n % BATCH != 0})
+    assert not halves, f"читатель видел половину пачки: {halves}"
+    observed = sorted(set(atomic))
+    assert len(observed) >= 2, (
+        f"читатель не различил промежуточные состояния ({observed}) — "
+        f"опрос был либо до записи, либо после неё")
+    assert observed[-1] == N_BATCHES * BATCH, (
+        f"последнее наблюдение {observed[-1]} ≠ {N_BATCHES * BATCH}: "
+        "пачки потеряны")

@@ -339,13 +339,80 @@ outcome the totals comparison must not reject.
 
 Network stayed 0: `add` is given both `--cik` and `--name`, which is the
 offline form (`cmd_add` only resolves the ticker through a provider when one of
-them is missing, `rusterm/cli/__init__.py:1436`). Roots are `tmp_path`, every
+them is missing, `rusterm/cli/__init__.py:1440`). Roots are `tmp_path`, every
 call carries `--root`, `RUSTERM_ENV_FILE` points at a nonexistent file, and
 PYTHONPATH points at this clone — P7.
 
 Runs: `python3 -m pytest tests/test_concurrency.py` → `5 passed in 6.64s`; the
 K4 test alone five times → `6.40s, 6.51s, 6.68s, 6.68s, 6.60s`, all
 `1 passed, 4 deselected`.
+### K5 — the reader never sees half a batch, and the control run proves the poll can
+
+Spec: writer inserts batches of 100 in one transaction; a reader on its own
+connection polls the count; done when every observation is a multiple of 100.
+`tests/test_concurrency.py::test_reader_sees_only_whole_batches`, helper
+`_poll_batches(root, prefix, atomic)`.
+
+A green "every observation is a multiple of 100" is worth nothing unless the
+poll can *see* a non-multiple, so the test runs the same geometry twice: the
+writer commits per row (control), then per batch (the property). Measured with
+`python3 /tmp/rt84-staging/k5_probe.py`:
+
+| run | wall | observations | distinct counts | non-multiples |
+| --- | --- | --- | --- | --- |
+| control, one transaction per row | 0.75 s | 51 194 | 501 (every value 0…500) | **495** values, 1…499 |
+| batches of 100 | 0.15 s | 7 941 | 6 — 0, 100, 200, 300, 400, 500 | **0** |
+
+Same reader, same database, same rate of asking: when the writer publishes a
+row at a time the reader catches 495 of the 499 intermediate states, and when
+it publishes a batch at a time not one of 7 941 observations lands inside a
+batch. All six plateaus appear in the atomic run, so the reader was watching
+while the writer worked rather than after it.
+
+Why raw `INSERT`s instead of a repository door: the assertion is about the
+transaction boundary, and a repository method would open its own transactions
+inside the batch — the writer would no longer be the one the item describes.
+`PLATEAU = 0.02` exists so that the "100 rows visible" state lasts 20 ms
+instead of microseconds; `MIN_OBSERVATIONS = 50` and the `reached` event (set
+by the reader itself on seeing row 500) refuse a green run in which the reader
+simply finished early.
+
+Teeth (`k5_teeth.sh`, `k5_teeth2.sh`, `k5_teeth3.sh`, lab detached at
+`c476283`, `rusterm/store/db.py` restored after each step and verified
+`МУТАЦИЯ=0`):
+
+| mutation | result | reading |
+| --- | --- | --- |
+| none | `1 passed, 5 deselected in 0.88s` | — |
+| D: `PRAGMA journal_mode=WAL` → `DELETE` (db.py:801) | `1 passed, 5 deselected in 1.54s` | **green.** The property does not come from WAL: in rollback-journal mode uncommitted rows never reach the main DB file either. Only the cost changed — +0.66 s for the same work. |
+| E: `BEGIN IMMEDIATE` → `BEGIN` (db.py:830) | `1 passed, 5 deselected in 0.86s` | **green**, and expected: deferred start changes who loses when two writers meet (K1, K4), not when a transaction becomes visible. |
+| F: `COMMIT` removed from `writer_transaction` (db.py:832) | `1 failed, 5 deselected in 0.15s` — `писатель не дописал: ['писатель: IntegrityError: FOREIGN KEY constraint failed']` | red as soon as the door stops publishing: the issuer row of the setup never becomes visible, so the first batch fails its FK check. |
+| G: `COMMIT` moved before the body of the `with` | `1 failed, 5 deselected in 0.12s` — `sqlite3.OperationalError: cannot commit - no transaction is active` on the trailing `COMMIT` of the door | red, though for a mechanical reason rather than for a visible half batch. |
+
+D and E staying green is the interesting part, and it is a limit of this item,
+not of the fixture: the only thing WAL could be blamed for is the reader
+*waiting* for the writer, and that is not a wrong count. Measured directly
+(`k5_wal_probe.py`: writer opens a transaction, inserts 100 rows, holds it open
+0.4 s; reader polls in a tight loop):
+
+| journal mode | reader observations in the held window | observations that saw the 100 uncommitted rows |
+| --- | --- | --- |
+| WAL (db.py:801) | 193 175 | 0 |
+| DELETE (mutation) | 75 989 | 0 |
+
+(one measurement per mode; the spread between the two runs of the same code
+in this file is a few percent, not a factor of 2.5)
+
+So WAL buys the reader 2.5× the polling throughput under an open write
+transaction; it is not what keeps half a batch out of view. K5 asserts the
+latter and cannot assert the former: a throughput assertion would be a
+timing assertion, and the file keeps to properties that survive a slow
+machine (the 20-run rule in Fixed decisions).
+
+Runs: `python3 -m pytest tests/test_concurrency.py` → `6 passed in 9.44s`; the K5
+test alone ten times in a row → `1 passed, 5 deselected` every time, wall
+`0.93, 0.93, 0.94, 0.95, 0.94, 0.95, 0.95, 0.97, 0.95, 0.96` s.
+
 ## Blocked
 
 none
@@ -404,6 +471,13 @@ none
   the lock is not what prevents lost writes — see Disputed entry 1, which is
   now backed by two items, not one.
 
+- K5 does not show that WAL is what hides a half batch: with mutation D
+  (`journal_mode=DELETE`) the test is green, and in the same measurement the
+  reader sees no uncommitted rows in either mode. What WAL demonstrably buys
+  is that the reader need not wait for the writer (193 175 polls against
+  75 989 during one held transaction) — that is a rate, so the file does not
+  assert it.
+
 ## Disputed
 
 1. K1's mutation A says the round's premise needs a sharpening, and the place
@@ -429,6 +503,19 @@ none
    when `git diff --cached` and `git diff` disagree? Not fixed here:
    `acceptance.sh` is never edited (it is diffed against `origin/main`), and the
    guard scripts around it belong to the coordinator.
+
+3. K4's «Done when» is satisfiable by a run in which only one process ever
+   writes, and the two checks that would catch a broken writer (busy timeout,
+   job dedup) stay green on the recipe as specified. The item reaches its
+   intent only after the race window is widened from outside the product (the
+   `tests/k4_stub` pause), and even then the *work* never splits: 30/30
+   repetitions left all six facts with one issuer. Ask: for K6/K7 and future
+   rounds, prefer a source whose cursor and idempotency key carry the instrument
+   (or a stub feed with two distinct URLs), so two `ingest` processes contend
+   for different rows and the totals comparison is forced rather than lucky.
+   Not changed here: `source_cursor`'s key and the job key are product design
+   (and TASK-84 authorises no `agent/CONTEXT.md` or provider edits), so the
+   finding is filed instead of fixed.
 
 ## Runs
 
@@ -467,37 +554,34 @@ none
 | 30 | `tests/k4_stub/sitecustomize.py` + пауза 0.4 с: `python3 -m pytest tests/test_concurrency.py -k two_ingest`, затем тот же `k4_teeth.sh` | тест зелёный (`1 passed, 4 deselected in 6.57s`); мутация A краснеет на `set_cursor` → `sqlite3.OperationalError: database is locked` (`1 failed in 4.62s`), мутация B — на `enqueue` → `IntegrityError: UNIQUE constraint failed: job.idempotency_key` (`1 failed in 2.72s`), мутация C зелёная (`1 passed in 6.38s`) |
 | 31 | `python3 /tmp/rt84-staging/k4_probe5.py` — 30 пар с паузой | `30x ((0, 6), 6, 2, 2, 4, 1, 'ok')`: шесть фактов у одного процесса, `fact 6 / job 2 / raw_object 2 / coverage 4`, один эмитент, `integrity ok`, `29.1 с` |
 | 32 | `python3 -m pytest tests/test_concurrency.py` и пять прогонов одного теста K4; `python3 -m pytest tests/test_report_sections.py -k "report or guard"` | `5 passed in 6.64s`; K4 отдельно — `1 passed` за прогоны `6.40 / 6.51 / 6.68 / 6.68 / 6.60` с; защита отчёта на изменённом дереве — `28 passed in 0.92s` |
+| 33 | `python3 -m pytest tests/test_concurrency.py -k reader` (первый прогон нового теста) | `1 passed, 5 deselected in 0.88s` |
+| 34 | `bash /tmp/rt84-staging/k5_teeth.sh` (лаборатория на `c476283`) | baseline `1 passed in 0.88s`; мутация D (WAL → DELETE) `1 passed in 1.54s`; мутация E (`BEGIN IMMEDIATE` → `BEGIN`) `1 passed in 0.86s`; после каждого шага `МУТАЦИЯ=0`; остальные пять тестов `5 passed in 6.55s` |
+| 35 | `bash /tmp/rt84-staging/k5_teeth2.sh` — попытка убрать `COMMIT` заменой строки по всему `db.py` | мутация F не применилась (`AssertionError: строка COMMIT встречается 2 раз`), поэтому строка «мутация F» в том логе — на самом деле второй baseline (`1 passed in 0.96s`); вторая попытка, G, зелёной не вышла: `1 failed in 0.12s` (`cannot commit - no transaction is active`) |
+| 36 | `bash /tmp/rt84-staging/k5_teeth3.sh` — F только внутри двери (замена в хвосте `def writer_transaction`) | `1 failed, 5 deselected in 0.15s` с `писатель не дописал: ['писатель: IntegrityError: FOREIGN KEY constraint failed']`; после восстановления `1 passed, 5 deselected in 0.94s` |
+| 37 | `python3 /tmp/rt84-staging/k5_probe.py` (что именно видел читатель) и `k5_wal_probe.py` — в клоне и в лаборатории с мутацией D | контроль: 51 194 наблюдения, 501 различный счётчик, 495 не-кратных (1…499); пачками: 7 941 наблюдение, 6 значений (0…500 шагом 100), 0 не-кратных; держимая транзакция 0.4 с — 193 175 запросов под WAL и 75 989 под DELETE, незакоммиченной пачки не видно ни там ни там |
+| 38 | `python3 -m pytest tests/test_concurrency.py` и десять прогонов одного теста K5 | `6 passed in 9.44s`; K5 — `1 passed, 5 deselected` десять раз подряд, wall `0.93 / 0.93 / 0.94 / 0.95 / 0.94 / 0.95 / 0.95 / 0.97 / 0.95 / 0.96` с |
+| 39 | `python3 -m pytest tests/test_report_sections.py` — до `git add` и после него | без индекса `1 failed, 27 passed in 1.92s` (`пункты ['K5'] … коммита круга с реализацией … не найдено`), после `git add` — `28 passed in 1.76s`: L3 прощает объявление «сделано», только если в индексе есть файл не из `tests/` |
+| 40 | правка собственного промаха круга: `git diff --cached -- agent/REPORT-84.md \| grep -n "K4's «Done when»"` | запись 3 из «## Disputed» коммитом `c476283` уехала в конец файла (паттерн вставил её после `## HANDOFF`) и рядом осталась строка-дубль `NOW: K4, step 1`; перенесена в раздел, дубль удалён; ссылка `cli/__init__.py:1436` в разделе K4 исправлена на `:1440` (проверено `sed -n '1440p'`) |
 
 ## HANDOFF
 
-Status: WORKING — круг 119 идёт, K1, K2, K3 и K4 закрыты коммитами; K2 — двумя,
-первый был красным (см. постскриптум и запись 2 ниже).
+Status: WORKING — круг 119 идёт, K1, K2, K3, K4 и K5 закрыты
+коммитами; K2 — двумя, первый был красным (см. постскриптум и
+запись 2 ниже).
 
-Items done: приём круга (STATE + отчёт), K1, K2, K3, K4.
-Items not done: K5, K6, K7, K8 — очередь ТЗ-84, по одному коммиту на пункт.
+Items done: приём круга (STATE + отчёт), K1, K2, K3, K4, K5.
+Items not done: K6, K7, K8 — очередь ТЗ-84, по одному коммиту на пункт.
 
 Open questions for the coordinator: 3 entries below — I14's wording, the hook
 validating the working tree instead of the commit, and K4's recipe, which
 cannot make two ingest processes contend without a widened race window.
+K5 added none: its finding (WAL is not what hides a half batch) is a limit
+of the item's own metric, and it is in «What not to trust».
 
 Network: 0 requests spent. LLM calls: 0.
-NOW: K5, step 1 (писатель батчами по 100 и читатель под WAL).
+NOW: K6, шаг 1 (сбор десктопа под записью UI).
 
 First finding for the coordinator: entry 1 of `## Disputed` — with
 `_writer_lock` removed, K1 stays green, so I14's wording is about latency and
 nesting, not about lost writes. K4's mutation C repeats that measurement in a
 two-process setting.
-NOW: K4, step 1
-
-3. K4's «Done when» is satisfiable by a run in which only one process ever
-   writes, and the two checks that would catch a broken writer (busy timeout,
-   job dedup) stay green on the recipe as specified. The item reaches its
-   intent only after the race window is widened from outside the product (the
-   `tests/k4_stub` pause), and even then the *work* never splits: 30/30
-   repetitions left all six facts with one issuer. Ask: for K6/K7 and future
-   rounds, prefer a source whose cursor and idempotency key carry the instrument
-   (or a stub feed with two distinct URLs), so two `ingest` processes contend
-   for different rows and the totals comparison is forced rather than lucky.
-   Not changed here: `source_cursor`'s key and the job key are product design
-   (and TASK-84 authorises no `agent/CONTEXT.md` or provider edits), so the
-   finding is filed instead of fixed.
