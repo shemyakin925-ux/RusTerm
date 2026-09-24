@@ -441,6 +441,16 @@ is keyless and offline) and the stale-schema line cannot come from a
 schema-45 base, so those two are measured on the same path and on the schema-44
 fixture, and each one's sentence names its own source.
 
+**Commit.** Two attempts bounced before the suite even started (Run 53): the
+pin rule reads the pending message from `COMMIT_EDITMSG`, and `git commit -m`
+writes that file only after `pre-commit` succeeds, so a correct
+`ЗАМЕНА-БУЛАВКИ:` declaration is invisible to the rule that demands it. The
+declaration block was re-counted against the index at that moment (1 assert
+line removed, 1 added — Run 54), the message was copied to the path the rule
+reads, and the third attempt printed `Итог: пройдено 13, провалено 0` and
+landed as `0a0c73a`, pushed (Run 55). Nothing in the guard file was softened:
+the count went 17 → 18 because the document grew an *executable* section.
+
 ## Blocked
 
 * **TwelveData free key: the corp-actions half of the price stage, and as of
@@ -729,13 +739,58 @@ fixture, and each one's sentence names its own source.
 | 49 | same script part 3 — `tests/data/upgrade/schema44.sqlite.gz` inflated into a `mkdtemp` catalog, `AppPaths.from_root` → `open_connection` → `RepoRegistry` → `data.header_info()` | `schema_version: 44`; `schema_notice: 'база в /private/var/folders/…/rt96-r5-verify-…/stale — схема 44, программе нужна 45; обновите: rusterm --root /private/var/folders/…/stale init'` — the wording §1.1 quotes, with the tmp path rewritten to the guide's example catalog |
 | 50 | `python3 "$TMPDIR/rt96-r5/preflight.py" "$TMPDIR/rt96-r5"` — candidate GUIDE run through the guard's own `parse_guide`/`_match` before the section touched the repo | first pass: `BAD line …` — expected `применено миграций: 44`, actual `применено миграций: 0`, because the shared sandbox root is already migrated by §1's `init`; after the fix `blocks: 18 marked: 7 mismatches: 0` |
 | 51 | `python3 -m pytest tests/test_guide_truth.py -v` and then the GUIDE-referencing set (`test_a4_env_names`, `test_desktop_f2_double_click`, `test_desktop_settings`, `test_free_only`, `test_guide_truth`, `test_task81_b3_build`, `test_task_authorization_form`) | `3 passed in 4.37s`; `36 passed, 2 deselected in 4.35s` — the 18-block counter, the unchanged marker list and the new section's block all green together |
+| 52 | fast guards over the staged R5 pair before the commit (`test_report_sections`, `test_state_clock`, `test_state_report_tracked`, `test_secrets_absent`, `test_guide_truth`) | `38 passed, 1 skipped in 3.79s` — no secret text in the new section, STATE inside the clock window |
+| 53 | first R5 commit, `git commit -m "…" ` with the `ЗАМЕНА-БУЛАВКИ:`/`ПОЧЕМУ СИЛЬНЕЕ:` block in the message | **rejected in ~40 s**, before the suite: `P1 (staged): необъявленная замена булавок: tests/test_guide_truth.py (нет объявления ЗАМЕНА-БУЛАВКИ/ПОЧЕМУ СИЛЬНЕЕ)` / `SELFCHECK FAIL (P1)`, HEAD stayed `1e7cf64`. Cause measured: `git rev-parse --git-path COMMIT_EDITMSG` still held R4's text (mtime 23:16) — with `-m`, git writes that file only *after* `pre-commit`, and `agent/p1_rule.sh:36` reads the pending message from it. Same command run twice (the second attempt, same mistake) → same rejection |
+| 54 | the fix the rule asks for: `cp "$TMPDIR/rt96-r5/msg.txt" "$(git rev-parse --git-path COMMIT_EDITMSG)"`, then the three rules by hand — `bash agent/p1_rule.sh`, `bash agent/p6_rule.sh`, `bash agent/p7_relay_rule.sh` | `P1: OK (staged)` rc=0; P6 and P7 silent, rc=0. Assert delta re-counted on the index at this moment, not from the earlier draft: 1 removed, 1 added in `tests/test_guide_truth.py`, so `added >= removed` and only the declaration was missing |
+| 55 | the R5 commit as `git commit -F "$TMPDIR/rt96-r5/msg.txt"`, then `git fetch` + `git push origin agent/night-11` | `Итог: пройдено 13, провалено 0` / `Принято.` / `SELFCHECK OK`; `4 files changed, 186 insertions(+), 5 deletions(-)`; commit `0a0c73a`; nothing behind me on the branch, pushed `1e7cf64..0a0c73a`. The fetch also surfaced the coordinator's new `origin/coord/sectors` — ТЗ-73 T2's territory, which is what R4's two `xfail(strict=True)` bodies wait for |
 
 ## HANDOFF
 
- interim block, rewritten at the close of the round.
+Status — items done: R0 R1 R2 R3 R4 R5, one commit each, all pushed to
+`agent/night-11`. R6 and R7 are a read-and-acknowledge pair, acknowledged at
+the bottom of this block. This section supersedes the interim one.
 
-Status so far: arrival only. Round 121, spec TASK-96, items R1–R5 open.
-One environment event: the working clone under `/tmp` was swept and rebuilt
-from origin before the first commit; every arrival number above was
-re-measured after the rebuild. Nothing is claimed accepted that has not
-been run.
+| Пункт | Коммит | Что в нём |
+|---|---|---|
+| R0 | `e317ebc` | приём круга: STATE переведён на TASK-96, REPORT-96 создан, клон пересобран после того, как `/tmp` смёл рабочую копию |
+| R1 | `4da46f6` | таблица сверки ТЗ-74 и ТЗ-77 построчно; три строки coordinator-чтения названы неверными |
+| R2 | `eaf3899`, `cb59c5d` | `rusterm follow`: пять стадий, исполнимый совет на отказе, идемпотентность измерена (6 запросов впервые, 1 на повторе), отрасль в путь не входит; вторая строка — исправленный Run 22 |
+| R3 | `6953b19` | живой прогон шести бумаг в каталог под `/tmp` (31 запрос), офлайн-эталон из фикстур, починенный счётчик отказов, replay-тесты |
+| R4 | `1e7cf64` | `tests/test_desktop_task96_r4_firsthour.py`: 10 тестов, «Компания» и «Настройки» закреплены против самой базы, «Отрасль» и «Качество» — `xfail(strict=True)` с причинами ТЗ-73 T2/T3 |
+| R5 | `0a0c73a` | `GUIDE.md` §1.1 «Первые пятнадцать минут»: один исполняемый стражем блок, живая цитата лога R3, `RUSTERM_DATA` (ТЗ-90 A5), двойной щелчок по `.app`, измеренная фраза про старую схему (ТЗ-95 F1) |
+
+What is **not** finished, and who owes it:
+
+* Наполнение «Отрасли» и «Качества» — не этот круг (ТЗ-73, R6). Тесты R4 уже
+  написаны и покраснеют сами, когда наполнение приедет; сегодня их тела
+  падают на сегодняшних словах (замерено `--runxfail`).
+* `follow` не чинится от отказов бесплатного ключа Twelve Data — это решение
+  вендора (section Blocked). Нужен вердикт: план с `/splits` и `/dividends`,
+  или из обещаний команды корпоративные действия убираются.
+* Шесть записей в разделе споров ждут вердикта координатора: 2 (пункт ТЗ-74
+  про кнопку в окне остался без хозяина и без строки в моём Done-when), 3
+  (governance въезжает в путь R2 побочным эффектом полного сборщика
+  снапшотов, а не отдельной стадией), 4 (в R0 база пользователя названа
+  «шесть бумаг» — их 44), 5 (стадия цен считается упавшей из-за плана-гейта
+  опционального эндпоинта, и совет ведёт в ту же стену; котировки при этом
+  записаны), 6 (`reparse` не достаёт факты из уже хранящегося сырья — 54
+  пустые меры в базе пользователя, и `ingest --source edgar` коротит по
+  хэшу), 7 (маркер `firsthour` несовместим с требованием «покраснеет само»:
+  в приёмке такие тесты всегда деселектятся; `tests/test_task65_k4_firsthour.py`
+  помечен и потому ни разу не исполнялся стражем).
+
+R7 подтверждён построчно и проверен: `git diff --name-only da6cb22..HEAD`
+(весь круг, 21 файл) не называет ни `acceptance.sh`, ни `selfcheck.sh`, ни
+файлы правил стражей, ни `githooks/`, ни `PROTOCOL.md`, ни `BACKLOG.md`, ни
+`LAUNCH.md`, ни `agent/TASK-*.md`; в `~/equitylab` и `~/.rusterm` не писано —
+только чтение через `mode=ro` и каталоги под `/tmp` с явным `--root` (P7);
+пункты ТЗ-73 не брал. Бюджет: 39 сетевых запросов из 60, обращений к LLM 0.
+
+Questions to the coordinator: (1) спор 5 и Blocked — одно решение о том, что
+значит «стадия прошла»; (2) спор 6 — расширять ли `reparse` на повторный
+разбор из raw-хранилища (0 запросов) или записать в `GUIDE.md`, что починка
+разборщика требует `ingest --force`; (3) спор 7 — снять ли маркер с тестов,
+чьё назначение — покраснеть позже, и что делать с `test_task65_k4_firsthour`.
+
+Next in my queue, per the coordinator's ordering in R6: `agent/TASK-88.md`
+(whole), then `TASK-89`.

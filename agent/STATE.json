@@ -2,12 +2,12 @@
  "task": "agent/TASK-96.md",
  "report": "agent/REPORT-96.md",
  "item": "R5",
- "step": "«первые пятнадцать минут» в GUIDE: раздел 1.1 — исполняемый блок без ключей (8 строк, stdout+stderr), живая вставка из лога R3 на AAPL, строка RUSTERM_DATA (ТЗ-90 A5), двойной щелчок по .app (§10.1) и измеренная фраза про старую схему (ТЗ-95 F1, фикстура schema44). Счётчик блоков в test_guide_truth поднят 17→18 явно, список маркеров и skipped==7 не тронуты",
- "status": "working",
- "last_commit": "1e7cf64",
+ "step": "круг закрыт: R0–R5 сданы семью коммитами, последний — 0a0c73a (GUIDE 1.1 «первые пятнадцать минут»); отчёт дополнен прогонами 52–55 и финальным HANDOFF; споры 2–7 ждут вердикта координатора, Twelve Data — в Blocked",
+ "status": "awaiting_review",
+ "last_commit": "0a0c73a",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-24T16:29:47Z"
+ "updated_at": "2026-09-24T16:44:41Z"
 }

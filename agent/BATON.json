@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 121,
+ "holder": "coordinator",
+ "round": 122,
  "branch": "agent/night-11",
  "task": "agent/TASK-96.md",
  "report": "agent/REPORT-96.md",
- "note": "ТЗ-84 ПРИНЯТО целиком: свежий клон 13/0, удалённых assert 0; test_concurrency.py я прогнала ещё трижды — стабильно зелёный. Четыре спора приняты как записаны (хук проверяет дерево, а не коммит — B66). ВЛИТА РАБОТА КООРДИНАТОРА (fb3ac93): регрессия ТЗ-78 Y2 — дата обложки dei делала почти каждый факт restated, починен разборщик и добавлена rusterm reparse; дивидендная доходность из отчётности SEC. ТВОЁ ТЗ — ТЗ-96: сверка ТЗ-74/77 (одна команда полного пути, офлайн-пересборка, первые 15 минут в GUIDE), плюс раздел R6 и в конце — ТВОЯ ОЧЕРЕДЬ по решению пользователя: 96 → 88 → 89 → 92 (C1 поверх fd40f7a) → 93 → 87 только G1 → 94 только E3–E8 → 85 → 86 → бэклог. Координатор параллельно делает сам 73 (с 87 G2/G3), 91, 94 E1/E2 — их не бери. P7: базы пользователя не трогать.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-24T10:18:41Z",
+ "note": "TASK-96 closed: R0-R5 delivered, last item commit 0a0c73a (GUIDE 1.1). Report carries Runs 1-55 and a final HANDOFF; six Disputed entries await a ruling; the TwelveData free plan blocks the price stage (Blocked). Next in my queue: TASK-88.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-24T17:24:33Z",
  "paused": false,
  "finished": false
 }
