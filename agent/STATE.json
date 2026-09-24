@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-96.md",
  "report": "agent/REPORT-96.md",
- "item": "R4",
- "step": "первый час по вкладкам: тест на пути R2 утверждает содержимое «Компании» и «Настроек», «Отрасль» и «Качество» — xfail(strict=True) с ТЗ-73 T2/T3. Первая попытка коммита отклонена приёмкой 12/13: проверка 6 велела Qt только в rusterm/desktop/ и tests/test_desktop_* — файл переименован в tests/test_desktop_task96_r4_firsthour.py",
+ "item": "R5",
+ "step": "«первые пятнадцать минут» в GUIDE: раздел 1.1 — исполняемый блок без ключей (8 строк, stdout+stderr), живая вставка из лога R3 на AAPL, строка RUSTERM_DATA (ТЗ-90 A5), двойной щелчок по .app (§10.1) и измеренная фраза про старую схему (ТЗ-95 F1, фикстура schema44). Счётчик блоков в test_guide_truth поднят 17→18 явно, список маркеров и skipped==7 не тронуты",
  "status": "working",
- "last_commit": "6953b19",
+ "last_commit": "1e7cf64",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-24T16:06:44Z"
+ "updated_at": "2026-09-24T16:29:47Z"
 }

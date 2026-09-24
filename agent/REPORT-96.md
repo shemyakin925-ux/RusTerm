@@ -378,6 +378,69 @@ renamed run is the same 8 + 2 (Run 45).
 `xfail(strict=True, reason="ТЗ-73 …")` written now rather than retroactively:
 done, teeth shown by Run 40.
 
+### R5 — «первые пятнадцать минут» in GUIDE.md
+
+`GUIDE.md` gained §1.1 «Первые пятнадцать минут: одна команда и окно
+(ТЗ-96 R5)» — 86 lines between §1 and §2, covering the five things the item
+names: the R2 command, what you see after it, the `RUSTERM_DATA=…` line in
+`~/.rusterm.env` (ТЗ-90 A5), the double-click on the `.app`, and what to do
+when the window reports an old schema (ТЗ-95 F1). One block is *executed* by
+the guard; three are quotes, each labelled in the guide's own sentence.
+
+**Why the executed block is the keyless one.** `test_guide_truth` runs every
+```console block offline — it pops `RUSTERM_SEC_UA`, `RUSTERM_DART_KEY`,
+`RUSTERM_TWELVEDATA_KEY`, `RUSTERM_LLM_API_KEY` from the env and points
+`RUSTERM_ENV_FILE` at an empty file — so the only honest offline insertion is
+what `follow` does *without* credentials: 8 lines, stopping at stage 2 with
+the refusal, the explanation and the advice line (Run 47: 4 lines on stdout,
+4 on stderr, and the merged order is exactly what the guide prints, because
+the guard compares `stdout + stderr` concatenated). Live numbers could not
+have gone into a ```console block at all: they would have reddened the guard
+or forced a marker. So R3's AAPL log is quoted in a plain block and the text
+says so («он шёл по сети, страж его не исполняет, числа живые»), line for
+line from `$TMPDIR/rt96-r3/live-AAPL.log`: `2/5 … (запросов 2)` → `фактов:
+12452` → `строк получено: 5000` → `сплитов 5; дивидендов 83` → `мер: 28 — со
+значением 21, пусто 7` → `путь пройден; всего запросов: 6`.
+
+**State neutrality, measured, not assumed.** The guard runs *all* blocks
+against one shared sandbox root, so a new block may not move what a later
+block asserts. On a root prepared by §1's own commands (`init`, `demo`):
+`instrument 1, snapshot 0, raw_object 0, price 0, fact 0` and
+`metrics.requests_used_today() == 0` before the new block, and the same six
+numbers after it (Run 48). The keyless `follow` dies before any download —
+which is what the section then says in words («записей при этом не появляется
+ни одних»).
+
+**Provenance of every insertion.**
+
+| Вставка | Откуда число |
+|---|---|
+| `применено миграций: 0; schema_version=45` | measured (Run 47); the following sentence explains why it is 0 and not 44 — the §1 root is already migrated. Pre-flight caught my own wrong `44` before the section reached the repo (Run 50) |
+| the live AAPL block | R3's run log, verbatim (Run 24) |
+| «повтор … стоит один запрос … значения идентичны предыдущей версии» | measured on the same path with no network over recorded answers (Run 19); the guide says it is the offline measurement |
+| `RUSTERM_DATA=/Users/you/equitylab` | the *rule* is ТЗ-90 A5's (`RUSTERM_DATA` → каталог с `rusterm.db` → `~/.rusterm`); the *value* is an example path. No user catalog is named, opened or written (P7) |
+| `база в … — схема 44, программе нужна 45; обновите: rusterm --root … init` | wording and the 44→45 pair measured from `tests/data/upgrade/schema44.sqlite.gz` through the window's own door `data.header_info()` → `schema_notice` (Run 49); the path in the guide is the same example catalog, because R3's base is schema 45 and cannot produce this line |
+| the «what the window shows» paragraph | credited inside the guide to `tests/test_desktop_task96_r4_firsthour.py`, i.e. to R4's assertions rather than to a prose promise |
+
+**The counter change is not a weakening.** Adding a block moves
+`test_guide_blocks_run_and_match`'s pinned count 17 → 18 (Run 51): executed
+coverage goes *up* by one block, `GUIDE_MARKERS` and `skipped == 7` are
+untouched, and the new block carries no marker precisely because it is
+runnable offline. The line that changed got a comment naming R5, so the count
+cannot move again silently.
+
+**Done-when, line by line.** R2's command in `GUIDE.md`: done, in a block the
+guard executes. «Что видно после неё»: done three ways — the keyless output,
+R3's live log, and the window paragraph pinned by R4's test. `RUSTERM_DATA=…`
+in `~/.rusterm.env` (ТЗ-90): done, with the resolution order. Double-click on
+`.app`: done, pointing at §10.1 (and §10 for the terminal version). Old schema
+(ТЗ-95): done, with the measured sentence and the `init` that follows it.
+«Все вставки — из настоящего прогона R3»: **partly, and the guide says where**
+— one block is R3's log verbatim; the executed block cannot be R3's (the guard
+is keyless and offline) and the stale-schema line cannot come from a
+schema-45 base, so those two are measured on the same path and on the schema-44
+fixture, and each one's sentence names its own source.
+
 ## Blocked
 
 * **TwelveData free key: the corp-actions half of the price stage, and as of
@@ -463,6 +526,29 @@ done, teeth shown by Run 40.
   fail with today's words» (Run 41); nobody has seeded a peer set into that base
   to watch them xpass, because building one needs the sector mapping ТЗ-73 T2
   has not written yet.
+* R5's executed block describes a **keyless** machine. Every number in it that a
+  user would care about — 12452 facts, 5000 price rows, 21 measures with a
+  value — lives in the *quoted* block, and that quote is one evening of one
+  vendor's behaviour which has since been closed (Blocked). The guide dates the
+  run («Реальный прогон 24.09.2026») instead of implying it is reproducible; a
+  reader who runs it today with the same free key gets the 401/403 of Runs
+  30–32, not the printed lines.
+* Two strings in the new section are **shapes, not transcripts**: the
+  `RUSTERM_DATA=/Users/you/equitylab` line and the path inside the
+  stale-schema sentence. Both were measured against a `mkdtemp` path (Run 49)
+  and re-written to the example catalog the paragraph above uses, so the
+  wording, the version pair and the command are real while the directory is a
+  placeholder. The user's own catalog was not named, opened or written for this
+  item (P7).
+* «Порядка ста бумаг» for one evening is arithmetic (800 requests/day ÷ 6 per
+  first paper), not a measured evening — and with `/splits` closed a new paper
+  does not cost six requests and a snapshot, it costs six and a refusal at
+  stage 4 (Disputed 5). The guide's sentence about the ceiling is about the
+  vendor's limit, which is configured in code, not about what today's key can
+  do.
+* Nothing here was looked at as a *rendered* page: `test_guide_truth` parses
+  Markdown text and executes fenced commands, so a heading that renders badly
+  or a table that breaks in the reader's viewer would still be green.
 
 ## Disputed
 
@@ -637,6 +723,12 @@ done, teeth shown by Run 40.
 | 43 | the R4 commit through the hook (`git commit`, 3 files staged) | **rejected**: `Итог: пройдено 12, провалено 1` / `Не принято.` — check 6 «Qt только в rusterm/desktop/» named `tests/test_task96_r4_firsthour_tabs.py:57:from PySide6.QtCore import Qt` and `:58:from PySide6.QtWidgets import …`; `SELFCHECK FAIL (acceptance): exit status 1`, HEAD stayed `6953b19`, full log kept at `$TMPDIR/selfcheck-acc.6Xx2uR` |
 | 44 | the check's own rule, re-run by hand: `grep -rniE '(import\|from)[[:space:]]+(PySide6\|qtpy)' rusterm/ tests/ --include='*.py' \| grep -vE '^(rusterm/desktop/\|tests/test_desktop_)'`; then `git mv tests/test_task96_r4_firsthour_tabs.py tests/test_desktop_task96_r4_firsthour.py` | before: the two lines above; after `git mv`: empty output. Every other Qt-importing test in the tree already lives under `tests/test_desktop_*` (13 files) |
 | 45 | `python3 -m pytest tests/test_desktop_task96_r4_firsthour.py -v` | `8 passed, 2 xfailed in 8.27s` — same ten tests as Run 40, renamed only |
+| 46 | the R4 commit through the hook (`git commit`, then `git fetch` + `git push origin agent/night-11`) | `Итог: пройдено 13, провалено 0` / `Принято.` / `SELFCHECK OK`; `3 files changed, 428 insertions(+), 5 deletions(-)`; commit `1e7cf64`; remote line for `agent/night-11` is now `1e7cf64b8052f01140960cc8895bf1a7b2f651c4` |
+| 47 | `python3 "$TMPDIR/rt96-r5/verify_r5.py"` part 1 — `follow AAPL` with no keys and `RUSTERM_ENV_FILE=/nonexistent/env`, **stdout and stderr captured apart** | `rc=1`; stdout = 4 lines (`каталог: …`, `применено миграций: 0; schema_version=45`, `1/5 каталог — готово (запросов 0)`, `2/5 поиск в SEC — отказ (запросов 0)`); stderr = 4 lines (`нет контакта SEC (network_provider_requires_gate:edgar) …`, `стадия не прошла (код 1) …`, `без контакта SEC нужны оба значения вручную …`, `совет: rusterm add --ticker AAPL --market US`); the concatenation is the 8-line block quoted in §1.1, in that order |
+| 48 | same base, `mode=ro` counts + `repos.metrics.requests_used_today()` before and after the block, after §1's own `init` + `demo` | before `{'instrument': 1, 'snapshot': 0, 'raw_object': 0, 'price': 0, 'fact': 0}`, `requests_today: 0`; after — identical, `requests_today: 0`. (The probe first guessed a table named `request_usage` and got `no such table`; the real door is `metrics.requests_used_today()`, and it is what the header of the window prints too) |
+| 49 | same script part 3 — `tests/data/upgrade/schema44.sqlite.gz` inflated into a `mkdtemp` catalog, `AppPaths.from_root` → `open_connection` → `RepoRegistry` → `data.header_info()` | `schema_version: 44`; `schema_notice: 'база в /private/var/folders/…/rt96-r5-verify-…/stale — схема 44, программе нужна 45; обновите: rusterm --root /private/var/folders/…/stale init'` — the wording §1.1 quotes, with the tmp path rewritten to the guide's example catalog |
+| 50 | `python3 "$TMPDIR/rt96-r5/preflight.py" "$TMPDIR/rt96-r5"` — candidate GUIDE run through the guard's own `parse_guide`/`_match` before the section touched the repo | first pass: `BAD line …` — expected `применено миграций: 44`, actual `применено миграций: 0`, because the shared sandbox root is already migrated by §1's `init`; after the fix `blocks: 18 marked: 7 mismatches: 0` |
+| 51 | `python3 -m pytest tests/test_guide_truth.py -v` and then the GUIDE-referencing set (`test_a4_env_names`, `test_desktop_f2_double_click`, `test_desktop_settings`, `test_free_only`, `test_guide_truth`, `test_task81_b3_build`, `test_task_authorization_form`) | `3 passed in 4.37s`; `36 passed, 2 deselected in 4.35s` — the 18-block counter, the unchanged marker list and the new section's block all green together |
 
 ## HANDOFF
 

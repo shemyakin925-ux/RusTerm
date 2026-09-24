@@ -146,7 +146,10 @@ GUIDE_MARKERS = [
 
 def test_guide_blocks_run_and_match(tmp_path):
     blocks = parse_guide(GUIDE.read_text(encoding="utf-8"))
-    assert len(blocks) == 17, [b.lineno for b in blocks]
+    # ТЗ-96 R5: раздел «Первые пятнадцать минут» принёс блоку +1 (18) —
+    # счётчик поднимается вместе с документом и только явно, чтобы новый
+    # блок нельзя было добавить молча.
+    assert len(blocks) == 18, [b.lineno for b in blocks]
     envfile = tmp_path / "guide-env"
     envfile.write_text("", encoding="utf-8")
     envfile.chmod(0o600)
