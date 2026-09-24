@@ -601,6 +601,41 @@ were absent, and those two steps measured nothing):
 Runs: `python3 -m pytest tests/test_concurrency.py -k "backup_taken_during_ingest
 or half_written_object or backup_archives_only_objects"` in the clone → `3 passed
 in 1.99s`, 12 consecutive repeats green (12/12).
+### K8 — close: the file survives 20 runs in a row, and nothing was subtracted from `tests/`
+
+Spec: 20/20 loop shown; `bash agent/acceptance.sh` green;
+`git diff b1d0890..HEAD -- tests/ | grep -c '^-.*assert'` → 0 (`b1d0890` = the
+round's arrival commit, so the interval is K1…K7 plus this item).
+
+``for i in $(seq 20); do python3 -m pytest tests/test_concurrency.py || break; done`
+— the loop compares the last line of each run against `11 passed` and breaks on
+anything else. Result: **20/20 green**, every run `11 passed`, walls 8.38…9.8 s
+(`/tmp/rt84-k8-loop.log`).`
+
+``bash agent/acceptance.sh` on the tree that carries K7 — `Итог: пройдено 13,
+провалено 0` / `Принято.` / exit 0 (`/tmp/rt84-k8-acceptance.log`). The 34 deleted
+lines of the round are `agent/REPORT-84.md` and `agent/STATE.json` prose; the two
+product files only gained code.`
+
+``git diff b1d0890..HEAD -- tests/ | grep -c '^-.*assert'` → **0**; the same diff
+adds 102 lines carrying `assert`, and `--stat` gives
+`2 files changed, 1471 insertions(+)`.`
+
+What the round leaves behind, measured rather than summarised:
+
+| | |
+| --- | --- |
+| tests added | 11 in `tests/test_concurrency.py` (K1 two threads · K2 nested writer · K3 exception releases · K4 two processes · K5 reader sees no half · K6 collect under UI writes + cancel · K7 backup during ingest, publish race, planted non-address) + `tests/k4_stub/sitecustomize.py` |
+| product files touched | `rusterm/store/db.py` (K2's nesting guard), `rusterm/store/raw_store.py` (atomic publication, `is_object_filename`), `rusterm/store/backup.py` (one read per member, address-only walk) |
+| diff of the round | `7 files changed, 2367 insertions(+), 34 deletions(-)`; in `tests/`: ``2 files changed, 1471 insertions(+)`` |
+| assert bookkeeping | removed lines matching `^-.*assert`: 0; added: 102 — P1 held without a single `ЗАМЕНА-БУЛАВКИ` note |
+| budgets | network requests 0, LLM calls 0 (every K-item ran against `tmp_path` roots only) |
+
+Two things the round did **not** close, both filed rather than fixed: the
+in-process `_writer_lock` is not what prevents lost writes (Disputed entry 1,
+measured three times — K1's A, K4's C, K6's I), and I14's own guard tests run no
+thread at all (Disputed entry 4). The 20-run loop says nothing about either; it
+only says the file is not flaky on this machine at this size.
 ## Blocked
 
 none
@@ -850,29 +885,38 @@ none
 | 49 | `bash /tmp/rt84-staging/k7_teeth3.sh` (лаборатория на `58a89e4`), полный лог `/tmp/rt84-k7-teeth3.log` | до починки: бэкап `1 failed` 5/5 (`:1265`), гонка `1 failed` 5/5 (`:1359`, `[0] против 4001243`), высаженный не-адрес `1 failed` 5/5 (`:1420`); этап writes — высаженный 5/5 красный, бэкап 5/5 зелёный, гонка 2/2 зелёная; полный патч — `3 passed, 8 deselected` и 10/10 зелёных (1.79…1.95 с); M зелёная 10/10; N красная 5/5; O — высаженный красная 5/5, бэкап зелёная 5/5; P на HEAD — красная 3/3 через `:1273`; M+P — красная 1/5; Q — зелёная; существующие тесты `24 passed, 1 skipped`, `test_cli` `35 passed`, весь файл `11 passed in 8.41s`; после откатa `git status --porcelain` пуст |
 | 50 | `bash /tmp/rt84-staging/k7_teeth4.sh` (текст продукта против клона + мутация M2), лог `/tmp/rt84-k7-teeth4.log` | `rusterm/store/backup.py — идентичен клону`, `raw_store.py` отличается только docstring'ом `is_object_filename` (код совпадает); trio на тексте клона — `3 passed` 3/3 (1.70…1.74 с); M2 (двухфазная сборка возвращена) — бэкап `1 failed` 5/5 с тем же `BackupError`, высаженный 2/2 зелёный, гонка зелёная; после откатa изменённых файлов 0 |
 | 51 | `python3 -m pytest tests/test_concurrency.py -k "backup_taken_during_ingest or half_written_object or backup_archives_only_objects"` (клон, 12 прогонов подряд), затем весь файл и защита отчёта | trio — `3 passed in 1.99s`, 12/12 зелёных; весь файл — `11 passed in 8.28s`; `tests/test_report_sections.py tests/test_state_report_tracked.py` — `29 passed in 0.41s` |
+| 52 | цикл из 20 прогонов `tests/test_concurrency.py` в клоне, лог `/tmp/rt84-k8-loop.log` | 20/20 зелёных, каждый прогон `11 passed`, wall 8.38…9.8 с; цикл обрывается на любой строке, отличной от `11 passed` |
+| 53 | `bash agent/acceptance.sh` в клоне на дереве после K7, лог `/tmp/rt84-k8-acceptance.log` | `Итог: пройдено 13, провалено 0`, `Принято.`, `acceptance exit=0` |
+| 54 | `git diff b1d0890..HEAD -- tests/ \| grep -c '^-.*assert'` и парный подсчёт добавленных | снятых `0`, добавленных строк с assert `102`; `--stat` по `tests/` — `2 files changed, 1471 insertions(+)`; весь круг — `7 files changed, 2367 insertions(+), 34 deletions(-)` (правки продукта: `db.py`, `raw_store.py`, `backup.py`) |
+| 55 | коммит K7 (`bash /tmp/rt84-staging/commit_item.sh K7 …`, лог `/tmp/rt84-commit-k7.log`) | хук: `P1: OK (staged)`, `Итог: пройдено 13, провалено 0`, `Принято.`, `SELFCHECK OK`, `commit exit=0` → `335e5e2`, запушено (`58a89e4..335e5e2`) |
 
 ## HANDOFF
 
-Status: WORKING — круг 119 идёт, K1, K2, K3, K4, K5, K6 и K7 закрыты
-коммитами; K2 — двумя, первый был красным (см. постскриптум и запись 2 ниже).
+Status: DONE — круг 119 (ТЗ-84) доведён до конца: K1, K2, K3, K4, K5, K6, K7
+и K8 закрыты коммитами, K2 — двумя (первый был красным, см. постскриптум и
+запись 2 ниже), K7 — починкой трёх мест в продукте.
 
-Items done: приём круга (STATE + отчёт), K1, K2, K3, K4, K5, K6, K7.
-Items not done: K8 — закрытие круга (20 прогонов файла, `acceptance.sh`,
-счётчик снятых assert в `tests/`).
+Items done: приём круга (STATE + отчёт), K1, K2, K3, K4, K5, K6, K7, K8.
+Items not done: нет — очередь ТЗ-84 пуста.
 
-Open questions for the coordinator: 4 entries below — I14's wording, the hook
-validating the working tree instead of the commit, K4's recipe, which cannot
-make two ingest processes contend without a widened race window, and I14's own
-guard tests, which run no thread at all (entry 4, and it corrects entry 1's
-citation).
+Open questions for the coordinator: 4 entries в `## Disputed` — I14's wording,
+the hook validating the working tree instead of the commit, K4's recipe, which
+cannot make two ingest processes contend without a widened race window, and
+I14's own guard tests, which run no thread at all (entry 4, and it corrects
+entry 1's citation). None of them blocks the round: all four are about files
+outside `tests/test_concurrency.py`, which TASK-84 does not authorise.
 
-Network: 0 requests spent. LLM calls: 0.
-NOW: K8 — цикл из 20 прогонов `tests/test_concurrency.py`, `bash
-agent/acceptance.sh` и счётчик снятых assert в `tests/` на интервале от
-`b1d0890` (приём круга) до HEAD.
+Budget: network requests 0, LLM calls 0. Ни один запуск не шёл против базы
+пользователя (P7): все корни — `tmp_path` и worktree'ы под `$TMPDIR`.
+
+Замыкающая проверка: 20 прогонов `tests/test_concurrency.py` подряд зелёные,
+`bash agent/acceptance.sh` — `Итог: пройдено 13, провалено 0`, снятых assert в
+`tests/` за круг — 0.
+
+NOW: передача эстафеты координатору и `wait --for executor`.
 
 First finding for the coordinator: entry 1 of `## Disputed` — with
 `_writer_lock` removed, K1 stays green, so I14's wording is about latency and
-nesting, not about lost writes. K4's mutation C repeats that measurement in a
-two-process setting, and entry 4 shows that the invariant's own tests cannot see
-the difference.
+nesting, not about lost writes. K4's mutation C and K6's mutation I repeat that
+measurement, and entry 4 shows the invariant's own tests cannot see the
+difference.
