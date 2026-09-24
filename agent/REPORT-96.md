@@ -305,7 +305,78 @@ numbers from the user's base read-only, differences explained by source: done
 base": **partially — it rebuilds the same code path over reduced payloads, and
 the reduction is visible in VALE's 2 vs 17**. Zero requests proven by the
 `RequestGate` counter: done (7 tests green, Run 34; adjacent suites 17 and 36
-green, Runs 35, 36).
+green, Runs 35, 36). The commit ran the full hook: `Итог: пройдено 13,
+провалено 0`, `6953b19`, pushed `cb59c5d..6953b19` (Run 37).
+
+### R4 — the first hour, asserted tab by tab
+
+`tests/test_desktop_task96_r4_firsthour.py`, 10 tests, offline, Qt offscreen
+(Runs 38–42). One module-scoped fixture walks the R2 path once
+(`cli.main(["--root", …, "follow", "AAPL"])` over `tests/data` responses into
+`tmp_path`, 6 requests by the real gate), opens the window through the real
+door `desktop.window._build_window(repos, paths, None)`, and selects the AAPL
+tree item so every tab repaints the way a click repaints it. The fixture is
+module-scoped on purpose: function-scoped, the file cost 79 s re-building the
+base ten times; now 9.6 s.
+
+**«Компания» — content, not «didn't crash».** 28 measure rows, headers
+`['мера', 'сейчас', '2025', '2023']`, exactly 10 rows with a value in
+«сейчас» and 18 showing the word `нет данных` (not zero, not blank);
+`asset_turnover` = `1.1493`, `div_yield` = `нет данных`. The same 10 is
+cross-checked against the base itself through `repos.snapshot.get_measures()`
+— the window is not allowed to invent its own count — and against
+`measure_box`, which carries the same 28 entries with 18 «нет данных» marks.
+Clicking a valued cell (`table.cellClicked.emit`) fills the source panel with
+`источник asset_turnover (v1)`, `значение: 1.1493`, `единица: ratio`, and a
+raw-store path **that the test then proves exists on disk** — the
+«open the source» promise is executable, not decorative.
+
+**«Настройки» — the tab ТЗ-73 T4 calls the only working one, pinned.**
+`keys_label` shows `RUSTERM_SEC_UA: найден` and `RUSTERM_TWELVEDATA_KEY:
+найден` with origin, and the sentinel key value (`R4-SENTINEL-KEY-9f2c`)
+appears in **no** widget text and **no** table cell anywhere in the window —
+the leak guard scans the whole window, not just the key panel. `limits_table`
+equals `rusterm.providers.all_host_limits()` host for host, including
+`api.twelvedata.com` at 800/день and 0.1333/сек, with the override column
+showing `—` when the config has none. `catalog_label` names the tmp root,
+`rusterm.db`, its byte size and its update time.
+
+**«Отрасль» and «Качество» — `xfail(strict=True)`, written now.** Two tests
+assert what ТЗ-73 promises to put there: `ТЗ-73 T2` for the peer table
+(«нет peer set» gone, `участники (…)` line, `rowCount > 0`) and `ТЗ-73 T3`
+for governance (colours ≠ `{gray}` — today all five rows are
+`gray / причина: no_data:not_collected`). They are not vacuous: `--runxfail`
+(Run 41) runs the bodies as normal tests and both fail today, with today's
+own words in the assertion output —
+`у компании нет peer set — сравнение с конкурентами недоступно…` and
+`assert {'gray'} != {'gray'}`. When the coordinator lands ТЗ-73 the same
+bodies xpass, `strict=True` turns that into a red test, and the marker has to
+be deleted in the open. A third test in the same tab is **not** xfail,
+because the words are already honest and must not regress: the industry tab
+must keep naming the reason it is empty.
+
+**Marker decision, and the question in it.** The item says «маркерный тест
+первого часа». I did **not** mark it `firsthour`: `pyproject addopts` runs
+`-m "not live and not volume and not firsthour and not slow"`, and
+`agent/acceptance.sh` line 84 calls plain `pytest -q` — a `firsthour`-marked
+strict-xfail would never be collected, so it could never redden, which is
+exactly the promise the item makes («сам покраснеет»). The tension is
+recorded as Disputed 7 with the two ways out.
+
+**The file name is not free, and the guard said so.** The first R4 commit was
+rejected 12/13: acceptance check 6 (ADR-0023) allows `import PySide6` in
+`rusterm/desktop/` and in `tests/test_desktop_*` only, and my file was
+`tests/test_task96_r4_firsthour_tabs.py` (Run 43). Renaming it into the desktop
+family (Run 44) is the fix the rule asks for; the alternative — reaching Qt
+through `__import__` or building the widgets in a non-`test_desktop_*` helper —
+would have kept the import but hidden it from the guard, which is the same
+evasion as weakening a test. Nothing else about the file changed, and the
+renamed run is the same 8 + 2 (Run 45).
+
+**Done-when, line by line.** Path of R2 walked by the test: done. Content of
+«Компания» and «Настройки» asserted: done. «Отрасль» and «Качество» as
+`xfail(strict=True, reason="ТЗ-73 …")` written now rather than retroactively:
+done, teeth shown by Run 40.
 
 ## Blocked
 
@@ -375,6 +446,23 @@ green, Runs 35, 36).
   after them: the 5 refused calls of this run are still missing from that base's
   counter (26 vs 31 out). `rusterm budget` is now right going forward, not
   retroactive.
+* R4's numbers are one paper on one frozen fixture: 28 rows, 10 valued, 18
+  `нет данных`, `asset_turnover 1.1493` are AAPL in `companyfacts_m3_AAPL.json`
+  plus the trimmed price series, not a range a real user would see. They are
+  reproducible (offline, `tmp_path`, 0 network) and they cross-check against the
+  same base through `get_measures()` and `measure_coverage()`, but a parser or
+  snapshot change moves them together — a red R4 says «the window and the core
+  disagree, or the numbers moved», not «the window is broken».
+* R4 opens the window offscreen and never the `.app`. Fonts, HiDPI, real mouse
+  clicks and the macOS double-click path are not covered here; the click is a
+  `cellClicked.emit`, and the only thing proven about the source panel is what
+  it says and that the raw path it prints exists. The user's own catalog was
+  not opened for this item at all (P7).
+* The two `xfail(strict=True)` bodies assert a future that nobody has scheduled
+  a date for. Their teeth were measured today only as «run anyway and both
+  fail with today's words» (Run 41); nobody has seeded a peer set into that base
+  to watch them xpass, because building one needs the sector mapping ТЗ-73 T2
+  has not written yet.
 
 ## Disputed
 
@@ -484,6 +572,22 @@ green, Runs 35, 36).
    does answer that input, which is exactly why a base that never re-parsed is
    now the odd one out.
 
+7. R4 says «маркерный тест первого часа» and in the same breath requires that
+   the «Отрасль»/«Качество» tests **redden by themselves** when ТЗ-73 fills
+   them (`xfail(strict=True)`, «а не будет дописан задним числом»). Under
+   `pyproject addopts` (`-m "not live and not volume and not firsthour and not
+   slow"`) and `agent/acceptance.sh:84` (`pytest -q`, no `-m`), a test carrying
+   the `firsthour` marker is deselected in every acceptance run — so the marker
+   and the self-reddening requirement cannot both hold, and the more important
+   one is the teeth. R4 therefore ships unmarked and runs in the normal set.
+   Ask: either confirm the marker stays off for tests whose purpose is to
+   become red later, or give the first-hour suite its own explicit invocation
+   in `acceptance.sh` — which is a file neither agent may edit, so it has to be
+   your decision. `tests/test_task65_k4_firsthour.py` has the opposite problem
+   and is named in the same ask: it carries `firsthour`, so the only
+   end-to-end first-hour check in the tree has never been run by the guard that
+   claims to protect the first hour.
+
 ## Runs
 
 | # | command | output |
@@ -524,6 +628,15 @@ green, Runs 35, 36).
 | 34 | `python3 -m pytest tests/test_task96_r3_replay.py tests/test_task96_r3_refused_calls.py -v` | `7 passed in 8.55s` |
 | 35 | `python3 -m pytest tests/test_task96_r3_refused_calls.py tests/test_task96_r3_replay.py tests/test_task96_r2_follow.py tests/test_task64_j1_budget_truth.py -v` | `17 passed in 40.80s` |
 | 36 | `python3 -m pytest tests/test_budget.py tests/test_c3_actions.py tests/test_c5_cadence_cli.py tests/test_div_yield_from_filings.py tests/test_task65_k4_firsthour.py tests/test_a1_refresh.py tests/test_free_only.py -v` | `36 passed, 1 deselected in 38.36s` |
+| 37 | the R3 commit through the pre-commit hook (`git commit`, then `git fetch` + `git push origin agent/night-11`) | `Итог: пройдено 13, провалено 0` / `Принято.` / `SELFCHECK OK`; `17 files changed, 653 insertions(+), 9 deletions(-)`; commit `6953b19`; remote had no coordinator commits, pushed `cb59c5d..6953b19` |
+| 38 | `python3 "$TMPDIR/rt96-r4/probe_window.py"` — offline R2 path into a `mkdtemp` catalog, then `_build_window` offscreen and a tree selection; prints what each tab says (nothing asserted) | `путь пройден; всего запросов: 6`; `=== Компания` `rowCount 28 columnCount 4`, `заголовки: ['мера', 'сейчас', '2025', '2023']`, `мер со значением в колонке «сейчас»: 10`, `measure_box count: 28 \| с меткой «нет данных»: 18`, panel after click `источник asset_turnover (v1) … значение: 1.1493 … сырье: …/raw/store/6b/6be68a89…`; `=== Настройки` 8 key rows (`RUSTERM_SEC_UA: найден, окружение`, `RUSTERM_DATA: нет — какой каталог данных открыло окно…`), `limits rows: 7` (`api.twelvedata.com 800 0.13333333333333333 —`), `catalog_label: каталог: …/live \n база: …/rusterm.db (630784 байт, обновлялась 2026-09-24T22:43:54)`; `=== Отрасль` `peer_line: 'у компании нет peer set …'`, `industry_table rows: 0`; `=== Качество` `покрытие мер: 10 из 28; отказы — concept_not_mapped: 4, missing_data: 14`, `governance rows: 5`, all `gray` / `причина: no_data:not_collected` |
+| 39 | `python3 -m pytest tests/test_task96_r4_firsthour_tabs.py -v` (first run, fixture still function-scoped) | `1 failed, 7 passed, 2 xfailed in 78.85s` — the failure is the probe's own raw-path split: the panel prints `…/6be68a89… (период входа 2025-09-27)` on one line, so `isfile` saw the suffix as part of the path; assertion fixed to split at ` (период входа `, then re-run alone: `1 passed, 9 deselected in 9.53s` |
+| 40 | the same file after the fixture went module-scoped | `8 passed, 2 xfailed in 9.60s` (was 78.85s: the base was being rebuilt for every test) |
+| 41 | `python3 -m pytest tests/test_task96_r4_firsthour_tabs.py --runxfail -v -k "industry_tab_shows_a_peer or governance_has_a_measured"` | `2 failed, 8 deselected in 8.30s` — `assert 'нет peer set' not in 'у компании нет peer set — сравнение с конкурентами недоступно; наборы появляются вручную или классификатором (ADR-0002)'` and `assert {'gray'} != {'gray'}`: both strict-xfail bodies assert something, and what they assert is not true yet |
+| 42 | `python3 -m pytest tests/test_task96_r4_firsthour_tabs.py tests/test_task96_r2_follow.py … tests/test_desktop_source_panel.py -v` (8 files) | `44 passed, 2 xfailed in 48.52s` — the module-scoped environment patch is undone with the fixture, the neighbours see no leak |
+| 43 | the R4 commit through the hook (`git commit`, 3 files staged) | **rejected**: `Итог: пройдено 12, провалено 1` / `Не принято.` — check 6 «Qt только в rusterm/desktop/» named `tests/test_task96_r4_firsthour_tabs.py:57:from PySide6.QtCore import Qt` and `:58:from PySide6.QtWidgets import …`; `SELFCHECK FAIL (acceptance): exit status 1`, HEAD stayed `6953b19`, full log kept at `$TMPDIR/selfcheck-acc.6Xx2uR` |
+| 44 | the check's own rule, re-run by hand: `grep -rniE '(import\|from)[[:space:]]+(PySide6\|qtpy)' rusterm/ tests/ --include='*.py' \| grep -vE '^(rusterm/desktop/\|tests/test_desktop_)'`; then `git mv tests/test_task96_r4_firsthour_tabs.py tests/test_desktop_task96_r4_firsthour.py` | before: the two lines above; after `git mv`: empty output. Every other Qt-importing test in the tree already lives under `tests/test_desktop_*` (13 files) |
+| 45 | `python3 -m pytest tests/test_desktop_task96_r4_firsthour.py -v` | `8 passed, 2 xfailed in 8.27s` — same ten tests as Run 40, renamed only |
 
 ## HANDOFF
 

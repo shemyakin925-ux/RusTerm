@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-96.md",
  "report": "agent/REPORT-96.md",
- "item": "R3",
- "step": "живой прогон шести бумаг (31 запрос наружу, счётчик базы назвал 26), сверка с базой пользователя только чтением, офлайн-эталон из 12 фикстур + 7 тестов, третий счётчик отказов починен",
+ "item": "R4",
+ "step": "первый час по вкладкам: тест на пути R2 утверждает содержимое «Компании» и «Настроек», «Отрасль» и «Качество» — xfail(strict=True) с ТЗ-73 T2/T3. Первая попытка коммита отклонена приёмкой 12/13: проверка 6 велела Qt только в rusterm/desktop/ и tests/test_desktop_* — файл переименован в tests/test_desktop_task96_r4_firsthour.py",
  "status": "working",
- "last_commit": "cb59c5d",
+ "last_commit": "6953b19",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-24T15:31:55Z"
+ "updated_at": "2026-09-24T16:06:44Z"
 }
