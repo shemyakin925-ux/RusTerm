@@ -174,6 +174,8 @@ five stage lines and their order; the idempotence pair above; the census
 fingerprint; every `совет:` line parsed back through `_build_parser()`;
 unknown market refusing to write; the counted-calls equality.
 
+Commit: `eaf3899` (hook: 13 acceptance checks passed, 0 failed).
+
 ## Blocked
 none
 
@@ -297,7 +299,8 @@ none
 | 19 | offline `follow AAPL` twice into `$TMPDIR/rt96-staging/follow-root3` (`--root` explicit, stub transport, `RUSTERM_ENV_FILE=/nonexistent/…`) | run 1: `1/5 каталог (запросов 0)`, `2/5 поиск в SEC (2)`, `3/5 отчётность (1)`, `4/5 цены (3)`, `5/5 снапшот (0)`, «всего запросов: 6», `мер: 28 — со значением 10, пусто 18`; run 2: `2/5 — инструмент уже есть, поиск пропущен (0)`, `3/5 (1)`, `4/5 (0)`, `5/5 (0)`, «всего запросов: 1», `снапшот v2 … без изменений — значения идентичны предыдущей версии` |
 | 20 | transport call trace of the same path (every URL the stub served, with the gate's counter at that moment) | 6 calls: `company_tickers.json`, `company_tickers_exchange.json` (both `add`, gate=1 then 2), `companyfacts/CIK0000320193.json`, `time_series`, `splits`, `dividends`; `metric_sample` after the fixes sums to **6** — before them it summed to 5 and the price stage printed `(запросов 0)` |
 | 21 | `python3 -m pytest tests/test_i5_guard_source.py -q` (with the new test file staged) | `4 passed` — the earlier `1 failed` in the full run was `SELFCHECK FAIL (P3/P4): untracked files present`, i.e. my uncommitted test file, not the guard |
-| 22 | `python3 -m pytest -q --tb=no` (full default run, after both accounting fixes) | exit code 0, progress reached `[100%]`. The run's own `N passed` line is *not* in the captured output (the pty tests leave a child on the same pipe and the summary is lost), so no count is quoted from it — the counts come from the acceptance log of this commit instead |
+| 22 | `python3 -m pytest -q --tb=no` (full default run, after both accounting fixes) | exit code 0, progress reached `[100%]`. The run's own `N passed` line is *not* in the captured output (the pty tests leave a child on the same pipe and the summary is lost), so no test count is quoted here |
+| 23 | the commit's own hook: `I5_NESTED=1 bash agent/selfcheck.sh` → `agent/acceptance.sh` (two full pytest passes inside) | `Итог: пройдено 13, провалено 0` / `Принято.` → `eaf3899` — 13 is the number of acceptance checks, not of tests; the guard prints no test count either |
 
 ## HANDOFF
 
