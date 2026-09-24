@@ -111,11 +111,83 @@ design rules out, and its green would be about my test, not about the product.
 
 Budget: 0 network requests, 0 LLM calls.
 
+### K2 — nested writer fails fast instead of hanging
+
+The spec's claim, measured before the fix. `tests/test_concurrency.py::
+test_nested_writer_transaction_fails_fast` run against `a258537` in
+`$TMPDIR/rt84-lab` (no `_writer_owner` in that tree's `db.py` — the script
+greps for it and says so):
+
+```
+E  AssertionError: вложенный вызов висит дольше 5.0 с: ошибку программиста
+   лок превращает в зависание процесса
+1 failed in 5.11s
+```
+
+The hang is real: measured as a thread that never returns within 5 s. By code
+reading the park point is `with _writer_lock:` — the thread waits on a lock the
+same thread holds, with `BEGIN IMMEDIATE` already open on its connection.
+Nothing in the log would have shown it — only the test's 5-second ceiling turns
+it into a red.
+
+Fix in `rusterm/store/db.py`: `_writer_owner = threading.local()`, and
+`writer_transaction` compares `threading.get_ident()` against the recorded
+owner **before** taking the lock, raising the named error:
+
+```
+RuntimeError("writer_transaction уже открыт в этом потоке: вложенная
+              транзакция невозможна, SQLite не умеет вложенный BEGIN")
+```
+
+The owner slot is cleared in `finally`, so the same thread re-enters the door
+normally once the outer transaction is over. `RLock` was deliberately not used:
+it would admit the nested `BEGIN IMMEDIATE` and SQLite would answer «cannot
+start a transaction within a transaction» — the same programmer error, reported
+one layer further from its cause and without naming the door.
+
+What the test pins, clause by clause:
+
+| check in the test | «Done when» clause |
+|---|---|
+| worker thread returns within 5 s | fails fast |
+| `isinstance(result, RuntimeError)` + `"writer_transaction" in str(result)` | raises the named `RuntimeError` |
+| neither `K2-outer` nor `K2-in` survives in `issuer` | the nested call leaves no half-written transaction |
+| a fresh thread writes `K2-after` within 1 s | the lock is free afterwards |
+
+Nesting is produced through the product's own door — `upsert_issuer` called
+inside an outer `writer_transaction` — rather than by hand-writing two `BEGIN`s,
+because that is how a real caller reaches it. The worker opens its own
+connection, measured rather than assumed: a probe that opens the connection in
+the main thread and enters `writer_transaction` in a worker gets
+`ProgrammingError: SQLite objects created in a thread can only be used in that
+same thread` — the lock under test would never have been reached.
+
+Before trusting this change with 51 write doors, checked who nests:
+`grep -c 'with writer_transaction(' rusterm/store/repos.py` → **51** (50 on
+`self.conn`, one — `persist_ingestion_results` — on a bare `conn`), and the
+same grep across `rusterm/` lists no other file: nothing outside the store
+opens the door. An AST scan of `rusterm/**/*.py` for calls of any
+`self.<repo>.…` inside a `with writer_transaction(...)` body found **0** —
+bodies only do `c.execute(...)`. So no product path nests today: the new error
+is a guard rail, not a live break. Full suite with the change:
+`1309 passed, 5 skipped, 20 deselected, 4 xfailed, 3 warnings in 673.38s
+(0:11:13)` — no regression from the `db.py` edit; the file alone:
+`2 passed in 1.26s`.
+
 ## Blocked
 
 none
 
 ## What not to trust
+* The K2 guard is per-thread and per-process. Two connections nested on one
+  thread now raise; one transaction nested across *threads* still just queues on
+  the lock, which is correct serialisation and not what K2 covers. Nothing
+  protects a caller that catches the `RuntimeError` and retries — `grep` says no
+  such caller exists, but the guard cannot enforce that.
+* K2's rollback proof covers the `issuer` rows the test itself writes. It says
+  nothing about WAL side effects after a nested failure — `PRAGMA integrity_check`
+  under a real mixed workload is K6/K7's job, and K2 must not be read as
+  covering it.
 
 * K1's green does **not** mean the writer lock works: measured, deleting
   `with _writer_lock:` leaves K1 green (`1 passed in 0.09s`), because SQLite
@@ -168,16 +240,23 @@ none
 | 8 | `python3 -m pytest tests/test_concurrency.py -p no:cacheprovider --durations=3 -o addopts=""` (clone) | `0.05s call … K1`, `1 passed in 1.19s` |
 | 9 | `bash /tmp/rt84-staging/k1_teeth.sh` — baseline + mutation A (lock removed) + mutation B (COMMIT forgotten) in `$TMPDIR/rt84-lab` at `b1d0890` | baseline `1 passed in 0.10s`; A `1 passed in 0.09s` (K1 blind to the lock); B `1 failed in 0.07s`; after restore `grep -c МУТАЦИЯ` → `0`, `git status --porcelain` → only `?? tests/test_concurrency.py` |
 
+| 10 | `bash /tmp/rt84-staging/k2_red.sh` — файл K1 + блок K2, worktree `$TMPDIR/rt84-lab` на `a258537`, правки нет | `1 failed in 5.11s` — `вложенный вызов висит дольше 5.0 с: ошибку программиста лок превращает в зависание процесса`; `grep -n "_writer_owner" rusterm/store/db.py` → no match, то есть дерево действительно до починки |
+| 11 | проба: то же соединение, открытое в main, входит в `writer_transaction` из рабочего потока | `ProgrammingError: SQLite objects created in a thread can only be used in that same thread` (лог `/tmp/rt84-staging/k2-probe.log`; вторая строка пробы упала — у `sqlite3.Connection` нет атрибута `check_same_thread`, так что значение по умолчанию документировано, а не прочитано) |
+| 12 | `python3 /tmp/rt84-staging/apply_k2.py rusterm/store/db.py`, блок добавлен, `ast.parse` обоих файлов | `правка K2 внесена`, `syntax ok`, `git diff --stat` → `2 files changed, 118 insertions(+)` |
+| 13 | `python3 -m pytest tests/test_concurrency.py` (клон, после правки) | `2 passed in 1.26s` |
+| 14 | `grep -c 'with writer_transaction(' rusterm/store/repos.py`, тот же греп по `rusterm/`, AST-обход тел транзакций | 51 сайт (50 на `self.conn`), других файлов греп не нашёл, `кандидатов на вложенную запись: 0` |
+| 15 | `python3 -m pytest -p no:cacheprovider` (полный прогон после правки лока) | `1309 passed, 5 skipped, 20 deselected, 4 xfailed, 3 warnings in 673.38s (0:11:13)` |
+
 ## HANDOFF
 
-Status: WORKING — круг 119 идёт, K1 закрыт коммитом.
+Status: WORKING — круг 119 идёт, K1 и K2 закрыты коммитами.
 
-Items done: приём круга (STATE + отчёт), K1.
-Items not done: K2, K3, K4, K5, K6, K7, K8 — очередь ТЗ-84, по одному коммиту
+Items done: приём круга (STATE + отчёт), K1, K2.
+Items not done: K3, K4, K5, K6, K7, K8 — очередь ТЗ-84, по одному коммиту
 на пункт.
 
 Network: 0 requests spent. LLM calls: 0.
 First finding for the coordinator: entry 1 of `## Disputed` — with
 `_writer_lock` removed, K1 stays green, so I14's wording is about latency and
 nesting, not about lost writes.
-NOW: K2, step 1
+NOW: K3, step 1

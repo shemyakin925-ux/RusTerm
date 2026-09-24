@@ -134,3 +134,104 @@ def test_two_threads_two_hundred_writer_transactions_each(tmp_path):
     assert got == expected, (
         f"пропало {len(expected - got)} id, чужих {len(got - expected)} — "
         f"первый пример: {sorted(expected - got)[:3]}")
+# ── K2: вложенный writer_transaction ──────────────────────────────────
+
+NEST_TIMEOUT = 5.0
+
+
+def _issuer(issuer_id: str) -> Issuer:
+    """Эмитент для K2: поля-обязанки схемы (`name`, `jurisdiction`,
+    `reporting_standard`, `reporting_currency` — NOT NULL)."""
+    return Issuer(issuer_id, f"Issuer {issuer_id}", "US", None, None,
+                  "us_gaap", "USD")
+
+
+def test_nested_writer_transaction_fails_fast(tmp_path):
+    """K2: вложенная транзакция обязана падать, а не ждать вечно.
+
+    Вложенность собрана из дверей самого продукта: поток открыл
+    `writer_transaction` и внутри него вызвал репозиторий, который берёт
+    тот же лок сам. До починки это зависание навсегда — `threading.Lock`
+    непереживаемый, а SQLite не умеет вложенный BEGIN, — поэтому потолок
+    ожидания является частью проверки, а не вежливостью.
+
+    Соединение поток открывает сам: `sqlite3.connect` по умолчанию
+    запрещает использовать объект в чужом потоке (`check_same_thread`), и
+    проверка именованной ошибки утонула бы в `ProgrammingError`.
+    """
+    paths, conn = _fresh_root(tmp_path)
+    conn.close()
+    outcome: list = []
+
+    def nested() -> None:
+        mine = db.open_connection(paths)
+        try:
+            with db.writer_transaction(mine):
+                # своя строка внешней транзакции — по ней видно, что
+                # откат после падения вложенного вызова откатил всё, а не
+                # оставил половину
+                mine.execute(
+                    "INSERT INTO issuer(issuer_id, name, jurisdiction, "
+                    "reporting_standard, reporting_currency) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    ("K2-outer", "Outer row", "US", "us_gaap", "USD"))
+                RepoRegistry(mine, paths).instrument.upsert_issuer(
+                    _issuer("K2-in"))  # ← здесь вложенность
+            outcome.append("вернулся без ошибки")
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            outcome.append(exc)
+        finally:
+            mine.close()
+
+    worker = threading.Thread(target=nested, daemon=True)
+    worker.start()
+    worker.join(NEST_TIMEOUT)
+
+    assert not worker.is_alive(), (
+        f"вложенный вызов висит дольше {NEST_TIMEOUT} с: ошибку "
+        f"программиста лок превращает в зависание процесса")
+    assert outcome, "поток не сообщил результат"
+    result = outcome[0]
+    assert not isinstance(result, str), (
+        "вложенный writer_transaction вернулся нормально — значит "
+        "вложенность никто не заметила")
+    assert isinstance(result, RuntimeError), (
+        f"ожидался RuntimeError, получено {type(result).__name__}: {result!r}")
+    assert "writer_transaction" in str(result), (
+        f"текст ошибки обязан называть дверь, а не только жаловаться: "
+        f"{result}")
+
+    # Падение обязано откатить внешнюю транзакцию целиком: её строка не
+    # переживает ошибку, иначе полузаписанная база была бы нормой.
+    check = db.open_connection(paths)
+    try:
+        left = check.execute(
+            "SELECT issuer_id FROM issuer WHERE issuer_id IN (?, ?)",
+            ("K2-outer", "K2-in")).fetchall()
+    finally:
+        check.close()
+    assert not left, (
+        f"после вложенного вызова в базе остались строки "
+        f"{[r[0] for r in left]} — откат не сработал")
+
+    # Замок обязан остаться свободным: следующий писатель входит за секунду.
+    entered = threading.Event()
+    late_errors: list[str] = []
+
+    def late_writer() -> None:
+        mine = db.open_connection(paths)
+        try:
+            RepoRegistry(mine, paths).instrument.upsert_issuer(
+                _issuer("K2-after"))
+            entered.set()
+        except BaseException as exc:  # noqa: BLE001 — тип и есть ответ
+            late_errors.append(f"{type(exc).__name__}: {exc}")
+        finally:
+            mine.close()
+
+    late = threading.Thread(target=late_writer, daemon=True)
+    late.start()
+    late.join(1.0)
+    assert entered.is_set(), (
+        f"замок не освободился за 1 с (ошибки: {late_errors}) — вложенный "
+        f"вызов оставил процесс без писателя")
