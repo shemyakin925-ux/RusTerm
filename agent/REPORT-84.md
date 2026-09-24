@@ -258,6 +258,94 @@ calls — which is also what the AST scan says about the product.
 Cost of the whole file after K3: `4 passed in 0.16s`, slowest call — K1's 400
 concurrent transactions at 0.08 s.
 
+### K4 — two processes on one base: the recipe self-serialises, so the race window had to be widened
+
+The item's recipe, run as written (probes `/tmp/rt84-staging/k4_probe.py`,
+`k4_probe2.py`; 5 fresh roots, `init` + offline `add` of two instruments, then
+two `ingest --source synthetic` subprocesses at once): both exit 0 every time,
+`database is locked` never appears, and each root ends with `fact 6, job 2,
+raw_object 2, source_cursor 1, coverage 4`. The processes really do run
+together — lifetime 0.116-0.121 s each, overlap 0.115-0.120 s, spawn skew
+0.7-0.9 ms.
+
+Teeth run on that first draft (lab at `0768c79`, `bash
+/tmp/rt84-staging/k4_teeth.sh`) — **all three mutations stayed green**:
+
+| mutation | result | what that says |
+|---|---|---|
+| A: `open_connection(timeout=30)` → `0.001` | `1 passed, 4 deselected in 3.14s` | no writer ever had to wait for the write lock |
+| B: `job.enqueue` re-raises `IntegrityError` instead of returning `False` | `1 passed, 4 deselected in 3.11s` | the second process never attempted a job key |
+| C: `_writer_lock` → no-op context manager | `1 passed, 4 deselected in 3.04s` | cross-process writes are serialised by SQLite, not by the in-process lock (same reading as K1, Disputed entry 1) |
+
+Measured cause: `source_cursor` is keyed by `(provider, index_kind)` — one row
+per source for the whole base, not per instrument
+(`rusterm/store/repos.py:1334, 1340`) — and the job idempotency key is
+`f"{provider_name}:{rec.url}"`, with no instrument in it (`rusterm/pipeline.py:164`,
+written at `:158`).
+So the loser of the cursor race polls an already-advanced index, gets 0 records
+and writes only the cursor row back: its line read
+`US-K4B: заданий закрыто: 0; фактов: 0`. Two "concurrent" processes were one
+writer plus one near-reader, which is why A and B could not be seen.
+
+Widening the window: `tests/k4_stub/sitecustomize.py` (tracked, added to this
+commit) patches `SyntheticDisclosuresProvider.poll_index` to sleep **after**
+the source returns its index and **before** the pipeline commits the cursor, so
+both processes hold the same stale cursor at the same moment. It is inert
+unless `RUSTERM_K4_POLL_PAUSE` is set, and no product step is substituted: the
+same parse, validation, raw store, canonical mapping and persist run in both
+processes. The precedent for a `sitecustomize` in a subprocess test is
+`tests/e2e_stub/` (TASK-11 X1).
+
+With the pause, A and B go red — at `0768c79`, same script:
+
+```
+A: AssertionError: US-K4B: код 2 вместо 0, stderr: …
+   File "rusterm/store/repos.py", line 1341, in set_cursor
+     with writer_transaction(self.conn) as c:
+   File "rusterm/store/db.py", line 830, in writer_transaction
+     conn.execute("BEGIN IMMEDIATE")
+   sqlite3.OperationalError: database is locked
+   1 failed, 4 deselected in 4.62s
+B: AssertionError: US-K4B: код 2 вместо 0, stderr: …
+   File "rusterm/store/repos.py", line 1282, in enqueue
+   sqlite3.IntegrityError: UNIQUE constraint failed: job.idempotency_key
+   1 failed, 4 deselected in 2.72s
+C: 1 passed, 4 deselected in 6.38s
+baseline: 1 passed, 4 deselected in 6.62s
+```
+
+A fails on the *cursor write* — that is the collision the item is about: two
+real OS processes inside `writer_transaction` for the same row at the same
+time, absorbed by the 30 s busy timeout the product sets. B proves the work
+itself is contended: both processes reach `enqueue` for the same idempotency
+keys, and the dedup branch is what keeps the loser's exit code 0.
+
+What the shipped test asserts, per repetition (5, order alternated) against a
+sequential baseline built the same way in the same test: exit 0 for both, no
+`database is locked`, no `Traceback` in either stream, process lifetimes
+overlapping, `fact`/`job`/`raw_object` counts equal to the baseline,
+`PRAGMA integrity_check` = `ok`; and `baseline["fact"] > 0`, because an empty
+baseline would make "equal counts" vacuous.
+
+Distribution over instruments is deliberately **not** asserted — measured, not
+assumed. 30 repetitions of the pair without the pause: 29 times the
+first-spawned process stored the 6 facts, once the second; every root ended
+`fact 6, job 2, raw_object 2`. 30 repetitions with the pause: same totals in
+all 30, `coverage 4`, one issuer holding all six facts, integrity `ok` each
+time. `coverage` stays out of the comparison because its rows hang off whichever
+instrument did the work — if the two documents ever split between the two
+processes, `coverage` would double while `fact` stays 6, and that is a legal
+outcome the totals comparison must not reject.
+
+Network stayed 0: `add` is given both `--cik` and `--name`, which is the
+offline form (`cmd_add` only resolves the ticker through a provider when one of
+them is missing, `rusterm/cli/__init__.py:1436`). Roots are `tmp_path`, every
+call carries `--root`, `RUSTERM_ENV_FILE` points at a nonexistent file, and
+PYTHONPATH points at this clone — P7.
+
+Runs: `python3 -m pytest tests/test_concurrency.py` → `5 passed in 6.64s`; the
+K4 test alone five times → `6.40s, 6.51s, 6.68s, 6.68s, 6.60s`, all
+`1 passed, 4 deselected`.
 ## Blocked
 
 none
@@ -300,6 +388,21 @@ none
 * Nothing in `## Blocked`, but only K1 is done: the file's remaining items will
   add the cross-process and reader cases, so treat the current «I14 is proven»
   reading as premature until K8 closes the round.
+
+* K4's green is a green *with* a widened race window. The item's recipe as
+  written cannot contend: `source_cursor` is one row per source for the whole
+  base and the job key is `provider:url`, so the second process usually polls an
+  already-advanced index and writes nothing but the cursor (measured: mutations
+  A and B green, `1 passed` each). The shipped test therefore pauses the demo
+  index in a `sitecustomize` stub. That is an artificial widening: what K4
+  proves is «two processes whose writes collide by construction behave
+  correctly», not «collisions are this frequent in the field».
+* Mutation C in K4 (per-process `_writer_lock` replaced by a no-op) stayed green
+  a second time, in a second scenario. Read narrowly: K4 does not test the
+  in-process lock, only SQLite's cross-process serialisation plus the 30 s busy
+  timeout. Read broadly: this is the second independent measurement that says
+  the lock is not what prevents lost writes — see Disputed entry 1, which is
+  now backed by two items, not one.
 
 ## Disputed
 
@@ -356,20 +459,45 @@ none
 | 22 | проба ошибки продукта: `upsert_instrument` под несуществующий эмитент | чужое соединение → `ProgrammingError: SQLite objects created in a thread…`; своё соединение → `IntegrityError: FOREIGN KEY constraint failed`, `строк instrument: 0` — тип из пробы, а не из догадки |
 | 23 | `python3 -m pytest tests/test_concurrency.py --durations=3` (после v2) | `4 passed in 0.16s`; call: K1 `0.08s`, K2 `0.01s`, K3-репозиторий `0.01s` |
 | 24 | `bash /tmp/rt84-staging/k3_teeth.sh` (лаборатория на `7966097`; первая попытка молча осталась на `b1d0890`, потому что `checkout` без `--force` прервался на изменённом файле) | baseline `2 passed, 2 deselected in 0.07s`; мутация C `2 failed, 2 deselected in 2.16s` с `писатель не вошёл за 1.0 с (ошибки: [])`; после восстановления `МУТАЦИЯ=0`, `2 passed, 2 deselected in 0.06s` |
+| 25 | `python3 /tmp/rt84-staging/k4_probe.py` — рецепт K4 как написан: init + два `add` + две пары ingest, затем ещё три повтора | коды `0/0` во всех прогонах, `locked в stderr: False`, `фактов всего: 6`; строка второго процесса — `US-K4B: заданий закрыто: 0; фактов: 0` |
+| 26 | `python3 /tmp/rt84-staging/k4_probe2.py` — те же пары, но свежая база на повтор, с замером времени жизни процессов | overlap `0.115-0.121` с из жизни `0.116-0.121` с, разброс запуска `0.0007-0.0009` с, строки `{'fact': 6, 'job': 2, 'raw_object': 2, 'source_cursor': 1, 'coverage': 4}` пять раз подряд, `2.5 с` на пять повторов |
+| 27 | `bash /tmp/rt84-staging/k4_teeth.sh` на первом варианте теста (без паузы), лаборатория на `0768c79` | baseline `1 passed in 3.22s`; мутация A `1 passed in 3.14s`; мутация B `1 passed in 3.11s`; мутация C `1 passed in 3.04s`; после каждой — `МУТАЦИЯ=…:0` |
+| 28 | причина blindness: `grep -n 'key = f' rusterm/pipeline.py`, `grep -n "def get_cursor" rusterm/store/repos.py` и та же пара для `set_cursor` | `164: key = f"{provider_name}:{rec.url}"`; `source_cursor` выбирается парой `(provider, index_kind)` — repos.py:1334, 1340, инструмента в ключе нет |
+| 29 | `python3 /tmp/rt84-staging/k4_probe3.py` — 30 пар без паузы, очерёдность чередуется | исходы: `(первым запущенный, 6, 0)` 14 + 15 раз, `(первым запущенный, 0, 6)` 1 раз; `assert fact==6 and job==2` выдержал все 30; `14.6 с` |
+| 30 | `tests/k4_stub/sitecustomize.py` + пауза 0.4 с: `python3 -m pytest tests/test_concurrency.py -k two_ingest`, затем тот же `k4_teeth.sh` | тест зелёный (`1 passed, 4 deselected in 6.57s`); мутация A краснеет на `set_cursor` → `sqlite3.OperationalError: database is locked` (`1 failed in 4.62s`), мутация B — на `enqueue` → `IntegrityError: UNIQUE constraint failed: job.idempotency_key` (`1 failed in 2.72s`), мутация C зелёная (`1 passed in 6.38s`) |
+| 31 | `python3 /tmp/rt84-staging/k4_probe5.py` — 30 пар с паузой | `30x ((0, 6), 6, 2, 2, 4, 1, 'ok')`: шесть фактов у одного процесса, `fact 6 / job 2 / raw_object 2 / coverage 4`, один эмитент, `integrity ok`, `29.1 с` |
+| 32 | `python3 -m pytest tests/test_concurrency.py` и пять прогонов одного теста K4; `python3 -m pytest tests/test_report_sections.py -k "report or guard"` | `5 passed in 6.64s`; K4 отдельно — `1 passed` за прогоны `6.40 / 6.51 / 6.68 / 6.68 / 6.60` с; защита отчёта на изменённом дереве — `28 passed in 0.92s` |
 
 ## HANDOFF
 
-Status: WORKING — круг 119 идёт, K1, K2 и K3 закрыты коммитами; K2 — двумя,
-первый был красным (см. постскриптум и entry 2 ниже).
+Status: WORKING — круг 119 идёт, K1, K2, K3 и K4 закрыты коммитами; K2 — двумя,
+первый был красным (см. постскриптум и запись 2 ниже).
 
-Items done: приём круга (STATE + отчёт), K1, K2, K3.
-Items not done: K4, K5, K6, K7, K8 — очередь ТЗ-84, по одному коммиту на пункт.
+Items done: приём круга (STATE + отчёт), K1, K2, K3, K4.
+Items not done: K5, K6, K7, K8 — очередь ТЗ-84, по одному коммиту на пункт.
 
-Open questions for the coordinator: 2 entries below — I14's wording, and the
-hook validating the working tree instead of the commit.
+Open questions for the coordinator: 3 entries below — I14's wording, the hook
+validating the working tree instead of the commit, and K4's recipe, which
+cannot make two ingest processes contend without a widened race window.
 
 Network: 0 requests spent. LLM calls: 0.
+NOW: K5, step 1 (писатель батчами по 100 и читатель под WAL).
+
 First finding for the coordinator: entry 1 of `## Disputed` — with
 `_writer_lock` removed, K1 stays green, so I14's wording is about latency and
-nesting, not about lost writes.
+nesting, not about lost writes. K4's mutation C repeats that measurement in a
+two-process setting.
 NOW: K4, step 1
+
+3. K4's «Done when» is satisfiable by a run in which only one process ever
+   writes, and the two checks that would catch a broken writer (busy timeout,
+   job dedup) stay green on the recipe as specified. The item reaches its
+   intent only after the race window is widened from outside the product (the
+   `tests/k4_stub` pause), and even then the *work* never splits: 30/30
+   repetitions left all six facts with one issuer. Ask: for K6/K7 and future
+   rounds, prefer a source whose cursor and idempotency key carry the instrument
+   (or a stub feed with two distinct URLs), so two `ingest` processes contend
+   for different rows and the totals comparison is forced rather than lucky.
+   Not changed here: `source_cursor`'s key and the job key are product design
+   (and TASK-84 authorises no `agent/CONTEXT.md` or provider edits), so the
+   finding is filed instead of fixed.

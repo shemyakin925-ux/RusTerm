@@ -17,7 +17,11 @@ daemon, и у ожидания есть потолок (`join(JOIN_TIMEOUT)`,
 """
 from __future__ import annotations
 
+import os
+import pathlib
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
 
@@ -402,3 +406,167 @@ def test_repo_integrity_error_releases_everything(tmp_path):
     assert not worker.is_alive(), "поток не закрыл соединение после релиза"
     assert _instruments_like(paths, "US-K3%") == ["US-K3-good"], (
         "после ошибки целостности должен пережить только следующий писатель")
+
+
+# ── K4: два процесса на одной базе ────────────────────────────────────
+
+# Сколько раз прогнать пару процессов заново (строка K4: «5 repetitions»).
+K4_REPETITIONS = 5
+# Потолок ожидания дочернего процесса: зависший инжест — красный тест.
+K4_PROC_TIMEOUT = 60.0
+# Пауза обращения к демо-индексу в дочерних процессах (`tests/k4_stub`).
+# Без неё второй процесс приходит на уже записанный курсор и не делает
+# ни одной записи: замок проверялся бы «на удаче». С ней оба процесса
+# пишут одновременно (зубы по мутациям — в отчёте, ТЗ-84 K4).
+K4_POLL_PAUSE = 0.4
+# Два инструмента одной базы. `add` здесь офлайн-формой: --cik и --name
+# вместе, иначе команда идёт в сеть, а бюджет круга — ноль запросов.
+K4_INSTRUMENTS = (("US-K4A", "1234567", "K4 issuer Alpha"),
+                  ("US-K4B", "7654321", "K4 issuer Beta"))
+# Таблицы, которыми меряется «факты равны последовательному прогону».
+# `coverage` тут нет намеренно: её строки привязаны к инструменту, а то,
+# какой инструмент окажется победителем гонки курсора, — законная
+# свобода прогона (замер 30 повторов без паузы: 29 раз выиграл запущенный
+# первым, один раз — вторым). Счётчики fact/job/raw_object от победителя
+# не зависят ни в одном исходе, и сравнивается именно они.
+K4_TABLES = ("fact", "job", "raw_object")
+
+
+def _k4_env() -> dict:
+    """Среда дочернего CLI: PYTHONPATH на этот клон и на подмену индекса
+    (`tests/k4_stub`), файл окружения пользователя не читается, корень
+    всегда передан явно (P7)."""
+    here = pathlib.Path(__file__).resolve()
+    return {**os.environ,
+            "PYTHONPATH": os.pathsep.join([str(here.parent / "k4_stub"),
+                                           str(here.parents[1])]),
+            "RUSTERM_SEC_UA": "Synthetic Test k4.invalid",
+            "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
+            "RUSTERM_K4_POLL_PAUSE": str(K4_POLL_PAUSE),
+            "TERM": "xterm"}
+
+
+def _k4_cli(root, *argv):
+    """Одна команда rusterm отдельным процессом — тот же способ, что в
+    `tests/test_e2e_cli.py`, и с тем же потолком ожидания."""
+    return subprocess.run([sys.executable, "-m", "rusterm.cli",
+                           "--root", str(root), *argv],
+                          capture_output=True, text=True,
+                          env=_k4_env(), timeout=K4_PROC_TIMEOUT)
+
+
+def _k4_prepare(root) -> None:
+    """init + два инструмента: ровно то, что говорит сделать строка K4."""
+    assert _k4_cli(root, "init").returncode == 0
+    for instrument_id, cik, name in K4_INSTRUMENTS:
+        ticker = instrument_id.split("-", 1)[1]
+        done = _k4_cli(root, "add", "--ticker", ticker, "--market", "US",
+                       "--cik", cik, "--name", name)
+        assert done.returncode == 0, done.stderr
+
+
+def _k4_spawn(root, instrument_id) -> subprocess.Popen:
+    """ingest --source synthetic по одному инструменту, не дожидаясь
+    окончания: второй процесс запускается, пока этот работает."""
+    return subprocess.Popen(
+        [sys.executable, "-m", "rusterm.cli", "--root", str(root),
+         "ingest", "--source", "synthetic", "--instrument", instrument_id],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=_k4_env())
+
+
+def _k4_pair(root, order: tuple) -> dict:
+    """Пара процессов одновременно: {инструмент: (код, stdout, stderr,
+    старт, финиш)}.
+
+    Времена снимаются вокруг каждого процесса, чтобы тест мог отличить
+    два одновременных прогона от двух последовательных.
+    """
+    launched = []
+    for instrument_id in order:
+        proc = _k4_spawn(root, instrument_id)
+        launched.append((instrument_id, proc, time.monotonic()))
+    done = {}
+    for instrument_id, proc, started in launched:
+        out, err = proc.communicate(timeout=K4_PROC_TIMEOUT)
+        done[instrument_id] = (proc.returncode, out, err, started,
+                               time.monotonic())
+    return done
+
+
+def _k4_counts(root) -> dict:
+    """Счётчики таблиц и вердикт `PRAGMA integrity_check` — через
+    read-only соединение: тест не дописывает в базу, которую проверил CLI.
+    """
+    db_file = root / "rusterm.db"
+    con = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
+    try:
+        counts = {table: con.execute(
+            f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in K4_TABLES}
+        counts["integrity"] = con.execute(
+            "PRAGMA integrity_check").fetchone()[0]
+        return counts
+    finally:
+        con.close()
+
+
+def test_two_ingest_processes_match_the_sequential_run(tmp_path):
+    """K4: два процесса ingest на одной базе — коды 0, «database is
+    locked» нет, счётчики равны последовательному прогону.
+
+    Гонка настоящая: `source_cursor` синтетического источника общий для
+    всей базы (ключ — провайдер + индекс, не инструмент), так что оба
+    процесса читают один и тот же курсор и борются за одни и те же
+    ключи идемпотентности задания. Без паузы `tests/k4_stub` второй
+    процесс приходит на уже записанный курсор, не находит новых записей
+    индекса и пишет только сам курсор — тогда тест не краснеет ни от
+    схлопнутого busy timeout, ни от выключенной дедупликации (замеры в
+    отчёте, ТЗ-84 K4).
+
+    Распределение работы по инструментам не проверяется и это измерено, а
+    не предполагается: 30 повторов пары без паузы — 29 раз шесть фактов
+    записал запущенный первым, один раз запущенный вторым; 30 повторов с
+    паузой — те же шесть фактов, два задания и два raw-объекта в каждом
+    исходе.
+    """
+    seq_root = tmp_path / "sequential"
+    _k4_prepare(seq_root)
+    first = _k4_cli(seq_root, "ingest", "--source", "synthetic",
+                    "--instrument", "US-K4A")
+    assert first.returncode == 0, first.stderr
+    second = _k4_cli(seq_root, "ingest", "--source", "synthetic",
+                     "--instrument", "US-K4B")
+    assert second.returncode == 0, second.stderr
+    baseline = _k4_counts(seq_root)
+    assert baseline["fact"] > 0, (
+        f"последовательный прогон не записал ни одного факта "
+        f"({baseline['fact']}) — сравнение счётчиков ничего не доказывает")
+
+    instruments = tuple(inst for inst, _, _ in K4_INSTRUMENTS)
+    for i in range(K4_REPETITIONS):
+        root = tmp_path / f"repeat-{i}"
+        _k4_prepare(root)
+        # очерёдность запуска меняется от повтора к повтору: победа в
+        # гонке курсора не должна зависеть от того, кто стартовал первым
+        order = instruments if i % 2 == 0 else instruments[::-1]
+        done = _k4_pair(root, order)
+        for instrument_id, (code, out, err, _s, _e) in done.items():
+            assert code == 0, (f"{instrument_id}: код {code} вместо 0, "
+                               f"stderr: {err!r}")
+            assert "database is locked" not in err, (
+                f"{instrument_id}: второй писатель упёрся в замок — "
+                f"stderr: {err!r}")
+            assert "Traceback" not in err, (f"{instrument_id}: трейсбек в "
+                                            f"stderr: {err!r}")
+            assert "Traceback" not in out, (f"{instrument_id}: трейсбек в "
+                                            f"stdout: {out!r}")
+        starts = [record[3] for record in done.values()]
+        ends = [record[4] for record in done.values()]
+        assert min(ends) > max(starts), (
+            f"повтор {i}: процессы не перекрывались (старты {starts}, "
+            "финиши {ends}) — это два последовательных прогона, а не два "
+            "одновременных")
+        assert _k4_counts(root) == baseline, (
+            f"повтор {i}: счётчики разошлись с последовательного "
+            f"прогона: {_k4_counts(root)} против {baseline}")
