@@ -89,7 +89,14 @@ def parse_form4(raw: bytes) -> OwnershipFiling:
     """Байты Form 3/4/5 XML -> OwnershipFiling; невалидный XML —
     ValueError наверх (парсер честен: разбор идёт по записанному
     сырью, отказ — значение вызывающему)."""
-    root = ET.fromstring(raw.decode("utf-8", "replace"))
+    try:
+        root = ET.fromstring(raw.decode("utf-8", "replace"))
+    except ET.ParseError as exc:
+        # ТЗ-83 F1: контракт записи — «OwnershipFiling или ValueError».
+        # ET.ParseError наследуется от SyntaxError, а не от ValueError,
+        # поэтому битый XML проходил мимо обещанного отказа и прилетал
+        # вызывающему (замер на b'<', обрубке и utf-16 — tests/data/fuzz).
+        raise ValueError(f"неразобран XML: {exc}") from exc
     if root.tag != "ownershipDocument":
         raise ValueError(f"корень {root.tag!r} — не ownershipDocument")
 

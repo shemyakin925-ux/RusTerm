@@ -11,6 +11,7 @@ core.Fact — обязанность конвейера, не парсера.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -32,6 +33,56 @@ _DOC_TYPE_TO_KIND = {
     "INSIDER": "table",
     "PRICES": "table",
 }
+
+
+# ── ТЗ-83 F1: границы входа ───────────────────────────────────────────────
+# Строки 2-4 таблицы контрактов ТЗ-83 обещают ЗНАЧЕНИЕ (ParseResult или
+# None) и не обещают исключения. Битые байты, не-словари там, где ждали
+# словарь, и неконечные числа долетали до вызывающего как
+# UnicodeDecodeError / JSONDecodeError / AttributeError / TypeError.
+# Здесь они превращаются в refusals на границе парсера: неразобранное
+# считается (unparsed), а не игнорируется и не бросается.
+
+
+def _document(raw) -> dict | None:
+    """Байты -> документ верхнего уровня; None — весь документ нечитаем.
+
+    Не-utf-8 и битый JSON — оба подклассы ValueError; рекурсивный
+    сканер json на очень глубоком входе тонет стеком и поднимает
+    RecursionError (замер: 100 000 открывающих скобок). Ни одно из трёх
+    не является разрешённым исходом по строке контракта, поэтому отказ —
+    значение.
+    """
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (ValueError, RecursionError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _text(value) -> str:
+    """Поле-строка (дата периода, концепт, валюта) или пусто.
+
+    Не-строка — не дата: сравнение в determine_basis и в дедупликации
+    флингов бросает TypeError на mixed-типах, а такой факт всё равно
+    невоспроизводим.
+    """
+    return value if isinstance(value, str) else ""
+
+
+def _is_non_finite(value) -> bool:
+    """True — значение неконечное (nan/inf): фиксирующее решение ТЗ-83,
+    такой факт не факт, а неразобранное. Что числом не читается — то не
+    сюда: его судьбу решает вызывающий слой."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return not math.isfinite(value)
+    try:
+        number = float(str(value))
+    except (TypeError, ValueError):
+        return False
+    return not math.isfinite(number)
 
 
 @dataclass
@@ -68,17 +119,33 @@ class SyntheticXBRLParser:
         return kind == "xbrl"
 
     def parse(self, raw: bytes, context: dict) -> ParseResult:
-        doc = json.loads(raw.decode("utf-8"))
+        doc = _document(raw)
+        if doc is None:
+            # ТЗ-83 F1: нечитаемый документ — отказ значением, один
+            # зачтённый пропуск на весь документ.
+            return ParseResult(unparsed=1)
         result = ParseResult()
-        doc_period_end = doc.get("period_end", "")
-        filed_at = doc.get("filed_at", "")
+        doc_period_end = _text(doc.get("period_end"))
+        filed_at = _text(doc.get("filed_at"))
 
-        for fact_id, fd in doc.get("facts", {}).items():
-            concept = fd.get("concept", "")
+        facts = doc.get("facts")
+        if not isinstance(facts, dict):
+            result.unparsed += 1
+            return result
+
+        for fact_id, fd in facts.items():
+            if not isinstance(fd, dict):
+                result.unparsed += 1
+                continue
+            concept = _text(fd.get("concept"))
             value = fd.get("value")
-            period_end = fd.get("period_end", "")
+            period_end = _text(fd.get("period_end"))
             if not concept or value is None or str(value) == "" or not period_end:
                 # Недоразобранное считается, а не выбрасывается.
+                result.unparsed += 1
+                continue
+            if _is_non_finite(value):
+                # Фиксирующее решение ТЗ-83: неконечное число — не факт.
                 result.unparsed += 1
                 continue
             result.facts.append({
@@ -86,9 +153,9 @@ class SyntheticXBRLParser:
                 "listing_id": context.get("listing_id"),
                 "concept": concept,
                 "value": str(value),
-                "unit": fd.get("unit", ""),
+                "unit": _text(fd.get("unit")),
                 "currency": None,
-                "period_start": fd.get("period_start") or period_end,
+                "period_start": _text(fd.get("period_start")) or period_end,
                 "period_end": period_end,
                 "period_type": fd.get("period_type", "duration"),
                 "basis": determine_basis(doc_period_end, period_end, filed_at),
@@ -117,33 +184,61 @@ class TableParser:
         return kind == "table"
 
     def parse(self, raw: bytes, context: dict) -> ParseResult:
-        doc = json.loads(raw.decode("utf-8"))
+        doc = _document(raw)
+        if doc is None:
+            return ParseResult(unparsed=1)
         result = ParseResult()
-        doc_period_end = doc.get("period_end", "")
-        filed_at = doc.get("filed_at", "")
+        doc_period_end = _text(doc.get("period_end"))
+        filed_at = _text(doc.get("filed_at"))
 
-        for ti, table in enumerate(doc.get("tables", [])):
-            unit = table.get("unit", "")
-            table_period = table.get("period_end")
+        tables = doc.get("tables")
+        if not isinstance(tables, list):
+            # Секции нет или она не списка — разобрать нечего, и это
+            # засчитывается (та же симметрия, что у раздела facts).
+            result.unparsed += 1
+            tables = []
+        for ti, table in enumerate(tables):
+            if not isinstance(table, dict):
+                # Раздел есть, но это не таблица: зачитывается, а не
+                # пролетает AttributeError на table.get.
+                result.unparsed += 1
+                continue
+            unit = _text(table.get("unit"))
+            table_period = _text(table.get("period_end"))
             table_period_type = table.get("period_type")
-            columns = table.get("columns", [])
-            for ri, row in enumerate(table.get("rows", [])):
-                for ci, cell in enumerate(row.get("cells", [])):
-                    concept = cell.get("concept", "")
+            columns = table.get("columns")
+            if not isinstance(columns, list):
+                columns = []
+            rows = table.get("rows")
+            if not isinstance(rows, list):
+                result.unparsed += 1
+                continue
+            for ri, row in enumerate(rows):
+                cells = row.get("cells") if isinstance(row, dict) else None
+                if not isinstance(cells, list):
+                    result.unparsed += 1
+                    continue
+                for ci, cell in enumerate(cells):
+                    if not isinstance(cell, dict):
+                        result.unparsed += 1
+                        continue
+                    concept = _text(cell.get("concept"))
                     value = cell.get("value")
-                    if not concept or value is None or str(value) == "":
+                    if (not concept or value is None or str(value) == ""
+                            or _is_non_finite(value)):
                         result.unparsed += 1
                         continue
                     # Период ячейки: cell -> column -> table -> документ.
                     # Сравнительная колонка более раннего периода не должна
                     # терять свой период (иначе I3 не к чему применять).
-                    column = columns[ci] if ci < len(columns) else {}
-                    period_end = (cell.get("period_end")
-                                  or column.get("period_end")
+                    column = (columns[ci] if ci < len(columns)
+                              and isinstance(columns[ci], dict) else {})
+                    period_end = (_text(cell.get("period_end"))
+                                  or _text(column.get("period_end"))
                                   or table_period
                                   or doc_period_end)
-                    period_start = (cell.get("period_start")
-                                    or column.get("period_start")
+                    period_start = (_text(cell.get("period_start"))
+                                    or _text(column.get("period_start"))
                                     or period_end)
                     period_type = (cell.get("period_type")
                                    or column.get("period_type")
@@ -155,7 +250,7 @@ class TableParser:
                         "listing_id": context.get("listing_id"),
                         "concept": concept,
                         "value": str(value),
-                        "unit": cell.get("unit", unit),
+                        "unit": _text(cell.get("unit")) or unit,
                         "currency": None,
                         "period_start": period_start,
                         "period_end": period_end,
@@ -198,12 +293,16 @@ class CompanyFactsParser:
         return metadata.get("doc_kind") == "companyfacts"
 
     def parse(self, raw: bytes, context: dict) -> ParseResult:
-        import json as _json
-
         from rusterm.core.fact import determine_basis
 
-        doc = _json.loads(raw.decode("utf-8"))
+        doc = _document(raw)
         result = ParseResult(parser_version=self.parser_version)
+        if doc is None:
+            # ТЗ-83 F1: ответ API, который не читается как JSON-документ,
+            # — отказ значением (весь payload в неразобранное), а не
+            # UnicodeDecodeError/JSONDecodeError вызывающему.
+            result.unparsed = 1
+            return result
         request_hash = context.get("source_ref", "")
         endpoint = context.get(
             "endpoint", "https://data.sec.gov/api/xbrl/companyfacts")
@@ -219,7 +318,12 @@ class CompanyFactsParser:
         # приоритет решается в snapshot через priority_rank — us-gaap
         # ранг 0, dei ранг 1000+ (см. _DEI_RANK_OFFSET), поэтому если
         # эмитент подаёт оба тега для одной меры, us-gaap выигрывает.
-        facts_root = doc.get("facts", {})
+        facts_root = doc.get("facts")
+        if not isinstance(facts_root, dict):
+            # Раздела facts нет или он не словарь: один зачтённый пропуск
+            # на раздел (та же симметрия, что у tables и facts выше).
+            result.unparsed += 1
+            facts_root = {}
         if "us-gaap" in facts_root:
             taxonomies = [("us-gaap", facts_root["us-gaap"])]
         elif "ifrs-full" in facts_root:
@@ -228,14 +332,37 @@ class CompanyFactsParser:
             taxonomies = list(facts_root.items())
         if "dei" in facts_root and all(t != "dei" for t, _ in taxonomies):
             taxonomies = taxonomies + [("dei", facts_root["dei"])]
+        # ТЗ-83 F1: раздел таксономии, который не словарь, — зачитается,
+        # а не даст AttributeError на concepts.items().
+        usable: list[tuple] = []
+        for name, concepts in taxonomies:
+            if isinstance(concepts, dict):
+                usable.append((name, concepts))
+            else:
+                result.unparsed += 1
+        taxonomies = usable
 
         # Проход 1: конец периода, на который отчитывался каждый accn
         latest_end_by_accn: dict[str, str] = {}
         for _taxonomy, concepts in taxonomies:
             for key, node in concepts.items():
-                for entries in node.get("units", {}).values():
+                if not isinstance(node, dict):
+                    result.unparsed += 1
+                    continue
+                entries_by_unit = node.get("units")
+                if not isinstance(entries_by_unit, dict):
+                    result.unparsed += 1
+                    continue
+                for entries in entries_by_unit.values():
+                    if not isinstance(entries, list):
+                        result.unparsed += 1
+                        continue
                     for entry in entries:
-                        accn, end = entry.get("accn", ""), entry.get("end", "")
+                        if not isinstance(entry, dict):
+                            result.unparsed += 1
+                            continue
+                        accn, end = (_text(entry.get("accn")),
+                                     _text(entry.get("end")))
                         if accn and (accn not in latest_end_by_accn
                                      or end > latest_end_by_accn[accn]):
                             latest_end_by_accn[accn] = end
@@ -244,17 +371,29 @@ class CompanyFactsParser:
         seen: dict[tuple, dict] = {}
         for taxonomy, concepts in taxonomies:
             for key, node in concepts.items():
+                if not isinstance(node, dict):
+                    continue
                 concept = f"{taxonomy}:{key}"
-                for unit_kind, entries in node.get("units", {}).items():
+                entries_by_unit = node.get("units")
+                if not isinstance(entries_by_unit, dict):
+                    continue
+                for unit_kind, entries in entries_by_unit.items():
+                    if not isinstance(entries, list):
+                        continue
                     for idx, entry in enumerate(entries):
-                        end = entry.get("end", "")
-                        value = entry.get("val")
-                        if not end or value is None:
+                        if not isinstance(entry, dict):
                             result.unparsed += 1
                             continue
-                        start = entry.get("start") or end
-                        filed = entry.get("filed", "")
-                        accn = entry.get("accn", "")
+                        end = _text(entry.get("end"))
+                        value = entry.get("val")
+                        if not end or value is None or _is_non_finite(value):
+                            # ТЗ-83 F1: nan/inf из ответа API — не факт,
+                            # а неразобранное (фиксирующее решение).
+                            result.unparsed += 1
+                            continue
+                        start = _text(entry.get("start")) or end
+                        filed = _text(entry.get("filed"))
+                        accn = _text(entry.get("accn"))
                         locator = {
                             "kind": "api",
                             "endpoint": endpoint,
