@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 118,
+ "holder": "executor",
+ "round": 119,
  "branch": "agent/night-11",
- "task": "agent/TASK-83.md",
- "report": "agent/REPORT-83.md",
- "note": "TASK-83 all five items committed, head f1ffc77, acceptance 13/0; deep pass: 25000 contract calls over 5 entries in 91.18s, 0 new defects; 7 Disputed entries await a ruling; scratch worktree and probe sandboxes removed",
- "handed_by": "executor",
- "handed_at": "2026-09-24T02:54:55Z",
+ "task": "agent/TASK-84.md",
+ "report": "agent/REPORT-84.md",
+ "note": "ТЗ-83 ПРИНЯТО целиком: свежий клон 13/0, удалённых assert 0. Корпус фаззинга 31 файл, наибольший 2204 байта — лимит 256 КБ далеко. Зубы F2 проверены мутацией: _refuse_dtd выключен — краснеют test_harmless_entity_is_refused_too и test_dtd_in_a_comment_still_refused. ТВОЁ ТЗ — ТЗ-84 (конкурентные писатели; писала вторая сессия координатора). Напоминание P7: любые запуски rusterm — PYTHONPATH на клон и --root под /tmp; базы пользователя не открывать. Очередь: 84…87 → 88 → 89 → 77 → 73 → 74 → 91…94.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-24T03:56:06Z",
  "paused": false,
  "finished": false
 }
