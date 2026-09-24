@@ -98,6 +98,12 @@ _STALE_LOOKBACK_DAYS = 1100
 # с люфтом; причина — существующая period_mismatch, новой нет.
 _PERIOD_GAP_DAYS = 100
 
+# Годовой dps из отчётности годен как «последние 12 месяцев», пока его
+# год кончился не больше ~18 месяцев назад; старше — следующего годового
+# отчёта с дивидендами нет, и выплаты могли прекратиться (координатор,
+# 24.09.2026).
+_DPS_ANNUAL_STALE_DAYS = 550
+
 
 def _eligible_input(period_end: str, anchor_date: date) -> bool:
     """Входной факт годен, пока его конец отстаёт от anchor не более
@@ -817,6 +823,81 @@ class SnapshotBuilder:
                                    "role": "input"})
         return out
 
+    def _dps_quarterly_ttm(self, issuer_id: str, as_of: str) -> "tuple | None":
+        """Сумма четырёх ПОДРЯД идущих кварталов dps из отчётности
+        (formulas.ttm, словарь §1.2). Квартал — окно 80–100 дней;
+        «подряд» — начало следующего не дальше 5 дней от конца
+        предыдущего; последний квартал закрыт на as_of и свежий
+        (_DPS_ANNUAL_STALE_DAYS). Разрыв — None, а не сумма трёх.
+        Возвращает (сумма, конец, валюта, [fact_id…])."""
+        from rusterm.formulas import ttm
+
+        try:
+            as_of_d = date.fromisoformat(as_of)
+        except (TypeError, ValueError):
+            return None
+        seen: set = set()
+        quarters: list = []
+        for value, start, end, currency, fact_id in \
+                self._snapshots.duration_facts(issuer_id, "dps"):
+            try:
+                s, e = date.fromisoformat(start), date.fromisoformat(end)
+                v = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not 80 <= (e - s).days <= 100 or e > as_of_d:
+                continue
+            if (s, e) in seen:
+                continue  # дубль периода из более поздней подачи
+            seen.add((s, e))
+            quarters.append((s, e, v, currency, fact_id))
+        quarters.sort(key=lambda q: q[1], reverse=True)
+        if not quarters:
+            return None
+        chain = [quarters[0]]
+        for q in quarters[1:]:
+            if len(chain) == 4:
+                break
+            gap = (chain[-1][0] - q[1]).days
+            if 0 < gap <= 5:
+                chain.append(q)
+            elif q[1] < chain[-1][0] - timedelta(days=5):
+                return None  # разрыв: квартала между ними нет
+        if len(chain) < 4:
+            return None
+        if (as_of_d - chain[0][1]).days > _DPS_ANNUAL_STALE_DAYS:
+            return None
+        total, reason = ttm([q[2] for q in reversed(chain)])
+        if reason is not None:
+            return None
+        return (total, chain[0][1].isoformat(), chain[0][3],
+                [q[4] for q in chain])
+
+    def _dps_annual_from_facts(self, issuer_id: str,
+                               as_of: str) -> "tuple | str | None":
+        """Свежайший ГОДОВОЙ dps из отчётности (координатор, 24.09.2026).
+
+        Возвращает (значение, конец, валюта, fact_id), либо строку
+        отказа stale_data, если год кончился больше чем
+        _DPS_ANNUAL_STALE_DAYS назад — старый годовой dps не «последние
+        12 месяцев» (выплаты могли прекратиться), либо None, если
+        годового dps нет. Квартальные и «с начала года» цифры сюда не
+        попадают: окно годового факта >= 300 дней (ТЗ-69 P1)."""
+        row = self._latest_annual_input(issuer_id, "dps")
+        if row is None:
+            return None
+        value, end, currency, fact_id, _start, _length = row
+        try:
+            age = (date.fromisoformat(as_of)
+                   - date.fromisoformat(end)).days
+        except (TypeError, ValueError):
+            return None
+        if age < 0:
+            return None  # год ещё не закрыт на дату снапшота
+        if age > _DPS_ANNUAL_STALE_DAYS:
+            return f"stale_data: dps: last {end}"
+        return (value, end, currency, fact_id)
+
     def _dps_ttm_from_actions(self, instrument_id: str, as_of: str,
                               price_currency: Optional[str]) -> Optional[tuple]:
         """dps_ttm по скользящему окну 365 дней из corporate_action
@@ -1196,13 +1277,29 @@ class SnapshotBuilder:
         # дней из corporate_action (вендорская база = база цены,
         # ADR-0020); валюты сверяются тем же правилом K6
         dps = inputs.get("dps_ttm")
+        dps_basis = "ttm"
+        dps_refusal = "missing_data: dps_ttm"
         if dps is None:
             dps = self._dps_ttm_from_actions(instrument_id, as_of,
                                              price_currency)
+        if dps is None:
+            # Координатор, 24.09.2026: бесплатный Twelve Data на
+            # дивиденды отвечает 403, а 30 из 44 эмитентов пользователя
+            # подают dps в отчётности. Как ADR-0021 для прибыли —
+            # свежайший ГОДОВОЙ dps, основание «annual».
+            annual = self._dps_annual_from_facts(issuer_id, as_of)
+            quarterly = self._dps_quarterly_ttm(issuer_id, as_of)
+            annual_end = annual[1] if isinstance(annual, tuple) else ""
+            if quarterly is not None and quarterly[1] > annual_end:
+                # свежее годового: четыре подряд идущих квартала
+                dps, dps_basis = quarterly, "ttm"
+            elif isinstance(annual, str):
+                dps_refusal = annual
+            elif annual is not None:
+                dps, dps_basis = annual, "annual"
         dps_cur = dps[2] if dps else None
         if dps is None:
-            write("div_yield", None, "missing_data: dps_ttm", "ratio",
-                  [])
+            write("div_yield", None, dps_refusal, "ratio", [])
         elif dps_cur and price_currency and dps_cur != price_currency:
             write("div_yield", None,
                   mismatch([dps_cur, price_currency]), "ratio",
@@ -1212,15 +1309,21 @@ class SnapshotBuilder:
                                   price_close=price_value)
             # ТЗ-31 C2: dps_ttm из corporate_action несёт lineage на
             # события окна (миграция 42); факт-маршрут — как прежде
-            if isinstance(dps[3], list) and dps[3]:
+            if isinstance(dps[3], list) and dps[3] \
+                    and isinstance(dps[3][0], dict):
                 lineage = self._with_basis(
                     [{"ca_instrument_id": instrument_id,
                       "ca_ex_date": e["ex_date"],
                       "ca_kind": "dividend", "role": "input"}
                      for e in dps[3]], "ttm")
+            elif isinstance(dps[3], list):
+                # четыре квартала из отчётности: каждый — вход меры
+                lineage = self._with_basis(
+                    [row for fid in dps[3]
+                     for row in self._fact_lineage(fid)], dps_basis)
             else:
                 lineage = self._with_basis(
-                    self._fact_lineage(dps[3]), "ttm")
+                    self._fact_lineage(dps[3]), dps_basis)
             write("div_yield", m.value, m.null_reason, "ratio", lineage)
 
         # roic = nopat / avg(invested_capital) — оба входа в валюте

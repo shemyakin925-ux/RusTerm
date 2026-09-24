@@ -417,6 +417,36 @@ class FactRepo:
                 (new_fact_id, old_fact_id),
             )
 
+    def basis_by_pointer(self, source_ref: str) -> Dict[str, tuple]:
+        """{json_pointer: (fact_id, basis)} фактов одного сырого объекта —
+        сверка с повторным разбором (починка basis после регрессии ТЗ-78
+        Y2). fact_id — чтобы обновление шло по первичному ключу, а не
+        сканом таблицы по json_extract."""
+        rows = self.conn.execute(
+            "SELECT json_extract(locator, '$.json_pointer'), fact_id, basis "
+            "FROM fact WHERE source_ref = ?", (source_ref,)).fetchall()
+        return {p: (fid, b) for p, fid, b in rows if p is not None}
+
+    def update_basis(self, changes: List[tuple]) -> int:
+        """Меняет ТОЛЬКО basis по (fact_id, basis). Значение, период и
+        происхождение не трогаются. Возвращает число изменённых строк."""
+        if not changes:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany("UPDATE fact SET basis = ? WHERE fact_id = ?",
+                          [(basis, fid) for fid, basis in changes])
+            return self.conn.total_changes - before
+
+    def companyfacts_sources(self) -> List[str]:
+        """sha256 сырых объектов companyfacts, из которых есть факты."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT r.sha256 FROM raw_object r "
+            "WHERE r.provider = 'edgar' AND r.url LIKE '%/companyfacts/%' "
+            "AND EXISTS (SELECT 1 FROM fact f "
+            "WHERE f.source_ref = r.sha256)").fetchall()
+        return [r[0] for r in rows]
+
 
 class SnapshotRepo:
     """Версии снапшотов, блоки, measure, lineage."""
@@ -559,6 +589,19 @@ class SnapshotRepo:
             if length >= min_days and (best is None or end > best[1]):
                 best = (numeric, end, currency, fact_id, start, length)
         return best
+
+    def duration_facts(self, issuer_id: str, canonical: str,
+                       limit: int = 200) -> list:
+        """Свежайшие факты-потоки по каноническому концепту, любой
+        честный basis: (value, period_start, period_end, currency,
+        fact_id), новые первыми. Сборка квартального TTM в ядре."""
+        return self.conn.execute(
+            """SELECT value, period_start, period_end, currency, fact_id
+               FROM fact WHERE issuer_id=? AND canonical_concept=?
+               AND status='ok' AND value IS NOT NULL
+               AND period_start IS NOT NULL
+               ORDER BY period_end DESC, ingested_at DESC LIMIT ?""",
+            (issuer_id, canonical, limit)).fetchall()
 
     def previous_snapshot(self, instrument_id: str,
                           before_version: Optional[int] = None) -> Optional[str]:
