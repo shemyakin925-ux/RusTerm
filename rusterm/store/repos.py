@@ -590,6 +590,19 @@ class SnapshotRepo:
                 best = (numeric, end, currency, fact_id, start, length)
         return best
 
+    def duration_facts(self, issuer_id: str, canonical: str,
+                       limit: int = 200) -> list:
+        """Свежайшие факты-потоки по каноническому концепту, любой
+        честный basis: (value, period_start, period_end, currency,
+        fact_id), новые первыми. Сборка квартального TTM в ядре."""
+        return self.conn.execute(
+            """SELECT value, period_start, period_end, currency, fact_id
+               FROM fact WHERE issuer_id=? AND canonical_concept=?
+               AND status='ok' AND value IS NOT NULL
+               AND period_start IS NOT NULL
+               ORDER BY period_end DESC, ingested_at DESC LIMIT ?""",
+            (issuer_id, canonical, limit)).fetchall()
+
     def previous_snapshot(self, instrument_id: str,
                           before_version: Optional[int] = None) -> Optional[str]:
         """Предпоследняя ГОТОВАЯ версия: база для diff текущей сборки.
