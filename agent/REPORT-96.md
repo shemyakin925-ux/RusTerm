@@ -123,8 +123,58 @@ The probe script itself is scratch under `$TMPDIR` and is not committed: R3
 replaces it with a committed offline test, and the two tables above are its
 whole output.
 
-## Blocked
+### R2 — `rusterm follow`: one call walks the paper to a snapshot
 
+**The command.** `rusterm follow TICKER [--market US]`
+(`rusterm/cli/__init__.py`, `cmd_follow`) runs five stages in one process:
+`init` → `add --ticker/--market` (the SEC search) → `ingest --source edgar`
+→ `ingest --source twelvedata` → `snapshot --instrument`. Each stage prints
+one line with its own measured request count; the count is a difference of
+the DB counter (`_requests_used`, the same arithmetic as `rusterm budget`),
+not a number the stage claims about itself. On a failed stage the command
+stops, prints the same stage as an executable line
+(`совет: rusterm ingest --source edgar --instrument US-AAPL`) and returns
+that stage's exit code — the advice is the command that was just run, so it
+cannot drift from the parser. The subcommand list is 27 now (`follow` added
+to the 26 counted at arrival, Run 8).
+
+| Requirement | How it holds |
+|---|---|
+| stage numbers are real | measured from `metric_sample` before/after each stage; the new test counts the transport calls and asserts the DB total equals them (6 = 6, Run 20) |
+| idempotent, second run clearly cheaper | **6 requests the first time, 1 the second** (Run 19). The repeat skips the SEC search outright (`_instrument_exists` reads the catalog, so `add`'s unavoidable ticker-map request never happens), the price payloads hit the dated-URL cache (0), and the report stage still pays its single `companyfacts` check. Values unchanged: the test compares every `concept → (value, null_reason)` of the latest snapshot before and after, and the second run prints «без изменений — значения идентичны предыдущей версии» |
+| not built on `census --rebuild` | stage 5 calls `cmd_snapshot`, i.e. the full builder `refresh` and `snapshot` use (`price_repo`, `corp_action_repo`, `industry`, `governance`); census is untouched |
+| the ТЗ-94 damage does not apply | `test_price_fed_measures_are_not_census_style_refusals` seeds prices, builds the snapshot through `follow`, and fails if `market_cap`/`div_yield`/`pe` carries the bare `missing_data: price_close` refusal that is census's fingerprint (R1's probe produced 12 of them). Prices are in the base and the reason is not census's — the builder got the price repo |
+| industry and governance stay out | not in the stage list; the last line says it in words («отрасль и governance в этот путь не входят…») and names `rusterm industry` / `rusterm coverage` |
+| unknown market | refused before any write: `test_unknown_market_is_refused_before_any_write` asserts `rusterm.db` does not exist afterwards |
+
+**Two accounting defects found by measuring, both fixed in this commit.**
+They are the reason the stage numbers were not trustworthy before:
+
+1. `_ingest_twelvedata_prices` / `_ingest_twelvedata_actions` built a
+   `RequestGate` and never recorded it — the price stage of a live path
+   spent 3 vendor requests while the DB counter, `rusterm budget` and
+   `rusterm status` said 0. `_record_gate_usage`'s own docstring states the
+   rule («один хелпер для всякого пути через RequestGate»); the price path
+   was the one that skipped it. An injected provider (tests, the desktop)
+   leaves the local gate `None`, so no sample is invented for requests this
+   command did not make.
+2. `cmd_add` recorded its gate immediately after `resolve()`, before
+   `can_auto_ingest()` and `ticker_venues()` — the latter is a second SEC
+   request (`company_tickers_exchange.json`). `add` reported 1 where 2
+   happened. The recording moved to the command's exits, one per path.
+
+Before the fix the same offline path printed `(запросов 0)` for a stage that
+had just made three live calls, and reported `5` from a base that had seen
+6. The printed total now equals the counted transport calls.
+
+**Tests.** `tests/test_task96_r2_follow.py`, 6 tests, all offline: the
+providers are the real classes with a transport over `tests/data`, and the
+`_no_network_in_default_run` guard reddens any real socket. Coverage: the
+five stage lines and their order; the idempotence pair above; the census
+fingerprint; every `совет:` line parsed back through `_build_parser()`;
+unknown market refusing to write; the counted-calls equality.
+
+## Blocked
 none
 
 ## What not to trust
@@ -133,13 +183,27 @@ none
   three rows are called out as wrong or incomplete in Disputed 2–4. What is
   *not* checked by that table is anything about the new command (R2), the
   live run (R3), the first-hour tabs (R4) or `GUIDE.md` (R5): no number for
-  those exists yet, and none is quoted here.
+  those exists yet, and none is quoted here. (R2 does have its own numbers,
+  in its section below; this sentence is about what the *table* checked.)
 * R1's census probe runs against a base whose recorded prices end 2026-04-21
   (the AAPL fixture), so the measured damage is one lost value plus twelve
   less specific refusal reasons. On the user's base, where prices are fresh,
   the same code path has 12 price-fed concepts to lose — that extrapolation
   is read from the code (`cli:1651-1655` vs `cli:844-859`), not measured, and
   it will not be measured by writing anywhere near the user's data (P7).
+* Every R2 number is an **offline** number: the transport is stubbed from
+  `tests/data`, so 6/1 (run 1 / repeat) is what the path costs on the AAPL
+  fixture, not what it will cost on a live paper. A live `follow` is R3's
+  job and nothing in this commit has been run against a vendor. Expect the
+  live repeat to be *more* than 1 request per paper if a new filing has
+  arrived since (`_ingest_edgar_companyfacts` always pays one request to
+  find that out, and `add`'s skip is mine, not the vendor's).
+* The two accounting fixes change what `rusterm budget` names from now on;
+  they do not back-fill history. The user's own base recorded 44 instruments
+  of `add` runs and every price ingest of the last ten rounds without the
+  requests those stages really made, so the numbers in earlier reports
+  (including `REPORT-90`'s) are floors, not counts. Nothing in this round
+  rewrites that base (P7: read-only).
 * Round 119's scratch evidence is gone with the swept `/tmp`
   (`/tmp/rt84-staging/*.py|*.sh`, `/tmp/rt84-*.log`). What survives is what
   was pushed: the tests in `tests/test_concurrency.py`, the three product
@@ -229,6 +293,11 @@ none
 | 15 | `sed -n '875,900p' rusterm/desktop/window.py`; `grep -n "def collect_synthetic" -A 12 rusterm/desktop/actions.py` | the button returns `collect_status.setText(f"сбор не удался: {outcome.detail}")` for every non-demo instrument; the action's docstring names the refusal as deliberate («реальные источники — Disputed, тела заперты в CLI») |
 | 16 | fixture inventory `ls tests/data/edgar tests/data/twelvedata` | `tests/data/edgar`: 30 json files — 20 `companyfacts_m3_*.json`, 5 `companyfacts_m6_*.json` (BMO/CNQ/CPTP/NGGTF/RY), `company_tickers.json`, `submissions_aapl.json`, `companyfacts_vz_shares.json`, `m3_manifest.json`, plus an `ownership/` dir of Form 3/4/5 XML; `tests/data/twelvedata`: 5 files, all AAPL (`dividends_AAPL_full`, `splits_AAPL_full`, three `time_series_AAPL_*`) — no price fixture for the other five papers |
 | 17 | `grep -rn "262144\|256 \* 1024" tests/*.py`; `head -30 tests/test_no_shared_tmp.py` | the 256 KB cap is a guard (`tests/test_payload_size.py::MAX_PAYLOAD_BYTES = 256 * 1024`), not a promise; `tests/test_no_shared_tmp.py` exists and reddens writes to a shared `/tmp` path not built from `tmp_path` |
+| 18 | `python3 -m pytest tests/test_task96_r2_follow.py -q` (first run of the R2 file) | `1 failed, 4 passed` — `rusterm add: error: argument --cik: invalid int value: 'ЧИСЛО'`: my own advice line did not parse, which is exactly what the advice test exists to catch; fixed by making the advice the failed stage's argv |
+| 19 | offline `follow AAPL` twice into `$TMPDIR/rt96-staging/follow-root3` (`--root` explicit, stub transport, `RUSTERM_ENV_FILE=/nonexistent/…`) | run 1: `1/5 каталог (запросов 0)`, `2/5 поиск в SEC (2)`, `3/5 отчётность (1)`, `4/5 цены (3)`, `5/5 снапшот (0)`, «всего запросов: 6», `мер: 28 — со значением 10, пусто 18`; run 2: `2/5 — инструмент уже есть, поиск пропущен (0)`, `3/5 (1)`, `4/5 (0)`, `5/5 (0)`, «всего запросов: 1», `снапшот v2 … без изменений — значения идентичны предыдущей версии` |
+| 20 | transport call trace of the same path (every URL the stub served, with the gate's counter at that moment) | 6 calls: `company_tickers.json`, `company_tickers_exchange.json` (both `add`, gate=1 then 2), `companyfacts/CIK0000320193.json`, `time_series`, `splits`, `dividends`; `metric_sample` after the fixes sums to **6** — before them it summed to 5 and the price stage printed `(запросов 0)` |
+| 21 | `python3 -m pytest tests/test_i5_guard_source.py -q` (with the new test file staged) | `4 passed` — the earlier `1 failed` in the full run was `SELFCHECK FAIL (P3/P4): untracked files present`, i.e. my uncommitted test file, not the guard |
+| 22 | `python3 -m pytest -q --tb=no` (full default run, after both accounting fixes) | exit code 0, progress reached `[100%]`. The run's own `N passed` line is *not* in the captured output (the pty tests leave a child on the same pipe and the summary is lost), so no count is quoted from it — the counts come from the acceptance log of this commit instead |
 
 ## HANDOFF
 

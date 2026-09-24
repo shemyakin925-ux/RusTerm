@@ -303,8 +303,10 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
               file=sys.stderr)
         return 1
     symbol = tick["ticker"]
+    price_gate = None
     if provider is None:
-        provider = get_provider("twelvedata", gate=RequestGate())
+        price_gate = RequestGate()
+        provider = get_provider("twelvedata", gate=price_gate)
     if isinstance(provider, ConfigError):
         print(f"twelvedata недоступен: {provider.reason}",
               file=sys.stderr)
@@ -333,6 +335,11 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
     rows = provider.parse_series(payload)
     inserted = repos.price.put_rows(instrument_id, "twelvedata", rows)
     last = rows[-1]["date"] if rows else "—"
+    # ТЗ-64 J1: путь через RequestGate записывает его расход; цена была
+    # единственным путём, который этого не делал — живая котировка
+    # считалась нулём запросов. Инъецированный провайдер оставляет gate
+    # равным None: чужой гейт не считаем.
+    _record_gate_usage(repos, "twelvedata", price_gate)
     print(f"{instrument_id}: строк получено: {len(rows)}; "
           f"записано новых: {inserted}; запросов: {requests_spent}; "
           f"последняя дата: {last}")
@@ -365,8 +372,10 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
               file=sys.stderr)
         return 1
     symbol = tick["ticker"]
+    ca_gate = None
     if provider is None:
-        provider = get_provider("twelvedata", gate=RequestGate())
+        ca_gate = RequestGate()
+        provider = get_provider("twelvedata", gate=ca_gate)
     if isinstance(provider, ConfigError):
         print(f"twelvedata недоступен: {provider.reason}",
               file=sys.stderr)
@@ -411,6 +420,7 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
                                  amount=d["amount"], currency=currency):
             written += 1
     skipped = splits_skipped + div_skipped
+    _record_gate_usage(repos, "twelvedata", ca_gate)
     print(f"{instrument_id}: корп.действия: сплитов {len(splits)}; "
           f"дивидендов {len(dividends)}; записано новых: {written}; "
           f"запросов: {requests_spent}; неразобрано: {skipped}")
@@ -1438,6 +1448,7 @@ def cmd_add(args) -> int:
     from rusterm.providers import UnknownProvider
     cik, name = args.cik, args.name
     provider = None
+    add_gate = None
     if cik is None or name is None:
         headers = NetworkGate().headers()
         if isinstance(headers, ConfigError):
@@ -1469,15 +1480,19 @@ def cmd_add(args) -> int:
         resolution = provider.resolve(args.ticker, args.market,
                                       args_as_of_default())
         if isinstance(resolution, _PE):
+            # ТЗ-64 J1: расход пишется на выходе команды, а не сразу за
+            # resolve — после него add тянет ещё и площадку, и этот
+            # запрос терялся из budget.
+            _record_gate_usage(repos, market_row.provider, add_gate)
             print(f"тикер {args.ticker!r} не найден в EDGAR: "
                   f"{resolution.reason}", file=sys.stderr)
             conn.close()
             return 1
         cik = cik if cik is not None else resolution["cik"]
         name = name or resolution.get("title") or args.ticker.upper()
-        _record_gate_usage(repos, market_row.provider, add_gate)
 
     if instruments.get_instrument(instrument_id) is not None:
+        _record_gate_usage(repos, market_row.provider, add_gate)
         print(f"инструмент {instrument_id} уже существует")
         conn.close()
         return 0
@@ -1497,9 +1512,11 @@ def cmd_add(args) -> int:
                 print(f"провайдер {market_row.provider} не ответил о "
                       f"доступности эмитента: {answer.reason}",
                       file=sys.stderr)
+            _record_gate_usage(repos, market_row.provider, add_gate)
             conn.close()
             return 1
         if answer is not True:
+            _record_gate_usage(repos, market_row.provider, add_gate)
             print(f"{args.ticker.upper()} на {args.market}: раскрытия "
                   f"эмитента недоступны машинно (manual_import_required); "
                   f"эмитент не создан")
@@ -1534,6 +1551,7 @@ def cmd_add(args) -> int:
     print(f"создан инструмент {instrument_id} "
           f"(эмитент {name}, CIK {cik}, тикер {args.ticker.upper()} "
           f"на {args.market}, площадка {venue})")
+    _record_gate_usage(repos, market_row.provider, add_gate)
     conn.close()
     return 0
 
@@ -1667,6 +1685,115 @@ def cmd_census(args) -> int:
         cell = r["value"] if r["value"] is not None \
             else f"отказ ({r['reason']})"
         print(f"  {r['measure']:18s} {cell}")
+    return 0
+
+
+def _instrument_exists(root: str, instrument_id: str) -> bool:
+    """Есть ли инструмент в базе — чтение, каталог не создаётся."""
+    paths, conn = _open_readonly(root)
+    if conn is None:
+        return False
+    try:
+        return RepoRegistry(conn, paths).instrument.get_instrument(
+            instrument_id) is not None
+    finally:
+        conn.close()
+
+
+def _requests_used(root: str) -> int:
+    """Сумма всех проб запросов в базе — та же арифметика, что у
+    `rusterm budget` (ТЗ-64 J1): слагать надо `provider_requests_used`,
+    а не помнить про прошлый вызов. Каталог не создаётся (B35): базы
+    нет — ноль."""
+    paths, conn = _open_readonly(root)
+    if conn is None:
+        return 0
+    try:
+        repos = RepoRegistry(conn, paths)
+        return sum(int(float(row[3])) for row in repos.metrics.samples()
+                   if row[1] == "provider_requests_used")
+    finally:
+        conn.close()
+
+
+def cmd_follow(args) -> int:
+    """ТЗ-96 R2: один вызов проводит бумагу путь «пустой каталог →
+    снапшот»: поиск в SEC, отчётность, цены, снапшот.
+
+    Тела стадий не копируются: каждая стадия — тот же аргмент-вектор,
+    что человек набрал бы сам, разобранный настоящим парсером и
+    переданный настоящей команде (`add`/`ingest`/`snapshot`). Отсюда
+    два обещания сразу: повтор стадии даёт ровно тот же вывод, что и
+    та же команда в терминале, и строка совета, которая печатается при
+    отказе, разбирается этим же парсером (есть тест).
+
+    Двух открытых писателей одновременно это не делает: дочерняя
+    команда сама открывает и закрывает базу, а `follow` соединения не
+    держит вовсе — счётчик запросов читается коротким открытием до и
+    после стадии (ТЗ-84 K2).
+
+    Отрасль и governance в путь не входят — их собирает не эта
+    команда; слова об этом печатаются в конце, а не оставляются
+    пустотой.
+    """
+    from rusterm.markets import get_market
+
+    market_row = get_market(args.market)
+    if market_row is None:
+        from rusterm.markets import known_codes
+        print(f"неизвестный рынок {args.market!r}; известные коды: "
+              f"{known_codes()}", file=sys.stderr)
+        print("совет: rusterm markets", file=sys.stderr)
+        return 1
+    ticker = args.ticker.upper()
+    instrument_id = f"{args.market}-{ticker}"
+    commands = {"init": cmd_init, "add": cmd_add, "ingest": cmd_ingest,
+                "snapshot": cmd_snapshot}
+
+    stages = [
+        ("1/5 каталог", ["init"]),
+        ("2/5 поиск в SEC", ["add", "--ticker", ticker,
+                             "--market", args.market]),
+        ("3/5 отчётность", ["ingest", "--source", "edgar",
+                            "--instrument", instrument_id]),
+        ("4/5 цены", ["ingest", "--source", "twelvedata",
+                      "--instrument", instrument_id]),
+        ("5/5 снапшот", ["snapshot", "--instrument", instrument_id]),
+    ]
+
+    parser = _build_parser()
+    spent_total = 0
+    for name, argv in stages:
+        if name.startswith("2/") and \
+                _instrument_exists(args.root, instrument_id):
+            print(f"{instrument_id}: {name} — инструмент уже есть, "
+                  f"поиск пропущен (запросов 0)")
+            continue
+        before = _requests_used(args.root)
+        child = parser.parse_args(["--root", str(args.root), *argv])
+        rc = commands[child.command](child)
+        spent = _requests_used(args.root) - before
+        spent_total += spent
+        print(f"{instrument_id}: {name} — "
+              f"{'готово' if rc == 0 else 'отказ'} (запросов {spent})")
+        if rc != 0:
+            # Совет — та же стадия, одним вызовом: он обязан разбираться
+            # парсером CLI, поэтому это строка команды, а не описание
+            # проблемы. Причина отказа и что чинить — в выводе самой
+            # стадии выше.
+            print(f"{instrument_id}: стадия не прошла (код {rc}); "
+                  f"починив, повторяют только её", file=sys.stderr)
+            if name.startswith("2/"):
+                print(f"без контакта SEC нужны оба значения вручную: "
+                      f"--cik и --name (см. rusterm markets)",
+                      file=sys.stderr)
+            print(f"совет: rusterm {' '.join(argv)}", file=sys.stderr)
+            return rc
+
+    print(f"{instrument_id}: путь пройден; всего запросов: {spent_total}")
+    print(f"{instrument_id}: отрасль и governance в этот путь не входят "
+          f"— их собирает не эта команда (см. rusterm industry, "
+          f"rusterm coverage)")
     return 0
 
 
@@ -2316,6 +2443,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--name", default=None)
     p_add.add_argument("--instrument-id", dest="instrument_id", default=None)
     p_add.add_argument("--class", dest="class_", default="common")
+    p_follow = sub.add_parser(
+        "follow", help="один вызов: поиск в SEC → отчётность → цены → "
+                       "снапшот (ТЗ-96 R2)")
+    p_follow.add_argument("ticker", help="тикер, например AAPL")
+    p_follow.add_argument("--market", default="US",
+                          help="рынок из реестра (по умолчанию US)")
     p_snap = sub.add_parser("snapshot", help="собрать снапшот")
     p_snap.add_argument("--instrument", default=None)
     p_snap.add_argument("--ticker", default=None)
@@ -2489,6 +2622,7 @@ def main(argv: list[str] | None = None) -> int:
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
         "metrics": cmd_metrics, "budget": cmd_budget,
         "status": cmd_status, "tui": cmd_tui, "add": cmd_add,
+        "follow": cmd_follow,
         "desktop": cmd_desktop,
         "refresh": cmd_refresh,
         "ops": cmd_ops,
