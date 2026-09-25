@@ -485,11 +485,75 @@ def cmd_digest(a: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def run_stamp() -> str:
+    """Метка прогона по часам UTC до секунды."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def untracked_files(work: Path) -> list[str]:
+    """Неотслеживаемые файлы дерева: ровно те, что переживают
+    `checkout --detach` + `reset --hard` (ТЗ-88 C1). Спрятанное в
+    .gitignore в список не входит — `--exclude-standard`."""
+    if not (work / ".git").exists():
+        return []
+    return sorted(line for line in git("-C", str(work), "ls-files",
+                                       "--others", "--exclude-standard",
+                                       check=False).splitlines()
+                  if line.strip())
+
+
+def verify_worktree(path_arg: str | None, head: str) -> Path:
+    """Куда ставить рабочее дерево приёмки (ТЗ-88 C1).
+
+    Явно данный путь уважаем как есть: человек вправе держать своё
+    дерево и переиспользовать его. По умолчанию путь уникальный на
+    прогон — прежний `rusterm-relay-verify` был один на всю машину,
+    `reset --hard` неотслеживаемое не трогает, и мусор одного прогона
+    переходил следующему (красный `test_i5` и ложный вывод о том, что
+    приёмку ломает связанное дерево).
+    """
+    if path_arg:
+        return Path(path_arg)
+    return (Path(tempfile.gettempdir())
+            / f"rusterm-relay-verify-{head[:7]}-{run_stamp()}"
+            f"-{os.getpid()}-{next(_VERIFY_RUNS)}")
+
+
+def verify_refusal(work: Path) -> str | None:
+    """Почему приёмку в этом дереве начинать нельзя (ТЗ-88 C1).
+
+    Молча чужие файлы не убираем: `reset --hard` их всё равно не
+    трогает, а следующий прогон унаследовал бы тот же мусор. Отказ
+    называет каждый файл и команду, которой убрать его самому.
+    """
+    if not work.exists():
+        return None
+    if not (work / ".git").exists():
+        if any(work.iterdir()):
+            return (f"каталог {work} существует, это не рабочее дерево git "
+                    f"и он не пуст — файлы оттуда verify не убирает; "
+                    f"освободите путь сами: rm -rf {work}")
+        return None
+    extra = untracked_files(work)
+    if extra:
+        return (f"в дереве приёмки {work} лежат неотслеживаемые файлы "
+                f"(прошлый прогон или чужая работа):\n  "
+                + "\n  ".join(extra)
+                + f"\nverify их не удаляет. убрать самому: "
+                  f"git -C {work} clean -fd")
+    return None
+
+
 def cmd_verify(a: argparse.Namespace) -> int:
     branch = resolve_branch(a.branch)
     fetch(a.remote, branch)
     head = git("rev-parse", f"{a.remote}/{branch}")
-    work = Path(a.worktree or (tempfile.gettempdir() + "/rusterm-relay-verify"))
+    work = verify_worktree(a.worktree, head)
+    refusal = verify_refusal(work)
+    if refusal:
+        sys.stderr.write(f"verify: {refusal}\n")
+        return EXIT_ERROR
+    print(f"дерево приёмки: {work}", flush=True)
     if (work / ".git").exists():
         subprocess.run(("git", "-C", str(work), "checkout", "--detach", head),
                        capture_output=True, check=False)
@@ -506,6 +570,8 @@ def cmd_verify(a: argparse.Namespace) -> int:
 
 
 # ── красная приёмка: что упало и где полный лог (ТЗ-80 A2) ──────────────
+
+_VERIFY_RUNS = itertools.count(1)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 FAILED_NAMES_CAP = 20
