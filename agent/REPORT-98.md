@@ -463,31 +463,56 @@ None.
 | 21 | H4 Done-when attempt 1 in a scratch clone: plant the staged tail → `bash agent/selfcheck.sh`; then the same widened+staged state with `I5_NESTED=1 python3 -m pytest -q tests/test_task98_h4_guard_growth.py` | the heal worked (`status --porcelain agent/p6_rule.sh` and `diff --cached` empty after the run) but the run was **red**: `Итог: пройдено 11, провалено 2`, both `FAILED tests/test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green` (checks 3 and 11) — its nested selfcheck ran these teeth inside the demonstration window. Reproduced directly: 6 failed (`test_guard_ends_at_exit_zero_with_no_residue`, all four `test_residue_returns_to_head`, `test_widening_is_built_from_head_not_the_dirty_tree` with `MARKERS 2` and `HEALED False`). Cause measured, not assumed: the teeth seed their sandbox HEAD from the tracked guard's current bytes, which the green case holds widened on purpose |
 | 22 | after the `skipif(I5_NESTED)` fix, the same two commands on the same planted state | nested: `sssssssss.s` — 9 skipped, 0 failed, the sibling `test_i5z_demonstration_ran` case still green as legitimately nested; non-nested on the healed guard: 9 passed |
 | 23 | Х4 Done-when, scratch clone at the fixed code, two standalone `bash agent/selfcheck.sh` in a row, nothing else running: run 1 **started with the planted staged tail**, run 2 from the clean tree | run 1: 21:21:09Z → 22:00:51Z, rc 0, `Итог: пройдено 13, провалено 0`, `Принято.`; after it `agent/p6_rule.sh` = 112 lines, `git status --porcelain agent/p6_rule.sh` empty, `git diff --cached --name-only` empty, `tail -1` = `exit 0`. Run 2: 22:00:51Z → 22:40:08Z, rc 0, same `Итог: пройдено 13, провалено 0`, tree byte-identical afterwards (112 lines, `exit 0`), whole-worktree porcelain empty — a run no longer leaves a tail and two runs do not grow one |
+| 24 | H4 commit `efa1fc5` (pre-commit → nested selfcheck → acceptance), then `git push origin agent/night-11` | `Итог: пройдено 13, провалено 0`, `Принято.`, `SELFCHECK OK`, rc 0; 6 files, 512 insertions, 33 deletions; pushed `fedf9b4..efa1fc5`, `origin/agent/night-11` = `efa1fc5`; `P1: OK (staged)` — this commit removes no assert line; **after** the commit `agent/p6_rule.sh` is still 112 lines with `tail -1` = `exit 0` and the worktree porcelain empty: the real commit path left no tail, which is the whole point of the item; `git worktree list` = only this clone, and the scratch clone of row 23 was deleted |
 ## HANDOFF
 
-Interim block, round 127, written after H1, H2 and H3 (the final one comes at
-the close of the round and is what the guard checks).
+Round 127, TASK-98, written after the last of the four items.
 
-Status: PARTIAL, round in progress.
-Items done: H1, H2, H3.
-Items not done: H4.
-Verified: the H1 grep gate is empty; the default verify path is unique per run
-and an explicit path still honoured (both by calling `verify_worktree`
-offline); H2's five teeth in a sandbox with the acceptance stubbed — stale
-clock refuses before acceptance, fresh clock reaches it, future stamp refused,
-unparsable stamp refused, missing STATE ignored, `--force` overrides loudly;
-H3's six teeth in the same kind of sandbox (own tree gone after a green and
-after a red run, stale stamped tree swept, unstamped and live-pid trees left
-alone, stamp present but invisible to `git status`), plus one live `verify` on
-the real branch — which is what found the check-13 collision H3's stamp
-caused. Housekeeping still owed by me: the hand-planted
-`rusterm-relay-verify-…-LIVEFOREIGN-1-2` tree is registered in this clone and
-must be removed before the round closes.
-Not verified: H1/H2 were not exercised through a real network `hand`; the
-post-fix live `verify` (the same command, once the fix is on the branch) had
-not run yet when this block was written; H4 has no work and no tests yet.
-Budget: network 0, LLM 0; 39 cumulative requests, unchanged since the round-125
-close. The only network use is git (fetch, push).
+Status: DONE.
+Items done: H1, H2, H3, H4 — each its own commit (`8b4dfa9`, `964a4cf`,
+`fedf9b4`, `efa1fc5`), subjects naming the item.
+Items not done: none. TASK-98 has no fifth item; the fifth Disputed entry of
+TASK-88 was closed as "no work" by the spec's own table.
+
+Verified, per item:
+* H1 — the spec's grep gate is empty (`rc=1`), one file, 9 insertions /
+  7 deletions, every measured fact kept and only the forbidden branch token
+  dropped.
+* H2 — five teeth in a sandbox with `acceptance.sh` stubbed: stale clock
+  refuses *before* acceptance runs, fresh clock reaches it, future stamp
+  refused, unparsable stamp refused, missing STATE ignored, `--force`
+  overrides loudly. Commit-path acceptance 13/0.
+* H3 — six teeth in the same kind of sandbox (own tree gone after a green and
+  after a red run, stale stamped tree swept, unstamped and live-pid trees left
+  alone, stamp present but invisible to `git status`), plus two live `verify`
+  runs on the real branch: the pre-fix one that found the check-13 collision,
+  and the post-fix one (row 17) — 13/0, own tree removed, the unstamped planted
+  tree untouched.
+* H4 — Done-when measured in a scratch clone of this branch (row 23): two
+  standalone `bash agent/selfcheck.sh` runs, the first starting with the tail
+  planted and staged, both `Итог: пройдено 13, провалено 0` / `Принято.`, and
+  after each one `git status --porcelain agent/p6_rule.sh` empty,
+  `git diff --cached` empty, 112 lines, `tail -1` = `exit 0`. Four mutations
+  bite (rows 19, 21-22). `agent/selfcheck.sh` shipped unchanged.
+
+Housekeeping: the hand-planted `rusterm-relay-verify-…-LIVEFOREIGN-1-2` worktree
+is removed, `git worktree list` shows only this clone (row 17), and the
+scratch clones this round created are deleted. Nothing is left under `~`
+(P7): every sandbox used `HOME`/`TMPDIR` inside `tmp_path` or a scratch clone
+under the system temp dir.
+
+Not verified: see What not to trust. The sharpest limit — the nine Х4 teeth
+never execute in the commit path, because the pre-commit hook is always
+nested (`I5_NESTED=1`); rows 22–23 are their only green evidence, and they are
+standalone runs. Second: this close-out `hand` is the first real (non-stubbed)
+use of H2's clock gate on the executor's side, and its own output belongs to
+the coordinator's verification, not to this report — the report was written
+before it ran.
+
+Budget: network 0 API requests, LLM 0 calls. 39 cumulative requests, unchanged
+since the round-125 close; the only network use is git (fetch, push).
+Hand verdict: recorded by coordinator.
+
 Asks: the five entries of the ## Disputed section — 1: H1's gate is wider
 than its body; 2: H2's gate also fires on the coordinator's hands, and TASK-99
 should say whose clock it believes; 3: a red `verify` now leaves nothing to dig
