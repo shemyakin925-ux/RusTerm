@@ -85,7 +85,11 @@ Strength measured by mutation, each mutation reverted immediately
 Baseline (unmutated) both green in the repo and outside it. Assert count:
 3 removed, 3 added — no `assert` lost, so P1 has nothing to declare.
 
-Commit: named for C2 (sha recorded in Runs).
+Commit `e689574` «ТЗ-88 C2: зубы L3/L2 на литеральном логе, граница круга
+названа явно», hook run `Итог: пройдено 13, провалено 0` / `Принято.`
+The `ЗАМЕНА-БУЛАВКИ:` block was pre-written into `COMMIT_EDITMSG` before
+`git commit -F`, as the pin rule reads the pending message; `bash
+agent/p1_rule.sh` said `P1: OK (staged)` with 3 removed / 3 added assert lines.
 
 ### C3 — no night shift left in the tests
 
@@ -99,7 +103,7 @@ just a wrong statement about the world. Text only: no function, no
 threshold, no comparison touched.
 
 `git grep -nE '10:00|Дананг|Danang' -- tests/ rusterm/` in the clone
-after the change — quoted in Runs; measured in the pre-validation worktree it
+after the change, in the clone itself: `tests/test_market_br.py:66` and nothing else — measured in the pre-validation worktree it
 returns exactly one line, a time label inside fixture data:
 
 ```
@@ -110,7 +114,7 @@ tests/test_market_br.py:66:            200, b"ZIPBODY", {"Last-Modified": "Mon, 
 `git grep`, which is why it does not appear.) `agent/acceptance.sh`
 untouched, as C4 requires.
 
-Commit: named for C3 (sha recorded in Runs).
+C3 lands as its own commit named for the item; the hook verdict of every run of this round is in Runs.
 
 ## Blocked
 
@@ -159,6 +163,19 @@ None.
   cleaning them is a decision for the coordinator (and belongs to C4's
   "не удалять чужие файлы" as much as to disk hygiene).
 
+* **A tracked guard file carries demonstration residue, and this round is
+  forbidden to clean it.** `agent/p6_rule.sh` ends with a line
+  `# i5 green case: staged widening` that the I5 demonstration appends when
+  `agent/selfcheck.sh` runs standalone; `git log -S` traces the shipped copy
+  to `5171e68` «ТЗ-53 W1: масштаб меряется операциями, а не секундами». Every
+  standalone selfcheck since then appends a *second* copy, which is what the
+  coordinator's run in this clone did at 03:50Z (`git status --porcelain` →
+  `M  agent/p6_rule.sh`) before my first edit. I restored HEAD bytes rather
+  than committing them, because TASK-88 C4 forbids touching that file — but
+  the ask is for the coordinator: either strip the shipped residue in the
+  guard's own commit, or have the demonstration write to a temp copy. Left as
+  it is, the guard file is a ratchet that only grows.
+
 ## Runs
 
 Verdict lines from every run of this round are pasted here as they happen,
@@ -192,7 +209,7 @@ before the real turn, both bookkeeping rather than code:
 
 ## HANDOFF
 
-Status: PARTIAL (C1, C2 landed; C3 ahead). The final block written at the
-hand supersedes this one.
-Items done: C1, C2
-Items not done: C3
+Status: DONE. All three items are committed, one commit per item. The hand
+commit carries this report and the closing STATE stamp.
+Items done: C1, C2, C3
+Items not done: none
