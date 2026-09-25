@@ -197,13 +197,30 @@ def sync_worktree(remote: str, branch: str, quiet: bool = False) -> bool:
     return True
 
 
+def _baton_back_to_head() -> None:
+    """ТЗ-89 D2: отказ передачи обязан вернуть `agent/BATON.json` к HEAD —
+    и в индексе, и в рабочем дереве. `hand` пишет новый номер круга в файл
+    до всякого коммита, и если путь дальше не идёт, изменение остаётся
+    лежать: так в круге 106 сорванная попытка осталась в индексе и
+    уехала следующим обычным коммитом (`f8534a4`, «Координатор: …») под
+    чужим заголовком — и маркера «Эстафета: круг 107» в истории нет
+    вообще. После этого вызова смена круга либо уехала маркером, либо её
+    нет.
+    """
+    git("checkout", "HEAD", "--", BATON_PATH, check=False)
+
+
 def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
                message: str) -> str:
     """Кладёт BATON.json и перечисленные файлы одним коммитом на ветку.
 
     Если ветка смены выкачана в текущем дереве — обычный add/commit/push.
     Иначе коммит собирается плюмбингом поверх `remote/branch` и пушится
-    напрямую: рабочее дерево координатора не трогается вовсе.
+    напрямую: рабочее дерево координатора не трогается вовсе (плюмбинг
+    живёт во временном индексе и смену круга оставить не может).
+
+    Правило D2 для всех путей отказа в дереве: `agent/BATON.json`
+    возвращается к HEAD, чужое в индексе не трогается.
     """
     root = repo_root()
     payload = json.dumps(baton, ensure_ascii=False, indent=1) + "\n"
@@ -219,17 +236,22 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
         if staged:
             # ТЗ-42 J1: эстафету нельзя передавать из грязного индекса —
             # именно так круг 48 остался непереданным
+            _baton_back_to_head()      # ТЗ-89 D2
             die("в индексе лежит чужое: " + ", ".join(staged[:10])
                 + ". Ход не передан и работа не сдана. Закоммить это "
-                "своим коммитом и повтори: python3 agent/relay.py hand ...")
+                "своим коммитом и повтори: python3 agent/relay.py hand ... "
+                f"({BATON_PATH} откатан к HEAD)")
         git("add", "--", BATON_PATH, *extra)
         try:
             git("commit", "--only", "-m", message, "--", BATON_PATH, *extra)
         except SystemExit:
             # ТЗ-42 J1: провал коммита — не тишина: ход не передан
+            # ТЗ-89 D2: корень пропавшего маркера 107 — здесь.
+            _baton_back_to_head()
             die("коммит эстафеты не прошёл. Ход не передан и работа не "
                 "сдана. Разберись (хук/индекс) и повтори: python3 "
-                "agent/relay.py hand ...")
+                f"agent/relay.py hand ... ({BATON_PATH} откатан к HEAD, "
+                "перечисленные файлы — в индексе)")
         proc = subprocess.run(("git", "push", remote, f"{branch}:{branch}"),
                               capture_output=True)
         if proc.returncode != 0:
@@ -238,10 +260,14 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
             sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
             git("reset", "--mixed", "HEAD~1")
             fetch(remote, branch)
-            subprocess.run(("git", "checkout", f"{remote}/{branch}", "--",
-                            BATON_PATH), capture_output=True)
+            # Прежний `checkout remote/branch -- BATON` клал чужой BATON
+            # в индекс против нового HEAD — то есть ровно то, что D2
+            # запрещает (зуб test_a_rejected_push_leaves_no_...): теперь
+            # откат к HEAD, а состояние origin покажет relay.py status.
+            _baton_back_to_head()
             die(f"push отклонён: {remote}/{branch} ушла вперёд. Коммит эстафеты "
-                "снят, файлы на месте. Перечитай relay.py status и повтори.")
+                f"снят, {BATON_PATH} откатан к HEAD, файлы на месте. "
+                "Перечитай relay.py status и повтори.")
         return git("rev-parse", "--short", "HEAD")
 
     fetch(remote, branch)

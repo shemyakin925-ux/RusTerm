@@ -121,6 +121,54 @@ item's «Done when» asks for a documentation edit, and TASK-98 was the
 coordinator's own vehicle for the protocol-level decision, so the file stays
 unmodified in this round.
 
+### D2 — a refused `hand` leaves no round change in the index
+
+**How it reproduced before the fix** — the same sandbox that now holds the test:
+a bare `origin` in `tmp_path`, the shift branch checked out, a real
+`.git/hooks/pre-commit`; no `agent/acceptance.sh` in it, which ТЗ-66 L1 makes
+optional-by-presence, so each run costs seconds rather than a full suite. The
+fourth row was measured, not assumed: `relay.py` was restored to the pre-fix
+head (`grep -c _baton_back_to_head agent/relay.py` → `0`) and the final
+five-test file was run against it.
+
+| refusal path | pre-fix state of `agent/BATON.json` |
+|---|---|
+| hook rejects the commit (round 106's failure) | red — staged: `git diff --cached --name-only -- agent/BATON.json` → `agent/BATON.json`, and the worktree file carried `round: 10, holder: coordinator` |
+| foreign path in the index (ТЗ-42 J1 die) | red — worktree modified against `HEAD`: `git diff HEAD --name-only -- agent/BATON.json` → `agent/BATON.json` |
+| push rejected, branch advanced (round 108's race) | red — the rollback checked `origin/<branch>` out over `BATON.json`, which stages the *foreign* baton against the new `HEAD` |
+| plumbing branch (`--add` names a missing file) | green already — the commit is built in a temp `GIT_INDEX_FILE`, so this path cannot leave the round change; the test locks that |
+
+```
+FFF..                                                                    [100%]
+E  AssertionError: отказ hand оставил смену круга в индексе: 'agent/BATON.json\n'
+E  AssertionError: BATON.json остался изменённым после отказа про чужой индекс: 'agent/BATON.json\n'
+E  AssertionError: после отбитого пуша в индексе лежит BATON: 'agent/BATON.json\n'
+3 failed, 2 passed in 12.55s
+```
+
+**Rule.** New `_baton_back_to_head()` in `agent/relay.py` runs `git checkout
+HEAD -- agent/BATON.json` (one step, index *and* worktree) and is called on all
+three worktree refusal paths before `die`. The push-rejected path lost its
+`checkout origin/<branch> -- BATON`: origin's state is `relay.py status`'s job,
+and reading it into the index is precisely what D2 forbids. All three die
+messages now say `BATON.json откатан к HEAD`. The invariant is the one the item
+states: the round change either left as an `Эстафета:` marker commit or it is
+gone.
+
+**Teeth**: `tests/test_task89_d2_relay_index.py` — the four refusals above plus
+`test_a_successful_hand_still_moves_the_baton` (the rollback must not lock the
+relay: after a green `hand`, origin holds `round 10 / coordinator`, and index
+and worktree match `HEAD`). 5 passed after the fix; the 20 tests of the existing
+relay suites (`test_j1_hand`, `test_relay_verify_worktree`,
+`test_task65_k1_relay_guard`, `test_j3_p6_relay_commit`, `test_k1_p6_relay_skip`,
+`test_state_clock`) are unchanged and green.
+
+**Why a new test file.** ТЗ-89's allow-list names three files, none of them a
+place for a `tmp_path` harness that drives `relay.py` as a subprocess; the
+precedent for an item-shaped test file is `test_task65_k1_relay_guard.py`. No
+allow-listed file was modified outside its scope, and `agent/CONTEXT.md` still
+needed no change (D1's note applies verbatim).
+
 ## Blocked
 
 None.
@@ -140,6 +188,13 @@ None.
   coordinator may prefer a different resolution for those two tests (for
   example keeping 104 and asserting the new answer there); the numbers are in
   this report precisely so that choice can be made from data.
+* D2's sandbox rejects the commit with a **stub** `pre-commit` hook, not with
+  the real `selfcheck.sh → acceptance.sh` chain that reddened round 106 — the
+  sandbox deliberately has no `agent/acceptance.sh` (ТЗ-66 L1 treats it as
+  optional by presence), otherwise every one of these five tests would cost a
+  full suite. So the tests prove the rollback on "a hook refused", not on "this
+  hook refused for this reason"; round 106's actual failure was in the same
+  `except SystemExit` branch, which is what the literal reproduces.
 
 ## Disputed
 
@@ -151,6 +206,18 @@ None.
   happened here — so every round begins with a known-red test. Ask: have
   `relay.py hand` stamp `agent/STATE.json` itself (TASK-98 H2 already opens
   `relay.py` for the clock check), so the arriving side starts green.
+* **D2 stops at `agent/BATON.json`; the listed `--add` files stay staged after
+  a refused hand.** Measured after the fix with a throwaway sandbox probe
+  (`rt89-msg/probe_d2_extras.py`, not committed — kept out of the repo so no
+  one mistakes it for a test): rejecting `pre-commit` hook, `hand --add
+  agent/REPORT-89.md --add agent/STATE.json` →
+  `git diff --cached --name-only` lists both files, `git diff HEAD --name-only
+  -- agent/BATON.json` is empty, exit code 5. That is deliberate and matches
+  the item's letter (only the baton may not survive a refusal; the work must
+  not be swallowed by a rollback the user did not ask for), and a retry works
+  because the J1 filter excludes this attempt's own `extra`. Ask: should the
+  same rollback cover `--add`, i.e. is a half-restored index a worse state than
+  a dirty one?
 
 ## Runs
 
@@ -163,11 +230,15 @@ None.
 | same, whole file, with `tests/test_report_sections.py`, this report and `agent/STATE.json` staged | the D1 commit closes the bookkeeping red it inherits (the staged fallback is what the guard accepts on purpose) | 31 passed in 1.16s |
 | `_l3_missing` probes on the live branch, round 107 | D0's table reproduced, then Z1 flagged | `A1..A4 → []`, `Y1 → ['Y1']`, `Q9 → ['Q9']`, `Z1 → []` → `['Z1']` |
 | `_l3_missing` probes on the live branch, rounds 103 and 104 | the re-pin numbers | table in D1 above |
+| `python3 -m pytest tests/test_task89_d2_relay_index.py -v` in `rt89-prep` with `agent/relay.py` restored to the pre-fix head (`grep -c _baton_back_to_head` → `0`) | the three worktree refusal paths really were red before D2, and the plumbing path was not | `FFF..` → 3 failed, 2 passed in 12.55s (assert messages quoted in D2) |
+| same file, in this clone, with the fixed `agent/relay.py` | D2 green where it will be committed | 5 passed in 13.06s |
+| `python3 -m pytest tests/test_j1_hand.py tests/test_relay_verify_worktree.py tests/test_task65_k1_relay_guard.py tests/test_j3_p6_relay_commit.py tests/test_k1_p6_relay_skip.py tests/test_state_clock.py -q` | the six existing relay suites still agree with the changed `push_baton` | 20 passed in 11.40s |
+| `python3 rt89-msg/probe_d2_extras.py …/agent/relay.py` | what a refused hand leaves behind after D2 (`--add` files staged, BATON clean) | exit 5; `git diff --cached --name-only` → `agent/REPORT-89.md`, `agent/STATE.json`; `git diff HEAD -- … BATON.json` → empty |
 | `relay.py hand` (close-out) | this report + STATE + BATON to coordinator | hand verdict: recorded by coordinator |
 
 ## HANDOFF
 
-Status: PARTIAL (D1 landed; D2, D3 ahead).
-Items done: D1
-Items not done: D2 (hand must not leave the round change in the index), D3 (teeth on the new boundary rules)
+Status: PARTIAL (D1 and D2 landed; D3 ahead).
+Items done: D1, D2
+Items not done: D3 (teeth on the new boundary rules)
 Questions for the coordinator: one, in Disputed — whether the arriving red of `test_done_items_have_code_commits_in_round` should be closed by having `cmd_hand` stamp STATE.

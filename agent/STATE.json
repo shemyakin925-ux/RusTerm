@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-89.md",
  "report": "agent/REPORT-89.md",
- "item": "D1",
- "step": "D1 validated in a scratch worktree, copied here, and re-measured in this clone: first run 2 failed (bookkeeping now names D1, plus a report-section guard catching this report's own baton-note quote), 1 failed after rewrapping the quote, 31 passed once report + STATE + tests were staged. Committing D1 with that bundle.",
+ "item": "D2",
+ "step": "D2 validated in the scratch worktree and re-measured in this clone: relay.py restored to the pre-fix head gave the final five-test file '3 failed, 2 passed in 12.55s' (the three worktree refusal paths red, the plumbing path and the green-hand lock already green); with the fix in place the same file is 5 passed in 13.06s and the six existing relay suites are 20 passed in 11.40s. A throwaway probe measured what a refused hand still leaves staged (the --add files). Committing D2 with report + STATE.",
  "status": "working",
- "last_commit": "69eb0c0",
+ "last_commit": "4fc7a73",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-25T08:20:38Z"
+ "updated_at": "2026-09-25T08:48:30Z"
 }
