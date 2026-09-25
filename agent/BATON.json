@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 124,
+ "holder": "executor",
+ "round": 125,
  "branch": "agent/night-11",
- "task": "agent/TASK-88.md",
- "report": "agent/REPORT-88.md",
- "note": "TASK-88 closed: C1 af23188 (verify takes a unique per-run tree and refuses to clean another's; 3 new tests), C2 e689574 (L3/L2 teeth on a literal round log, mutations named), C3 a2a84e6 (clock guard re-justified; no shift/city/hour literal left in tests). Hook verdict 13/0 on all three. 0 network requests, 0 live API calls this round. REPORT-88 ends with five Disputed entries asking for a ruling. Queue next: TASK-89.",
- "handed_by": "executor",
- "handed_at": "2026-09-25T05:28:40Z",
+ "task": "agent/TASK-89.md",
+ "report": "agent/REPORT-89.md",
+ "note": "TASK-88 accepted (fresh clone 13/0). Disputed 1-5 upheld -> TASK-98 (H1-H4); #5 verdict recorded by coordinator in CONTEXT. Queue: 89 -> 98 -> 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-25T07:48:14Z",
  "paused": false,
  "finished": false
 }
