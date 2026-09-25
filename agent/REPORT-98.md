@@ -119,7 +119,89 @@ tests/test_task89_d2_relay_index.py -q` → 9 passed: the D2 sandboxes carry no
 
 ### H3 — verify cleans only its own trees
 
-Not started.
+Implementation in `agent/relay.py` (+108/−7), `import shutil` added:
+
+* `VERIFY_TREE_PREFIX = "rusterm-relay-verify-"` and
+  `VERIFY_OWNER = ".relay-verify-owner"` sit next to `verify_worktree`.
+* `pid_alive(pid)` — signal 0. `PermissionError` counts as **alive**: a
+  foreign process holding the pid must not let the sweep delete a tree
+  somebody is using.
+* `verify_owner(work)` — the stamp as a dict, or `None` when there is no
+  stamp / it does not parse. No stamp = not ours = never deleted, which
+  is the second half of the item ("A tree without the stamp is never
+  deleted").
+* `stamp_verify_tree(work)` — writes `{"pid": <os.getpid()>, "run":
+  <tree name>}`. Run id = the tree's own name because that is what the
+  default path already makes unique (head, UTC stamp, pid, counter).
+* `remove_verify_tree(work)` — `git worktree remove --force`, then
+  `shutil.rmtree` if the directory is still there, then
+  `git worktree prune`.
+* `sweep_stale_verify_trees(parent)` — candidates = directories under
+  `parent` matching the prefix, stamped, with a dead pid. Returns what it
+  removed so `cmd_verify` can name each one.
+* `cmd_verify` — sweep first (default parent = `tempfile.gettempdir()`,
+  the same value `verify_worktree` uses); `ours` is "the tree did not
+  exist when we got here", i.e. exactly the branch that runs
+  `git worktree add`; that branch also stamps. The acceptance call is
+  wrapped in `try/finally`, so a green and a red run remove the tree the
+  same way. A tree that already existed (explicit `--worktree`) is
+  neither stamped nor removed.
+
+Two decisions the spec left open:
+
+* An explicit `--worktree` path that did **not** exist is also removed:
+  the item's wording is "each tree it creates", and a directory verify
+  created is verify's. Reusing a pre-existing explicit tree — the
+  operator's own — keeps working, that is what C1's tests pin.
+* The stamp lives inside the tree, so it is an untracked file. It cannot
+  trip `verify_refusal`: the refusal check runs before the tree exists,
+  and a swept tree is deleted without ever being inspected for trash.
+
+Tests: new `tests/test_task98_h3_verify_trees.py`, 5 teeth, all on a
+local bare "origin" in `tmp_path` with `TMPDIR` pointed at the sandbox
+(the sweep therefore never touches the real temp dir) and a stub
+`agent/acceptance.sh` committed **in that sandbox** — the real
+acceptance script is neither copied there nor edited:
+
+1. green run: printed default tree gone, its `worktree list` entry gone,
+   the removal line printed;
+2. red run (stub exits 7): rc 5, tree gone just the same;
+3. stale tree, stamped, dead pid (a reaped child): swept at start and
+   named in stdout, this run's own tree also gone at the end;
+4. same prefix, **no** stamp: survives, its file byte-identical, not
+   mentioned in stdout;
+5. stamped with a **live** pid (the test process): survives, not
+   mentioned.
+
+`tests/test_relay_verify_worktree.py::test_default_worktree_path_differs_between_runs`
+had to change: it planted `leftover.py` inside the first run's tree, and
+under H3 that tree no longer exists after the run (`FileNotFoundError`).
+Rewritten with more teeth, not fewer — the diff removes 2 `assert` lines
+and adds 4: default paths still differ between two runs, **and** neither
+tree survives its own run, **and** no `rusterm-relay-verify-*` is left
+under the parent. The property C1 pinned ("не наследует мусор") is now
+carried by removal instead of by path uniqueness.
+
+**What the first live run caught — all teeth were green when it happened.**
+`python3 agent/relay.py --branch agent/night-11 verify` on the real branch,
+with two trees planted by hand under the real temp dir (one stamped with a
+reaped child's pid, one unstamped): the sweep line named the stale tree, the
+unstamped tree survived, this run's tree was removed at the end — and the
+acceptance inside that tree came back `Итог: пройдено 10, провалено 3`. One
+cause, and it is H3's own file: `?? .relay-verify-owner` tripped check 13
+(«нет мусора вне git»), and both I5 cases — which run `selfcheck.sh` inside
+that same linked worktree — went red through the same check 13. No sandbox
+stub could see this: a stub does not implement check 13. Fix: the stamp name
+goes into `.gitignore` (+5, comment included), and `untracked_files()` drops
+that single name so `verify_refusal` cannot report verify's own stamp as
+foreign trash on a tree whose commit predates the line. Tooth 6
+(`test_the_stamp_lies_in_the_tree_and_is_not_trash`) copies the repository's
+real `.gitignore` into the sandbox verbatim and asserts both halves from
+inside the tree: `МЕТКА: есть`, and no stamp in the `git status --porcelain`
+line the stub prints. Measured biting: with the `.gitignore` line deleted the
+tooth fails on `метка видна мусором: ВНЕ-GIT: ?? .relay-verify-owner`; put
+back, the module is green (9 passed with the C1 module).
+
 
 ### H4 — guard file stops growing
 
@@ -131,6 +213,19 @@ None.
 
 ## What not to trust
 
+* H3's six teeth run against a **stub** `agent/acceptance.sh`. The stub now
+  reports what check 13 reports (`git status --porcelain`) and whether the
+  stamp is present, which is how the collision was reproduced in the sandbox —
+  but it is still not the 13-check script. The end-to-end proof is the live
+  `verify` row in Runs; the row after the H3 commit is the one that says
+  whether the fix holds on the real branch.
+* The `.gitignore` line hides the stamp only on commits that carry the line.
+  `verify` of an older commit or branch with this `relay.py` still shows
+  `?? .relay-verify-owner` to check 13 and turns it red — `untracked_files()`
+  cannot help, because check 13 calls `git status` itself and
+  `agent/acceptance.sh` is untouchable. Reproduce: check out `964a4cf` in a
+  scratch clone, run `python3 <new relay> verify` from a tree that has the
+  H3 code. Not measured — the recipe is a reading of the two files.
 * H2 was measured against a **stubbed** `agent/acceptance.sh` in a sandbox, as
   the spec's Done-when requires. That proves the order (clock → acceptance)
   inside `cmd_hand`; it does not prove that a real 13-check acceptance still
@@ -175,6 +270,29 @@ None.
   the gate believes, e.g. apply it only when `--to coordinator`, or have `hand`
   refresh the stamp of the side that is handing.
 
+* **H3 removes the thing you dig into after a red `verify`.** The item says
+  "removes that tree after the run (green or red)", and it is now true for both
+  colours, so the failing tree of a red acceptance no longer exists to `cd`
+  into and re-run one check in. The streamed terminal output survives (that is
+  what the exit line is for) and `--worktree <path>` still keeps a tree, so the
+  escape hatch exists — but it is operator memory, not a documented procedure:
+  `SKILL.md` says nothing either way about what is left behind. Ask: either
+  record in `SKILL.md` that a red `verify` is re-runnable only with an explicit
+  `--worktree`, or have `verify` print the path plus "дерево убрано, для
+  разбора гони с --worktree" on the red branch.
+
+* **H3's stamp is invisible only where `.gitignore` says so.** The item fixes
+  the file and its place — `.relay-verify-owner` inside the tree — and inside
+  the tree it is untracked trash to check 13 on every commit that predates the
+  `.gitignore` line. The alternative was a sibling stamp next to the tree
+  (`<parent>/<name>.owner`), invisible to any acceptance run and outside the
+  tree's own status, but that contradicts "writes a stamp file … into each
+  tree it creates". Chose the letter of the item plus one `.gitignore` line.
+  Consequence for the coordinator: a round that verifies an older head with a
+  new `relay.py` gets check 13 red for a reason that looks like the
+  executor's mess. Ask: keep it, or move the stamp outside the tree in
+  TASK-99.
+
 ## Runs
 
 | # | Command | Result |
@@ -190,24 +308,37 @@ None.
 | 9 | `python3 -m pytest tests/test_task98_h2_hand_clock.py tests/test_task89_d2_relay_index.py -q` | 9 passed |
 | 10 | `FIX_CLOCK_COMMAND` executed in a throwaway temp dir with a 2026-01-01 stamp | rc 0, `updated_at = 2026-09-25T18:37:26Z`, `state_clock_refusal` → `None`; the 44-min case prints `на +44.4 мин (допуск 15, тот же, что у O0) — ход не передан, приёмка не запускалась` + the command |
 | 11 | accidental, then measured: `tests/test_i5_guard_source.py` killed mid-run (it nests a real selfcheck, ~8 min per case), then `git diff --cached -- agent/p6_rule.sh` | the guard came out modified **and staged**: `+116 lines` vs `+114` in HEAD, an extra blank + `# i5 green case: staged widening` in the index. Restored with `git restore --staged --worktree agent/p6_rule.sh`. Mechanism evidence for H4 |
+| 12 | `python3 -m pytest tests/test_task98_h3_verify_trees.py tests/test_relay_verify_worktree.py -q --tb=line` (before the `.gitignore` fix) | 7 passed, 1 failed — `test_default_worktree_path_differs_between_runs`: `FileNotFoundError: …/rusterm-relay-verify-…-1/leftover.py`, i.e. H3 removed the tree the C1 test planted into |
+| 13 | live `python3 agent/relay.py --branch agent/night-11 verify` at 19:18Z, with two hand-planted trees under the real temp dir | line 1 `verify: убрано осевшее дерево …-LIVESTALE-62414-1 — метка владельца, pid мёртв`; `…-LIVEFOREIGN-1-2` untouched and still registered; `verify: дерево … убрано после прогона`; `код возврата приёмки: 3`, `Итог: пройдено 10, провалено 3` — checks 3, 12 and 13, all on `?? .relay-verify-owner` |
+| 14 | `I5_NESTED=1 python3 -m pytest tests/test_i5_guard_source.py -q` in a scratch clone of `964a4cf` | `ssss` (4 skipped), `git status --porcelain agent/p6_rule.sh` empty, staged list empty, guard still 114 lines — the commit path never touches the tracked guard; the writer is a **non-nested** run |
+| 15 | tooth-biting: `.gitignore` line deleted → H3 module; line restored → H3 + C1 modules | red on `метка видна мусором: ВНЕ-GIT: ?? .relay-verify-owner` → then 9 passed |
 
 ## HANDOFF
 
-Interim block, round 127, written after H1 and H2 (the final one comes at the
-close of the round and is what the guard checks).
+Interim block, round 127, written after H1, H2 and H3 (the final one comes at
+the close of the round and is what the guard checks).
 
 Status: PARTIAL, round in progress.
-Items done: H1, H2.
-Items not done: H3, H4.
+Items done: H1, H2, H3.
+Items not done: H4.
 Verified: the H1 grep gate is empty; the default verify path is unique per run
 and an explicit path still honoured (both by calling `verify_worktree`
 offline); H2's five teeth in a sandbox with the acceptance stubbed — stale
 clock refuses before acceptance, fresh clock reaches it, future stamp refused,
-unparsable stamp refused, missing STATE ignored, `--force` overrides loudly.
-Not verified: H1/H2 were not exercised through a real `relay.py verify` or a
-real network `hand`; H3 and H4 have no work and no tests yet.
+unparsable stamp refused, missing STATE ignored, `--force` overrides loudly;
+H3's six teeth in the same kind of sandbox (own tree gone after a green and
+after a red run, stale stamped tree swept, unstamped and live-pid trees left
+alone, stamp present but invisible to `git status`), plus one live `verify` on
+the real branch — which is what found the check-13 collision H3's stamp
+caused. Housekeeping still owed by me: the hand-planted
+`rusterm-relay-verify-…-LIVEFOREIGN-1-2` tree is registered in this clone and
+must be removed before the round closes.
+Not verified: H1/H2 were not exercised through a real network `hand`; the
+post-fix live `verify` (the same command, once the fix is on the branch) had
+not run yet when this block was written; H4 has no work and no tests yet.
 Budget: network 0, LLM 0; 39 cumulative requests, unchanged since the round-125
 close. The only network use is git (fetch, push).
-Asks: Disputed 1 (H1's gate is wider than its body) and Disputed 2 (H2's gate
-also fires on the coordinator's hands; TASK-99 should say whose clock it
-believes).
+Asks: the four entries of the ## Disputed section — 1: H1's gate is wider
+than its body; 2: H2's gate also fires on the coordinator's hands, and TASK-99
+should say whose clock it believes; 3: a red `verify` now leaves nothing to dig
+into; 4: the stamp is invisible only on commits carrying the `.gitignore` line.

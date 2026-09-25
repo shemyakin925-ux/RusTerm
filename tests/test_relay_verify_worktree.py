@@ -118,21 +118,26 @@ def test_clean_explicit_tree_still_runs_the_acceptance(
 def test_default_worktree_path_differs_between_runs(
         tmp_path: Path, shift_repo: Path) -> None:
     """Путь по умолчанию уникален на прогон: два вызова без `--worktree`
-    ставят два разных дерева, и ни одно не наследует мусор другого."""
+    ставят два разных дерева.
+
+    ТЗ-98 H3 дописал этому пункту вторую половину: «уникальный путь»
+    больше не единственная защита от наследования мусора — каждое своё
+    дерево verify снимает сразу после прогона, поэтому `leftover.py`
+    некуда сажать: дерева нет. Зубы от этого не слабее: к прежнему
+    «пути разные» добавилось «ни одно дерево не пережило свой прогон».
+    """
     first = _verify(shift_repo, [], tmp_path / "home")
     assert first.returncode == 0, first.stdout + first.stderr
-    leftover = Path(first.stdout.split("дерево приёмки: ")[1]
-                    .splitlines()[0].strip()) / "leftover.py"
-    leftover.write_text("# прошлый прогон\n", encoding="utf-8")
+    path_a = first.stdout.split("дерево приёмки: ")[1].splitlines()[0].strip()
 
     second = _verify(shift_repo, [], tmp_path / "home")
 
     assert second.returncode == 0, second.stdout + second.stderr
-    path_a = first.stdout.split("дерево приёмки: ")[1].splitlines()[0]
-    path_b = second.stdout.split("дерево приёмки: ")[1].splitlines()[0]
-    assert path_a.strip() != path_b.strip(), (
-        f"дерево приёмки переиспользовано: {path_a}")
-    listed = _git(["ls-files", "--others", "--exclude-standard"],
-                  cwd=leftover.parent).stdout
-    assert "leftover.py" in listed, (
-        "мусор прошлого прогона пережил checkout+reset — тот же путь")
+    path_b = second.stdout.split("дерево приёмки: ")[1].splitlines()[0].strip()
+    assert path_a != path_b, f"дерево приёмки переиспользовано: {path_a}"
+    assert not Path(path_a).exists(), f"дерево первого прогона осталось: {path_a}"
+    assert not Path(path_b).exists(), f"дерево второго прогона осталось: {path_b}"
+    # под родителем пути по умолчанию не осталось ни одного дерева
+    leftovers = sorted((tmp_path / "home" / "tmp").glob(
+        "rusterm-relay-verify-*"))
+    assert leftovers == [], f"осевшие деревья: {leftovers}"

@@ -23,6 +23,7 @@ import itertools
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -516,16 +517,27 @@ def run_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+# Имена Х3 (ТЗ-98): `.relay-verify-owner` — метка владельца дерева
+# приёмки, `rusterm-relay-verify-` — префикс дерева по умолчанию.
+VERIFY_TREE_PREFIX = "rusterm-relay-verify-"
+VERIFY_OWNER = ".relay-verify-owner"
+
+
 def untracked_files(work: Path) -> list[str]:
     """Неотслеживаемые файлы дерева: ровно те, что переживают
     `checkout --detach` + `reset --hard` (ТЗ-88 C1). Спрятанное в
-    .gitignore в список не входит — `--exclude-standard`."""
+    .gitignore в список не входит — `--exclude-standard`.
+
+    Х3: собственная метка дерева из списка убирается. Она лежит в
+    .gitignore, но на коммите прежнего дня строки там нет, и refusal не
+    должен называть чужим мусором файл, который положил сюда сам verify.
+    """
     if not (work / ".git").exists():
         return []
     return sorted(line for line in git("-C", str(work), "ls-files",
                                        "--others", "--exclude-standard",
                                        check=False).splitlines()
-                  if line.strip())
+                  if line.strip() and line.strip() != VERIFY_OWNER)
 
 
 def verify_worktree(path_arg: str | None, head: str) -> Path:
@@ -543,6 +555,81 @@ def verify_worktree(path_arg: str | None, head: str) -> Path:
     return (Path(tempfile.gettempdir())
             / f"rusterm-relay-verify-{head[:7]}-{run_stamp()}"
             f"-{os.getpid()}-{next(_VERIFY_RUNS)}")
+
+
+# ── Х3 (ТЗ-98): кто поставил дерево, тот его и убирает ───────────────────
+# (имена VERIFY_TREE_PREFIX и VERIFY_OWNER объявлены выше untracked_files)
+
+
+def pid_alive(pid: object) -> bool:
+    """Жив ли процесс: сигнал 0 ничего не посылает, но отвечает на
+    вопрос. Чужой процесс (PermissionError) — жив: его pid не даёт
+    выкинуть дерево, в котором кто-то сидит."""
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+    return True
+
+
+def verify_owner(work: Path) -> dict | None:
+    """Кто владеет деревом, по метке `.relay-verify-owner`. Метки нет
+    (или она не читается) — дерево чужое: verify его не удалит ни при
+    каком pid. Отсутствие метки = «не трогать», а не «мусор».
+    """
+    try:
+        data = json.loads((work / VERIFY_OWNER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def stamp_verify_tree(work: Path) -> None:
+    """Метка владельца в каждое созданное прогоном дерево: pid прогона и
+    id прогона (имя дерева по умолчанию несёт штамп UTC, pid и счётчик)."""
+    (work / VERIFY_OWNER).write_text(
+        json.dumps({"pid": os.getpid(), "run": work.name}) + "\n",
+        encoding="utf-8")
+
+
+def remove_verify_tree(work: Path) -> None:
+    """Снять дерево и его регистрацию в `.git/worktrees`. `worktree
+    remove` не работает на Already-pruned — тогда остаётся каталог, и его
+    убираем руками; prune чистит записи о уже несуществующих."""
+    subprocess.run(("git", "worktree", "remove", "--force", str(work)),
+                   capture_output=True, check=False)
+    if work.exists():
+        shutil.rmtree(work, ignore_errors=True)
+    subprocess.run(("git", "worktree", "prune"), capture_output=True,
+                   check=False)
+
+
+def sweep_stale_verify_trees(parent: Path) -> list[Path]:
+    """Убрать осевшие СВОИ деревья под родителем пути по умолчанию.
+
+    Кандидат — каталог с префиксом `rusterm-relay-verify-`, несущий метку
+    verify, у которой pid мёртв (прогон убит между `worktree add` и
+    уборкой). Дерево без метки не трогается никогда: под общим `/tmp`
+    чужая работа выглядит так же, как своя.
+    """
+    removed: list[Path] = []
+    if not parent.is_dir():
+        return removed
+    for candidate in sorted(parent.glob(VERIFY_TREE_PREFIX + "*")):
+        if not candidate.is_dir():
+            continue
+        owner = verify_owner(candidate)
+        if owner is None or not isinstance(owner.get("pid"), int):
+            continue
+        if pid_alive(owner["pid"]):
+            continue
+        remove_verify_tree(candidate)
+        removed.append(candidate)
+    return removed
 
 
 def verify_refusal(work: Path) -> str | None:
@@ -574,22 +661,36 @@ def cmd_verify(a: argparse.Namespace) -> int:
     branch = resolve_branch(a.branch)
     fetch(a.remote, branch)
     head = git("rev-parse", f"{a.remote}/{branch}")
+    for gone in sweep_stale_verify_trees(Path(tempfile.gettempdir())):
+        print(f"verify: убрано осевшее дерево {gone} — метка владельца, "
+              f"pid мёртв", flush=True)
     work = verify_worktree(a.worktree, head)
     refusal = verify_refusal(work)
     if refusal:
         sys.stderr.write(f"verify: {refusal}\n")
         return EXIT_ERROR
     print(f"дерево приёмки: {work}", flush=True)
-    if (work / ".git").exists():
+    # Х3: «наше» дерево — то, которое поставили МЫ. Его и убираем после
+    # прогона; чужое остаётся в точности как было.
+    ours = not (work / ".git").exists()
+    if ours:
+        subprocess.run(("git", "worktree", "prune"), capture_output=True)
+        git("worktree", "add", "--detach", str(work), head)
+        stamp_verify_tree(work)
+    else:
         subprocess.run(("git", "-C", str(work), "checkout", "--detach", head),
                        capture_output=True, check=False)
         subprocess.run(("git", "-C", str(work), "reset", "--hard", head),
                        capture_output=True, check=False)
-    else:
-        subprocess.run(("git", "worktree", "prune"), capture_output=True)
-        git("worktree", "add", "--detach", str(work), head)
     print(f"приёмка в {work} на {head[:7]} ({a.remote}/{branch})", flush=True)
-    proc = subprocess.run(("bash", "agent/acceptance.sh"), cwd=str(work))
+    try:
+        proc = subprocess.run(("bash", "agent/acceptance.sh"), cwd=str(work))
+    finally:
+        # зелёное и красное дерево убираются одинаково: дерево приёмки
+        # больше не переходит следующему прогону (Х3, ТЗ-88 C1)
+        if ours:
+            remove_verify_tree(work)
+            print(f"verify: дерево {work} убрано после прогона", flush=True)
     print(f"\nкод возврата приёмки: {proc.returncode} "
           f"({'ПРИНЯТО' if proc.returncode == 0 else 'провалов: %d' % proc.returncode})")
     return EXIT_OK if proc.returncode == 0 else EXIT_ERROR
