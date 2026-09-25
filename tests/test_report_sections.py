@@ -317,6 +317,16 @@ def _l3_missing(done_ids: list[str], log_text: str,
             marker_seen = number <= round_no
             break
         work_seen = True
+        # ТЗ-89 D1: заголовок координатора или эстафеты — не реализация.
+        # `ca678a1` «Координатор: ТЗ-79 — Z2 принят, Z1 возвращён; …» лежит
+        # в окне круга 107, трогает agent/TASK-80.md, то есть нетестовый
+        # файл, — и прежний код засчитывал этому кругу пункт Z1 вердиктом
+        # приёмки. Имя пункта в чужом заголовке — это рассказ о коммите,
+        # а не коммит. «Эстафета: …», не похожее на маркер круга (пауза),
+        # иначе закрывало бы пункт простой сменой держателя.
+        subject = re.sub(r"^[0-9a-f]{7,40}\s+", "", sha_subject)
+        if subject.startswith(("Координатор:", "Эстафета:")):
+            continue
         files = [l for l in lines_[1:] if l and not l.startswith("Эстафета")]
         for iid in done_ids:
             if re.search(rf"\b{iid}\b", sha_subject):
@@ -675,25 +685,33 @@ def _log_from_top_marker(log: str, round_no: int) -> str:
 
 
 def test_strictness_holds_on_the_real_branch(tmp_path, monkeypatch):
-    """Z1: граница осталась строгой — из окна круга 104 не видно ни
+    """Z1: граница осталась строгой — из окна круга 103 не видно ни
     пунктов прошлого круга (W1, W5), ни чужого W3, ни вымышленного Z9,
     при том что работа этого круга (Y1, Y2) находится. Числа
-    воспроизводят прогон координатора."""
-    log = _log_from_top_marker(_git_log_name_only(), round_no=104)
-    assert _l3_missing(["Y1", "Y2"], log, [], round_no=104) == []
-    assert _l3_missing(["W1", "W5"], log, [], round_no=104) == ["W1", "W5"]
-    assert _l3_missing(["W3"], log, [], round_no=104) == ["W3"]
-    assert _l3_missing(["Z9"], log, [], round_no=104) == ["Z9"]
+    воспроизводят прогон координатора.
+
+    ТЗ-89 D1: круг в этом тесте был назван 104, и до правки он был зелёным
+    именно поэтому — из окна круга 104 Y1 с Y2 «находись» только по
+    заголовку `d7938ca` «Координатор: ТЗ-78 — Y2 принят, Y1 возвращён; …»,
+    то есть по вердикту приёмки. Коммиты исполнителя (`5dbad52 Y1
+    (re-land)`, `9da772f Y2`) лежат между маркерами 103 и 104 — работа
+    круга 103. Номер исправлен на измеренный, таблица та же."""
+    log = _log_from_top_marker(_git_log_name_only(), round_no=103)
+    assert _l3_missing(["Y1", "Y2"], log, [], round_no=103) == []
+    assert _l3_missing(["W1", "W5"], log, [], round_no=103) == ["W1", "W5"]
+    assert _l3_missing(["W3"], log, [], round_no=103) == ["W3"]
+    assert _l3_missing(["Z9"], log, [], round_no=103) == ["Z9"]
 
 
 # ── ТЗ-80 A1: страж не смотрит на голову ветки ──────────────────────────
 
 LIVE_PROBES = (["Y1", "Y2"], ["W1", "W5"], ["W3"], ["Z9"])
 
-# Окно круга 104 — таблица, измеренная в ТЗ-79 Z1 и подтверждённая
-# прогоном координатора. Она же и эталон симуляции: то, что обязано
-# НЕ измениться, сколько бы кругов ни наросло сверху.
-WINDOW_OF_ROUND_104 = {
+# Окно круга 103 — таблица, измеренная в ТЗ-79 Z1 и подтверждённая прогоном
+# координатора. Она же и эталон симуляции: то, что обязано НЕ измениться,
+# сколько бы кругов ни наросло сверху. Номер круга поправлен в ТЗ-89 D1:
+# под 104 таблица держалась на вердикте координатора (см. выше).
+WINDOW_OF_ROUND_103 = {
     ("Y1", "Y2"): [],
     ("W1", "W5"): ["W1", "W5"],
     ("W3",): ["W3"],
@@ -723,15 +741,15 @@ def _rounds_later(log: str, count: int) -> str:
     return prefix + log
 
 
-def _window_of_round_104(log: str) -> dict[tuple[str, ...], list[str]]:
+def _window_of_round_103(log: str) -> dict[tuple[str, ...], list[str]]:
     return {tuple(ids): _l3_missing(list(ids),
-                                    _log_from_top_marker(log, round_no=104),
-                                    [], round_no=104)
+                                    _log_from_top_marker(log, round_no=103),
+                                    [], round_no=103)
             for ids in LIVE_PROBES}
 
 
 def test_the_window_survives_rounds_passing_after_the_test_was_written():
-    """ЗУБ A1 симуляцией: окно круга 104 обязано давать ту же таблицу,
+    """ЗУБ A1 симуляцией: окно круга 103 обязано давать ту же таблицу,
     сколько бы кругов ни прошло сверху. Прежний `_log_from_top_marker`,
     резавший по самому свежему маркеру, спотыкается уже на первом
     приписанном круге и теряет Y1 с Y2 — краснота показана цитатой в
@@ -739,11 +757,11 @@ def test_the_window_survives_rounds_passing_after_the_test_was_written():
     у исполнителя, красный на приёмке)."""
     log = _git_log_name_only()
     for count in (1, 2, 5):
-        moved = _window_of_round_104(_rounds_later(log, count))
-        assert moved == WINDOW_OF_ROUND_104, (
-            f"через {count} круг(ов) сверху окно круга 104 изменилось: "
+        moved = _window_of_round_103(_rounds_later(log, count))
+        assert moved == WINDOW_OF_ROUND_103, (
+            f"через {count} круг(ов) сверху окно круга 103 изменилось: "
             f"{moved}")
-    assert _window_of_round_104(log) == WINDOW_OF_ROUND_104, (
+    assert _window_of_round_103(log) == WINDOW_OF_ROUND_103, (
         "и без приписанных кругов окно обязано давать ту же таблицу")
 
 
@@ -760,3 +778,68 @@ def test_the_helper_refuses_to_cut_by_the_newest_marker():
     assert params["round_no"].annotation in (int, "int"), (
         f"аннотация round_no = {params['round_no'].annotation!r} — "
         "Optional[int] возвращает зависимость от головы ветки")
+
+
+# ── ТЗ-89 D1: коммит координатора — не реализация ────────────────────────
+
+# Круг 107 измерен на живой ветке: пункт Z1 назван коммитом `ca678a1`
+# «Координатор: ТЗ-79 — Z2 принят, Z1 возвращён; срез истории привязан к
+# кругу; выдано ТЗ-80», и страж засчитывал его как реализацию, потому что
+# в составе есть нетестовый файл. Литерал повторяет именно эту форму.
+FAKE_LOG_COORDINATOR_CREDITS = (
+    "\x1e7777777 Эстафета: круг 108, ход у coordinator — agent/TASK-79.md\n"
+    "\n"
+    "agent/BATON.json\n"
+    "\x1e6666666 Координатор: ТЗ-79 — Z2 принят, Z1 возвращён; выдано ТЗ-80\n"
+    "\n"
+    "agent/TASK-80.md\n"
+    "tests/test_report_sections.py\n"
+    "\x1e5555555 ТЗ-79 Y2: маршрут dei и живые меры VZ\n"
+    "\n"
+    "rusterm/normalize/concepts.py\n"
+    "\x1e3333333 Эстафета: круг 107, ход у executor — agent/TASK-79.md\n"
+    "\n"
+    "agent/BATON.json\n"
+)
+
+
+def test_a_coordinator_commit_is_not_an_implementation():
+    """ЗУБ D1: заголовок координатора — это вердикт приёмки, а не
+    реализация, какие бы файлы ни лежали в составе. В том же окне стоит
+    обычный рабочий коммит круга (Y2 с `rusterm/…`) — ему кредит дать
+    обязаны. До правки обе строки давали `[]`: Z1 считался закрытым
+    чужим вердиктом."""
+    assert _l3_missing(["Z1"], FAKE_LOG_COORDINATOR_CREDITS, [],
+                       round_no=107) == ["Z1"]
+    assert _l3_missing(["Y2"], FAKE_LOG_COORDINATOR_CREDITS, [],
+                       round_no=107) == []
+
+
+def test_a_relay_header_that_is_not_a_round_marker_is_not_an_implementation():
+    """Вторая половина D1: «Эстафета: …», не похожая на маркер круга
+    (пауза, закрытие цикла), тоже не реализация — иначе простая смена
+    держателя закрывает пункт."""
+    log = ("\x1e7777777 Эстафета: пауза\n"
+           "\n"
+           "agent/BATON.json\n"
+           "\x1e6666666 Эстафета: пауза — пункт Q1 назван в теме\n"
+           "\n"
+           "agent/BACKLOG.md\n"
+           "\x1e3333333 Эстафета: круг 107, ход у executor\n"
+           "\n"
+           "agent/BATON.json\n")
+    assert _l3_missing(["Q1"], log, [], round_no=107) == ["Q1"]
+
+
+def test_a_coordinator_verdict_credits_nothing_on_the_real_branch():
+    """D1 на настоящей истории, круг 107 из ТЗ-89 D0: A1…A4 находят свои
+    коммиты исполнителя, а Z1 — нет: его имя в окне этого круга стоит
+    только в заголовке координатора (`ca678a1` «Координатор: ТЗ-79 — Z2
+    принят, Z1 возвращён; …`). До правки третья строка давала `[]` вместо
+    `['Z1']` — то есть приёмка координатора закрывала пункт; первые две и
+    тогда были зелёными (замеры — в строке «probes … round 107» отчёта)."""
+    log = _git_log_name_only()
+    w107 = _log_from_top_marker(log, round_no=107)
+    assert _l3_missing(["A1", "A2", "A3", "A4"], w107, [], round_no=107) == []
+    assert _l3_missing(["Y1", "Q9"], w107, [], round_no=107) == ["Y1", "Q9"]
+    assert _l3_missing(["Z1"], w107, [], round_no=107) == ["Z1"]

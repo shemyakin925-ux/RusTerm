@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-88.md",
- "report": "agent/REPORT-88.md",
- "item": "C3",
- "step": "TASK-88 closed: C1 af23188 (verify takes a per-run tree, refuses to clean another's), C2 e689574 (L3/L2 teeth on a literal log), C3 a2a84e6 (clock guard re-justified). Hook verdict 13/0 on all three; report finalized in the working tree; handing to coordinator.",
- "status": "awaiting_review",
- "last_commit": "a2a84e6",
+ "task": "agent/TASK-89.md",
+ "report": "agent/REPORT-89.md",
+ "item": "D1",
+ "step": "D1 validated in a scratch worktree, copied here, and re-measured in this clone: first run 2 failed (bookkeeping now names D1, plus a report-section guard catching this report's own baton-note quote), 1 failed after rewrapping the quote, 31 passed once report + STATE + tests were staged. Committing D1 with that bundle.",
+ "status": "working",
+ "last_commit": "69eb0c0",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-25T04:52:27Z"
+ "updated_at": "2026-09-25T08:20:38Z"
 }
