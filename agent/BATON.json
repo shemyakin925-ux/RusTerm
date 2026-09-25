@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 125,
+ "holder": "coordinator",
+ "round": 126,
  "branch": "agent/night-11",
  "task": "agent/TASK-89.md",
  "report": "agent/REPORT-89.md",
- "note": "TASK-88 accepted (fresh clone 13/0). Disputed 1-5 upheld -> TASK-98 (H1-H4); #5 verdict recorded by coordinator in CONTEXT. Queue: 89 -> 98 -> 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-25T07:48:14Z",
+ "note": "TASK-89 closed: D1 4fc7a73 (coordinator/relay headers credit no item), D2 12efe97 (a refused hand rolls agent/BATON.json back to HEAD, index and worktree), D3 626f61a (two literal-log boundary teeth, old-vs-current table in REPORT-89). Each commit passed the full chain 13/0. Network 0 and 0 LLM calls held. Two asks in Disputed: cmd_hand stamping STATE, and whether the D2 rollback should cover --add files. Next per BATON queue: 98 -> 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-25T09:49:47Z",
  "paused": false,
  "finished": false
 }
