@@ -17,6 +17,12 @@ agent/CONTEXT.md ровно в засталенное состояние — б�
 застейдженную правку исполнителя в 627a0dc. Отдельный случай: правка
 стража, застейдженная ДО прогона модуля, переживает весь модуль
 дословно и попадает в индекс без изменений.
+
+ТЗ-98 Х4: за собой модуль убирает и тогда, когда его убили посреди
+прогона. Расширение считается от блоба HEAD (не от рабочего файла,
+который мог остаться в хвосте), а перед до-модульным снимком включается
+самопочинка: если отслеженный страж отличается от HEAD только маркерами
+самой демонстрации, он возвращается к HEAD — деревом и блобом индекса.
 """
 from __future__ import annotations
 
@@ -29,6 +35,9 @@ import uuid
 from pathlib import Path
 
 import pytest
+
+from tests.i5_guard_residue import (LEAKED_GIT_ENV, PRE_STAGED_EDIT,
+                                    reconcile, widened)
 
 ROOT = Path(__file__).resolve().parents[1]
 P6_GUARD = ROOT / "agent" / "p6_rule.sh"
@@ -67,19 +76,9 @@ def _restore(path: Path, worktree: bytes, mode: str | None,
             env=_hermetic_env())
 
 
-# Расширение для зелёного случая: поведение то же (красные случаи
-# стража остаются красными), но копию из index видно в выводе
-# selfcheck. «Расширение» — поведение не меняется: добавляется
-# строка-комментарий. Смысл случая — ЗАСТЕЙДЖЕННОЕ отличие рабочей
-# копии от HEAD, а не поломка стража.
-WIDENED = (P6_GUARD.read_text(encoding="utf-8")
-           + "\n# i5 green case: staged widening\n")
-
-# ТЗ-45 M1, сценарий 627a0dc: правка, которая УЖЕ в индексе до прогона
-# модуля (своё незакоммиченное дело исполнителя), обязана пережить
-# модуль дословно — её снимает и возвращает нижняя фикстура.
-PRE_STAGED_EDIT = ("\n# ТЗ-45 M1: правка, застейдженная ДО прогона "
-                   "модуля (сценарий 627a0dc)\n")
+# ТЗ-98 Х4: мусор в отслеженном страже, расширение зелёного случая и
+# самопочинка вынесены в `tests/i5_guard_residue.py` — вызываемый БЕЗ
+# pytest, чтобы его мог позвать отдельный процесс (песочница теста).
 _PRE_MODULE = None
 
 
@@ -92,9 +91,7 @@ _PRE_MODULE = None
 # собственном мусоре (под хуком приёмка 11 из 13 при 13 из 13 в
 # обычном прогоне). Все git-вызовы модуля идут с обычным индексом
 # дерева. Та же порода, что ТЗ-46 закрыло для песочниц j1 и e6.
-_LEAKED_GIT_ENV = ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE",
-                   "GIT_OBJECT_DIRECTORY",
-                   "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+_LEAKED_GIT_ENV = LEAKED_GIT_ENV
 
 
 def _hermetic_env(extra: dict | None = None) -> dict:
@@ -160,8 +157,15 @@ def _editmsg_restore(path: Path, saved: str | None) -> None:
 def _guard_edit_staged_before_the_module():
     """ТЗ-45 M1: до всяких тестов в индекс кладётся СВОЯ правка стража —
     как у исполнителя в 627a0dc. Все случаи ниже отрабатывают поверх
-    неё; до-модульное состояние снято и возвращается в конце модуля."""
+    неё; до-модульное состояние снято и возвращается в конце модуля.
+
+    ТЗ-98 Х4: первым делом — самопочинка. Снимок надо брать ПОСЛЕ неё,
+    иначе хвост убитого прошлого прогона попал бы в снимок и фикстура
+    вернула бы его обратно (самовоспроизводящийся мусор)."""
     global _PRE_MODULE
+    if reconcile(ROOT):
+        sys.stderr.write("Х4: agent/p6_rule.sh отличался от HEAD только "
+                         "своими маркерами — возвращён к HEAD\n")
     _PRE_MODULE = _snapshot(P6_GUARD)
     P6_GUARD.write_bytes(
         _PRE_MODULE[0] + PRE_STAGED_EDIT.encode("utf-8"))
@@ -205,7 +209,7 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
         CONTEXT_MD.write_text(CONTEXT_MD.read_text(encoding="utf-8")
                               + "\nI5 red demo\n", encoding="utf-8")
         _git("add", "agent/CONTEXT.md")
-        P6_GUARD.write_text(WIDENED, encoding="utf-8")  # НЕ стейджится
+        P6_GUARD.write_text(widened(ROOT), encoding="utf-8")  # НЕ стейджится
         editmsg, editmsg_saved = _editmsg_read()
         Path(editmsg).write_text(
             "demo\n\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
@@ -227,7 +231,7 @@ def test_i5_staged_and_authorised_widening_is_green(tmp_path):
     editmsg = None
     editmsg_saved = None
     try:
-        P6_GUARD.write_text(WIDENED, encoding="utf-8")
+        P6_GUARD.write_text(widened(ROOT), encoding="utf-8")
         _git("add", "agent/p6_rule.sh")  # расширение ЗАСТЕЙДЖЕНО
         # файл задания из agent/BATON.json несёт
         # РАЗРЕШЕНО ПРАВИТЬ: agent/p6_rule.sh

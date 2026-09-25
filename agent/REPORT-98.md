@@ -157,7 +157,7 @@ Two decisions the spec left open:
   trip `verify_refusal`: the refusal check runs before the tree exists,
   and a swept tree is deleted without ever being inspected for trash.
 
-Tests: new `tests/test_task98_h3_verify_trees.py`, 5 teeth, all on a
+Tests: new `tests/test_task98_h3_verify_trees.py`, 6 teeth, all on a
 local bare "origin" in `tmp_path` with `TMPDIR` pointed at the sandbox
 (the sweep therefore never touches the real temp dir) and a stub
 `agent/acceptance.sh` committed **in that sandbox** — the real
@@ -205,7 +205,110 @@ back, the module is green (9 passed with the C1 module).
 
 ### H4 — guard file stops growing
 
-Not started.
+Mechanism, measured (row 11 above): the ТЗ-45 M1 case writes its edit
+into the tracked guard and stages it, and only the module-scope fixture
+puts the file back. A process killed mid-module leaves that tail
+**staged**; check 13 greps only `^??`, so a modified tracked guard is
+invisible to it and rides into the commit silently. `WIDENED` was then
+built from the *working* file, so the next round appended a second tail
+under the first — 114 lines where the guard needs 112.
+
+Changes:
+
+* `agent/p6_rule.sh`: −2, the tail below `exit 0` is gone. `tail -1` is
+  `exit 0`, `bash -n` clean, behaviour unchanged (the tail was dead code
+  after `exit 0`).
+* New `tests/i5_guard_residue.py` — a plain module, **no pytest import**,
+  so a separate process can call it (the first version of these teeth
+  learned that the hard way: importing the I5 module from a subprocess
+  drags pytest in, and pytest's terminalwriter needs `pygments`, which
+  this interpreter does not have — row 18). It owns `head_guard`,
+  `strip_residue`, `widened`, `reconcile`, both marker constants and
+  `LEAKED_GIT_ENV`; the I5 module imports them, so the leaked-git-env
+  list has one source instead of two.
+  `widened(root)` = HEAD blob + one marker: a tail left in the working
+  tree can no longer be doubled. `reconcile(root)` returns the guard to
+  HEAD (tree bytes *and* index blob through `update-index --cacheinfo`,
+  never `git checkout`) **iff** stripping its own markers yields exactly
+  HEAD; a foreign edit is left alone; an already clean guard is not
+  rewritten at all.
+* `tests/test_i5_guard_source.py`: the constants and helpers moved out
+  and are imported; `_LEAKED_GIT_ENV = LEAKED_GIT_ENV`; both
+  `P6_GUARD.write_text(WIDENED, …)` sites call `widened(ROOT)`; and
+  `reconcile(ROOT)` runs at the top of the module fixture **before**
+  `_snapshot` — take the snapshot first and the fixture's own teardown
+  restores the junk, which is how the tail became self-reproducing.
+One boundary the helper does not cross, measured (throwaway repo, HEAD
+guard still carrying the tail): planting a marker on such a HEAD leaves the
+file **alone** (`HEALED False`, the staged edit survives). Stripping the
+demonstration's markers from the planted text would also strip HEAD's own
+tail, so the result stops equaling HEAD and `reconcile` refuses. That is
+deliberate — the helper guards against future tails, it does not silently
+rewrite whatever a commit happens to contain. Removing the tail that is
+already in history is the −2 lines of this item, done by hand.
+
+* `agent/selfcheck.sh` is **not** changed. Its bullet was already true:
+  all three guards are extracted with `git show` into `mktemp -d` and
+  burned by `trap` (measured in row 14), and the script neither writes
+  nor stages the tracked guard. That is now a test, not a claim — tooth
+  2.
+
+Tests: new `tests/test_task98_h4_guard_growth.py`, 9 cases / 6 teeth (4
+of them the same tooth over both markers in both orders). Sandbox = its
+own git repo in `tmp_path` whose HEAD is the guard as it ships in this
+commit, plus a copy of the helper module; `HOME` and `TMPDIR` point into
+the sandbox (P7), the real acceptance script is never run there:
+
+1. the tracked guard ends at `exit 0` and carries no marker;
+2. `selfcheck.sh` runs the guard only from the temp copy — no redirect
+   into `agent/p6_rule.sh`, no `git add` of it;
+3. staged residue (green marker, pre-staged marker, or either order of
+   both) → back to HEAD, `status --porcelain` and `diff --cached` empty;
+4. a foreign line plus a marker → not eaten, the file byte-identical to
+   what was planted, still staged `M  `;
+5. a clean guard → `reconcile` says no and does not touch mtime;
+6. widening built from HEAD while the working tree carries an unstaged
+   tail → HEAD + exactly one marker.
+
+Measured biting (each mutation applied alone, then reverted):
+
+* guard replaced by the tail-carrying version → teeth 1, 3 (all four)
+  and 6 red;
+* `reconcile` short-circuited to `return False` → tooth 3 red (all four);
+* `widened` built from the working file (the old behaviour) → tooth 6
+  red;
+* the marker comparison deleted, i.e. "restore HEAD no matter what" →
+  tooth 4 red, a coordinator's edit would have been eaten.
+
+After reverting all four: 9 passed, in the scratch clone and again in
+this clone.
+
+The module carries one `pytestmark`: `skipif(I5_NESTED)`, the precedent
+`test_i5_guard_source.py` already sets for its own four cases. Why it is
+needed was measured, not assumed (rows 21–22): the first Done-when attempt
+came back `Итог: пройдено 11, провалено 2`, both failures
+`test_i5_staged_and_authorised_widening_is_green` — the green case stages
+a widened tracked guard and *then* nests a real `selfcheck.sh`, and that
+nested suite contains these teeth. Inside the window tooth 1 reads the
+guard the demonstration is holding open on purpose, and teeth 3 and 6
+seed their sandbox HEAD from the tracked guard's current bytes, so a
+HEAD that carries a marker makes `reconcile` correctly refuse to heal
+(`HEALED False`) and `widened` correctly print two markers. Reproduced in
+the scratch clone by planting exactly that state and running the module
+with `I5_NESTED=1`: 6 failed; with the skip, the same command is 9
+skipped and the sibling `test_i5z_demonstration_ran` case still passes as
+legitimately nested; with a healed guard and no `I5_NESTED` the module is
+9 passed again. Fixed by scoping the run, not by moving an assertion:
+during the demonstration those facts are false by design. The cost is
+stated in What not to trust — the H4 teeth never execute in the commit
+path, because the pre-commit hook always sets `I5_NESTED=1`; what guards
+the guard there is this commit's −2 lines plus the standalone runs.
+
+Done-when: satisfied in row 23 — two standalone `selfcheck.sh` runs in a
+scratch clone of this branch, the first starting with the tail planted and
+staged, both `Итог: пройдено 13, провалено 0` / `Принято.`, and after each
+`git status --porcelain agent/p6_rule.sh` empty, `tail -1` = `exit 0`,
+112 lines.
 
 ## Blocked
 
@@ -213,19 +316,42 @@ None.
 
 ## What not to trust
 
+* H4's teeth run in a sandbox repo whose HEAD guard is the one this commit
+  ships. The real-branch half of the claim — a guard that no longer grows —
+  can only be observed from the next round onward; what was measured here is
+  the two standalone `selfcheck.sh` runs of row 23 and four mutations. The
+  scratch clone is a full clone of this branch at `fedf9b4`, so the healing was
+  seen on the real acceptance script and the real guard — but it is still not
+  this branch's history.
+* **The H4 module is skipped in the commit path.** `I5_NESTED=1` is what the
+  pre-commit hook sets, so on the way into a commit these nine cases do not
+  execute at all; only a non-nested acceptance (`relay.py verify`, a standalone
+  `selfcheck.sh`) runs them. Do not read "13/0 at commit" as "the Х4 teeth
+  passed there".
+* The heal prints nothing the acceptance output can show: the `Х4: …` line goes
+  to the fixture's stderr, which pytest captures per test. The evidence is
+  therefore `git status --porcelain agent/p6_rule.sh` before and after the run,
+  not a message.
+* `reconcile` deliberately does nothing on a repo whose HEAD guard already
+  carries the tail (row 20). Trimming that tail is a commit, not the helper's
+  job — which means the helper protects against *future* tails only.
+
 * H3's six teeth run against a **stub** `agent/acceptance.sh`. The stub now
   reports what check 13 reports (`git status --porcelain`) and whether the
   stamp is present, which is how the collision was reproduced in the sandbox —
   but it is still not the 13-check script. The end-to-end proof is the live
-  `verify` row in Runs; the row after the H3 commit is the one that says
-  whether the fix holds on the real branch.
+  `verify` row in Runs — row 17: `fedf9b4` came back `Итог: пройдено 13,
+  провалено 0` / `Принято.` with its own tree removed and the unstamped
+  planted tree left alone.
 * The `.gitignore` line hides the stamp only on commits that carry the line.
   `verify` of an older commit or branch with this `relay.py` still shows
   `?? .relay-verify-owner` to check 13 and turns it red — `untracked_files()`
   cannot help, because check 13 calls `git status` itself and
   `agent/acceptance.sh` is untouchable. Reproduce: check out `964a4cf` in a
   scratch clone, run `python3 <new relay> verify` from a tree that has the
-  H3 code. Not measured — the recipe is a reading of the two files.
+  H3 code. The pre-fix half of this is measured (row 13: the same stamp turned
+  checks 3, 12 and 13 red while the tree's commit had no such line); the
+  older-commit direction itself was not run.
 * H2 was measured against a **stubbed** `agent/acceptance.sh` in a sandbox, as
   the spec's Done-when requires. That proves the order (clock → acceptance)
   inside `cmd_hand`; it does not prove that a real 13-check acceptance still
@@ -293,6 +419,23 @@ None.
   executor's mess. Ask: keep it, or move the stamp outside the tree in
   TASK-99.
 
+
+* **H4's second bullet was already true, and the writer is the test module,
+  not `selfcheck.sh`.** The item reads "the I5 demonstration in `selfcheck.sh`
+  writes to a temp copy of the guard, never to the tracked
+  `agent/p6_rule.sh`". Measured (row 14): the script extracts all three guards
+  with `git show` into `mktemp -d`, burns them by `trap`, and neither writes
+  nor stages the tracked file. What writes it is `tests/test_i5_guard_source.py`
+  itself — the ТЗ-45 M1 case stages a real edit into the tracked guard on
+  purpose, and the hole is a process killed between that write and the
+  module-scope teardown. H4 was built on that mechanism: trim the tail, heal
+  any tree whose difference from HEAD is only the demonstration's markers, and
+  count the widening from HEAD instead of from the working file. Ask: if the
+  intent was that the demonstration never touches the tracked guard *at all*,
+  that is a different item — running the M1 case against a copy would stop
+  proving the property it was written for (ТЗ-45 M1: an executor's staged work
+  survives the module byte-for-byte).
+
 ## Runs
 
 | # | Command | Result |
@@ -312,7 +455,14 @@ None.
 | 13 | live `python3 agent/relay.py --branch agent/night-11 verify` at 19:18Z, with two hand-planted trees under the real temp dir | line 1 `verify: убрано осевшее дерево …-LIVESTALE-62414-1 — метка владельца, pid мёртв`; `…-LIVEFOREIGN-1-2` untouched and still registered; `verify: дерево … убрано после прогона`; `код возврата приёмки: 3`, `Итог: пройдено 10, провалено 3` — checks 3, 12 and 13, all on `?? .relay-verify-owner` |
 | 14 | `I5_NESTED=1 python3 -m pytest tests/test_i5_guard_source.py -q` in a scratch clone of `964a4cf` | `ssss` (4 skipped), `git status --porcelain agent/p6_rule.sh` empty, staged list empty, guard still 114 lines — the commit path never touches the tracked guard; the writer is a **non-nested** run |
 | 15 | tooth-biting: `.gitignore` line deleted → H3 module; line restored → H3 + C1 modules | red on `метка видна мусором: ВНЕ-GIT: ?? .relay-verify-owner` → then 9 passed |
-
+| 16 | H3 commit `fedf9b4` (pre-commit → selfcheck → acceptance), then `git push origin agent/night-11` | `Итог: пройдено 13, провалено 0`, `Принято.`, `SELFCHECK OK`, rc 0; 6 files, 516 insertions, 32 deletions; pushed `964a4cf..fedf9b4`; `P1: OK (staged)` printed for the declared C1 pin swap |
+| 17 | post-fix live `python3 agent/relay.py --branch agent/night-11 verify` on `fedf9b4`, 19:52:48Z → 20:32:15Z, with the hand-planted **unstamped** tree still under the real temp dir | `Итог: пройдено 13, провалено 0`, `Принято.`, `код возврата приёмки: 0 (ПРИНЯТО)`; `verify: дерево …fedf9b4-20260925T195248Z-74119-1 убрано после прогона`; **no** `убрано осевшее` line and the unstamped `…-964a4cf-LIVEFOREIGN-1-2` survived untouched — the real-machine half of tooth 4; 39 min end to end; afterwards `git worktree remove` + `prune` cleared my own planted tree, `git worktree list` shows only this clone |
+| 18 | `python3 -m pytest tests/test_task98_h4_guard_growth.py -q` — while the helper still lived in `tests/test_i5_guard_source.py` | 7 failed: the subprocess that imported that module died on `ModuleNotFoundError: No module named 'pygments'` (pulled in by pytest's terminalwriter) — a helper reachable only from inside pytest cannot be called by the separate process that has to heal the guard. After extracting `tests/i5_guard_residue.py`: 9 passed in a scratch clone of `fedf9b4`, 9 passed here; `tests/test_no_shared_tmp.py`, `tests/test_no_tautology_asserts.py`, `tests/test_report_sections.py` green with the new files (39 passed) |
+| 19 | four single mutations of the H4 code, each reverted after its run | tail-carrying guard restored → teeth 1, 3 (all four orders) and 6 red; `reconcile` short-circuited to `return False` → tooth 3 red (all four); `widened` built from the working file (old behaviour) → tooth 6 red; marker comparison deleted ("restore HEAD no matter what") → tooth 4 red, i.e. a coordinator's edit would have been eaten. All reverted → 9 passed |
+| 20 | reconcile on a repo whose HEAD guard itself carries the tail (throwaway repo, removed after) | `HEALED False`, the planted staged edit survives, file byte-identical to what was planted — the helper guards against future tails and does not rewrite commit content; measured, written into the H4 section as the boundary |
+| 21 | H4 Done-when attempt 1 in a scratch clone: plant the staged tail → `bash agent/selfcheck.sh`; then the same widened+staged state with `I5_NESTED=1 python3 -m pytest -q tests/test_task98_h4_guard_growth.py` | the heal worked (`status --porcelain agent/p6_rule.sh` and `diff --cached` empty after the run) but the run was **red**: `Итог: пройдено 11, провалено 2`, both `FAILED tests/test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green` (checks 3 and 11) — its nested selfcheck ran these teeth inside the demonstration window. Reproduced directly: 6 failed (`test_guard_ends_at_exit_zero_with_no_residue`, all four `test_residue_returns_to_head`, `test_widening_is_built_from_head_not_the_dirty_tree` with `MARKERS 2` and `HEALED False`). Cause measured, not assumed: the teeth seed their sandbox HEAD from the tracked guard's current bytes, which the green case holds widened on purpose |
+| 22 | after the `skipif(I5_NESTED)` fix, the same two commands on the same planted state | nested: `sssssssss.s` — 9 skipped, 0 failed, the sibling `test_i5z_demonstration_ran` case still green as legitimately nested; non-nested on the healed guard: 9 passed |
+| 23 | Х4 Done-when, scratch clone at the fixed code, two standalone `bash agent/selfcheck.sh` in a row, nothing else running: run 1 **started with the planted staged tail**, run 2 from the clean tree | run 1: 21:21:09Z → 22:00:51Z, rc 0, `Итог: пройдено 13, провалено 0`, `Принято.`; after it `agent/p6_rule.sh` = 112 lines, `git status --porcelain agent/p6_rule.sh` empty, `git diff --cached --name-only` empty, `tail -1` = `exit 0`. Run 2: 22:00:51Z → 22:40:08Z, rc 0, same `Итог: пройдено 13, провалено 0`, tree byte-identical afterwards (112 lines, `exit 0`), whole-worktree porcelain empty — a run no longer leaves a tail and two runs do not grow one |
 ## HANDOFF
 
 Interim block, round 127, written after H1, H2 and H3 (the final one comes at
@@ -338,7 +488,10 @@ post-fix live `verify` (the same command, once the fix is on the branch) had
 not run yet when this block was written; H4 has no work and no tests yet.
 Budget: network 0, LLM 0; 39 cumulative requests, unchanged since the round-125
 close. The only network use is git (fetch, push).
-Asks: the four entries of the ## Disputed section — 1: H1's gate is wider
+Asks: the five entries of the ## Disputed section — 1: H1's gate is wider
 than its body; 2: H2's gate also fires on the coordinator's hands, and TASK-99
 should say whose clock it believes; 3: a red `verify` now leaves nothing to dig
-into; 4: the stamp is invisible only on commits carrying the `.gitignore` line.
+into; 4: the stamp is invisible only on commits carrying the `.gitignore` line;
+5: H4's second bullet described a script that was already clean — the writer is
+the test module, so "the demonstration never touches the tracked guard" is a
+different item than the one that was implemented.
