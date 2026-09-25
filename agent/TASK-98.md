@@ -12,8 +12,8 @@
 РАЗРЕШЕНО ПРАВИТЬ: agent/relay.py
 РАЗРЕШЕНО ПРАВИТЬ: agent/p6_rule.sh
 РАЗРЕШЕНО ПРАВИТЬ: agent/selfcheck.sh
-РАЗРЕШЕНО ПРАВИТЬ: .claude/skills/run-agent-relay/SKILL.md
 
+The skill file (H1) is not a guarded path — no authorization line needed.
 `selfcheck.sh` and `p6_rule.sh` are opened **only** for H4 below.
 Any other line changed in them = rejected round.
 
