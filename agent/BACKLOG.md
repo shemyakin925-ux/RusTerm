@@ -294,6 +294,16 @@ issues a TASK for it.
   - Prerequisites: stable fact schema, multi-year coverage, eval set
     with backtest metric beating a rule-based screen.
   - Never: trade automatically; every idea is advice text with sources.
+  - Model (checked 25.09.2026): Qwen3.8-27B — dense, Apache 2.0,
+    vision (scanned reports), 1M context. Disable thinking for bulk
+    parsing (overthinks by default); enable only for final ideas.
+  - Stack: `mlx_lm.lora` on frozen 8-bit base
+    (`mlx-community/Qwen3.8-27B-*`); fallback `mlx-tune`.
+  - Seq length: first run 2048 tokens; 4096 only after a probe run
+    fits in 110 GB (stock mlx-lm unverified without PR 1389).
+  - Plan: (1) baseline = model + RAG over RusTerm facts, no tuning;
+    (2) LoRA; (3) keep only if it beats baseline and rule-based screen.
+  - Re-check for newer open models before starting.
 
 ## Done
 
