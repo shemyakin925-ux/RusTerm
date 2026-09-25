@@ -690,12 +690,82 @@ def red_acceptance(rc: int, text: str, cwd: Path) -> str:
     return "\n".join(lines)
 
 
+# ── часы сдачи (ТЗ-98 H2) ────────────────────────────────────────────────
+
+STATE_PATH = "agent/STATE.json"
+# тот же допуск, что у O0 в selfcheck.sh
+STATE_CLOCK_TOLERANCE_MIN = 15
+
+FIX_CLOCK_COMMAND = (
+    "python3 - <<'PY'\n"
+    "import datetime, json, pathlib\n"
+    "p = pathlib.Path('agent/STATE.json')\n"
+    "s = json.loads(p.read_text(encoding='utf-8'))\n"
+    "s['updated_at'] = datetime.datetime.now(datetime.timezone.utc)"
+    ".strftime('%Y-%m-%dT%H:%M:%SZ')\n"
+    "p.write_text(json.dumps(s, ensure_ascii=False, indent=1) + '\\n',\n"
+    "             encoding='utf-8')\n"
+    "print('updated_at =', s['updated_at'])\n"
+    "PY"
+)
+
+
+def state_clock_refusal(state_file: Path) -> str | None:
+    """Почему с такими часами в agent/STATE.json ход не передаётся.
+
+    O0 в selfcheck.sh сравнивает updated_at с реальным временем только
+    в момент коммита и молча пропускает проверку под I5_NESTED, а хук
+    ставит I5_NESTED=1 всегда — то есть ни один коммит-путь часы не
+    сверяет. Отказ здесь: просроченный updated_at значит, что STATE
+    писали давно, и координатор принимает работу по чужим часам.
+    """
+    if not state_file.exists():
+        return None  # песочница unit-тестов: STATE может не быть
+    try:
+        raw = (json.loads(state_file.read_text(encoding="utf-8"))
+               .get("updated_at") or "").strip()
+    except (json.JSONDecodeError, OSError) as exc:
+        return (f"{STATE_PATH} не читается: {exc} — ход не передан, "
+                "приёмка не запускалась")
+    if not raw:
+        return (f"в {STATE_PATH} нет updated_at — ход не передан, приёмка "
+                f"не запускалась.\n  починить: {FIX_CLOCK_COMMAND}")
+    try:
+        stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return (f"updated_at={raw!r} — не ISO-8601, ход не передан, приёмка "
+                f"не запускалась.\n  починить: {FIX_CLOCK_COMMAND}")
+    if stamp.tzinfo is None:
+        return (f"updated_at={raw!r} — без часового пояса, ход не передан, "
+                f"приёмка не запускалась.\n  починить: {FIX_CLOCK_COMMAND}")
+    now_utc = datetime.now(timezone.utc)
+    drift = (now_utc - stamp.astimezone(timezone.utc)).total_seconds() / 60
+    if abs(drift) <= STATE_CLOCK_TOLERANCE_MIN:
+        return None
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    return (
+        f"updated_at={stamp.astimezone(timezone.utc).strftime(fmt)} "
+        f"расходится с реальным {now_utc.strftime(fmt)} на {drift:+.1f} мин "
+        f"(допуск {STATE_CLOCK_TOLERANCE_MIN}, тот же, что у O0) — "
+        "ход не передан, приёмка не запускалась.\n"
+        f"  починить: {FIX_CLOCK_COMMAND}")
+
+
 def cmd_hand(a: argparse.Namespace) -> int:
     branch = resolve_branch(a.branch)
     if a.to not in ROLES:
         die(f"--to принимает {ROLES}")
     if stop_file().exists() and not a.force:
         die(f"пауза: {stop_file()} на месте. relay.py resume — и повтори")
+    # ТЗ-98 H2: просроченные часы — отказ ДО приёмки, а не после неё.
+    # --force остаётся выходом (проверка та же, что у паузы), но отказ
+    # при force печатается: координатор сдаёт ход часами позже, чем
+    # исполнитель писал STATE, и его --force должен быть слышен.
+    refusal = state_clock_refusal(Path.cwd() / STATE_PATH)
+    if refusal:
+        if not a.force:
+            die(refusal)
+        print(f"hand: --force поверх просроченных часов — {refusal.splitlines()[0]}")
     # ТЗ-66 L1: красная приёмка на дереве — ход не передаётся.
     # Это закрывает щель: работа, уехавшая мимо хуков (плюмбинг,
     # amend), больше не уезжает на ветку.

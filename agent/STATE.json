@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-98.md",
- "report": "agent/REPORT-98.md",
- "item": "H1",
- "step": "Round 127 opened. H1 done: .claude/skills/run-agent-relay/SKILL.md no longer names /tmp/rusterm-relay-verify or agent/night-10 (gate grep empty, rc=1); the verify line uses the TASK-88 C1 default and the branch is agent/night-11. STATE and REPORT-98 are stamped in this same commit to clear the arrival-red test_done_items_have_code_commits_in_round. Next: H2 (hand refuses a stale updated_at).",
- "status": "working",
- "last_commit": "H1 pending",
- "requests": 39,
- "net_requests": 39,
- "llm_calls": 0,
- "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-25T18:17:28Z"
+  "task": "agent/TASK-98.md",
+  "report": "agent/REPORT-98.md",
+  "item": "H2",
+  "step": "H1 shipped as 8b4dfa9 (13/0, pushed). H2 done: relay.py grows state_clock_refusal + FIX_CLOCK_COMMAND (70 insertions, 0 deletions) and cmd_hand calls it before run_acceptance; tolerance 15 min, same as O0, which is untouched. Five teeth in tests/test_task98_h2_hand_clock.py, sandboxed with a stubbed acceptance: 44-min-old stamp refuses before acceptance, fresh stamp reaches it, future stamp refused, unparsable refused, missing STATE ignored, --force overrides loudly. Two decisions recorded in REPORT-98 Disputed 2 (the gate also fires on coordinator hands). Next: H3 (verify cleans only its own trees).",
+  "status": "working",
+  "last_commit": "8b4dfa9",
+  "requests": 39,
+  "net_requests": 39,
+  "llm_calls": 0,
+  "model": "Qoder executor (model id not exposed)",
+  "updated_at": "2026-09-25T18:51:17Z"
 }
