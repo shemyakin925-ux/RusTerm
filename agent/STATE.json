@@ -2,12 +2,12 @@
  "task": "agent/TASK-88.md",
  "report": "agent/REPORT-88.md",
  "item": "C3",
- "step": "круг закрыт: R0–R5 сданы семью коммитами, последний — 0a0c73a (GUIDE 1.1 «первые пятнадцать минут»); отчёт дополнен прогонами 52–55 и финальным HANDOFF; споры 2–7 ждут вердикта координатора, Twelve Data — в Blocked",
- "status": "working",
- "last_commit": "0a0c73a",
+ "step": "TASK-88 closed: C1 af23188 (verify takes a per-run tree, refuses to clean another's), C2 e689574 (L3/L2 teeth on a literal log), C3 a2a84e6 (clock guard re-justified). Hook verdict 13/0 on all three; report finalized in the working tree; handing to coordinator.",
+ "status": "awaiting_review",
+ "last_commit": "a2a84e6",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-25T04:24:01Z"
+ "updated_at": "2026-09-25T04:52:27Z"
 }

@@ -114,7 +114,9 @@ tests/test_market_br.py:66:            200, b"ZIPBODY", {"Last-Modified": "Mon, 
 `git grep`, which is why it does not appear.) `agent/acceptance.sh`
 untouched, as C4 requires.
 
-C3 lands as its own commit named for the item; the hook verdict of every run of this round is in Runs.
+Commit `a2a84e6` «ТЗ-88 C3: страж часов больше не обоснован несуществующей
+ночной сменой», hook run `Итог: пройдено 13, провалено 0` / `Принято.`
+Diff is docstring only: 0 removed assert lines.
 
 ## Blocked
 
@@ -133,6 +135,18 @@ None.
   That is deliberate (they are the project's own junk, and `test_i5`
   only trips on untracked-and-not-ignored), but it means "clean tree" in
   this message ≠ "empty directory".
+* The `relay.py` change is exercised only by the three new tests, which stub
+  `agent/acceptance.sh` with an `echo`. The real `verify` path — a per-run
+  tree, refusal on a dirty explicit tree, on a live branch — has not been run
+  end-to-end by me, because running it means a ~12-minute acceptance in a
+  tree I just created, and TASK-88's budget is 0 network requests. What was
+  measured: the default path is unique (two runs, two directories), a leaked
+  file in an explicit path produces a refusal naming it, and the leaked file
+  survives the refusal untouched.
+* `test_report_sections.py`'s new literals were validated against
+  `_l3_missing` in a scratch worktree and then committed unchanged; the line
+  numbers in the mutation table (:422, :428, :430) belong to the file as
+  committed in `e689574`.
 * C2 replaced the *inputs* of two tests, not the guard. `_l3_missing`
   itself is unchanged in this report — if it is broken, these two teeth
   can still be green while `test_done_items_have_code_commits_in_round`
@@ -140,6 +154,14 @@ None.
   boundary and on the fallback, nothing more.
 
 ## Disputed
+
+* **The old shared verify path is still documented as the recommendation.**
+  `.claude/skills/run-agent-relay/SKILL.md:62` tells whoever reads it to run
+  `python3 agent/relay.py --branch agent/night-10 verify --worktree
+  /tmp/rusterm-relay-verify` — the exact machine-global path C1 stops using by
+  default. C1's authorisation covers `agent/relay.py` and two test files only,
+  so the skill text was left alone; one line there should name the default
+  instead. The coordinator's call.
 
 * **The O0 clock guard cannot fire on any commit path.** `agent/selfcheck.sh:84`
   gates the real-UTC comparison behind `if [ -z "${I5_NESTED:-}" ] && …`,
@@ -176,10 +198,54 @@ None.
   guard's own commit, or have the demonstration write to a temp copy. Left as
   it is, the guard file is a ratchet that only grows.
 
+* **The close-out verdict has nowhere honest to be written.** A round's last
+  act is `relay.py hand`, and that commit carries the report — so the report
+  would have to quote the verdict of the very run that publishes it. Either
+  the row is a placeholder (this one was, until a minute before the hand) or
+  it claims a check that had not happened yet. Ask: have `cmd_hand` print a
+  paste-ready line for the *next* round's first commit to land into the
+  previous report, or let the coordinator record it in the review. The
+  executor cannot fix it inside its own turn without writing to the branch
+  after having handed it over.
+
 ## Runs
 
-Verdict lines from every run of this round are pasted here as they happen,
-with the sha each run certified.
+| run | what it certified | verdict |
+|---|---|---|
+| hook of `af23188` (C1) | relay.py + `tests/test_relay_verify_worktree.py` + report + STATE | Итог: пройдено 13, провалено 0 → Принято. |
+| hook of `e689574` (C2) | literal-log teeth, 3 removed / 3 added asserts, declared | Итог: пройдено 13, провалено 0 → Принято. |
+| hook of `a2a84e6` (C3) | docstring-only clock guard re-justification | Итог: пройдено 13, провалено 0 → Принято. |
+| `relay.py hand` (close-out) | this report + STATE + BATON to coordinator | printed by that commit's own hook, and no earlier — the last Disputed entry names why this row cannot quote it |
+
+Separate measurements, each on a quiet machine (no second pytest pass
+overlapping): `python3 -m pytest tests/test_relay_verify_worktree.py
+tests/test_no_shared_tmp.py tests/test_no_tautology_asserts.py` → 9 passed
+in 2.32 s (the new file plus both tree-scanning guards);
+`python3 -m pytest tests/test_state_clock.py` → 3 passed in 1.36 s.
+Arrival collection: `1375/1395 tests collected (20 deselected)`.
+
+**One correction to "quiet machine", made before the hand.** Preparing this
+submission I found an orphaned test subprocess on the machine — pid 2274,
+parent `launchd`, `python -m rusterm.cli --root <pytest tmp dir> tui`,
+8 h 13 m elapsed, 99 % CPU, `cwd` in `/private/tmp/rt88-baseline`: a leftover
+of my own scratch rehearsal, whose clone directory had already been swept. I
+terminated it. Wall-clock numbers in this report that overlap another
+acceptance run are therefore inflated by contention and not by the code
+under review; the two short measurements above were re-read against that
+possibility and not changed.
+
+`git grep -nE '10:00|Дананг|Danang' -- tests/ rusterm/` in the clone after
+C3, verbatim:
+
+```
+tests/test_market_br.py:66:            200, b"ZIPBODY", {"Last-Modified": "Mon, 07 Sep 2026 10:00:00 GMT",
+```
+
+That single hit is a `Last-Modified` header value inside fixture data — the
+kind of time label C3 allows. Nothing in `rusterm/` names the shift, the
+hour or the city; `agent/acceptance.sh` still calls itself «приёмкой ночной
+работы» in its first line and was not touched (C4, and acceptance check 12
+compares it with `main`).
 
 **Rehearsal first, in a scratch clone** (`/tmp/rt88-sim`, cloned from the
 shift clone, `origin/main` mirrored so acceptance's own comparison works,
