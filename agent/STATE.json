@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-89.md",
  "report": "agent/REPORT-89.md",
- "item": "D2",
- "step": "D2 validated in the scratch worktree and re-measured in this clone: relay.py restored to the pre-fix head gave the final five-test file '3 failed, 2 passed in 12.55s' (the three worktree refusal paths red, the plumbing path and the green-hand lock already green); with the fix in place the same file is 5 passed in 13.06s and the six existing relay suites are 20 passed in 11.40s. A throwaway probe measured what a refused hand still leaves staged (the --add files). Committing D2 with report + STATE.",
+ "item": "D3",
+ "step": "D2 landed as 12efe97 (acceptance 13/0, SELFCHECK OK). D3 = two literal-log teeth appended to tests/test_report_sections.py (75 insertions, zero removals): K1 above marker 106 is not round 105's work, C7 with marker 105 gone is credited by the floor marker 104. Measured in this clone: 2 passed, 31 deselected in 2.54s; old-vs-current probe on the committed literals gives K1 OLD=[] CURRENT=['K1'], C8 OLD=['C8'] CURRENT=[], C7 OLD=[] CURRENT=[], so the first tooth is red-before and the second is a lock. HANDOFF now says DONE for D1..D3; the D2 wording in Disputed was clarified to mark the code-reading half as not run. Committing D3 with report + STATE, then the close-out hand.",
  "status": "working",
- "last_commit": "4fc7a73",
+ "last_commit": "12efe97",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-25T08:48:30Z"
+ "updated_at": "2026-09-25T09:05:00Z"
 }

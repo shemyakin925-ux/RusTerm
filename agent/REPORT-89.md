@@ -169,6 +169,37 @@ precedent for an item-shaped test file is `test_task65_k1_relay_guard.py`. No
 allow-listed file was modified outside its scope, and `agent/CONTEXT.md` still
 needed no change (D1's note applies verbatim).
 
+### D3 — teeth on the new boundary rules
+
+Two literal logs, one test each, appended to `tests/test_report_sections.py`.
+The "old code" column was measured, not predicted: `git show
+6cf14ce:tests/test_report_sections.py` (the guard before the coordinator's
+`46b1559`) was loaded as a separate module in the scratch worktree and called
+with the *same* literals that the tests now carry. That file was never
+committed, and no existing expectation was weakened.
+
+| probe (`round_no=105`) | at `6cf14ce` | current code | what the rule asserts |
+|---|---|---|---|
+| `K1` — named by an ordinary commit **above** marker 106 | `[]` — credited to round 105 | `['K1']` | not credited: everything newer than marker N+1 is the next round's work |
+| `C8` — the real work **under** marker 106 | `['C8']` — lost | `[]` | credited: the reset at N+1 keeps the window |
+| `C7` — work with marker 105 gone, floor marker 104 | `[]` | `[]` | credited: the nearest earlier marker is the floor |
+
+`test_a_commit_above_the_next_marker_is_not_the_rounds_work` is the tooth the
+spec predicted would redden on the old code, and it does: for this literal the
+old guard returns `[]` where the test asserts `['K1']`, i.e. pytest's
+`assert [] == ['K1']`. The same measurement shows the old rule failing in the
+other direction too — `OLD C8: ['C8']`, a false accusation against the round's
+own work, which is the shape that stalled round 108.
+
+`test_the_nearest_earlier_marker_is_the_floor_when_ours_is_gone` does **not**
+redden before the fix: measured above, `6cf14ce` gives the same `[]`, because
+its `marker_seen` was set by *any* marker. It is written as a lock on rule (c)
+— the `number <= round_no` form — and its docstring says so instead of claiming
+a redness it never had. The third bullet of D3's «Done when» (marker N+3 above
+without N+1 → hard stop) already existed as
+`test_leading_marker_of_another_round_is_not_a_lower_bound` and was not
+touched.
+
 ## Blocked
 
 None.
@@ -214,8 +245,9 @@ None.
   `git diff --cached --name-only` lists both files, `git diff HEAD --name-only
   -- agent/BATON.json` is empty, exit code 5. That is deliberate and matches
   the item's letter (only the baton may not survive a refusal; the work must
-  not be swallowed by a rollback the user did not ask for), and a retry works
-  because the J1 filter excludes this attempt's own `extra`. Ask: should the
+  not be swallowed by a rollback the user did not ask for), and a retry is not
+  blocked by them, because `push_baton`'s J1 filter drops `f not in extra` from
+  the "foreign" list — that half is read from the code, not run. Ask: should the
   same rollback cover `--add`, i.e. is a half-restored index a worse state than
   a dirty one?
 
@@ -234,11 +266,20 @@ None.
 | same file, in this clone, with the fixed `agent/relay.py` | D2 green where it will be committed | 5 passed in 13.06s |
 | `python3 -m pytest tests/test_j1_hand.py tests/test_relay_verify_worktree.py tests/test_task65_k1_relay_guard.py tests/test_j3_p6_relay_commit.py tests/test_k1_p6_relay_skip.py tests/test_state_clock.py -q` | the six existing relay suites still agree with the changed `push_baton` | 20 passed in 11.40s |
 | `python3 rt89-msg/probe_d2_extras.py …/agent/relay.py` | what a refused hand leaves behind after D2 (`--add` files staged, BATON clean) | exit 5; `git diff --cached --name-only` → `agent/REPORT-89.md`, `agent/STATE.json`; `git diff HEAD -- … BATON.json` → empty |
+| `python3 -m pytest tests/test_report_sections.py -o addopts="" -q -k "above_the_next_marker or nearest_earlier_marker"` | the two D3 teeth on the current guard | 2 passed, 31 deselected in 2.54s (same 2 passed first measured in `rt89-prep` before the copy) |
+| old-vs-current probe: `6cf14ce`'s `_l3_missing` and this file's, both fed the committed D3 literals, `round_no=105` | the numbers in D3's table, and that the second tooth was never red before the fix | `K1: OLD=[] CURRENT=['K1']`, `C8: OLD=['C8'] CURRENT=[]`, `C7: OLD=[] CURRENT=[]` (same signature in both modules — the call is apples-to-apples; `git merge-base --is-ancestor 6cf14ce 46b1559` → yes) |
 | `relay.py hand` (close-out) | this report + STATE + BATON to coordinator | hand verdict: recorded by coordinator |
 
 ## HANDOFF
 
-Status: PARTIAL (D1 and D2 landed; D3 ahead).
-Items done: D1, D2
-Items not done: D3 (teeth on the new boundary rules)
-Questions for the coordinator: one, in Disputed — whether the arriving red of `test_done_items_have_code_commits_in_round` should be closed by having `cmd_hand` stamp STATE.
+Status: DONE (D1, D2 and D3 each landed as its own commit; D4 is a list of
+prohibitions and was respected — no change to `acceptance.sh`, `selfcheck.sh`,
+`p1_rule.sh`, `p6_rule.sh`, `githooks/`, `PROTOCOL.md`, `BACKLOG.md`,
+`LAUNCH.md` or any `TASK-*.md`, and no history rewritten: marker 107 was not
+back-filled).
+Items done: D1, D2, D3
+Items not done: none
+Questions for the coordinator: two, both in Disputed — whether the arriving red
+of `test_done_items_have_code_commits_in_round` should be closed by having
+`cmd_hand` stamp STATE, and whether the D2 rollback should also cover the
+`--add` files that a refused hand leaves staged.
