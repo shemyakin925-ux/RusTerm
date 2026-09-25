@@ -987,6 +987,38 @@ class PeerSetRepo:
             out.append(entry)
         return out
 
+    def open_version(self, peer_set_id: str) -> Optional[dict]:
+        """Действующая версия набора (valid_to IS NULL) с составом —
+        чтобы новая версия закрывала старую, а не накрывала ту же дату
+        (координатор, ТЗ-73 T2)."""
+        row = self.conn.execute(
+            """SELECT peer_set_version_id, version, valid_from, origin,
+                      approved_by_user
+               FROM peer_set_version
+               WHERE peer_set_id=? AND valid_to IS NULL
+               ORDER BY version DESC LIMIT 1""", (peer_set_id,)).fetchone()
+        if row is None:
+            return None
+        members = {r[0] for r in self.conn.execute(
+            "SELECT instrument_id FROM peer_set_member "
+            "WHERE peer_set_version_id=?", (row[0],))}
+        return {"peer_set_version_id": row[0], "version": row[1],
+                "valid_from": row[2], "origin": row[3],
+                "approved": bool(row[4]), "members": members}
+
+    def max_version_of(self, peer_set_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT MAX(version) FROM peer_set_version WHERE peer_set_id=?",
+            (peer_set_id,)).fetchone()
+        return int(row[0] or 0)
+
+    def close_version(self, peer_set_version_id: str, valid_to: str) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                "UPDATE peer_set_version SET valid_to=? "
+                "WHERE peer_set_version_id=? AND valid_to IS NULL",
+                (valid_to, peer_set_version_id))
+
     def version_at(self, peer_set_id: str, as_of: str) -> Optional[dict]:
         """Версия, чей интервал [valid_from, valid_to) покрывает дату
         (TASK-17 E2, §0.2 ruling 5). Два совпадения — дефект данных:
