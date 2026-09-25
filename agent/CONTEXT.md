@@ -5,7 +5,30 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 22.09.2026, after round 100 on `agent/night-11`.
+Last updated: 25.09.2026, round 122 on `agent/night-11`.
+
+**25.09 — current state (read this block first; older blocks below are history).**
+- **Round 122 (TASK-96) accepted**: fresh-clone acceptance 13/0; one
+  assert line changed (guide block count 17→18, explicit). `rusterm
+  follow` runs add→ingest→prices→snapshot via real commands. Disputed
+  1–7 all upheld; the work is TASK-97 Q12.
+- **coord/sectors merged (`5a20cd6`)**: `rusterm peers set|show`,
+  `core/peer_sets.peer_inputs` → snapshot pass 2 has real percentiles.
+- **The coordinator writes no product code any more** (user, 24.09);
+  everything goes through TASK-97.
+- **User decisions 24.09**: industry comparison window 2 years (Q8);
+  **TTM for every flow**, latest annual only as a *marked* fallback
+  (Q10); nothing new in `~` (Q11).
+- **User's folder since 25.09: `~/EquityLab/`** — `app/` (clone at
+  `agent/night-11`, run by `~/Desktop/EquityLab.command`), `data/`
+  (the real base, 44 papers, schema 45; was `~/equitylab`),
+  `backups/`, `archive/` (old `~/.rusterm`, first `~/RusTerm` draft).
+  Code default root is still `~/.rusterm` until Q11 lands.
+- **Twelve Data**: `/splits` `/dividends` are paid-plan only (403) —
+  not bought (ADR-0018); since 24.09 22:20 the key answers 401 on
+  `/time_series` — user must re-check the key.
+- Queue: 88 → 89 → **97** → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
+
 
 **Round 100 (TASK-75) is accepted**, measured in a clean clone of
 `f926b43`: acceptance «пройдено 11, провалено 2» where **both reds are

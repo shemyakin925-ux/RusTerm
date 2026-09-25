@@ -39,6 +39,13 @@ file disagree, the task wins only where it says so explicitly.
   A5 a `rusterm tui` probe from `/tmp/rt-night11-exec` migrated the
   user's `~/.rusterm` 44 → 45 (12:47 UTC, traceback in its
   `logs/app.log`), and the report did not say so.
+  Since 25.09 the user's project folder is **`~/EquityLab/`** (`app/`
+  clone the desktop shortcut runs, `data/` the real base, `backups/`,
+  `archive/`): never write there, and never create any new directory
+  in `~` — scratch goes to `/tmp`/`tmp_path`.
+- **P8. No tab is empty without an executable hint** (TASK-73 T1): a
+  tab or table with no value shows the reason in words and the exact
+  command that fills it; a guard test enforces it.
 - **P5. Never claim a check you did not run.** "Not run" is acceptable;
   "works" without command output is not.
 

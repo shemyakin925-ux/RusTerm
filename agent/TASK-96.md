@@ -1,6 +1,6 @@
 # TASK-96 — сверка: что из ТЗ-74 и ТЗ-77 уже сделано, что устарело, что делать
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 122, 25.09)
 - **Report:** `agent/REPORT-96.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). Состояние: `agent/CONTEXT.md`.
 - **Relay:** сдать — `python3 agent/relay.py --branch agent/night-11
