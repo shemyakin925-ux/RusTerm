@@ -1,6 +1,6 @@
 # TASK-88 — приёмка координатора без чужого мусора
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 124, 25.09)
 - **Report:** `agent/REPORT-88.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). Состояние: `agent/CONTEXT.md`.
 - **Relay:** сдать — `python3 agent/relay.py --branch agent/night-11
