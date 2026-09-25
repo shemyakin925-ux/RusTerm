@@ -278,6 +278,23 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   night TASK-27 is taken. Do not take them from here: they are a
   night's work now, not idle-time work.
 
+## Far future — NOT for the executor (user, 25.09.2026)
+
+Parked idea. Do not take, plan or prototype until the coordinator
+issues a TASK for it.
+
+- **F1 — fine-tune an LLM for financial-report analysis and
+  investment-idea search.**
+  - Goal: model reads RusTerm facts/filings, explains the numbers,
+    flags anomalies, proposes ranked investment ideas with cited facts.
+  - Constraints: free only (ADR-0018) — open-weights model, LoRA/QLoRA,
+    runs on the user's PC (low priority, single thread, pauses).
+  - Data: RusTerm DB facts + filings text; labels from later price
+    moves / analyst outcomes; strict time split, no look-ahead.
+  - Prerequisites: stable fact schema, multi-year coverage, eval set
+    with backtest metric beating a rule-based screen.
+  - Never: trade automatically; every idea is advice text with sources.
+
 ## Done
 
 - [x] B35 — closed with ТЗ-57 A3 (commit of 19.09.2026 on
