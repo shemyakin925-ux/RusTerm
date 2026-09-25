@@ -28,7 +28,8 @@ Last updated: 25.09.2026, round 122 on `agent/night-11`.
   not bought (ADR-0018); since 24.09 22:20 the key answers 401 on
   `/time_series` — user must re-check the key.
 - **Round 124 (TASK-88) accepted**, fresh clone 13/0: verify uses a unique tree per run; L3/L2 teeth on a literal log (3 asserts replaced under a declared ЗАМЕНА-БУЛАВКИ, stronger). Disputed 1–5 upheld → TASK-98 (H1–H4); #5: the hand verdict is recorded here by the coordinator.
-- Queue: 89 → **98** → **97** → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
+- **Round 126 (TASK-89) accepted**, fresh clone 13/0: coordinator commits are not implementation for L3; hand does not leave the baton staged. Disputed → TASK-99 (hand stamps STATE; replaces TASK-97 Q12 row 1).
+- Queue: **98** → **99** → **97** → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
 
 
 **Round 100 (TASK-75) is accepted**, measured in a clean clone of

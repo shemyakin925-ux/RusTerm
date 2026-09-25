@@ -1,6 +1,6 @@
 # TASK-89 — граница круга по данным, а не по заголовкам
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 126, 25.09)
 - **Report:** `agent/REPORT-89.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). Состояние: `agent/CONTEXT.md`.
 - **Relay:** сдать — `python3 agent/relay.py --branch agent/night-11
