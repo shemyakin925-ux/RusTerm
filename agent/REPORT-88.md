@@ -13,7 +13,10 @@ comments and commit messages are Russian per the project rule.
 * Suite as it stands: see Runs — the baseline number is quoted there.
 * C1 census — `rusterm-relay-verify*` under `tempfile.gettempdir()`
   (`/var/folders/hb/_dcdc6j13k17mgfw9lh7814r0000gn/T`): **0**, measured twice —
-  23:39Z during pre-validation and 04:00Z at the start of this turn. The machine-global default path
+  23:39Z during pre-validation and 04:00Z at the start of this turn. The
+  machine-global path the old default pointed at (`/tmp/rusterm-relay-verify`)
+  is absent too, so nothing was inherited; after this item each `verify` run
+  creates its own tree (see Disputed). The machine-global default path
   that `cmd_verify` used (`/tmp/rusterm-relay-verify`, still named in
   `.claude/skills/run-agent-relay/SKILL.md:62` as `--worktree
   /tmp/rusterm-relay-verify`) is also **absent** on this machine.
@@ -45,7 +48,8 @@ clone, and acceptance.
   (C4: no deletion of other people's files); clean tree → the run
   proceeds; two consecutive default-path runs → two different
   directories.
-* Commit: named for C1 (sha recorded in Runs).
+* Commit `af23188` «ТЗ-88 C1: verify берёт уникальное дерево на прогон
+и не чистит чужое», hook run `Итог: пройдено 13, провалено 0` / `Принято.`
 
 ### C2 — teeth that do not depend on a live `Z9`
 
@@ -188,7 +192,7 @@ before the real turn, both bookkeeping rather than code:
 
 ## HANDOFF
 
-Status: PARTIAL (C1 landed in this commit; C2, C3 ahead). The final block
-written at the hand supersedes this one.
-Items done: C1
-Items not done: C2, C3
+Status: PARTIAL (C1, C2 landed; C3 ahead). The final block written at the
+hand supersedes this one.
+Items done: C1, C2
+Items not done: C3
