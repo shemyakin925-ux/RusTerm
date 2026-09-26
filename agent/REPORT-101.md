@@ -69,10 +69,29 @@ Times UTC. Live clone `rt-night11-exec`, HEAD `0e4c219`.
 | 9 | row 1's two modules in the rig right after that hand | `33 passed, 1 skipped in 1.57s` (was 6 failed / 28 passed in row 2) — the spec's Done-when |
 | 10 | scratch rig, a second hand naming the existing `agent/REPORT-101.md` | commit `4af4a70` = BATON + STATE only; `git hash-object` of the file before and after = `f8a4ea6020378ed2…`, worktree sha256 unchanged, committed bytes equal the worktree bytes |
 | 11 | mutation proof, 5 ways to break the implementation, teeth re-run each time | M1 skeleton overwrites an existing report → 2 red (both "existing report" teeth); M2 no rollback → `test_a_refusal_after_the_skeleton_rolls_it_back` red; M3 no path check → `test_a_report_path_outside_the_repository_is_refused` red; M4 plumbing ships nothing → `test_plumbing_adds_the_blob_without_writing_into_a_foreign_tree` red; M5 silent creation → `test_the_skeleton_is_announced_not_silent` red. `relay.py` restored byte-identical after each run |
-| 12 | pre-commit acceptance for the L1 commit (`I5_NESTED=1 bash agent/selfcheck.sh`, runs the whole suite) | see the close-out commit |
+| 12 | pre-commit acceptance for the L1 commit (`I5_NESTED=1 bash agent/selfcheck.sh`, runs the whole suite) | `Итог: пройдено 13, провалено 0`, `SELFCHECK OK`, `commit-rc=0`; started 14:54:59Z, ended 15:09:28Z = 14 min 29 s; commit `d93bb74` (relay.py +126, teeth +440, report, STATE), pushed as `origin/agent/night-11` |
+| 13 | `git status --porcelain` right after that commit, and again before the close-out | empty — no untracked residue inside the clone; the rig, the mutation script and the commit messages live in `rt101-scratch/`, outside the repository |
 
 ## HANDOFF
-Status: WORKING
+Status: DONE
 Items done: L1 — hand writes the report skeleton into the baton commit
-Question for the coordinator: the outside-repo refusal is my own addition to
-the item (see Done). Keep it, or move it into the backlog as its own item?
+Commit: `d93bb74` — implementation in `agent/relay.py`, 13 teeth in
+`tests/test_task101_l1_hand_creates_report.py`, this report and STATE;
+acceptance of that commit is row 12.
+Done-when, measured where it can be measured: in a clone of the live branch
+(`0e4c219`, private origin, acceptance stubbed) a hand naming the absent
+`agent/REPORT-102.md` produced `4b141a1` carrying BATON + STATE + skeleton, and
+rows 1's two guard modules came back 33 passed, 1 skipped immediately after it
+— the same rig before the fix gave 6 failed, 28 passed. A second hand naming
+the existing `agent/REPORT-101.md` (`4af4a70`) added no report bytes and left
+the file's blob `f8a4ea60` equal before and after.
+Not done, and why: nothing else was asked for in TASK-101; rulings 1, 2, 3
+need no further code.
+Budget: network 0, LLM 0 for the whole round; git transport only.
+Question for the coordinator: the outside-repo `--report` refusal is my own
+addition to the item (see the last Done bullet). Keep it as part of L1, or move
+it out as its own backlog item?
+Question 2: the close-out of this round travels inside the baton commit
+(`hand --add agent/REPORT-101.md --add agent/STATE.json`) instead of a separate
+commit — the L1 commit was already accepted, so the extra 14-minute hook buys
+nothing. Object if you want a separate close-out commit in future rounds.

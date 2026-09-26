@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 133,
+ "holder": "coordinator",
+ "round": 134,
  "branch": "agent/night-11",
  "task": "agent/TASK-101.md",
  "report": "agent/REPORT-101.md",
- "note": "TASK-100 accepted (fresh clone 13/0, no Disputed). REPORT-101 skeleton committed. Queue: 101 -> 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-26T14:09:19Z",
+ "note": "round 133 closed: TASK-101 L1 in d93bb74 - hand now ships the report skeleton in the baton commit, 13 teeth, 5 mutations proven, Done-when measured on the live history. Two questions in REPORT-101 HANDOFF. Queue after 101: 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86 (skip Q12 row 1 in 97: done in TASK-99 J1)",
+ "handed_by": "executor",
+ "handed_at": "2026-09-26T16:05:44Z",
  "paused": false,
  "finished": false
 }

@@ -2,12 +2,12 @@
  "task": "agent/TASK-101.md",
  "report": "agent/REPORT-101.md",
  "item": "L1 — заготовка отчёта уезжает коммитом эстафеты",
- "step": "ТЗ-101 L1 готов: 13 зубов зелёные, Done-when измерен в scratch-клоне живой ветки, 5 мутаций доказаны; коммит с приёмкой",
- "status": "working",
- "last_commit": "0e4c219",
- "requests": 39,
- "net_requests": 39,
+ "step": "круг 133 закрыт: L1 в истории (d93bb74), отчёт заполнен, STATE ждёт приёмки",
+ "status": "handed",
+ "last_commit": "d93bb74",
+ "requests": 40,
+ "net_requests": 40,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-26T14:09:19Z"
+ "updated_at": "2026-09-26T16:05:44Z"
 }
