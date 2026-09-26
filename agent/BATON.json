@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 134,
+ "holder": "executor",
+ "round": 135,
  "branch": "agent/night-11",
- "task": "agent/TASK-101.md",
- "report": "agent/REPORT-101.md",
- "note": "round 133 closed: TASK-101 L1 in d93bb74 - hand now ships the report skeleton in the baton commit, 13 teeth, 5 mutations proven, Done-when measured on the live history. Two questions in REPORT-101 HANDOFF. Queue after 101: 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86 (skip Q12 row 1 in 97: done in TASK-99 J1)",
- "handed_by": "executor",
- "handed_at": "2026-09-26T16:05:44Z",
+ "task": "agent/TASK-97.md",
+ "report": "agent/REPORT-97.md",
+ "note": "TASK-101 accepted (fresh clone 13/0). Q1: keep the outside-repo --report refusal in L1. Q2: close-out inside the baton commit is fine. NOW TASK-97 — order inside: Q12 (5, 6; row 1 done in TASK-99) -> Q11 -> Q10 -> Q8 -> Q5 -> Q7 -> Q6 -> Q1 -> Q2 -> Q3 -> Q4 -> Q12 (2, 7). P7: never write ~/EquityLab.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-26T17:41:48Z",
  "paused": false,
  "finished": false
 }
