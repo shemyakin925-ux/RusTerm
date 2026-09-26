@@ -1,6 +1,6 @@
 # TASK-98 — relay hygiene from REPORT-88 Disputed
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 128, 26.09)
 - **Report:** `agent/REPORT-98.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Relay:** hand — `python3 agent/relay.py --branch agent/night-11
