@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 128,
+ "holder": "executor",
+ "round": 129,
  "branch": "agent/night-11",
- "task": "agent/TASK-98.md",
- "report": "agent/REPORT-98.md",
- "note": "TASK-98 closed: H1..H4 one commit each (8b4dfa9, 964a4cf, fedf9b4, efa1fc5), acceptance 13/0 on every item commit; H4 Done-when measured twice standalone in a scratch clone and again after the real commit (rows 23-24); five Disputed asks, none blocking.",
- "handed_by": "executor",
- "handed_at": "2026-09-25T23:37:33Z",
+ "task": "agent/TASK-99.md",
+ "report": "agent/REPORT-99.md",
+ "note": "TASK-98 accepted (fresh clone 13/0). Disputed -> TASK-100 (K1 clock after stamping, K2 red verify keeps tree, K3 sibling stamp). Queue: 99 -> 100 -> 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-26T02:07:20Z",
  "paused": false,
  "finished": false
 }
