@@ -79,11 +79,14 @@ def _ingest(root):
 
 
 def test_refused_splits_are_still_counted(catalog, monkeypatch):
+    """Отказ /splits по тарифу (403) — стадия пройдена по вердикту
+    ТЗ-97 Q12 (5), `/dividends` после отказа всё равно спросили, и оба
+    потраченных запроса остались в счётчике."""
     root = catalog
     calls: list = []
     _wire(monkeypatch, root, "/splits", calls)
-    assert _ingest(root) == 1
-    assert calls == ["time_series", "/splits"], calls
+    assert _ingest(root) == 0
+    assert calls == ["time_series", "/splits", "/dividends"], calls
     assert cli._requests_used(str(root)) == len(calls)
 
 
@@ -91,11 +94,12 @@ def test_refused_dividends_after_successful_splits_are_counted_once(
         catalog, monkeypatch):
     """Сплиты прошли, дивиденды отказали: гейт к этому моменту пропустил
     три вызова, и сумма сэмплов обязана остаться тремя — а не удвоиться
-    из-за записи на успехе и на отказе."""
+    из-за записи на успехе и на отказе. Выход стадии — 0 (ТЗ-97 Q12 (5):
+    тарифный отказ стадию не топит), счётчик — прежний."""
     root = catalog
     calls: list = []
     _wire(monkeypatch, root, "/dividends", calls)
-    assert _ingest(root) == 1
+    assert _ingest(root) == 0
     assert calls == ["time_series", "/splits", "/dividends"], calls
     assert cli._requests_used(str(root)) == len(calls)
 

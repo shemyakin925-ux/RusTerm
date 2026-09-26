@@ -67,6 +67,23 @@ def key_instruction() -> str:
               "переменную RUSTERM_TWELVEDATA_KEY")
 
 
+# ТЗ-96 Disputed 5 (вердикт ТЗ-97 Q12): чем именно закрытый тариф
+# отвечает на /splits и /dividends. Замерено в поле (REPORT-96, Runs
+# 24/30): HTTP 403 со словами про план; тот же код может прийти и в теле
+# вендора, где он лежит в `code`. Значения собраны здесь, а не в CLI,
+# потому что форма отказа — знание вендора.
+PLAN_REFUSAL_REASONS = ("source_unreachable:http_403",
+                        "twelvedata_error:403")
+
+
+def is_plan_refusal(reason: str) -> bool:
+    """Отказ «этого нет в твоём тарифе», а не «данных нет» и не «временно
+    занята». Только он даёт стадии котировок право считаться пройденной
+    без корпоративных действий: 429, транспорт, 5xx и прочее остаются
+    отказом — иначе снисходительность съедает настоящие поломки."""
+    return reason in PLAN_REFUSAL_REASONS
+
+
 @dataclass
 class TwelveDataProvider:
     """Клиент /time_series. Ошибки — значения (§7);Transport-исключения

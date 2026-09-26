@@ -369,6 +369,7 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
         ConfigError,
         RequestGate,
     )
+    from rusterm.providers.twelvedata import is_plan_refusal
 
     tick = repos.instrument.ticker_for_instrument(instrument_id, as_of)
     if tick is None:
@@ -389,6 +390,7 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
         return 1
 
     payloads: dict[str, dict] = {}
+    refused: list[str] = []
     requests_spent = 0
     for kind, fetch in (("splits", provider.splits),
                         ("dividends", provider.dividends)):
@@ -401,10 +403,19 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
         outcome = fetch(symbol, as_of)
         if isinstance(outcome, (ProviderError, ConfigError,
                                 BudgetExceeded)):
+            reason = outcome.reason
+            if is_plan_refusal(reason):
+                # Отказ по тарифу не прерывает цикл: то, что ответило,
+                # всё равно нужно записать, а счётчик гейта запишется
+                # один раз ниже. Потрачен запрос — значит попадает в
+                # «запросов» наравне с успешным (ТЗ-96 R3).
+                refused.append(kind)
+                requests_spent += 1
+                continue
             # Тот же счёт, что у котировок: отказанный вызов гейт уже
             # пропустил, и терять его на выходе из стадии нельзя.
             _record_gate_usage(repos, "twelvedata", ca_gate)
-            print(f"twelvedata: {kind}: {outcome.reason}", file=sys.stderr)
+            print(f"twelvedata: {kind}: {reason}", file=sys.stderr)
             return 1
         payloads[kind] = outcome
         requests_spent += 1
@@ -414,9 +425,22 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
                       block="corporate_actions", url=cache_url,
                       instrument_id=instrument_id)
 
-    splits, splits_skipped = provider.parse_splits(payloads["splits"])
-    dividends, currency, div_skipped = provider.parse_dividends(
-        payloads["dividends"])
+    _record_gate_usage(repos, "twelvedata", ca_gate)
+    if refused:
+        print(f"{instrument_id}: корп.действия "
+              f"({', '.join(refused)}): недоступны на бесплатном тарифе "
+              f"Twelve Data (ADR-0018) — решение вендора, не данные; "
+              f"повтор заплатит тот же 403, поэтому он не совет. "
+              f"Котировки записаны, стадия пройдена")
+    if "splits" in payloads:
+        splits, splits_skipped = provider.parse_splits(payloads["splits"])
+    else:
+        splits, splits_skipped = [], 0
+    if "dividends" in payloads:
+        dividends, currency, div_skipped = provider.parse_dividends(
+            payloads["dividends"])
+    else:
+        dividends, currency, div_skipped = [], None, 0
     written = 0
     for s in splits:
         if repos.corp_action.put(instrument_id, s["ex_date"], "split",
@@ -427,7 +451,6 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
                                  amount=d["amount"], currency=currency):
             written += 1
     skipped = splits_skipped + div_skipped
-    _record_gate_usage(repos, "twelvedata", ca_gate)
     print(f"{instrument_id}: корп.действия: сплитов {len(splits)}; "
           f"дивидендов {len(dividends)}; записано новых: {written}; "
           f"запросов: {requests_spent}; неразобрано: {skipped}")

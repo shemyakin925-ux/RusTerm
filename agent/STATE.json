@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-97.md",
  "report": "agent/REPORT-97.md",
- "item": "L1 — заготовка отчёта уезжает коммитом эстафеты",
- "step": "круг 133 закрыт: L1 в истории (d93bb74), отчёт заполнен, STATE ждёт приёмки",
- "status": "handed",
- "last_commit": "d93bb74",
+ "item": "Q12-5 — отказ корпоративных действий по тарифу: стадия пройдена",
+ "step": "Q12-5: правка в коде, зубы 12/12 зелёные, мутации M1-M4 краснеют, три прежних теста обновлены под вердикт; полный набор идёт",
+ "status": "working",
+ "last_commit": "1a27329",
  "requests": 40,
  "net_requests": 40,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-26T17:41:48Z"
+ "updated_at": "2026-09-26T18:06:00Z"
 }
