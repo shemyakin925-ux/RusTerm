@@ -1,6 +1,6 @@
 # TASK-101 — hand never names an unborn report (REPORT-99 Disputed)
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 134, 26.09)
 - **Report:** `agent/REPORT-101.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Relay:** hand — `python3 agent/relay.py --branch agent/night-11
