@@ -211,8 +211,60 @@ def _baton_back_to_head() -> None:
     git("checkout", "HEAD", "--", BATON_PATH, check=False)
 
 
+def _hand_state_stamp(baton_new: dict) -> dict:
+    """ТЗ-99 J1: четыре поля, которые `hand` пишет в `agent/STATE.json`
+    своим коммитом эстафеты.
+
+    До этого `hand` двигал только BATON, а STATE оставался с часами и
+    именами предыдущей смены. `tests/test_report_sections.py` берёт
+    отчёт из STATE, а окно круга — из BATON: пока STATE называл прошлый
+    отчёт, все коммиты которого лежат за новой границей, приёмка
+    приезжала красной (`test_done_items_have_code_commits_in_round`
+    падала на всём промежутке между hand и первым коммитом следующей
+    смены — ТЗ-89 D0/Disputed 1). Единственный доступный ответ был —
+    переставить STATE самому приходящему, то есть доказывать чужую смену
+    своей рукой.
+    `task` и `report` — из аргументов `hand` (через `new`: без аргумента
+    поле остаётся тем, что уже лежит в BATON, поэтому STATE.task ==
+    BATON.task выполняется всегда). Остальные поля STATE не трогаются.
+    """
+    return {"task": baton_new.get("task") or "",
+            "report": baton_new.get("report") or "",
+            "status": "handed",
+            "updated_at": now()}
+
+
+def _state_bytes(base: bytes | None, stamp: dict) -> bytes:
+    """STATE целиком не перезаписывается: счётчики запросов, `item`,
+    `step`, `model` прежней смены остаются, переезжают только четыре
+    поля штампа."""
+    state: dict = {}
+    if base:
+        try:
+            parsed = json.loads(base.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            state = parsed
+        else:
+            print(f"hand: {STATE_PATH} не разбирается как объект JSON — "
+                  "штамп начинается с пустого файла")
+    merged = dict(state)
+    merged.update(stamp)
+    return (json.dumps(merged, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+
+
+def _stamp_working_state(stamp: dict) -> None:
+    """Дерево смены: тот же путь, что и у BATON — пишем до `git add`,
+    чтобы коммит эстафеты унёс STATE собой."""
+    path = repo_root() / STATE_PATH
+    base = path.read_bytes() if path.is_file() else None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(_state_bytes(base, stamp))
+
+
 def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
-               message: str) -> str:
+               message: str, stamp: dict | None = None) -> str:
     """Кладёт BATON.json и перечисленные файлы одним коммитом на ветку.
 
     Если ветка смены выкачана в текущем дереве — обычный add/commit/push.
@@ -220,20 +272,30 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
     напрямую: рабочее дерево координатора не трогается вовсе (плюмбинг
     живёт во временном индексе и смену круга оставить не может).
 
+    `stamp` (ТЗ-99 J1) — поля `agent/STATE.json` для этого же коммита. В
+    дереве они пишутся в файл, в плюмбинге — достраиваются во временный
+    индекс из блоба самой ветки: часы чужого рабочего дерева в коммит
+    эстафеты не едут.
+
     Правило D2 для всех путей отказа в дереве: `agent/BATON.json`
     возвращается к HEAD, чужое в индексе не трогается.
     """
     root = repo_root()
     payload = json.dumps(baton, ensure_ascii=False, indent=1) + "\n"
+    paths = [BATON_PATH, *extra]
+    if stamp is not None and STATE_PATH not in paths:
+        paths.append(STATE_PATH)
 
     if current_branch() == branch:
         if not sync_worktree(remote, branch, quiet=True):
             raise SystemExit(EXIT_ERROR)
         (root / BATON_PATH).write_text(payload, encoding="utf-8")
+        if stamp is not None:
+            _stamp_working_state(stamp)
         # Чужое, уже лежащее в индексе, в коммит эстафеты не берётся:
         # ТЗ-37 I5 уехал внутрь коммита «Эстафета: круг 44» именно так.
         staged = [f for f in git("diff", "--cached", "--name-only").splitlines()
-                  if f and f != BATON_PATH and f not in extra]
+                  if f and f not in paths]
         if staged:
             # ТЗ-42 J1: эстафету нельзя передавать из грязного индекса —
             # именно так круг 48 остался непереданным
@@ -242,9 +304,9 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
                 + ". Ход не передан и работа не сдана. Закоммить это "
                 "своим коммитом и повтори: python3 agent/relay.py hand ... "
                 f"({BATON_PATH} откатан к HEAD)")
-        git("add", "--", BATON_PATH, *extra)
+        git("add", "--", *paths)
         try:
-            git("commit", "--only", "-m", message, "--", BATON_PATH, *extra)
+            git("commit", "--only", "-m", message, "--", *paths)
         except SystemExit:
             # ТЗ-42 J1: провал коммита — не тишина: ход не передан
             # ТЗ-89 D2: корень пропавшего маркера 107 — здесь.
@@ -276,13 +338,21 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
     with tempfile.TemporaryDirectory() as tmp:
         env = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
         git("read-tree", base, env=env)
-        blobs: list[tuple[str, bytes]] = [(BATON_PATH, payload.encode("utf-8"))]
+        blobs: dict[str, bytes] = {}
         for rel in extra:
             src = root / rel
             if not src.is_file():
                 die(f"нечего добавить: {rel} не найден в рабочем дереве")
-            blobs.append((rel, src.read_bytes()))
-        for rel, data in blobs:
+            blobs[rel] = src.read_bytes()
+        blobs[BATON_PATH] = payload.encode("utf-8")
+        if stamp is not None:
+            # База — блоб STATE с самой ветки, а не файл чужого дерева:
+            # координатор, который ведёт параллельную смену в другой
+            # ветке, уложил бы в коммит эстафеты её часы и её отчёт.
+            shown = git("show", f"{base}:{STATE_PATH}", check=False)
+            blobs[STATE_PATH] = _state_bytes(shown.encode("utf-8") if shown
+                                             else None, stamp)
+        for rel, data in blobs.items():
             sha = git("hash-object", "-w", "--stdin", stdin=data)
             git("update-index", "--add", "--cacheinfo", f"100644,{sha},{rel}",
                 env=env)
@@ -900,7 +970,11 @@ def cmd_hand(a: argparse.Namespace) -> int:
         f"Эстафета: круг {new['round']}, ход у {a.to}"
         + (f" — {new['task']}" if new.get("task") else "")
     )
-    sha = push_baton(a.remote, branch, new, list(a.add or []), message)
+    # ТЗ-99 J1: STATE едет этим же коммитом — иначе приходящая сторона
+    # начинает круг с чужими часами и чужим отчётом и красит свой же
+    # страж до первого коммита.
+    sha = push_baton(a.remote, branch, new, list(a.add or []), message,
+                     stamp=_hand_state_stamp(new))
     # ТЗ-42 J1: пуш — не доказательство. Перечитываем BATON с origin:
     # ход считается переданным, только если там теперь держатель a.to.
     fetch(a.remote, branch)
@@ -911,6 +985,8 @@ def cmd_hand(a: argparse.Namespace) -> int:
             "Работа не сдана. Проверь relay.py status и повтори hand.")
     print(f"передано коммитом {sha}")
     print(baton_line(on_origin))
+    print("  " + STATE_PATH + " (тем же коммитом): "
+          + ", ".join(f"{k}={v}" for k, v in _hand_state_stamp(new).items()))
     for rel in a.add or []:
         print("  вложено:", rel)
     return EXIT_OK
