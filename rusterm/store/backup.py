@@ -16,9 +16,11 @@ SQL здесь не нужен — кроме VACUUM INTO для согласо�
 """
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
+import re
 import time
 import zipfile
 from dataclasses import dataclass
@@ -43,6 +45,29 @@ class BackupError(Exception):
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+# Метка копии попадает в имя файла, поэтому это не путь: буквы/цифры/
+# точка/дефис/подчёркивание, до 40 символов, без «..» и без ведущей
+# точки. Разделителя здесь нет ни при каком флаге re — '/' и os.sep
+# в класс не входят.
+_LABEL_RE = re.compile(r"[\w.\-]{1,40}")
+
+
+def default_archive_path(paths: AppPaths,
+                         label: str | None = None) -> Path:
+    """Куда лечь копии, если пользователь не назвал путь (ТЗ-97 Q11):
+    `backups/<дата>[-метка].zip` — сосед каталога данных, а не новая
+    папка в домашнем каталоге. У `--root /tmp/x/data` копия,
+    соответственно, в `/tmp/x/backups`."""
+    name = dt.date.today().isoformat()
+    if label:
+        if (".." in label or label.startswith(".")
+                or not _LABEL_RE.fullmatch(label)):
+            raise BackupError(
+                f"метка копии не может быть именем пути: {label!r}")
+        name = f"{name}-{label}"
+    return paths.backups / f"{name}.zip"
 
 
 @dataclass(frozen=True)

@@ -1960,12 +1960,18 @@ def cmd_doctor(args) -> int:
 
 def cmd_backup(args) -> int:
     """Резервная копия (ТЗ-22 J4): база, манифесты и объекты raw-хранилища
-    в один zip с MANIFEST.json (sha256 на члена, версия схемы)."""
-    from rusterm.store.backup import BackupError, create_backup
+    в один zip с MANIFEST.json (sha256 на члена, версия схемы).
+
+    Путь можно не называть: копия кладётся в `backups/<дата>[-метка].zip`
+    рядом с каталогом данных (ТЗ-97 Q11) — новой папки в домашнем
+    каталоге пользователя из этого не появляется."""
+    from rusterm.store.backup import (BackupError, create_backup,
+                                      default_archive_path)
     paths, conn = _open(args.root)
     conn.close()
     try:
-        summary = create_backup(paths, args.archive)
+        archive = args.archive or default_archive_path(paths, args.label)
+        summary = create_backup(paths, archive)
     except BackupError as e:
         print(f"backup: {e.reason}", file=sys.stderr)
         return 1
@@ -2537,7 +2543,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--root", default=None,
         help="каталог данных (по умолчанию — правила 2-4 из "
              "store/paths.resolve_root: $RUSTERM_DATA, ./rusterm.db, "
-             "~/.rusterm)")
+             "~/EquityLab/data)")
     sub = parser.add_subparsers(dest="command", required=False)
     sub.add_parser("init", help="создать каталог данных и применить миграции")
     p_ing = sub.add_parser("ingest", help="сбор; реальный источник — не дефолт")
@@ -2591,7 +2597,12 @@ def _build_parser() -> argparse.ArgumentParser:
                             "без флага doctor — только диагностика")
     p_bak = sub.add_parser("backup",
                            help="резервная копия каталога данных (ТЗ-22 J4)")
-    p_bak.add_argument("archive", help="путь zip-архива")
+    p_bak.add_argument("archive", nargs="?", default=None,
+                       help="путь zip-архива; без него — "
+                            "<каталог данных>/../backups/<дата>[-метка].zip")
+    p_bak.add_argument("--label", default=None,
+                       help="метка в имени копии (например before-demo); "
+                            "не путь: разделители запрещены")
     p_res = sub.add_parser("restore",
                            help="развернуть резервную копию (ТЗ-22 J4)")
     p_res.add_argument("archive", help="путь zip-архива")
@@ -2669,7 +2680,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_desk.add_argument(
         "--root", default=argparse.SUPPRESS,
         help="каталог данных (по умолчанию — те же правила, что у "
-             "CLI: $RUSTERM_DATA, ./rusterm.db, ~/.rusterm)")
+             "CLI: $RUSTERM_DATA, ./rusterm.db, ~/EquityLab/data)")
     p_desk.add_argument("--watchlist", default=None)
     p_ref = sub.add_parser("refresh",
                            help="инкрементальный проход по списку наблюдения (для cron)")
@@ -2742,8 +2753,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     # ТЗ-90 A5: каталог выбирает одна функция, а не дефолт парсера. До
     # этого CLI молчал про «.», а окно и .app смотрели только в
-    # $RUSTERM_DATA/~/.rusterm — `rusterm add` в каталоге проекта и
-    # `rusterm desktop` из него же открывали две разные базы.
+    # $RUSTERM_DATA и домашний запасной путь — `rusterm add` в каталоге
+    # проекта и `rusterm desktop` из него же открывали две разные базы.
     # `load_env` выше уже положил RUSTERM_DATA из ~/.rusterm.env в
     # окружение, поэтому правило 2 работает и для запуска из Finder.
     args.root, args.root_rule = resolve_root(args.root)

@@ -1093,7 +1093,7 @@ def run(root, watchlist_id=None, rule=1) -> int:
         # собранного бинарника доказывал правило поиска, а не только
         # «запустилось и не упало». С круга 111 номер правила в той же
         # строке: .app из Finder обязан показать, что взял его из
-        # ~/.rusterm.env, а не из ~/.rusterm.
+        # ~/.rusterm.env, а не из каталога данных по умолчанию (ступень 4).
         print(f"rusterm-app root={paths.root} (правило: {rule})",
               flush=True)
         from PySide6.QtCore import QTimer

@@ -15,7 +15,7 @@ def main(argv=None) -> int:
     parser.add_argument("--root", default=None,
                         help="каталог данных (по умолчанию — те же "
                              "правила, что у CLI: $RUSTERM_DATA, "
-                             "./rusterm.db, ~/.rusterm)")
+                             "./rusterm.db, ~/EquityLab/data)")
     parser.add_argument("--watchlist", default=None,
                         help="список наблюдения (по умолчанию первый)")
     args = parser.parse_args(argv)

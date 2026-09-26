@@ -11,6 +11,12 @@ os.environ — не меняется: тесты test_env.py продолжаю�
 Вторая часть изоляции — профили Hypothesis (ТЗ-82 E1, ADR-0024): они
 зарегистрированы здесь и только здесь, выбор делает переменная
 HYPOTHESIS_PROFILE. Ядро их не импортирует.
+
+Третья — подмена HOME на весь прогон (ТЗ-97 Q11, дверь P7): с тех пор
+как каталог данных по умолчанию стал `~/EquityLab/data`, тест без
+подменённого HOME писал бы в рабочую базу пользователя. Живой прогон
+(`-m live`) HOME не трогает: ему нужен настоящий `~/.rusterm.env` с
+ключами.
 """
 from __future__ import annotations
 
@@ -20,6 +26,7 @@ import pytest
 from hypothesis import settings
 
 from rusterm import env as env_module
+from tests import p7_home_isolation as p7_home
 
 # ТЗ-82 E1: default — детерминированный и быстрый, deep — редкий прогон
 # по требованию. database=None в обоих: база примеров по умолчанию
@@ -70,3 +77,45 @@ def _no_network_in_default_run(request, monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", _forbidden)
     yield
+
+
+# ── ТЗ-97 Q11: HOME подменён на весь прогон (дверь P7) ─────────────────────
+#
+# Сами правила — в `tests/p7_home_isolation.py` (без pytest), их проверяет
+# tests/test_task97_q11_home_clean.py; здесь только применение.
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _p7_isolated_home(request, tmp_path_factory):
+    """Один HOME на прогон (не на тест): Qt-кэш тогда создаётся один раз,
+    а страж ниже видит след всего набора, а не последнего теста."""
+    if p7_home.live_run_selected(request.config.getoption("markexpr")):
+        yield None
+        return
+    home = tmp_path_factory.mktemp("p7-home")
+    old_home = os.environ.get("HOME")
+    old_pythonpath = os.environ.get("PYTHONPATH")
+    os.environ["HOME"] = str(home)
+    inherited = p7_home.child_import_paths(old_home or "")
+    if inherited:
+        # дети считают user-site по новому HOME и потеряли бы пакеты —
+        # подробности в докстринге tests/p7_home_isolation.py
+        kept = [p for p in (old_pythonpath or "").split(os.pathsep) if p]
+        os.environ["PYTHONPATH"] = os.pathsep.join([*inherited, *kept])
+    try:
+        yield home
+    finally:
+        # Страж (Done when ТЗ-97 Q11): прогон всего набора не создал в
+        # подменённом HOME ничего, кроме разрешённого. Падение здесь —
+        # ошибка на teardown сессионной фикстуры: rc pytest != 0,
+        # поэтому приёмка (проверка «код возврата 0») его видит.
+        leftovers = p7_home.extra_entries(home)
+        for name, value in (("HOME", old_home), ("PYTHONPATH", old_pythonpath)):
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        assert not leftovers, (
+            f"прогон набора создал в подменённом HOME лишнее: {leftovers}\n"
+            f"каталог прогона: {home}\n"
+            f"разрешено: {sorted(p7_home.HOME_ALLOWED)}")

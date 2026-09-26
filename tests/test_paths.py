@@ -52,7 +52,9 @@ def test_default_rule_4_is_home(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("HOME", str(tmp_path))
     # пустой рабочий каталог: иначе nearby ./rusterm.db дал бы правило 3
     monkeypatch.chdir(tmp_path)
-    assert resolve_root() == (tmp_path / ".rusterm", 4)
+    # ТЗ-97 Q11: ступень 4 — видимый каталог пользователя, а не скрытая
+    # папка в ~ (пользователь 24.09 собрал всё в ~/EquityLab).
+    assert resolve_root() == (tmp_path / "EquityLab" / "data", 4)
 
 
 def test_load_config_missing_returns_defaults(tmp_path: Path):

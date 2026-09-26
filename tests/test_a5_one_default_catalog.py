@@ -16,6 +16,10 @@ env-файл — песочные):
 наружу: «открылась не та база» отличается от «здесь нет данных»
 строкой, а не догадкой. Шапка окна проверяется в
 tests/test_desktop_window.py — Qt сюда не пускает приёмка (пункт 6).
+
+С круга 135 (ТЗ-97 Q11) значение ступени 4 — каталог пользователя
+`~/EquityLab/data`; сам четырёхступенчатый порядок и номер не изменились,
+поэтому здесь проверяется именно он.
 """
 from __future__ import annotations
 
@@ -65,7 +69,7 @@ def test_the_four_row_table(catalog, monkeypatch):
         ("explicit", explicit, 1),
         ("RUSTERM_DATA", env_dir, 2),
         ("./rusterm.db", Path("."), 3),
-        ("home", catalog["home"] / ".rusterm", 4),
+        ("home", catalog["home"] / "EquityLab" / "data", 4),
     ]
     assert [r[2] for r in rows] == [1, 2, 3, 4]
     for case, want, rule in rows:
@@ -97,7 +101,7 @@ def test_rule_3_only_when_the_base_actually_lies_there(catalog,
     empty = catalog["tmp"] / "empty-dir"
     empty.mkdir()
     monkeypatch.chdir(empty)
-    assert resolve_root() == (catalog["home"] / ".rusterm", 4)
+    assert resolve_root() == (catalog["home"] / "EquityLab" / "data", 4)
 
 
 def test_the_env_file_line_is_rule_2_for_a_finder_launch(catalog,
@@ -154,5 +158,5 @@ def test_guard_no_second_default_for_the_data_root():
     assert readers == ["rusterm/store/paths.py"], readers
     fallbacks = sorted(str(p.relative_to(ROOT))
                        for p, text in sources.items()
-                       if 'home() / ".rusterm"' in text)
+                       if 'home() / "EquityLab"' in text)
     assert fallbacks == ["rusterm/store/paths.py"], fallbacks

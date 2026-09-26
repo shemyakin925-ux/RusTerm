@@ -99,7 +99,7 @@ def test_writing_modes_keep_creating(tmp_path):
     """Позитивный контроль: пишущие режимы поведение не меняют —
     metrics --record и doctor --fix создают каталог данных. Каталог
     показан явно (`--root .`): с ТЗ-90 A5 без базы в cwd молчаливый
-    выбор ушёл бы по правилу 4 в $HOME/.rusterm — там его проверяет
+    выбор ушёл бы по правилу 4 в $HOME/EquityLab/data — там его проверяет
     tests/test_b35_markets_readonly.py."""
     tree = _fresh_git_tree(tmp_path, "write-tree")
     done = _run(tree, "--root", ".", "metrics", "--record")

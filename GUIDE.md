@@ -52,7 +52,7 @@ $ python3 -m rusterm.cli --root /tmp/rusterm-guide demo
 Без `--root` каталог данных выбирается по одним правилам для CLI,
 окна и собранного `.app` (их держит `store/paths.resolve_root`):
 `RUSTERM_DATA` (окружение или `~/.rusterm.env`) → каталог, где уже
-лежит `rusterm.db` → `~/.rusterm`. Явный `--root` переопределяет все
+лежит `rusterm.db` → `~/EquityLab/data`. Явный `--root` переопределяет все
 три. Демо — единственное место, где программа создаёт синтетические
 данные, и она об этом честно говорит.
 
@@ -116,7 +116,7 @@ RUSTERM_DATA=/Users/you/equitylab
 ```
 
 Без неё каталог ищется по тем же правилам для всех троих:
-`RUSTERM_DATA` → каталог, где уже лежит `rusterm.db` → `~/.rusterm`
+`RUSTERM_DATA` → каталог, где уже лежит `rusterm.db` → `~/EquityLab/data`
 (§1). Двойной щелчок по `dist/EquityLab.app` открывает это же окно без
 терминала (§10.1), а `python3 -m rusterm.cli desktop` — с терминалом
 (§10).
@@ -333,7 +333,7 @@ usage: rusterm desktop [-h] [--root ROOT] [--watchlist WATCHLIST]
 options:
   -h, --help            show this help message and exit
   --root ROOT           каталог данных (по умолчанию — те же правила, что у
-                        CLI: $RUSTERM_DATA, ./rusterm.db, ~/.rusterm)
+                        CLI: $RUSTERM_DATA, ./rusterm.db, ~/EquityLab/data)
   --watchlist WATCHLIST
 ```
 
@@ -369,7 +369,7 @@ $ open dist/EquityLab.app
 Каталог данных приложение находит тем же путём, что и CLI — одной
 функцией `store/paths.resolve_root` (с круга 111): `--root`, затем
 `RUSTERM_DATA`, затем каталог, где уже лежит `rusterm.db`, затем
-`~/.rusterm`. Двойной щелчок — запуск без шелла, поэтому с круга 109
+`~/EquityLab/data`. Двойной щелчок — запуск без шелла, поэтому с круга 109
 `RUSTERM_DATA` читается и из `~/.rusterm.env`, из того же файла, откуда
 берутся ключи:
 
