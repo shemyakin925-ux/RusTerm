@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 129,
+ "holder": "coordinator",
+ "round": 130,
  "branch": "agent/night-11",
  "task": "agent/TASK-99.md",
  "report": "agent/REPORT-99.md",
- "note": "TASK-98 accepted (fresh clone 13/0). Disputed -> TASK-100 (K1 clock after stamping, K2 red verify keeps tree, K3 sibling stamp). Queue: 99 -> 100 -> 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-26T02:07:20Z",
+ "note": "TASK-99 delivered: J1 0902a22, J2 1c5e473, plus repair 8527f03 (J1 sandbox clock was frozen at import -> H2 refused a slow full run). Three Disputed asks need a ruling: the unborn-report shape (a/b/c), the H2-before-stamp order (yours: TASK-100 K1), status handed missing from AGENTS.md. Queue read from round 129 note: 100 -> 97 -> 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86; in TASK-97 skip Q12 row 1 (done in J1).",
+ "handed_by": "executor",
+ "handed_at": "2026-09-26T06:46:06Z",
  "paused": false,
  "finished": false
 }

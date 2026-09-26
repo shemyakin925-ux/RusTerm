@@ -187,8 +187,24 @@ Fix: `OLD_STATE` holds no clock at all; `_pre_hand_state(**extra)` stamps
 `updated_at` when each test builds its sandbox. Nothing was removed or
 weakened — tooth 2 still asserts the merged fields against `HEAD~1` and
 the freshness of `updated_at` within 120 s, teeth 5–6 go through the same
-helper. Measured after the fix: `6 passed` (rc=0); the full-suite proof is
-the acceptance run nested in this commit.
+helper. Measured after the fix: the module alone `6 passed` (rc=0), and
+the whole suite as the commit's own acceptance run — `Итог: пройдено 13,
+провалено 0`, `SELFCHECK OK`, commit `8527f03`.
+
+Two things the refusal taught, both about the harness rather than
+`relay.py`:
+
+- The commit that carries a `tests/` edit must declare the pin
+  substitution in `.git/COMMIT_EDITMSG` **before** `git commit` runs:
+  `agent/p1_rule.sh` reads the staged diff plus that file, and
+  `git commit -F msg.txt` writes `COMMIT_EDITMSG` only after the hook
+  passes. Measured: the first attempt died at
+  `SELFCHECK FAIL (P1): undeclared pin replacement in staged diff` — cheap
+  (before acceptance), but only because P1 runs first.
+- The J1 teeth live in the same 15-minute tolerance class as the real
+  hand: any fixture that pretends «we wrote STATE three minutes ago» has
+  to recompute that claim per test, because acceptance reaches this module
+  ~19 minutes after collection.
 
 ## Blocked
 
@@ -289,6 +305,8 @@ own commit.
 | first `relay.py hand` of round 129 | refused, `Итог: пройдено 11, провалено 2` (all 6 J1 teeth) |
 | `pytest -q -rf` whole suite, before the fixture fix | rc=1, J1 6 of 6 red on the H2 clock refusal — the defect above |
 | `pytest -q tests/test_task99_j1_hand_stamps_state.py` after the fix | `6 passed` (rc=0) |
+| first `git commit` of the repair (`-F msg.txt`) | `SELFCHECK FAIL (P1): undeclared pin replacement in staged diff` — before acceptance, so nothing was lost but the attempt |
+| the same commit with the declaration pre-written to `COMMIT_EDITMSG` | `Итог: пройдено 13, провалено 0`, `SELFCHECK OK` → `8527f03` |
 
 Mutation campaigns (`rt99-mut` scratch worktree, detached at `143a48c`,
 relay.py restored and byte-checked after each run; the worktree is
@@ -353,13 +371,14 @@ Status: DONE
   fake `updated_at` at import time, so a slow suite made the H2 clock gate
   red for the wrong reason. Fixed in `tests/test_task99_j1_hand_stamps_state.py`
   — no assertion removed or relaxed; see the section «Repaired while
-  handing over» above.
+  handing over» above. The repair is commit `8527f03`.
 - Numbers: J1 module 6 of 6, J2 module 8 of 8, relay neighbourhood 27 of
   27, campaigns M1–M6 and N1–N5 as tabled (each mutation but M6 reddens
   at least one tooth, and M6 is declared a lock in
   `## What not to trust`). Each item commit passed acceptance with
   «Итог: пройдено 13, провалено 0» and `SELFCHECK OK`; the repair commit
-  below carries its own acceptance run as the full-suite proof.
+  `8527f03` ran the same acceptance green over the whole suite, which is
+  the only place the fixed J1 teeth are proven.
 - Budgets held: network 0, LLM 0 — git transport (fetch/push) only.
 - Scratch cleanup: mutation worktree `rt99-mut` removed at the end of the
   shift; the campaign scripts live outside the repo
