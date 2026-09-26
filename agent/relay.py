@@ -285,6 +285,89 @@ def _stamp_working_state(stamp: dict) -> None:
     path.write_bytes(_state_bytes(base, stamp))
 
 
+# ── заготовка отчёта (ТЗ-101 L1) ─────────────────────────────────────────
+
+# Разделы, которые координатор читает первым делом (`DIGEST_SECTIONS`), и
+# которые требует `tests/test_report_sections.py`. `Runs` — не из стража:
+# без него отчёт теряет доказательную часть, а hand создаёт файл, который
+# приёмка следующей смены должна найти готовым.
+REPORT_SKELETON_SECTIONS = ("Done", "Blocked", "What not to trust", "Disputed",
+                            "Runs", "HANDOFF")
+REPORT_SKELETON_STATUS = "Status: NOT STARTED"
+
+
+def task_title(text: str | None) -> str:
+    """Заголовок ТЗ — текст после `# TASK-NNN — ` в первой строке-заголовке.
+    Пустая строка, если ТЗ нет: заготовка тогда остаётся с одним номером."""
+    if not text:
+        return ""
+    for line in text.splitlines():
+        if not line.startswith("# "):
+            continue
+        rest = line[2:].strip()
+        head = re.match(r"^[A-Z]+-\d+\s*[—-]\s*(.+)$", rest)
+        return (head.group(1) if head else rest).strip()
+    return ""
+
+
+def report_skeleton(report_rel: str, title: str) -> str:
+    """ТЗ-101 L1: заготовка отчёта, которую `hand` кладёт в коммит
+    эстафеты, если названного `--report` файла нет.
+
+    Корень (REPORT-99, Disputed 1): J1 научил `hand` штамповать STATE полями
+    `task`/`report`, но не создавать сам отчёт. Сдача на новый отчёт
+    оставляла STATE указывать в пустоту: `tests/test_state_report_tracked.py`
+    требует, чтобы отчёт, названный в STATE, лежал в этом коммите, а
+    `tests/test_report_sections.py` берёт из STATE файл для чтения — на всей
+    дистанции между hand и первым коммитом новой смены краснеют шесть узлов
+    (замер scratch-клона живой ветки, круг 133: `6 failed, 28 passed`).
+    Единственный доступный ответ был — создать отчёт приходящей стороне, то
+    есть открывать чужой круг своей рукой.
+
+    Разделы пустые, HANDOFF честно говорит «NOT STARTED»: страж пуста секции
+    не касается, а заполнителей в шаблоне нет ни одного — иначе
+    `test_handoff_carries_real_values_not_placeholders` краснел бы на файле,
+    который hand только что принёс.
+    """
+    head = f"# {Path(report_rel).stem}"
+    if title:
+        head += f" — {title}"
+    body = "\n".join(f"## {name}" for name in REPORT_SKELETON_SECTIONS)
+    return f"{head}\n\n{body}\n{REPORT_SKELETON_STATUS}\n"
+
+
+def outside_repo(rel: str) -> bool:
+    """`hand` теперь пишет файл, и путь обязан остаться в репозитории:
+    абсолютный путь, пустой или выходящий через `..` за корень — отказ, а не
+    запись по соседству со сменой (P7: песочница не пишет в `~`)."""
+    root = str(repo_root())
+    if not rel or Path(rel).is_absolute():
+        return True
+    target = os.path.normpath(os.path.join(root, rel))
+    return target != root and os.path.commonpath([root, target]) != root
+
+
+def _write_report_skeleton(root: Path, rel: str, task_rel: str | None) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = (root / task_rel).read_text(encoding="utf-8", errors="replace") \
+        if task_rel and (root / task_rel).is_file() else ""
+    path.write_text(report_skeleton(rel, task_title(text)), encoding="utf-8")
+
+
+def _report_rollback(root: Path, rel: str | None) -> None:
+    """Отказ передачи убирает заготовку: до `hand` этого файла в дереве не
+    было — создал его `hand`, ему и откатывать (тот же закон, что у штампа
+    STATE в ТЗ-99 J2)."""
+    if not rel:
+        return
+    try:
+        (root / rel).unlink()
+    except OSError:
+        pass
+    git("reset", "-q", "--", rel, check=False)
+
+
 def _state_backup(root: Path) -> tuple[bytes | None, str | None]:
     """ТЗ-99 J2: отказ откатывает BATON — и штамп J1 обязан откатывать
     тоже. Это второй файл, который `hand` пишет сам; оставить его в
@@ -315,7 +398,8 @@ def _state_restore(root: Path, backup: tuple[bytes | None, str | None]) -> None:
 
 
 def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
-               message: str, stamp: dict | None = None) -> str:
+               message: str, stamp: dict | None = None,
+               report: str | None = None) -> str:
     """Кладёт BATON.json и перечисленные файлы одним коммитом на ветку.
 
     Если ветка смены выкачана в текущем дереве — обычный add/commit/push.
@@ -327,6 +411,10 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
     дереве они пишутся в файл, в плюмбинге — достраиваются во временный
     индекс из блоба самой ветки: часы чужого рабочего дерева в коммит
     эстафеты не едут.
+
+    `report` (ТЗ-101 L1) — отчёт, который называет эстафета. Если его нет,
+    заготовка уезжает ЭТИМ ЖЕ коммитом: в дереве — файлом, в плюмбинге —
+    блобом, и ни там, ни там существующий отчёт не перезаписывается.
 
     Правило D2 для всех путей отказа в дереве: `agent/BATON.json`
     возвращается к HEAD, чужое в индексе не трогается. ТЗ-99 J2
@@ -362,6 +450,17 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
         backup = _state_backup(root) if stamp is not None else None
         if stamp is not None:
             _stamp_working_state(stamp)
+        # ТЗ-101 L1: отчёт, названный эстафетой, едет этим же коммитом. Без
+        # этого штамп J1 указывает STATE в пустоту до первого коммита новой
+        # смены и красит шесть стражей на чужом дереве. Файл создаётся,
+        # только если его нет: черновик приходящей стороны не затирается.
+        created_report: str | None = None
+        if report and not (root / report).is_file():
+            created_report = report
+            paths.append(report)
+            _write_report_skeleton(root, report, baton.get("task") or "")
+            print(f"hand: заготовка отчёта {report} создана и уезжает этим "
+                  "коммитом — заполнять той стороне, которая принимает ход")
         git("add", "--", *paths)
         try:
             git("commit", "--only", "-m", message, "--", *paths)
@@ -371,6 +470,7 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
             _baton_back_to_head()
             if backup is not None:
                 _state_restore(root, backup)
+            _report_rollback(root, created_report)
             die_kept("коммит эстафеты не прошёл. Ход не передан и работа не "
                      "сдана. Разберись (хук/индекс) и повтори: python3 "
                      f"agent/relay.py hand ... ({BATON_PATH} откатан к HEAD, "
@@ -390,6 +490,7 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
             _baton_back_to_head()
             if backup is not None:
                 _state_restore(root, backup)
+            _report_rollback(root, created_report)
             die_kept(f"push отклонён: {remote}/{branch} ушла вперёд. Коммит "
                      f"эстафеты снят, {BATON_PATH} откатан к HEAD, файлы на "
                      "месте. Перечитай relay.py status и повтори.", extra)
@@ -414,6 +515,17 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
             shown = git("show", f"{base}:{STATE_PATH}", check=False)
             blobs[STATE_PATH] = _state_bytes(shown.encode("utf-8") if shown
                                              else None, stamp)
+        if report and not git_ok("cat-file", "-e", f"{base}:{report}"):
+            # ТЗ-101 L1: в чужое дерево hand не пишет — заготовка существует
+            # только как блоб этого коммита. Отчёт, который на ветке уже
+            # лежит, не перезаписывается: его заполнила та смена.
+            task_rel = baton.get("task") or ""
+            text = (git("show", f"{base}:{task_rel}", check=False)
+                    if task_rel else "")
+            blobs[report] = report_skeleton(report, task_title(text)).encode(
+                "utf-8")
+            print(f"hand: заготовка отчёта {report} уезжает этим коммитом — "
+                  "в рабочем дереве её нет, она в коммите")
         for rel, data in blobs.items():
             sha = git("hash-object", "-w", "--stdin", stdin=data)
             git("update-index", "--add", "--cacheinfo", f"100644,{sha},{rel}",
@@ -1101,11 +1213,21 @@ def cmd_hand(a: argparse.Namespace) -> int:
         f"Эстафета: круг {new['round']}, ход у {a.to}"
         + (f" — {new['task']}" if new.get("task") else "")
     )
+    # ТЗ-101 L1: названный отчёт, которого нет, hand создаёт сам. Путь
+    # обязан остаться внутри репозитория: hand теперь пишет файл, и щель
+    # проверяется до приёмки — красная приёмка не должна оплачивать
+    # заведомо отказанный вызов (~19 минут на живой ветке).
+    report = new.get("report") or ""
+    if (report and outside_repo(report)
+            and not (repo_root() / report).is_file()):
+        die_kept(f"--report вне репозитория: {report!r}. Ход не передан и "
+                 "работа не сдана. Укажи путь внутри репозитория (обычно "
+                 "agent/REPORT-N.md) и повтори.", add)
     # ТЗ-99 J1: STATE едет этим же коммитом — иначе приходящая сторона
     # начинает круг с чужими часами и чужим отчётом и красит свой же
     # страж до первого коммита.
     sha = push_baton(a.remote, branch, new, add, message,
-                     stamp=_hand_state_stamp(new))
+                     stamp=_hand_state_stamp(new), report=report or None)
     # ТЗ-42 J1: пуш — не доказательство. Перечитываем BATON с origin:
     # ход считается переданным, только если там теперь держатель a.to.
     fetch(a.remote, branch)
