@@ -1602,23 +1602,34 @@ def cmd_add(args) -> int:
 
 
 def cmd_reparse(args) -> int:
-    """Заново разобрать сохранённые companyfacts нынешним разборщиком и
-    выровнять basis фактов (регрессия ТЗ-78 Y2: дата обложки dei делала
-    каждый факт restated). Сеть не нужна; меняется только basis. После
-    — пересчитайте снапшоты: rusterm snapshot --watchlist <id>."""
-    from rusterm.core.reparse import rebasis_companyfacts
+    """Пересобрать факты из сохранённых companyfacts нынешним разборщиком
+    и выровнять их basis (ТЗ-97 Q12 (6): раньше правил только basis и
+    обходил объекты, из которых не разобрано ни одного факта; вердикт —
+    дописывать факты теми же дверями, что и сбор). Сеть не нужна, 0
+    запросов. После — пересчитайте снапшоты: rusterm snapshot
+    --watchlist <id>."""
+    from rusterm.core.reparse import rebuild_companyfacts
 
     paths, conn = _open(args.root)
     repos = RepoRegistry(conn, paths)
-    res = rebasis_companyfacts(repos)
+    res = rebuild_companyfacts(repos)
     print(f"повторный разбор companyfacts: объектов {res.objects}, "
           f"фактов сверено {res.facts_checked}")
+    print(f"фактов добавлено: {res.added} (вне карты концептов: "
+          f"{res.unmapped})")
     print(f"basis исправлен у {res.changed}: в as_reported "
-          f"{res.to_as_reported}, в restated {res.to_restated}; "
-          f"не найдено среди сохранённых {res.unmatched}")
+          f"{res.to_as_reported}, в restated {res.to_restated}")
+    if res.ownerless:
+        print(f"пропущено объектов без эмитента: {res.ownerless} — "
+              f"факту некому принадлежать; выполните rusterm add "
+              f"--ticker ... --market ...")
+    if res.unlocatable:
+        print(f"пропущено объектов без указателей в сохранённых фактах: "
+              f"{res.unlocatable} — сверять нечем, вставка удвоила бы "
+              f"строки")
     for line in res.unreadable:
         print(f"не прочитан сырой объект: {line}")
-    if res.changed:
+    if res.added or res.changed:
         print("дальше: пересчитайте снапшоты — rusterm snapshot "
               "--watchlist <id> (или --ticker T --market M)")
     return 0 if not res.unreadable else 1
@@ -2695,8 +2706,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_chat.add_argument("--instrument", dest="instrument", default=None,
                         help="к какому инструменту относим расшифровку")
     sub.add_parser("reparse",
-                   help="заново разобрать сохранённые companyfacts и "
-                        "выровнять basis фактов (без сети)")
+                   help="заново разобрать сохранённые companyfacts: "
+                        "дописать недостающие факты и выровнять basis "
+                        "(без сети)")
     p_cad = sub.add_parser("cadence",
                            help="кадентность котировок: состояние, дыры,"
                                 " срок опроса (ТЗ-31 C5)")

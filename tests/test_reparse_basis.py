@@ -3,7 +3,8 @@
 Регрессия ТЗ-78 Y2 записала у скачанных companyfacts почти все
 финансовые факты как restated. Исправленный разборщик уже скачанное не
 лечит: сбор пропускает ответ, который лежит в хранилище. rusterm
-reparse заново разбирает сохранённые ответы и выравнивает только basis.
+реparse заново разбирает сохранённые ответы: дописывает недостающие
+факты (ТЗ-97 Q12 (6)) и выравнивает basis уже сохранённых.
 На копии базы пользователя: 102 545 фактов вернулись в as_reported, мер
 со значением в последних снапшотах 334 -> 592.
 """
@@ -12,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 import uuid
 
-from rusterm.core.reparse import rebasis_companyfacts
+from rusterm.core.reparse import rebuild_companyfacts
 from rusterm.parsers import CompanyFactsParser
 from rusterm.pipeline import apply_concept_map
 from rusterm.store.db import apply_migrations
@@ -38,6 +39,7 @@ def _base(tmp_path):
     payload = _payload(with_cover=True)
     obj = RawRepo(paths, conn).put(
         payload, provider="edgar", block="fundamentals",
+        instrument_id="US-ORCL",
         url="https://data.sec.gov/api/xbrl/companyfacts/CIK0001341439.json")
     facts = []
     for fact in CompanyFactsParser().parse(
@@ -65,7 +67,7 @@ def test_reparse_restores_as_reported(tmp_path):
     repos, conn = _base(tmp_path)
     healthy = _snapshot_of_facts(conn)
     _break_like_the_regression(conn)
-    res = rebasis_companyfacts(repos)
+    res = rebuild_companyfacts(repos)
     assert res.objects == 1
     assert res.to_as_reported > 0 and res.to_restated == 0
     assert _snapshot_of_facts(conn) == healthy
@@ -75,7 +77,7 @@ def test_reparse_changes_only_basis(tmp_path):
     repos, conn = _base(tmp_path)
     values_before = {k: v[1] for k, v in _snapshot_of_facts(conn).items()}
     _break_like_the_regression(conn)
-    rebasis_companyfacts(repos)
+    rebuild_companyfacts(repos)
     values_after = {k: v[1] for k, v in _snapshot_of_facts(conn).items()}
     assert values_after == values_before
 
@@ -83,14 +85,14 @@ def test_reparse_changes_only_basis(tmp_path):
 def test_reparse_is_idempotent(tmp_path):
     repos, conn = _base(tmp_path)
     _break_like_the_regression(conn)
-    rebasis_companyfacts(repos)
-    second = rebasis_companyfacts(repos)
+    rebuild_companyfacts(repos)
+    second = rebuild_companyfacts(repos)
     assert second.changed == 0
 
 
 def test_healthy_base_is_left_alone(tmp_path):
     repos, conn = _base(tmp_path)
     before = _snapshot_of_facts(conn)
-    res = rebasis_companyfacts(repos)
+    res = rebuild_companyfacts(repos)
     assert res.changed == 0
     assert _snapshot_of_facts(conn) == before

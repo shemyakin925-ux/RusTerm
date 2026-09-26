@@ -438,14 +438,28 @@ class FactRepo:
                           [(basis, fid) for fid, basis in changes])
             return self.conn.total_changes - before
 
-    def companyfacts_sources(self) -> List[str]:
-        """sha256 сырых объектов companyfacts, из которых есть факты."""
-        rows = self.conn.execute(
-            "SELECT DISTINCT r.sha256 FROM raw_object r "
+    def companyfacts_objects(self) -> List[sqlite3.Row]:
+        """(sha256, instrument_id) ВСЕХ сохранённых companyfacts.
+
+        ТЗ-97 Q12 (6): прежняя выборка отдавала только те объекты, из
+        которых хоть один факт уже разобран, — то есть объект без единого
+        факта не разбирался никогда. Массовое же состояние базы
+        пользователя (замер 26.09 на копии: 7 объектов из 44 без
+        dei-строк, ответов от 21.09) пропускалось другим: прежний прогон
+        правил у сохранённых фактов только basis, а сбор не трогает ответ,
+        который уже скачан (дедупликация по sha256).
+        """
+        return self.conn.execute(
+            "SELECT r.sha256, r.instrument_id FROM raw_object r "
             "WHERE r.provider = 'edgar' AND r.url LIKE '%/companyfacts/%' "
-            "AND EXISTS (SELECT 1 FROM fact f "
-            "WHERE f.source_ref = r.sha256)").fetchall()
-        return [r[0] for r in rows]
+            "ORDER BY r.sha256").fetchall()
+
+    def count_for_source(self, source_ref: str) -> int:
+        """Сколько фактов ссылается на сырой объект — нужно там, где
+        указатели в локаторах не работают (см. reparse)."""
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM fact WHERE source_ref = ?",
+            (source_ref,)).fetchone()[0]
 
 
 class SnapshotRepo:
