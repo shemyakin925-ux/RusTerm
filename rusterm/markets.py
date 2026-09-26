@@ -80,6 +80,20 @@ def provider_channel(provider: str) -> str | None:
     return PROVIDER_CHANNELS.get(provider)
 
 
+def channel_degree_label(provider: str, produced: str | None,
+                         key_env: str | None, key_present: bool) -> str:
+    """Степень канала для показа (ТЗ-61 F4): прежде всего то, что
+    канал произвёл (E4); канал, которого нет без ключа, а ключа нет —
+    честное «нет ключа», не обещание мер; нечего и ключ есть — «—».
+    key_env/key_present подставляет вызывающий (providers.channel_key_env
+    и окружение после load_env) — подстановка проверяется тестом."""
+    if produced and produced != "—":
+        return produced
+    if provider_channel(provider) is None and key_env and not key_present:
+        return "нет ключа"
+    return "—"
+
+
 _KNOWN: dict[str, Market] = {m.code: m for m in MARKETS}
 
 

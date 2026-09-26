@@ -7,12 +7,29 @@ ENV_NAMES из os.environ до теста; monkeypatch возвращает вс
 (monkeypatch.setenv). Контракт load_env — писать в настоящий
 os.environ — не меняется: тесты test_env.py продолжают это доказывать
 уже со своим восстанавливающим fixture.
+
+Вторая часть изоляции — профили Hypothesis (ТЗ-82 E1, ADR-0024): они
+зарегистрированы здесь и только здесь, выбор делает переменная
+HYPOTHESIS_PROFILE. Ядро их не импортирует.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
+from hypothesis import settings
 
 from rusterm import env as env_module
+
+# ТЗ-82 E1: default — детерминированный и быстрый, deep — редкий прогон
+# по требованию. database=None в обоих: база примеров по умолчанию
+# пишется каталогом .hypothesis/ рабочего дерева, то есть файлом вне git
+# (P3) и в домашнем каталоге того, кто запустил прогон (P7).
+settings.register_profile("default", derandomize=True, database=None,
+                          deadline=None, max_examples=200)
+settings.register_profile("deep", derandomize=False, database=None,
+                          deadline=None, max_examples=5000)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +42,10 @@ def _isolated_rusterm_env(tmp_path, monkeypatch):
     monkeypatch.setenv("RUSTERM_ENV_FILE", str(env_file))
     for name in env_module.ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
+    # Кэш происхождений у load_env процесса, а не теста: без сброса
+    # report()/keys_view() читают origins чужого теста мимо
+    # изолированного окружения (красила пара test_env + keys_view).
+    env_module._LAST_ORIGINS = None
     yield
 
 

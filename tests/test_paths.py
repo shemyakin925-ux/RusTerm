@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from rusterm.store.config import load_config, write_default_config
-from rusterm.store.paths import AppPaths, default_root, ensure_app_dir
+from rusterm.store.paths import (AppPaths, ensure_app_dir, resolve_root)
 
 
 def test_paths_from_root_creates_all_dirs(tmp_path: Path):
@@ -40,15 +40,19 @@ def test_paths_db_path_points_to_root():
     assert paths.db_path.resolve() == Path("/tmp/rusterm-test/rusterm.db").resolve()
 
 
-def test_default_root_uses_env(monkeypatch, tmp_path: Path):
+def test_default_rule_2_is_the_environment(monkeypatch, tmp_path: Path):
+    """ТЗ-90 A5: каталог из окружения — правило 2, номер печатается
+    наружу в `status` и в шапке окна."""
     monkeypatch.setenv("RUSTERM_DATA", str(tmp_path))
-    assert default_root() == tmp_path
+    assert resolve_root() == (tmp_path, 2)
 
 
-def test_default_root_fallback(monkeypatch, tmp_path: Path):
+def test_default_rule_4_is_home(monkeypatch, tmp_path: Path):
     monkeypatch.delenv("RUSTERM_DATA", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
-    assert default_root() == tmp_path / ".rusterm"
+    # пустой рабочий каталог: иначе nearby ./rusterm.db дал бы правило 3
+    monkeypatch.chdir(tmp_path)
+    assert resolve_root() == (tmp_path / ".rusterm", 4)
 
 
 def test_load_config_missing_returns_defaults(tmp_path: Path):

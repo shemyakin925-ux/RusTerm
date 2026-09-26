@@ -87,8 +87,14 @@ WINDOW_TITLE = "EquityLab"
 ANSWER_MAX_WIDTH = 960
 
 
-def _build_window(repos, paths, watchlist_id=None):
-    """Собрать окно поверх открытого (возможно пустого) каталога."""
+def _build_window(repos, paths, watchlist_id=None, rule=1):
+    """Собрать окно поверх открытого (возможно пустого) каталога.
+
+    `rule` — номер правила из `store.paths.resolve_root`, по которому
+    выбран этот каталог (1 — явно назван). Шапка печатает ту же строку,
+    что и `rusterm status`: «открылась не та база» и «в этой базе нет
+    данных» должны различаться словами, а не догадкой (ТЗ-90 A5).
+    """
     window = _MainWindow()
     window.setWindowTitle(WINDOW_TITLE)
     central = QWidget()
@@ -98,10 +104,21 @@ def _build_window(repos, paths, watchlist_id=None):
     # ── шапка ──────────────────────────────────────────────────────
     header = QHBoxLayout()
     header.addWidget(QLabel(WINDOW_TITLE))
+    root_rule_label = QLabel(objectName="root_rule")
+    root_rule_label.setText(f"каталог данных: {paths.root} "
+                            f"(правило: {rule})")
+    header.addWidget(root_rule_label)
     header.addStretch(1)
     status = QLabel(objectName="status")
     header.addWidget(status)
     root_layout.addLayout(header)
+    # ТЗ-95 F1: отставшая от кода база — не падение окна, а одна строка
+    # под шапкой: какие схемы сошлись и какой командой поднять базу.
+    # Окно по-прежнему только читает (ADR-0023).
+    schema_notice = QLabel(objectName="schema_notice")
+    schema_notice.setWordWrap(True)
+    schema_notice.setVisible(False)
+    root_layout.addWidget(schema_notice)
 
     body = QSplitter(Qt.Orientation.Horizontal)
     root_layout.addWidget(body, 1)
@@ -195,6 +212,10 @@ def _build_window(repos, paths, watchlist_id=None):
     source_panel = QLabel(objectName="source_panel")
     source_panel.setWordWrap(True)
     center_layout.addWidget(source_panel)
+    stale_button = QPushButton(objectName="stale_button")
+    stale_button.setText("показать устаревшие входы")
+    stale_button.setVisible(False)
+    center_layout.addWidget(stale_button)
     open_raw_button = QPushButton(objectName="open_raw_button")
     open_raw_button.setText("открыть сохранённый ответ")
     open_raw_button.setEnabled(False)
@@ -300,7 +321,8 @@ def _build_window(repos, paths, watchlist_id=None):
     state = {"companies": [], "selected": None, "table": None,
              "watchlist": watchlist_id, "open_raw_target": None,
              "industry": None, "peer": None, "pinned": set(),
-             "session": None, "chat_reason": None, "worker": None}
+             "session": None, "chat_reason": None, "worker": None,
+             "source_measure_row": None, "stale_detail": False}
 
     collect_button.setText("Собрать")
     cancel_button.setText("Отменить")
@@ -309,10 +331,15 @@ def _build_window(repos, paths, watchlist_id=None):
     def repaint_header() -> None:
         if repos is None:
             status.setText("")
+            schema_notice.setText("")
+            schema_notice.setVisible(False)
             return
         info = data.header_info(repos)
         budget = desktop_actions.budget_view(repos)
         schema = info["schema_version"]
+        notice = info["schema_notice"]
+        schema_notice.setText(notice or "")
+        schema_notice.setVisible(bool(notice))
         status.setText(
             f"схема {schema if schema is not None else '—'}"
             f" · запросов сегодня {budget['used_today']}"
@@ -349,8 +376,15 @@ def _build_window(repos, paths, watchlist_id=None):
             sector_item.setExpanded(node["sector"] in expanded)
         present = {c["market"] for c in state["companies"]
                    if c["market"] != "—"}
-        markets_line.setText(
-            f"{len(present)} из {len(MARKET_CODES)} рынков")
+        # ТЗ-60 E4: степень канала теми же словами, что `rusterm markets`
+        degrees = data.channel_degrees(repos)
+        with_degree = sorted(
+            c for c in present if degrees.get(c, "—") != "—")
+        line = f"{len(present)} из {len(MARKET_CODES)} рынков"
+        if with_degree:
+            line += " · " + ", ".join(
+                f"{c} — {degrees[c]}" for c in with_degree)
+        markets_line.setText(line)
 
     def repaint_watchlists() -> None:
         """C5.1: списки в переключателе, версия и состав видны."""
@@ -366,8 +400,14 @@ def _build_window(repos, paths, watchlist_id=None):
                 f"{choice['name']} ({choice['watchlist_id']})",
                 userData=choice["watchlist_id"])
         index = watchlist_box.findData(state.get("watchlist"))
+        if index < 0 and choices:
+            # ТЗ-72 Д2: выбранного нет в перечне (не передан или устарел)
+            # — показан первый список, и подпись говорит про него же,
+            # а не «списков нет» при видимом выборе
+            index = 0
         if index >= 0:
             watchlist_box.setCurrentIndex(index)
+            state["watchlist"] = choices[index]["watchlist_id"]
         watchlist_box.blockSignals(False)
         current = next((c for c in choices
                         if c["watchlist_id"] == state.get("watchlist")),
@@ -389,6 +429,8 @@ def _build_window(repos, paths, watchlist_id=None):
 """
         watchlist_id = state.get("watchlist")
         if repos is None or not watchlist_id:
+            QMessageBox.warning(window, "список",
+                                "списков нет; " + data.NO_WATCHLISTS_HINT)
             return
         text, ok = QInputDialog.getText(
             window, "добавить бумагу",
@@ -411,7 +453,13 @@ def _build_window(repos, paths, watchlist_id=None):
         доступна."""
         watchlist_id = state.get("watchlist")
         selected = state.get("selected")
-        if repos is None or not watchlist_id or not selected:
+        if repos is None or not watchlist_id:
+            QMessageBox.warning(window, "список",
+                                "списков нет; " + data.NO_WATCHLISTS_HINT)
+            return
+        if not selected:
+            QMessageBox.warning(window, "удаление",
+                                "выберите бумагу в дереве слева")
             return
         outcome = data.remove_instruments(repos, watchlist_id,
                                           [selected["instrument_id"]])
@@ -428,6 +476,8 @@ def _build_window(repos, paths, watchlist_id=None):
         аудита; без подтверждения слой данных откажет словами."""
         watchlist_id = state.get("watchlist")
         if repos is None or not watchlist_id:
+            QMessageBox.warning(window, "список",
+                                "списков нет; " + data.NO_WATCHLISTS_HINT)
             return
         ids = [c["instrument_id"] for c in state["companies"]]
         outcome = data.remove_instruments(repos, watchlist_id, ids)
@@ -468,7 +518,19 @@ def _build_window(repos, paths, watchlist_id=None):
         _repaint_industry()
         repaint_quality()
         repaint_settings()
-        source_panel.setText("клик по ячейке — панель источника")
+        # ТЗ-75 V1: истории нет — под таблицей исполнимая строка
+        # «посчитать ряд одним действием», а не стена пустых колонок;
+        # ТЗ-72 S5: тонкий источник — слова вместо стены прочерков;
+        # ТЗ-81 B2: колонок меньше запрошенных — словами почему
+        source_panel.setText(info.get("suggestion")
+                             or " · ".join(x for x in
+                                           (info.get("history_note"),
+                                            info.get("summary_line")) if x)
+                             or "клик по ячейке — панель источника")
+        # ТЗ-72 Д4: панель источника новой бумаги — свёрнутая
+        state["source_measure_row"] = None
+        state["stale_detail"] = False
+        stale_button.setVisible(False)
         collect_button.setEnabled(state["worker"] is None)
         for button in (export_csv_button, export_md_button,
                        save_png_button):
@@ -616,7 +678,7 @@ def _build_window(repos, paths, watchlist_id=None):
 
     def repaint_settings() -> None:
         """C9: ключи без значений (откуда и зачем), лимиты из
-        реестра с оверрайдами config.toml, каталог данных."""
+        реестра с оверрайдами из конфигурации ядра, каталог данных."""
         if repos is None:
             keys_label.setText("настроек нет — базы нет")
             limits_table.setRowCount(0)
@@ -697,7 +759,7 @@ def _build_window(repos, paths, watchlist_id=None):
         outcome = data.set_host_rate_limit(paths, entry["host"], value)
         if not outcome["ok"]:
             QMessageBox.warning(window, "лимит хоста",
-                                "config.toml не принял правку")
+                                "дверь конфигурации не приняла правку")
         repaint_settings()
 
     limits_table.cellDoubleClicked.connect(on_limit_edit)
@@ -710,15 +772,36 @@ def _build_window(repos, paths, watchlist_id=None):
         if target:
             QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
+    def show_source_panel(detail: bool) -> None:
+        """ТЗ-72 Д4: панель источника перерисовывается с тем же рядом
+        мер — свёрнуто или с полным перечнем устаревших входов."""
+        info = state["table"]
+        measure_row = state.get("source_measure_row")
+        if info is None or repos is None or measure_row is None:
+            return
+        view = data.source_panel_view(repos, paths, measure_row,
+                                      instrument_id=info["instrument_id"],
+                                      stale_detail=detail)
+        source_panel.setText(view["text"])
+        state["open_raw_target"] = view["open_target"]
+        open_raw_button.setEnabled(view["open_target"] is not None)
+        count = view["stale_count"]
+        stale_button.setVisible(count > 0)
+        stale_button.setText(
+            f"скрыть устаревшие входы: {count}" if detail
+            else f"показать устаревшие входы: {count}")
+
     def on_cell_clicked(row: int, _column: int) -> None:
         info = state["table"]
         if info is None or repos is None:
             return
-        measure_row = info["measures"][row]
-        view = data.source_panel_view(repos, paths, measure_row)
-        source_panel.setText(view["text"])
-        state["open_raw_target"] = view["open_target"]
-        open_raw_button.setEnabled(view["open_target"] is not None)
+        state["source_measure_row"] = info["measures"][row]
+        state["stale_detail"] = False
+        show_source_panel(False)
+
+    def on_toggle_stale() -> None:
+        state["stale_detail"] = not state.get("stale_detail")
+        show_source_panel(state["stale_detail"])
 
     def setup_chat() -> None:
         if repos is None:
@@ -744,13 +827,9 @@ def _build_window(repos, paths, watchlist_id=None):
         переживают перезапуск окна — читаются из базы."""
         chat_sessions_box.blockSignals(True)
         chat_sessions_box.clear()
-        sessions = data.chat_sessions(repos) if repos else None
-        if sessions is None:
-            chat_sessions_box.addItem(
-                "прошлые разговоры: ждёт двери list_sessions в store "
-                "(Disputed REPORT-C7)", userData=None)
-        else:
-            for session in sessions:
+        chat_sessions_box.addItem("прошлые разговоры", userData=None)
+        if repos is not None:
+            for session in data.chat_sessions(repos):
                 chat_sessions_box.addItem(
                     f"{session['session_id'][:8]}… · "
                     f"{session['calls']} вызов.",
@@ -899,6 +978,7 @@ def _build_window(repos, paths, watchlist_id=None):
     industry_measure_box.currentIndexChanged.connect(
         lambda _i: apply_industry_chart())
     table.cellClicked.connect(on_cell_clicked)
+    stale_button.clicked.connect(on_toggle_stale)
     open_raw_button.clicked.connect(on_open_raw)
     question_line.returnPressed.connect(on_ask)
     chat_sessions_box.currentIndexChanged.connect(on_session_open)
@@ -912,9 +992,22 @@ def _build_window(repos, paths, watchlist_id=None):
         answer_label.setText(message)
         repaint_sidebar("")
     else:
-        state["companies"] = data.sidebar_companies(repos, watchlist_id)
+        # ТЗ-72 Д2: переключатель синхронизируется до боковой панели,
+        # чтобы видимый список и состав слева были про одно и то же
+        repaint_watchlists()
+        if data.watchlist_choices(repos):
+            state["companies"] = data.sidebar_companies(
+                repos, state["watchlist"])
+        else:
+            # ТЗ-72 S4: списков нет, инструменты есть — окно показывает
+            # инструменты и предлагает собрать список одной командой
+            state["companies"] = data.all_instruments(repos)
+            if state["companies"]:
+                company_header.setText(
+                    f"списков нет; показаны все инструменты базы — "
+                    f"{data.NO_WATCHLISTS_HINT}")
         if not state["companies"]:
-            company_header.setText(data.empty_watchlist_message())
+            company_header.setText(data.empty_base_instruments_message())
         repaint_sidebar("")
     repaint_watchlists()
     repaint_settings()
@@ -973,8 +1066,12 @@ def _repaint_measures(box, info: dict) -> None:
     box.blockSignals(False)
 
 
-def run(root, watchlist_id=None) -> int:
-    """Точка входа python3 -m rusterm.desktop: только чтение."""
+def run(root, watchlist_id=None, rule=1) -> int:
+    """Точка входа python3 -m rusterm.desktop: только чтение.
+
+    `rule` — номер правила поиска каталога (см. `_build_window`);
+    корень, который назвал сам пользователь, — правило 1.
+    """
     import os as _os
     if not QT_AVAILABLE:
         print("PySide6 не установлен: pip install 'rusterm[desktop]'",
@@ -986,12 +1083,19 @@ def run(root, watchlist_id=None) -> int:
         from rusterm.store.repos import RepoRegistry
         repos = RepoRegistry(conn, paths)
     app = QApplication.instance() or QApplication([])
-    window = _build_window(repos, paths, watchlist_id)
+    window = _build_window(repos, paths, watchlist_id, rule)
     window.resize(1280, 800)
     window.show()
     if _os.environ.get("RUSTERM_APP_SMOKE"):
         # C10.4: smoke-прогон сборки — окно стартовало и закрывается
         # само; в обычной работе переменной нет и окно живёт
+        # ТЗ-81 B3: строка о том, какой каталог открыт, — чтобы прогон
+        # собранного бинарника доказывал правило поиска, а не только
+        # «запустилось и не упало». С круга 111 номер правила в той же
+        # строке: .app из Finder обязан показать, что взял его из
+        # ~/.rusterm.env, а не из ~/.rusterm.
+        print(f"rusterm-app root={paths.root} (правило: {rule})",
+              flush=True)
         from PySide6.QtCore import QTimer
         QTimer.singleShot(1200, window.close)
     code = app.exec()

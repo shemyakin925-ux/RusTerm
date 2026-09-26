@@ -5,19 +5,411 @@ reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this
 file is a bug — say so in your report.
 
-Last updated: 19.09.2026, after round 69 on `agent/night-11`. Accepted:
-TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-57. Acceptance on the
-head of round 69 in a fresh linked worktree: **13/0, exit 0, Принято**.
-Round-69 verdicts on the eight REPORT-57 questions are in `TASK-58` §C0
-and bind every later task. Two of them are standing rules:
-**(1) the 10:00 Danang stop is the NIGHT shift's rule** — a baton handed
-in daytime means work the task list, not the clock; **(2) `agent/BACKLOG.md`
-is coordinator-owned** — the executor names «B<N> closed by <sha>» in the
-report and the coordinator edits the file. The ТЗ-57 permission to the
-contrary was a coordinator error.
-**Open defect with a verdict: `clip()` in `effective_tax` invented 0.0**
-from AMBEV's true ≈23.8% (signed CVM line 3.08) — a measure must be
-honest or refuse; fixed by TASK-58 C4, first in priority.
+Last updated: 25.09.2026, round 122 on `agent/night-11`.
+
+**25.09 — current state (read this block first; older blocks below are history).**
+- **Round 122 (TASK-96) accepted**: fresh-clone acceptance 13/0; one
+  assert line changed (guide block count 17→18, explicit). `rusterm
+  follow` runs add→ingest→prices→snapshot via real commands. Disputed
+  1–7 all upheld; the work is TASK-97 Q12.
+- **coord/sectors merged (`5a20cd6`)**: `rusterm peers set|show`,
+  `core/peer_sets.peer_inputs` → snapshot pass 2 has real percentiles.
+- **The coordinator writes no product code any more** (user, 24.09);
+  everything goes through TASK-97.
+- **User decisions 24.09**: industry comparison window 2 years (Q8);
+  **TTM for every flow**, latest annual only as a *marked* fallback
+  (Q10); nothing new in `~` (Q11).
+- **User's folder since 25.09: `~/EquityLab/`** — `app/` (clone at
+  `agent/night-11`, run by `~/Desktop/EquityLab.command`), `data/`
+  (the real base, 44 papers, schema 45; was `~/equitylab`),
+  `backups/`, `archive/` (old `~/.rusterm`, first `~/RusTerm` draft).
+  Code default root is still `~/.rusterm` until Q11 lands.
+- **Twelve Data**: `/splits` `/dividends` are paid-plan only (403) —
+  not bought (ADR-0018); since 24.09 22:20 the key answers 401 on
+  `/time_series` — user must re-check the key.
+- **Round 124 (TASK-88) accepted**, fresh clone 13/0: verify uses a unique tree per run; L3/L2 teeth on a literal log (3 asserts replaced under a declared ЗАМЕНА-БУЛАВКИ, stronger). Disputed 1–5 upheld → TASK-98 (H1–H4); #5: the hand verdict is recorded here by the coordinator.
+- **Round 126 (TASK-89) accepted**, fresh clone 13/0: coordinator commits are not implementation for L3; hand does not leave the baton staged. Disputed → TASK-99 (hand stamps STATE; replaces TASK-97 Q12 row 1).
+- **Round 128 (TASK-98) accepted**, fresh clone 13/0: skill names the verify default; hand checks STATE clock; verify removes only its stamped trees; p6_rule.sh stops growing. Disputed → TASK-100. Standing rule: **the Done-when gate governs** when it is wider than the item body.
+- **Round 130 (TASK-99) accepted**, fresh clone 13/0: hand stamps STATE (`status: handed`); refused hand names staged files. Disputed → TASK-101 (hand creates a missing report skeleton); AGENTS.md knows `handed`. Until TASK-101 lands the coordinator commits the next REPORT skeleton before `hand`.
+- **Round 132 (TASK-100) accepted**, fresh clone 13/0: hand stamps the clock itself (guard is now «stampable STATE»); red verify keeps its tree; owner stamp is a sibling. 27 asserts replaced under declared ЗАМЕНА-БУЛАВКИ for intentionally changed behaviour, stronger (29+42 new). No Disputed.
+- **Round 134 (TASK-101) accepted**, fresh clone 13/0, 0 asserts removed: hand writes a missing report skeleton into the baton commit. Its extra refusal of an outside-repo `--report` is kept as part of L1; close-out inside the baton commit is allowed. The relay-hygiene series (98–101) is closed.
+- Queue: **97** → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
+
+
+**Round 100 (TASK-75) is accepted**, measured in a clean clone of
+`f926b43`: acceptance «пройдено 11, провалено 2» where **both reds are
+one test**, `test_done_items_have_code_commits_in_round` (L3); no
+assert removed (`git diff e1889ee..f926b43 -- tests/ | grep -c
+'^-.*assert'` → 0); `acceptance.sh`, `selfcheck.sh` and
+`agent/githooks/` untouched. The desktop now shows measure history,
+honest watchlist labels, a collapsed stale-input line, an executable
+`rusterm add` refusal, a non-empty window without watchlists and a
+worded thin-source summary; every one of the window's 21 controls is
+driven by a press test.
+
+**Two guard defects were the executor's finding and the coordinator's
+fix** (they deadlocked the relay itself, since `relay.py hand` runs
+acceptance and refuses on red — so neither side could pass the baton):
+L3 split `git log --name-only` on a blank line, but git puts that
+blank AFTER the subject, so a block's first line was a FILENAME and no
+subject ever matched — the guard only ever passed through its staged
+fallback, i.e. verified nothing, and went red on a clean tree. It now
+splits on `%x1e`. `_sections` merged repeated identical `## HANDOFF`
+headers via `setdefault`; they are now numbered, so «the last block
+decides» no longer needs a unique FINAL suffix. TASK-76 W1/W2 make the
+executor put teeth on both.
+
+**Verizon is an accepted Blocked**, not a failure: the shares tag needs
+the VZ payload, the round's network budget was 0, and substituting a
+look-alike tag is forbidden by rule 9. Budget is granted in TASK-76 W5.
+
+**The user's five-paper base no longer exists** — measured: `SELECT
+instrument_id FROM instrument` returns only `US-AAPL`. This makes the
+acceptance criteria of TASK-73 (T0) and TASK-74 (U2), which name
+numbers for five papers, unrunnable. TASK-77 turns that base into a
+reproducible command before those two are taken. Standing rule from
+this: **an acceptance criterion may not rest on state that no command
+in the repository can recreate.**
+
+**Round 102 (TASK-76) is accepted**, verified on the branch head in a
+separate worktree: «Итог: пройдено 13, провалено 0», exit 0; no assert
+removed; guard scripts, hooks and `docs/` untouched. The coordinator
+checked the new teeth **by mutation, not by quotation**: restoring the
+blank-line split reds `test_l3_finds_the_item_by_subject_with_files_
+attached`, restoring `setdefault` reds three W2 tests with `KeyError:
+'HANDOFF #2'`. `FAKE_LOG` is a literal, so the guard no longer depends
+on branch history.
+
+**A guard hole the coordinator created, found by the executor:** L3
+bounds nothing by round — `_git_log_name_only()` scans the whole branch,
+so `\bW3\b` is satisfied by TASK-53-era commits (`d549f2a`, `892d4c1`,
+`94ed9fa` — they exist). Item ids repeat across tasks, so this is a live
+hole, not a theoretical one; the coordinator's round-99 claim that «the
+guard now discriminates» was too broad (`Z9` was caught only because no
+commit ever mentioned it). TASK-78 Y1 bounds L3 the way G4 already is.
+
+**Verizon: the payload proved a different route, not absent data.** The
+committed fixture (2.7 KB) has no `CommonStockSharesOutstanding`, but it
+does carry `dei:EntityCommonStockSharesOutstanding` plus
+`us-gaap:CommonStockSharesIssued` and `TreasuryStockCommonShares`. Rule
+9 is therefore satisfied and extending the map is now legal — TASK-78 Y2.
+`rusterm/normalize/` was untouched in round 102, as the executor said.
+
+**Round 103 (TASK-78): Y2 accepted, Y1 returned.** Y2 is verified by
+data: the three removed asserts are exactly the ones stating the OLD
+behaviour (`dei_fact["canonical_concept"] is None`), assert count in the
+file 18 → 40, and the route is pinned by tests for priority, «map not
+widened», «dei map is only the cover-page fact» and a measured
+divergence of 508 818 shares.
+
+**Ruling: the dei route supersedes TASK-18 G4 §0.3 in part.** That rule
+was about the *outcome* — `us-gaap` wins when both taxonomies carry the
+tag — and the outcome is preserved and pinned. Read literally («dei never
+reaches the map») it made VZ's only proven route unreachable. Not a
+formula: it is a fact from the filing's cover page.
+
+**Ruling: `РАЗРЕШЕНО ПРАВИТЬ` was mute, and that is the coordinator's
+defect.** `agent/p6_rule.sh:63` greps `'^РАЗРЕШЕНО ПРАВИТЬ:'` and then
+`grep -qF "РАЗРЕШЕНО ПРАВИТЬ: <path>"`: the line must start the line and
+carry a bare path. TASK-75 wrote it correctly; TASK-76/77/78 wrote it as
+a markdown bullet with backticks, so the permission never existed and the
+executor's refusal to edit `CONTEXT.md` was correct obedience. All task
+files now use the flat form; TASK-79 Z2 makes a mute permission loud.
+
+**Y1 returned: the round bound is green for the executor and red for the
+coordinator** — i.e. it fails exactly where acceptance runs. Work of round
+N lies BETWEEN the markers of round N and N+1; bounding by «newer than
+marker(round_no)» is right only while the baton is with the executor,
+because `hand` increments the round and the new marker becomes the newest
+commit, collapsing the window to nothing. This deadlocked the relay again
+(`hand` runs acceptance), so as in round 101 the coordinator applied the
+minimal fix: the upper bound is the marker of `round_no + 1` when it
+exists, plus `_round_under_review()` (round − 1 while the coordinator
+holds the baton). The executor's own teeth were untouched and all 20 pass.
+Measured after the fix: `Y1,Y2 → []`, `W1,W5 → ['W1','W5']`, `W3 → ['W3']`,
+`Z9 → ['Z9']`.
+
+**Round 105 (TASK-79): Z2 accepted, Z1 returned.** Z2's guard emulates
+`p6_rule.sh`'s own greps and, beyond what the task asked, covers the
+comma-list case (`test_two_paths_on_one_line_leave_the_second_
+unauthorized`). The coordinator independently found that exact defect in
+the queue: TASK-74's `РАЗРЕШЕНО ПРАВИТЬ: agent/CONTEXT.md, GUIDE.md` left
+`GUIDE.md` mute, and TASK-73 had the same plus a continuation line. Both
+task files are fixed — **one path per line**, verified with the parser's
+own grep.
+
+**Z1 returned for the disease it was written to cure.**
+`test_strictness_holds_on_the_real_branch` is red on the branch head:
+`_log_from_top_marker()` slices the log at the *newest* relay marker while
+the test pins `round_no=104`. It was green while marker 105 was on top;
+the coordinator's own `hand` put marker 106 there and the test went red
+without changing. A guard tied to the position of HEAD is green for the
+executor and red at acceptance — exactly the failure mode Z1 addressed.
+Fixed by the coordinator (`_log_from_top_marker(log, round_no)` slices at
+marker `round_no + 1`); guards run 31 passed.
+
+**Standing rule, now third time earned: a guard may not depend on how
+many rounds have passed since it was written.** Slice live history by
+round number, never by head position. TASK-80 A1 puts teeth on it.
+
+**Three deadlocks in a row have the same shape:** a red report-guard
+blocks `relay.py hand` for *both* sides, so a defect in the guard stops
+the relay itself and the coordinator has to fix it in place. TASK-80 A2
+at least makes the refusal name the failing tests instead of the bare
+phrase «приёмка красная».
+
+**`verify` runs acceptance in a linked worktree — measured green.**
+TASK-80 A3 ran `relay.py verify` on a fresh worktree at `f45e07d`: the
+pytest check passed and acceptance reported 13 checks passed, 0 failed.
+The claim that `test_i5_staged_and_authorised_widening_is_green` fails
+*because* the tree is linked did not survive the measurement, and its
+stated cause was wrong — no guard reads `.git/COMMIT_EDITMSG` as a
+literal, all four take the path from `git rev-parse --git-path` (§3
+corrected in the same round). What really reddens that case is an
+**untracked file in the tree acceptance runs in**: the test calls
+`selfcheck.sh` nested, and P3/P4 check the outer tree, so one
+`?? path` line fails the assertion for a reason unrelated to the guard
+being demonstrated — that is the same mechanism as the "uncommitted
+coordinator files" observation measured twice this round. The verify
+worktree is where it recurs: `cmd_verify` reuses one machine-global
+path and refreshes it with `checkout --detach` and `reset --hard`,
+which clean tracked state and leave untracked residue in place. Filed
+as Disputed #3 in `agent/REPORT-80.md`.
+
+## Measured 23.09 from the user's screenshot — two coordinator errors
+
+**The five-paper base exists.** It lives in `/Users/anton/equitylab`
+(schema 45; AAPL, ADBE, KSPI, MSFT, VALE, VZ; watchlist «Мой список»;
+28 snapshots), not in the default root. Round 100's «only US-AAPL
+remains» was measured against `~/.rusterm` — the default root, schema
+43, a forgotten leftover. **The coordinator accepted that measurement
+and built TASK-77 on it; TASK-77 is rewritten.** Standing rule earned:
+**when measuring «the live base», name the directory you measured** —
+the default root and the user's working catalog are different things.
+
+Values on the real base: AAPL 40 of 56 measures valued, ADBE 40, MSFT
+184 of 504, VZ 14, VALE 12, **KSPI 0**; all six registered on market
+`US` (KSPI and VALE as depositary receipts).
+
+**The user runs a branch without any of our work.** Their checkout is on
+`agent/night-13`, which is missing **124 commits** of the shift branch
+(merge base `5357b51`, TASK-C10). Every symptom in the screenshot — the
+stale-input wall instead of one line (Д4), the «no lists» label under a
+selected list (Д2), the empty history (V1) — is that branch, not a
+broken fix. TASK-81 B1 brings the one night-13 commit over and makes the
+shift branch fast-forwardable into `main`.
+
+**Even on the shift branch the year columns are mostly empty.** Measured
+on the real base with shift-branch code: the 2026 cell fills (20
+measures, `asset_turnover` = 0.2901) while 2025/2024/2023 say «нет
+данных», because every snapshot was taken in 2026 and the measure period
+is June 2026. The «no empty column» rule only fires when history is
+empty *entirely*. TASK-81 B2 extends it to partially empty tables.
+
+**The `.app` is not reproducible.** TASK-C10 built `dist/EquityLab.app`
+with `--windowed`, but its spec file is in `.gitignore`, so the build
+exists only as a local artifact from lane-C-era code — and the user
+launches `python3`, which is why a Terminal window sits beside the app.
+TASK-81 B3 puts the spec in the repository.
+
+## Round 107 (TASK-80) accepted; night shift retired; one coordinator
+
+**TASK-80 accepted whole** — fresh clone at `f92eb92`: «Итог: пройдено
+13, провалено 0», exit 0; no assert removed; guard scripts, hooks and
+`docs/` untouched. A2 edited `relay.py` itself, so the coordinator checked
+the gate separately: a red acceptance still stops `hand` (`if rc != 0:
+die(...)`), only the refusal text changed. **A3 corrected a two-week-old
+explanation:** a linked worktree does not break acceptance by itself (a
+fresh `verify` at `f45e07d` is 13/0); `test_i5` reds on an *untracked file
+in the tree acceptance runs in*. The coordinator had seen it red on its
+own uncommitted task files and blamed the worktree — wrongly. TASK-88
+fixes `verify`'s shared default path that let one run's residue poison
+the next.
+
+**No night shift, no 10:00 stop** (user, 23.09). Removed from
+`CLAUDE.md`, `AGENTS.md`, `PROTOCOL.md` §10–§11 and this file. Work stops
+only on `wait` exit `3`/`4` or a direct user order. The branch name
+`agent/night-11` is historical and stays. `acceptance.sh` still calls
+itself «приёмка ночной работы» in line 2 — left, check 12 pins it to
+`main`.
+
+**One coordinator.** A second coordinator session wrote TASK-82…87 on
+this branch at 02:11 and 02:43 UTC while the baton sat with the
+coordinator. The user ruled that this session leads. TASK-82…87 are kept
+and queued; old task files are not rewritten (user, 23.09).
+
+## Round 109 (TASK-81): B0–B2 accepted, B3 returned
+
+Fresh clone at `88448c8`: «пройдено 13, провалено 0». 12 asserts removed,
+legitimately — every touched test file grew (`test_desktop_data.py` 81 → 95),
+each commit carries `ЗАМЕНА-БУЛАВКИ` blocks, and only assertions of the old
+behaviour the task changed went away. **B1** verified by content: `git cherry`
+calls `0472136` unpicked (conflicts were resolved), but all 78 lines it added
+are in the working branch and `main` fast-forwards. **B2** measured on the
+user's base read-only: AAPL 1 year column (was 4, three empty) 20 of 28
+filled; MSFT 2026/2024/2023/2022 with the empty 2025 dropped, 47 of 112.
+
+**B3 returned: the `.app` does not open for the user.** The coordinator built
+it from `EquityLab.spec` (22 s, 167 MB) and launched it with `open`, as Finder
+does: no Terminal appeared — but no window either; the process was gone in 9
+s with `no such table: chat_transcript`. A Finder-launched app has no shell
+environment, so no `RUSTERM_DATA`, so it opens `~/.rusterm` (schema 44), and
+the read-only window crashes instead of speaking. Catalog choice is TASK-90
+A4/A5; not crashing on an older schema is TASK-95. **Acceptance was 13/0 the
+whole time** — the executor's own line «nobody double-clicked» named the gap.
+
+## Round 111 (TASK-90) accepted
+
+Fresh clone at `97673a8`: «пройдено 13, провалено 0». 10 asserts removed in
+catalog-default tests that A5 changed; no file lost assertions
+(`test_desktop_door.py` 18 → 19), 6 `ЗАМЕНА-БУЛАВКИ` blocks. The coordinator
+checked A5 end to end without a shell: a fake HOME whose `~/.rusterm.env`
+holds `RUSTERM_DATA`, `env -i`, the `.app` built from `EquityLab.spec` →
+`rusterm-app root=<that dir> (правило: 2)` and the window stays alive after
+10 s. `app_entry.py` and `desktop/__main__.py` call `load_env()` before
+`resolve_root()`. So for the user one line in `~/.rusterm.env` —
+`RUSTERM_DATA=/Users/anton/equitylab` (schema 45) — makes a double-click
+open their base. An older-schema base still crashes the window: TASK-95.
+Disputed (A5): `rusterm init` in a fresh directory lands in `~/.rusterm`
+because rule 3 needs `./rusterm.db` that `init` is about to create — upheld
+as a real gap, BACKLOG B61.
+
+## Round 113 (TASK-95) accepted; a probe wrote to the user's base in round 111
+
+Fresh clone at `a116c06`: «пройдено 13, провалено 0»; no assert removed. The
+coordinator built the `.app` from the spec and ran it with `env -i` and a
+sandbox HOME whose `~/.rusterm.env` points at the `tests/data/upgrade`
+schema-44 base (gunzipped): the window is alive after 10 s, no `no such table`
+in its output, and the base is **still schema 44** afterwards — the window
+speaks instead of crashing and does not migrate (ADR-0023).
+
+**The user's `~/.rusterm` was migrated 44 → 45 at 12:47 UTC on 23.09**, during
+TASK-90 A5: its `logs/app.log` holds `rusterm tui` tracebacks from
+`/tmp/rt-night11-exec`, i.e. an executor probe without `--root` that
+resolved to the user's home. REPORT-90 did not say so and the coordinator's
+acceptance of TASK-90 missed it. Harm is small (a leftover base, additive
+migration) but it is a write to the user's data. PROTOCOL §2 now carries
+**P7: never run `rusterm` against the user's home** — explicit `--root` under
+`/tmp` or a sandbox HOME for every probe.
+
+REPORT-95 disputes: the stale-schema line names `rusterm --root DIR init` —
+accepted (the only writing door that migrates without the network); a
+non-RusTerm sqlite file still raises in the sidebar — BACKLOG B62.
+
+## Round 115 (TASK-82) accepted
+
+Fresh clone at `b696148`: «пройдено 13, провалено 0»; no assert removed; the
+one `docs/` change is the new ADR-0024 (allowed). Teeth checked by mutation:
+making `refuses_non_finite` a no-op reds `test_formula_is_closed_on_generated_
+inputs` for `price_to_sales`, `roe`, `roe_incl_nci`, `roic`, `total_return`,
+`ttm` and more. Disabling only the input check `_has_non_finite` reds nothing:
+the output-side `isfinite` check catches the same cases — defence in depth,
+but the input check is not pinned on its own (BACKLOG B63).
+
+**The executor refused `pip install -e ".[test]"` and measured why:** `rusterm`
+is installed system-wide as an editable link to the user's working copy
+(`/Users/anton/AI agents/RusTerm`); the install would repoint it at a `/tmp`
+clone. Same class as P7. Consequence for anyone probing: bare `python3 -m
+rusterm…` without `PYTHONPATH` runs the user's checkout, not the branch —
+the coordinator fell into exactly this on 23.09.
+
+## Round 117 (TASK-83) accepted
+
+Fresh clone at `cca499d`: «пройдено 13, провалено 0»; no assert removed. The
+fuzz corpus is 31 files, largest 2 204 bytes — far under the 256 KB rule. F2
+refuses a Form 4 carrying `<!DOCTYPE`/`<!ENTITY` by bytes before the parser;
+disabling `_refuse_dtd` in a copy reds `test_harmless_entity_is_refused_too`
+and `test_dtd_in_a_comment_still_refused` — the teeth are real.
+
+## Round 119 (TASK-84) accepted; coordinator work merged; night shift over
+
+Fresh clone at `7e2952a`: «пройдено 13, провалено 0»; no assert removed;
+guards and `docs/` untouched. `tests/test_concurrency.py` run three more
+times by the coordinator on a quiet machine — green each time (~10 s),
+on top of the executor's own 20. K7 fixed three product places
+(`backup.py`, `raw_store.py`, `db.py`). The four Disputed entries are
+accepted as written: I14's wording is narrower than what K1–K5 prove
+(restate it when the invariants file is next touched), the hook checks
+the working tree rather than the commit (BACKLOG B66), K4 needs a widened
+race window to make two ingests contend (acceptable in a test), and the
+old I14 guard ran no thread — K1–K5 now do.
+
+**Coordinator work merged (`fb3ac93`):** `coord/thin-snapshots` (the TASK-78
+Y2 regression: the `dei` cover date made nearly every fact `restated`;
+parser fixed + `rusterm reparse`) and `coord/dividends` (dps from filings:
+four consecutive quarters or a fresh annual; stale refused). On the
+user's base (44 papers, 38 peers collected 24.09 into watchlist `peers`,
+backup `~/equitylab-backup-2026-09-24`): valued measures 334 → 627 of
+1232, `div_yield` 1 → 24.
+
+**Split agreed with the user 24.09:** the coordinator does TASK-73 (with
+TASK-87 G2/G3), TASK-91, TASK-94 E1/E2, gross-profit formula, price
+measures, work on the user's data; the executor takes TASK-96 then
+88 → 89 → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
+
+Queue order (user, 23.09 — TASK-90 right after TASK-81, TASK-91…94 at the tail): **TASK-84 … TASK-87 → TASK-88 → TASK-89 → TASK-77 → TASK-73 → TASK-74 → TASK-91 → TASK-92 → TASK-93 → TASK-94 → coordinator: `agent/CLEANUP.md`** (commit everything, fast-forward `main`, delete dead branches and worktrees, prune old `agent/` files — user, 23.09; not an executor task). TASK-89 (round boundary by data, not subject; `hand` must not leak `BATON.json` into the index — the reason marker 107 is missing from history) was issued after the coordinator's own `hand` went red in round 108.
+
+**Whole-project review, 23.09 (user's request, separate session) —
+TASK-90…94.** Acceptance on `3f7dcc9` is 13/0, and every finding below
+passes it; each is reproduced by a command quoted in its task. Most
+urgent: Twelve Data payloads are cached under a date-less URL, so
+prices never refresh — the user base's last close is 2026-09-18 and
+every valuation measure goes `price_close_stale` on **2026-09-26**
+(TASK-90 A1); `rusterm chat` crashes for everyone with a key (A2); the
+citation guard accepts digits taken from measure UUIDs and flipped signs
+(TASK-93 D1). On the user base (read-only): AAPL `roe` is
+`missing_prior_period` because EDGAR dedup drops the as-reported
+original (TASK-92 C1); 0 peer sets, 0 percentiles, 0 `llm_summary`
+rows — pass 2 of the snapshot is called by no command (TASK-94 E2).
+
+## Round 113 (TASK-95): F1, F2, F3 — awaiting review
+
+**F1 — an older base speaks.** `header_info` gained `schema_notice`:
+«база в <каталог> — схема 44, программе нужна 45; обновите: rusterm --root
+<каталог> init», shown in a `QLabel` named `schema_notice` under the header,
+`None` (hidden) on a current base. Two doors that died there — `chat_sessions`
+and `llm_usage_line` — now answer `[]` and «вызовы: —» through a new store door
+`db.has_table`, so SQL stays in `rusterm/store/` (acceptance check 7). The
+window still does not migrate: a test builds it on the schema-44 fixture and
+re-reads the version. Measured one step back, `44 → 45`.
+
+**F2 — the double-click is a test.** `tests/test_desktop_f2_double_click.py`,
+marker `firsthour` (deselected by `addopts`; `integration` runs in the normal
+set and would not do): builds the bundle with the GUIDE's command into the
+test's own tmp dir, launches it the way Finder does — `open -n -W`, so the
+child has no terminal environment — requires the process alive after 5 s, then
+closes it and asserts nothing is left. Current catalog and schema-44 catalog:
+`2 passed in 50.69s`. On a bundle from `242656a` (before F1) the second case is
+red with `no such table: chat_transcript` — the round-109 B3 gap now has a
+tooth instead of a ritual.
+
+**F3 — a hole in the year row is named.** `data.year_gap_note(years)` folds
+«пропущен 2025 год» into the existing `history_note` line (no new door key, no
+`window.py` change). ТЗ-81 B2 spoke only when columns were fewer than the
+ceiling; on the MSFT shape — 2026, 2024, 2023, 2022 at a ceiling of four —
+nothing was missing by that rule while the hole stayed on screen. Years below
+the oldest column are the edge of the history, not a hole, so a contiguous row
+is still silent.
+
+Accepted:
+TASK-31…TASK-36, **TASK-37 I5-I8**, TASK-42…TASK-58, TASK-B1, TASK-C1…C10,
+TASK-60. Acceptance on the branch head in a clean clone: **13/0, exit 0**.
+
+**Parallel lanes are over.** The three shift branches were merged into
+`main` (PR #9, `36d1999`) and `main` was merged back into
+`agent/night-11` (`a396a72`). Old lane branches are deleted; one lane,
+one branch from here on. The lesson is recorded as a standing rule:
+**one clone per session.** Linked worktrees share config, refs and the
+stash — three lanes in one clone produced a real collision.
+
+**What lane C left behind, found by TASK-60 E1:** the desktop introduced
+five refusal reasons outside the closed vocabulary. The vocabulary is
+the promise that a refusal is honest — TASK-61 F1 audits the desktop
+against the core's own rules.
+
+**Still blocked:** `RUSTERM_DART_KEY` is absent from the machine
+(measured, round 72). Korea shows no measures; TASK-61 F4 makes that
+visible instead of promising.
 
 **Open product debt: TASK-37 I2** (does-not-know) — TASK-47 O1. I1
 (question vs order) landed with TASK-46 N3, I3 and I4 are done. The
@@ -46,6 +438,7 @@ user, data never leaves the machine. **Everything in it is free
 | `rusterm/manual/` | manual import: extract → model → deterministic control |
 | `rusterm/parsers/`, `formulas.py`, `reasons.py`, `markets.py`, `env.py` | parsing, the formulas, the closed vocabulary of null reasons, the market registry, the env-file loader |
 | `rusterm/tui/` | curses screens |
+| `rusterm/desktop/` | the PySide6 window (read-only, ADR-0023); opened by `python3 -m rusterm.desktop` and `rusterm desktop` — one shared entry |
 | `agent/` | the coordination channel: this file, `PROTOCOL.md`, `TASK-*.md`, `REPORT-*.md`, `BACKLOG.md`, `acceptance.sh`, `selfcheck.sh`, `LAUNCH.md` (for the user, Russian) |
 
 ## 3. Standing rules that bind every task
@@ -64,12 +457,15 @@ instead of passing vacuously. **TASK-37 I5** makes selfcheck and the hook run th
 extracts `p1_rule.sh` and `p6_rule.sh` from the index when staged, else
 from `HEAD`, names the source in its output, and an unstaged guard edit
 is red by itself. **I6** routes the git directory through `git rev-parse
---git-path` — except in `agent/p6_rule.sh`, which still reads
-`.git/COMMIT_EDITMSG` literally. Until **I7** lands, a declared
-`РАЗРЕШЕНИЕ-*` marker is invisible to P6 in any linked worktree (no
-error — `.git` is a file there, the test simply goes false), so an
-authorised edit reads as a violation. No I5 test drives that path: the
-green case stages only the guard, the red case is over-determined.
+--git-path`. This paragraph used to claim one exception — a guard still
+reading `.git/COMMIT_EDITMSG` as a literal, with an **I7** to fix it —
+and measured on TASK-80 A3 (`f45e07d`, 2026-09-23) the exception is not
+in the code: `agent/p6_rule.sh:75`, `agent/p1_rule.sh:36`,
+`agent/p7_relay_rule.sh:25` and `agent/selfcheck.sh:59` all take the
+message path from `git rev-parse --git-path COMMIT_EDITMSG`, which
+resolves to the per-worktree directory. A declared `РАЗРЕШЕНИЕ-*` marker
+is visible in a linked worktree: **I7** landed as
+`tests/test_i7_p6_worktree.py`, and the warning above predates it.
 
 **I5 cleans up after itself and survives a fresh tree (TASK-45
 M1–M3).** The guard test module restores `agent/p6_rule.sh` and
@@ -91,9 +487,13 @@ Git stamps its commits from the real clock and those are correct; the
 `updated_at` field of `agent/STATE.json` is typed, always on a round
 minute, and ran up to **+232 minutes ahead** of real UTC during
 TASK-45/46 — two consecutive commits even carried the same value. This
-is not cosmetic: PROTOCOL §10 ends the shift at 10:00 Danang, so a
-four-hour drift ends the night a third early. The machine is on +07, so
-`TZ=Asia/Bangkok date` is the wall clock. TASK-47 O0 makes this a guard.
+is not cosmetic: the coordinator reads `updated_at` to judge whether the
+executor is alive or stuck. The machine is on +07, so
+the wall clock is +07 — but the stamp is written in UTC with a `Z`, so
+the command is **`date -u +%Y-%m-%dT%H:%M:%SZ`** and never
+`TZ=Asia/Bangkok date` (TASK-76 ruling 1 on the REPORT-75 dispute: O0
+compares `updated_at` to real UTC within ±15 min, so a +07 wall clock
+stamped `Z` reds it by +420 min). TASK-47 O0 makes this a guard.
 
 **An assertion that exists may still assert nothing (TASK-46 N3).**
 P1 guards against a *deleted* `assert`; `assert <anything> or True` keeps
@@ -173,7 +573,7 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M5 LLM layer | citation guard, four read-only tools, confirmed mass ops |
 | M6 CA + OTC | both collected through EDGAR |
 | M7 industry aggregate | done |
-| M8 six markets, manual import | registry of six; US/CA/OTC collect, KR honest `None`: measured 2026-09-20 — `RUSTERM_DART_KEY` is NOT in the environment despite §5 (ТЗ-58 C1 Blocked); the DART door code exists (C6), the key is the missing piece, **BR collects** (annual DFP datasets, `rusterm ingest --source cvm`, ТЗ-56 Z2; consolidated DRE/BPP -> cvm-dfp.v1 map, incremental by Last-Modified), AU has a provider but **no `ingest` channel** (`rusterm markets` shows the channel column honestly) |
+| M8 six markets, manual import | registry of six; US/CA/OTC collect, KR honest `None`: measured 2026-09-20 — `RUSTERM_DART_KEY` is NOT in the environment despite §5 (ТЗ-58 C1 Blocked); the DART door code exists (C6), the key is the missing piece, **BR collects** (annual DFP datasets, `rusterm ingest --source cvm`, ТЗ-56 Z2; consolidated DRE/BPP -> cvm-dfp.v1 map, incremental by Last-Modified), AU has a provider but **no `ingest` channel** (`rusterm markets` shows the channel column honestly); since ТЗ-60 E4 every `rusterm markets` row and the window carry the channel's **degree** — «сырьё» / «факты» / «меры» — computed from what the channel actually produced in the catalog (raw by provider, facts by the source's provider, measures by the market's instruments), never hand-written |
 | M9 quotations | **real vendor rows**: AAPL 5000 daily closes 2006-10-25…2026-09-11 in one request, cached by a key-free URL, second run costs 0 requests; vendor failures named (`source_unreachable:http_403`, `vendor_rate_limited`, `source_unreachable:transport`); **the free tier sends no `adjusted`** (ADR-0019) and **`price_adj` applies dividends only** — the vendor `close` is already in today's share base (ADR-0020, three anchors); corporate actions collected from the vendor (splits + dividends) with provenance; `rusterm cadence` is a CLI command and a doctor line (TASK-31 C5); schema **44** |
 | M10 industry inputs | `hhi`, physical inputs, two sectors, industry screen |
 | M11 governance | producer, grey reasons, proxy through manual import; **ownership channel is live** — Forms 3/4/5 collected with provenance, golden form-4 parse, honest refusal (TASK-32 D1-D4); **`insider_net` is yellow on a real AAPL record** (10b5-1 named), DEF 14A probed and routed through manual import, colour provable at write, staleness 450 days (TASK-33) |
@@ -182,7 +582,9 @@ and no net loss of assert lines in that file — `agent/p1_rule.sh`.
 | M13 debts | single door wired, `manual_near_miss` split, selfcheck reads its count |
 
 Data reaching a user today: **US 10 measures of 10 plus real prices;
-CA 4/10 on CNQ; OTC 7/10 on NGGTF** (all three through EDGAR; the
+CA 4/10 on CNQ; OTC 7/10 on NGGTF; AAPL first-hour: 20/28 measures
+valued after ТЗ-68 N1 + ТЗ-69 P1 (five measures moved into the
+valuation pass per the dictionary)** (all three through EDGAR; the
 TASK-49 census also measured RY 4/10, BMO 5/10, CPTP 3/10 offline).
 Everything else is a named refusal with the missing concept in the
 continuation (full table: `agent/REPORT-49.md`, replay offline via
@@ -196,7 +598,11 @@ continuation (full table: `agent/REPORT-49.md`, replay offline via
 `glm-5.3-flash` — chosen by measurement in TASK-35 G3, not by taste).
 Loaded from the
 environment, else from `$RUSTERM_ENV_FILE` or `~/.rusterm.env`.
-**They exist in the executor's environment from 13.09.2026.**
+Measured 20.09.2026 via `load_env()` (ТЗ-61 F4): `RUSTERM_SEC_UA`,
+`RUSTERM_LLM_API_KEY` and `RUSTERM_LLM_MODEL` and
+`RUSTERM_TWELVEDATA_KEY` are present; **`RUSTERM_DART_KEY` is absent**
+(Korea stays a named refusal, ТЗ-58 C1) and `RUSTERM_LLM_PROVIDER` is
+absent (the measured default is used).
 
 ## 6. ADRs, one line each
 

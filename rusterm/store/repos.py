@@ -106,11 +106,63 @@ class InstrumentRepo:
         ).fetchone()
         return Instrument(*row) if row else None
 
+    def list_instruments(self) -> List[str]:
+        """Все instrument-id справочника: окно без списков наблюдения
+        показывает инструменты базы (ТЗ-75 S4), а не пустоту. SQL в
+        слое хранилища — приёмка, пункт 7."""
+        rows = self.conn.execute(
+            "SELECT instrument_id FROM instrument ORDER BY instrument_id"
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def issuer_count(self) -> int:
         """Эмитентов в локальной базе (ТЗ-21 H1: markets показывает
         счётчик; SQL живёт в слое хранилища — приёмка, пункт 7)."""
         return self.conn.execute(
             "SELECT COUNT(*) FROM issuer").fetchone()[0]
+
+    def channel_degrees(self) -> Dict[str, str]:
+        """Степень канала по рынку из того, что канал произвёл в этой
+        базе (ТЗ-60 E4): «меры» / «факты» / «сырьё», ничего — «—».
+        Считается, а не записывается: рынок без единого факта не может
+        показать «факты». Опоры: меры — инструменты рынка (префикс
+        instrument_id до «-», как в реестре пиров), факты — по
+        провайдеру источника факта (fact.source_ref → raw_object:
+        факт ручного импорта — работа пользователя, не канала),
+        сырьё — провайдер канала в raw_object. Слова одни с
+        `rusterm markets` и окном. SQL живёт в слое хранилища
+        (приёмка, пункт 7)."""
+        from rusterm.markets import MARKETS
+        degrees: Dict[str, str] = {}
+        for m in MARKETS:
+            prefix = m.code + "-%"
+            has_measures = self.conn.execute(
+                """SELECT EXISTS(SELECT 1 FROM measure
+                   JOIN snapshot ON measure.snapshot_id =
+                        snapshot.snapshot_id
+                   JOIN instrument ON snapshot.instrument_id =
+                        instrument.instrument_id
+                   WHERE instrument.instrument_id = ?
+                      OR instrument.instrument_id LIKE ?)""",
+                (m.code, prefix)).fetchone()[0]
+            if has_measures:
+                degrees[m.code] = "меры"
+                continue
+            has_facts = self.conn.execute(
+                """SELECT EXISTS(SELECT 1 FROM fact
+                   JOIN raw_object ON fact.source_ref =
+                        raw_object.sha256
+                   WHERE raw_object.provider = ?)""",
+                (m.provider,)).fetchone()[0]
+            if has_facts:
+                degrees[m.code] = "факты"
+                continue
+            has_raw = self.conn.execute(
+                "SELECT EXISTS(SELECT 1 FROM raw_object WHERE provider = ?)",
+                (m.provider,)).fetchone()[0]
+            if has_raw:
+                degrees[m.code] = "сырьё"
+        return degrees
 
     def upsert_listing(self, listing: Listing) -> None:
         with writer_transaction(self.conn) as c:
@@ -365,6 +417,36 @@ class FactRepo:
                 (new_fact_id, old_fact_id),
             )
 
+    def basis_by_pointer(self, source_ref: str) -> Dict[str, tuple]:
+        """{json_pointer: (fact_id, basis)} фактов одного сырого объекта —
+        сверка с повторным разбором (починка basis после регрессии ТЗ-78
+        Y2). fact_id — чтобы обновление шло по первичному ключу, а не
+        сканом таблицы по json_extract."""
+        rows = self.conn.execute(
+            "SELECT json_extract(locator, '$.json_pointer'), fact_id, basis "
+            "FROM fact WHERE source_ref = ?", (source_ref,)).fetchall()
+        return {p: (fid, b) for p, fid, b in rows if p is not None}
+
+    def update_basis(self, changes: List[tuple]) -> int:
+        """Меняет ТОЛЬКО basis по (fact_id, basis). Значение, период и
+        происхождение не трогаются. Возвращает число изменённых строк."""
+        if not changes:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany("UPDATE fact SET basis = ? WHERE fact_id = ?",
+                          [(basis, fid) for fid, basis in changes])
+            return self.conn.total_changes - before
+
+    def companyfacts_sources(self) -> List[str]:
+        """sha256 сырых объектов companyfacts, из которых есть факты."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT r.sha256 FROM raw_object r "
+            "WHERE r.provider = 'edgar' AND r.url LIKE '%/companyfacts/%' "
+            "AND EXISTS (SELECT 1 FROM fact f "
+            "WHERE f.source_ref = r.sha256)").fetchall()
+        return [r[0] for r in rows]
+
 
 class SnapshotRepo:
     """Версии снапшотов, блоки, measure, lineage."""
@@ -418,11 +500,39 @@ class SnapshotRepo:
                 "status": row[7]}
 
     def latest_snapshot_id(self, instrument_id: str) -> Optional[str]:
+        """Последний ГОТОВЫЙ снапшот: строка версии, сборка которой ещё
+        идёт (или сорвалась), читателю не показывается (ТЗ-90 A3)."""
         row = self.conn.execute(
             """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
-               ORDER BY version DESC LIMIT 1""",
+               AND status='ready' ORDER BY version DESC LIMIT 1""",
             (instrument_id,)).fetchone()
         return row[0] if row else None
+
+    def set_status(self, snapshot_id: str, status: str) -> None:
+        """Единственная правка строки снапшота: building -> ready в
+        конце сборки (ТЗ-90 A3). snapshot.status без CHECK — миграция
+        не нужна."""
+        with writer_transaction(self.conn) as c:
+            c.execute("UPDATE snapshot SET status=? WHERE snapshot_id=?",
+                      (status, snapshot_id))
+
+    def delete_snapshot(self, snapshot_id: str) -> None:
+        """Полное удаление строк одной сборки: cascade в схеме нет
+        (db.py: snapshot_block/measure ссылаются без ON DELETE), а
+        measure_lineage ссылается на measure, поэтому порядок
+        фиксирован и всё уходит одной транзакцией (ТЗ-90 A3: сорванная
+        сборка не оставляет половину снапшота)."""
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """DELETE FROM measure_lineage WHERE measure_id IN
+                   (SELECT measure_id FROM measure WHERE snapshot_id=?)""",
+                (snapshot_id,))
+            c.execute("DELETE FROM measure WHERE snapshot_id=?",
+                      (snapshot_id,))
+            c.execute("DELETE FROM snapshot_block WHERE snapshot_id=?",
+                      (snapshot_id,))
+            c.execute("DELETE FROM snapshot WHERE snapshot_id=?",
+                      (snapshot_id,))
 
     def max_version(self, instrument_id: str) -> int:
         row = self.conn.execute(
@@ -441,12 +551,80 @@ class SnapshotRepo:
         keys = ("instrument_id", "snapshot_id", "version", "as_of")
         return [dict(zip(keys, r)) for r in rows]
 
-    def previous_snapshot(self, instrument_id: str) -> Optional[str]:
-        """Предпоследняя версия: база для diff текущей сборки."""
-        row = self.conn.execute(
-            """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
-               ORDER BY version DESC LIMIT 1 OFFSET 1""",
-            (instrument_id,)).fetchone()
+    def snapshots_of_instrument(self, instrument_id: str) -> list:
+        """Все снапшоты инструмента по возрастанию версии: история мер
+        по годам (ТЗ-75 V1) идёт по ним, а не по одному последнему."""
+        rows = self.conn.execute(
+            """SELECT instrument_id, snapshot_id, version, as_of
+               FROM snapshot WHERE instrument_id=? ORDER BY version""",
+            (instrument_id,)).fetchall()
+        keys = ("instrument_id", "snapshot_id", "version", "as_of")
+        return [dict(zip(keys, r)) for r in rows]
+
+    def latest_annual_fact(self, issuer_id: str, canonical: str,
+                           min_days: int = 300) -> Optional[tuple]:
+        """ТЗ-69 P1: свежайший годовой (окно >= min_days дней) факт по
+        каноническим тегам входа, любой честный basis (as_reported или
+        restated). Знаменатель поток-меры: квартальный поток в годовой
+        мере — выдумка. SQL в слое хранилища."""
+        import datetime as _dt
+        # каноническое имя входа живёт в canonical_concept (карта
+        # концептов применяется при разборе), а не в сыром теге
+        rows = self.conn.execute(
+            """SELECT value, period_end, currency, fact_id, period_start
+               FROM fact WHERE issuer_id=? AND canonical_concept=?
+               AND status='ok' AND value IS NOT NULL
+               ORDER BY period_end DESC LIMIT 200""",
+            (issuer_id, canonical)).fetchall()
+        best = None
+        for value, end, currency, fact_id, start in rows:
+            if not start or not end:
+                continue
+            try:
+                numeric = float(value)
+                length = (_dt.date.fromisoformat(end)
+                          - _dt.date.fromisoformat(start)).days
+            except (TypeError, ValueError):
+                continue
+            if length >= min_days and (best is None or end > best[1]):
+                best = (numeric, end, currency, fact_id, start, length)
+        return best
+
+    def duration_facts(self, issuer_id: str, canonical: str,
+                       limit: int = 200) -> list:
+        """Свежайшие факты-потоки по каноническому концепту, любой
+        честный basis: (value, period_start, period_end, currency,
+        fact_id), новые первыми. Сборка квартального TTM в ядре."""
+        return self.conn.execute(
+            """SELECT value, period_start, period_end, currency, fact_id
+               FROM fact WHERE issuer_id=? AND canonical_concept=?
+               AND status='ok' AND value IS NOT NULL
+               AND period_start IS NOT NULL
+               ORDER BY period_end DESC, ingested_at DESC LIMIT ?""",
+            (issuer_id, canonical, limit)).fetchall()
+
+    def previous_snapshot(self, instrument_id: str,
+                          before_version: Optional[int] = None) -> Optional[str]:
+        """Предпоследняя ГОТОВАЯ версия: база для diff текущей сборки.
+
+        before_version — версия идущей сборки: её строка к этому
+        моменту уже в базе (со статусом building, ТЗ-90 A3), поэтому
+        «предыдущая» выбирается по номеру, а не OFFSET 1 — иначе через
+        строку сборки перескок уехал бы на готовую версию раньше.
+        Без версии (вызов вне сборки) прежнее OFFSET 1 по ready-строкам.
+        """
+        if before_version is not None:
+            row = self.conn.execute(
+                """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
+                   AND status='ready' AND version<?
+                   ORDER BY version DESC LIMIT 1""",
+                (instrument_id, before_version)).fetchone()
+        else:
+            row = self.conn.execute(
+                """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
+                   AND status='ready' ORDER BY version DESC
+                   LIMIT 1 OFFSET 1""",
+                (instrument_id,)).fetchone()
         return row[0] if row else None
 
     def restated_revisions(self, issuer_id: str) -> list:
@@ -809,6 +987,38 @@ class PeerSetRepo:
             out.append(entry)
         return out
 
+    def open_version(self, peer_set_id: str) -> Optional[dict]:
+        """Действующая версия набора (valid_to IS NULL) с составом —
+        чтобы новая версия закрывала старую, а не накрывала ту же дату
+        (координатор, ТЗ-73 T2)."""
+        row = self.conn.execute(
+            """SELECT peer_set_version_id, version, valid_from, origin,
+                      approved_by_user
+               FROM peer_set_version
+               WHERE peer_set_id=? AND valid_to IS NULL
+               ORDER BY version DESC LIMIT 1""", (peer_set_id,)).fetchone()
+        if row is None:
+            return None
+        members = {r[0] for r in self.conn.execute(
+            "SELECT instrument_id FROM peer_set_member "
+            "WHERE peer_set_version_id=?", (row[0],))}
+        return {"peer_set_version_id": row[0], "version": row[1],
+                "valid_from": row[2], "origin": row[3],
+                "approved": bool(row[4]), "members": members}
+
+    def max_version_of(self, peer_set_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT MAX(version) FROM peer_set_version WHERE peer_set_id=?",
+            (peer_set_id,)).fetchone()
+        return int(row[0] or 0)
+
+    def close_version(self, peer_set_version_id: str, valid_to: str) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                "UPDATE peer_set_version SET valid_to=? "
+                "WHERE peer_set_version_id=? AND valid_to IS NULL",
+                (valid_to, peer_set_version_id))
+
     def version_at(self, peer_set_id: str, as_of: str) -> Optional[dict]:
         """Версия, чей интервал [valid_from, valid_to) покрывает дату
         (TASK-17 E2, §0.2 ruling 5). Два совпадения — дефект данных:
@@ -1014,17 +1224,22 @@ class WatchlistRepo:
 
     def copy_members_except(self, source_version_id: str,
                             target_version_id: str,
-                            instrument_id: str) -> int:
-        """Полный новый состав без одного инструмента (удаление из
-        состава — тоже новая версия). Возвращает число перенесённых."""
+                            instrument_id: str | list[str]) -> int:
+        """Полный новый состав без перечисленных инструментов (ТЗ-62
+        G2: одна дверь для одиночного и массового удаления — строка
+        или список). Возвращает число перенесённых."""
+        excluded = ([instrument_id] if isinstance(instrument_id, str)
+                    else list(instrument_id))
+        placeholders = ",".join("?" * len(excluded))
         with writer_transaction(self.conn) as c:
             cur = c.execute(
-                """INSERT INTO watchlist_member(watchlist_version_id,
+                f"""INSERT INTO watchlist_member(watchlist_version_id,
                   instrument_id, note, added_at)
                   SELECT ?, instrument_id, note, added_at
                   FROM watchlist_member
-                  WHERE watchlist_version_id=? AND instrument_id <> ?""",
-                (target_version_id, source_version_id, instrument_id))
+                  WHERE watchlist_version_id=?
+                    AND instrument_id NOT IN ({placeholders})""",
+                (target_version_id, source_version_id, *excluded))
             return cur.rowcount
 
     def create_version_with_members(self, watchlist_id: str,
@@ -1521,6 +1736,21 @@ class MetricsRepo:
             "SELECT ts, name, provider, value FROM metric_sample"
             " ORDER BY name").fetchall()
 
+    def requests_used_today(self) -> int:
+        """Сумма провайдерских запросов за местные сегодня (ТЗ-61 F1:
+        агрегат живёт в хранилище, а не в слое окна; rusterm status и
+        шапка окна читают одно число из одной двери)."""
+        import datetime
+        today = datetime.date.today().isoformat()
+        used = 0
+        for ts, name, _provider, value in self.samples():
+            if name != "provider_requests_used":
+                continue
+            day = datetime.datetime.fromtimestamp(ts).date().isoformat()
+            if day == today:
+                used += int(value or 0)
+        return used
+
 
 # Параметры запроса, которые никогда не попадают в журнал (T13):
 # URL с ключом или токеном не логируется ни в каком виде.
@@ -1992,6 +2222,17 @@ class ChatTranscriptRepo:
              "tool_calls": json.loads(t[4] or "[]"),
              "rejected": bool(t[5])} for t in turns]
         return session
+
+    def list_sessions(self) -> list:
+        """Перечень прошлых разговоров, свежие сверху (ТЗ-C7.1). При
+        равном started_at порядок задаёт вставка: rowid DESC — иначе два
+        разговора, записанные в один тик часов, меняются местами от
+        прогона к прогону."""
+        return [{"session_id": r[0], "model": r[1],
+                 "instrument_id": r[2], "started_at": r[3],
+                 "calls": r[4]} for r in self.conn.execute(
+            """SELECT session_id, model, instrument_id, started_at, calls
+               FROM chat_transcript ORDER BY started_at DESC, rowid DESC""")]
 
     def calls_totals(self) -> dict:
         """Вызовы по моделям и всего (ТЗ-36 H3): сумма по сессиям."""

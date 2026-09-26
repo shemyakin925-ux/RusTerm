@@ -18,7 +18,7 @@ file disagree, the task wins only where it says so explicitly.
 8. RECORD   one line in the task's report: command + its output.
 ```
 
-## 2. Five prohibitions
+## 2. Prohibitions
 
 - **P1. Never delete an `assert`.** A genuinely obsolete assertion is
   **replaced by a stronger one**, and the report says how the new one is
@@ -30,6 +30,22 @@ file disagree, the task wins only where it says so explicitly.
 - **P3. Leave nothing outside git.** Everything reported must be in
   `git ls-files`. Fetched data is the exception in §6.
 - **P4. No `.bak`, `.orig`, temp databases, junk.**
+- **P7. Never run `rusterm` against the user's home.** You share `HOME`
+  with the user: a command without `--root` (or a window, or a `.app`
+  run) resolves to `~/.rusterm` or to `RUSTERM_DATA` from
+  `~/.rusterm.env` — the user's real bases — and a writing door there
+  applies migrations. Every probe carries an explicit `--root` under
+  `/tmp`, or runs with `HOME=<sandbox>`. Measured 24.09: during TASK-90
+  A5 a `rusterm tui` probe from `/tmp/rt-night11-exec` migrated the
+  user's `~/.rusterm` 44 → 45 (12:47 UTC, traceback in its
+  `logs/app.log`), and the report did not say so.
+  Since 25.09 the user's project folder is **`~/EquityLab/`** (`app/`
+  clone the desktop shortcut runs, `data/` the real base, `backups/`,
+  `archive/`): never write there, and never create any new directory
+  in `~` — scratch goes to `/tmp`/`tmp_path`.
+- **P8. No tab is empty without an executable hint** (TASK-73 T1): a
+  tab or table with no value shows the reason in words and the exact
+  command that fills it; a guard test enforces it.
 - **P5. Never claim a check you did not run.** "Not run" is acceptable;
   "works" without command output is not.
 
@@ -57,6 +73,15 @@ selfcheck means the commit does not leave your machine.
   verified after every write with `wc -c && tail -3`. Sections, in this
   order: **Done**, **Blocked**, **What not to trust**, **Disputed**,
   **HANDOFF**. Last line always `NOW: <item>, step <n>`.
+- The last HANDOFF section supersedes every previous one (BACKLOG B38):
+  interim blocks speak for their moment, the shift's verdict is
+  `## HANDOFF (FINAL …)`. The report guard reads the last section
+  (ТЗ-46 N1) and reds when it calls an item undone while a commit for
+  that item exists in the same round (ТЗ-62 G4). An item counts as
+  Done only when a commit implementing it is named AND the item's own
+  test run is quoted as output; every id listed under "Items done"
+  must be named by a same-round commit that touches more than
+  `tests/` (ТЗ-66 L3).
 - `agent/STATE.json`, same commit as the work:
 
 ```json
@@ -117,15 +142,22 @@ item names the file and the defect.
   installed, `zstandard` is not, and acceptance check 11 reruns the
   suite without it.
 - Acceptance is 13/13 at your start and is ground truth about your work.
-  **If it is not green on arrival, the first commit of the night is the
+  **If it is not green on arrival, the first commit of the round is the
   repair**, and the report says what was red when you arrived.
 - `docs/` is frozen. A new ADR is the one permitted change.
 
-## 10. Stop time and the shift's end
+## 10. When work stops, and the HANDOFF block
 
-**10:00 Danang (UTC+7).** No new item after 09:30. Finish the current
-item to a commit and a push, then fill in the HANDOFF block at the end
-of the report:
+**There is no clock-based stop** (user's order, 23.09.2026 — the night
+shift and the 10:00 stop are retired). Work runs round by round through
+the relay (§12). It stops only when:
+
+- `relay.py wait` returns `3` (paused) or `4` (cycle closed), or
+- the user orders it directly.
+
+In either case finish the current item to a commit and a push, then fill
+in the HANDOFF block at the end of the report. Every hand-over to the
+coordinator carries the same block:
 
 ```
 Status:          DONE | PARTIAL | BLOCKED
@@ -144,21 +176,18 @@ Questions for the coordinator:
 1. …
 ```
 
-A night ends when the clock says so, not when the queue is empty: take
-the next `Status: READY` task in numeric order and keep going.
+An empty queue is not a reason to stop: after `hand`, run `wait --for
+executor` and take the next task the baton names.
 
-## 11. Branches, and how a shift is taken from 13.09.2026 on
+## 11. Branches
 
-Tasks are now sized so that **five or six fit into one shift**. A shift
-therefore has **one branch**, not one per task:
+Work goes on **one working branch**, not one per task. The branch is the
+one named in `agent/BATON.json` (today `agent/night-11` — the name is
+historical; there are no night shifts any more). Do not create a new
+branch per task.
 
-```bash
-git checkout main && git pull
-git checkout -b agent/night-<N>     # N = 10 for the first shift after 13.09.2026
-```
-
-Take tasks in **numeric order**, lowest `Status: READY` first, each with
-its own report file, all on the shift branch. A task whose precondition
+Take the task the baton names, each with its own report file, all on the
+working branch. A task whose precondition
 is missing is **skipped, not faked** — write `SKIPPED — <reason>` in its
 report and take the next one. Do not merge into `main`: the release is
 the coordinator's, by the user's word.
@@ -197,5 +226,5 @@ Rules:
   paused by the user, `4` the cycle is closed — in cases 3 and 4 stop and
   write nothing further.
 - The baton does not replace `agent/STATE.json`: keep writing it per §5.
-- The relay is transport, not permission: §10 (stop time) and the
-  prohibitions of §2 outrank it.
+- The relay is transport, not permission: the prohibitions of §2
+  outrank it.

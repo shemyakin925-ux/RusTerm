@@ -22,6 +22,8 @@ import argparse
 import itertools
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -117,6 +119,28 @@ def die(message: str) -> None:
     raise SystemExit(EXIT_ERROR)
 
 
+def die_kept(message: str, extra: list[str]) -> None:
+    """Отказ `hand` откатывает BATON, но вложенные через `--add` файлы
+    остаются в индексе — так решает круг 129: чужая работа не откатывается
+    чужой передачей хода. Молча оставить их — значит дать вызывающему
+    гадать, что осталось жить в индексе, а что уехало (ТЗ-89 D2,
+    Disputed 2 → ТЗ-99 J2), поэтому отказ называет их по именам.
+
+    Имена берутся из индекса в момент отказа, а не из аргументов: путь
+    отклонённого push делает `reset --mixed`, после которого файлы уже не
+    staged, и врать про них нечем.
+    """
+    sys.stderr.write(f"relay: {message}\n")
+    if extra:
+        staged = git("diff", "--cached", "--name-only", check=False).splitlines()
+        left = [f for f in staged if f in extra]
+        if left:
+            sys.stderr.write("relay: в индексе остались: "
+                             + ", ".join(left)
+                             + " — это твоя работа, не откатана\n")
+    raise SystemExit(EXIT_ERROR)
+
+
 # ── эстафета ─────────────────────────────────────────────────────────────
 
 
@@ -196,16 +220,214 @@ def sync_worktree(remote: str, branch: str, quiet: bool = False) -> bool:
     return True
 
 
+def _baton_back_to_head() -> None:
+    """ТЗ-89 D2: отказ передачи обязан вернуть `agent/BATON.json` к HEAD —
+    и в индексе, и в рабочем дереве. `hand` пишет новый номер круга в файл
+    до всякого коммита, и если путь дальше не идёт, изменение остаётся
+    лежать: так в круге 106 сорванная попытка осталась в индексе и
+    уехала следующим обычным коммитом (`f8534a4`, «Координатор: …») под
+    чужим заголовком — и маркера «Эстафета: круг 107» в истории нет
+    вообще. После этого вызова смена круга либо уехала маркером, либо её
+    нет.
+    """
+    git("checkout", "HEAD", "--", BATON_PATH, check=False)
+
+
+def _hand_state_stamp(baton_new: dict) -> dict:
+    """ТЗ-99 J1: четыре поля, которые `hand` пишет в `agent/STATE.json`
+    своим коммитом эстафеты.
+
+    До этого `hand` двигал только BATON, а STATE оставался с часами и
+    именами предыдущей смены. `tests/test_report_sections.py` берёт
+    отчёт из STATE, а окно круга — из BATON: пока STATE называл прошлый
+    отчёт, все коммиты которого лежат за новой границей, приёмка
+    приезжала красной (`test_done_items_have_code_commits_in_round`
+    падала на всём промежутке между hand и первым коммитом следующей
+    смены — ТЗ-89 D0/Disputed 1). Единственный доступный ответ был —
+    переставить STATE самому приходящему, то есть доказывать чужую смену
+    своей рукой.
+    `task` и `report` — из аргументов `hand` (через `new`: без аргумента
+    поле остаётся тем, что уже лежит в BATON, поэтому STATE.task ==
+    BATON.task выполняется всегда). Остальные поля STATE не трогаются.
+    """
+    return {"task": baton_new.get("task") or "",
+            "report": baton_new.get("report") or "",
+            "status": "handed",
+            "updated_at": now()}
+
+
+def _state_bytes(base: bytes | None, stamp: dict) -> bytes:
+    """STATE целиком не перезаписывается: счётчики запросов, `item`,
+    `step`, `model` прежней смены остаются, переезжают только четыре
+    поля штампа."""
+    state: dict = {}
+    if base:
+        try:
+            parsed = json.loads(base.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            state = parsed
+        else:
+            print(f"hand: {STATE_PATH} не разбирается как объект JSON — "
+                  "штамп начинается с пустого файла")
+    merged = dict(state)
+    merged.update(stamp)
+    return (json.dumps(merged, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+
+
+def _stamp_working_state(stamp: dict) -> None:
+    """Дерево смены: тот же путь, что и у BATON — пишем до `git add`,
+    чтобы коммит эстафеты унёс STATE собой."""
+    path = repo_root() / STATE_PATH
+    base = path.read_bytes() if path.is_file() else None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(_state_bytes(base, stamp))
+
+
+# ── заготовка отчёта (ТЗ-101 L1) ─────────────────────────────────────────
+
+# Разделы, которые координатор читает первым делом (`DIGEST_SECTIONS`), и
+# которые требует `tests/test_report_sections.py`. `Runs` — не из стража:
+# без него отчёт теряет доказательную часть, а hand создаёт файл, который
+# приёмка следующей смены должна найти готовым.
+REPORT_SKELETON_SECTIONS = ("Done", "Blocked", "What not to trust", "Disputed",
+                            "Runs", "HANDOFF")
+REPORT_SKELETON_STATUS = "Status: NOT STARTED"
+
+
+def task_title(text: str | None) -> str:
+    """Заголовок ТЗ — текст после `# TASK-NNN — ` в первой строке-заголовке.
+    Пустая строка, если ТЗ нет: заготовка тогда остаётся с одним номером."""
+    if not text:
+        return ""
+    for line in text.splitlines():
+        if not line.startswith("# "):
+            continue
+        rest = line[2:].strip()
+        head = re.match(r"^[A-Z]+-\d+\s*[—-]\s*(.+)$", rest)
+        return (head.group(1) if head else rest).strip()
+    return ""
+
+
+def report_skeleton(report_rel: str, title: str) -> str:
+    """ТЗ-101 L1: заготовка отчёта, которую `hand` кладёт в коммит
+    эстафеты, если названного `--report` файла нет.
+
+    Корень (REPORT-99, Disputed 1): J1 научил `hand` штамповать STATE полями
+    `task`/`report`, но не создавать сам отчёт. Сдача на новый отчёт
+    оставляла STATE указывать в пустоту: `tests/test_state_report_tracked.py`
+    требует, чтобы отчёт, названный в STATE, лежал в этом коммите, а
+    `tests/test_report_sections.py` берёт из STATE файл для чтения — на всей
+    дистанции между hand и первым коммитом новой смены краснеют шесть узлов
+    (замер scratch-клона живой ветки, круг 133: `6 failed, 28 passed`).
+    Единственный доступный ответ был — создать отчёт приходящей стороне, то
+    есть открывать чужой круг своей рукой.
+
+    Разделы пустые, HANDOFF честно говорит «NOT STARTED»: страж пуста секции
+    не касается, а заполнителей в шаблоне нет ни одного — иначе
+    `test_handoff_carries_real_values_not_placeholders` краснел бы на файле,
+    который hand только что принёс.
+    """
+    head = f"# {Path(report_rel).stem}"
+    if title:
+        head += f" — {title}"
+    body = "\n".join(f"## {name}" for name in REPORT_SKELETON_SECTIONS)
+    return f"{head}\n\n{body}\n{REPORT_SKELETON_STATUS}\n"
+
+
+def outside_repo(rel: str) -> bool:
+    """`hand` теперь пишет файл, и путь обязан остаться в репозитории:
+    абсолютный путь, пустой или выходящий через `..` за корень — отказ, а не
+    запись по соседству со сменой (P7: песочница не пишет в `~`)."""
+    root = str(repo_root())
+    if not rel or Path(rel).is_absolute():
+        return True
+    target = os.path.normpath(os.path.join(root, rel))
+    return target != root and os.path.commonpath([root, target]) != root
+
+
+def _write_report_skeleton(root: Path, rel: str, task_rel: str | None) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = (root / task_rel).read_text(encoding="utf-8", errors="replace") \
+        if task_rel and (root / task_rel).is_file() else ""
+    path.write_text(report_skeleton(rel, task_title(text)), encoding="utf-8")
+
+
+def _report_rollback(root: Path, rel: str | None) -> None:
+    """Отказ передачи убирает заготовку: до `hand` этого файла в дереве не
+    было — создал его `hand`, ему и откатывать (тот же закон, что у штампа
+    STATE в ТЗ-99 J2)."""
+    if not rel:
+        return
+    try:
+        (root / rel).unlink()
+    except OSError:
+        pass
+    git("reset", "-q", "--", rel, check=False)
+
+
+def _state_backup(root: Path) -> tuple[bytes | None, str | None]:
+    """ТЗ-99 J2: отказ откатывает BATON — и штамп J1 обязан откатывать
+    тоже. Это второй файл, который `hand` пишет сам; оставить его в
+    дереве и индексе — значит подарить вызывающему коммит с
+    `status: "handed"` про передачу, которой не было. Запоминаем байты
+    файла и его блоб в индексе: своя правка STATE, положенная в индекс до
+    `hand`, должна пережить отказ именно своей правкой, а не штампом."""
+    path = root / STATE_PATH
+    before = path.read_bytes() if path.is_file() else None
+    listed = git("ls-files", "-s", "--", STATE_PATH, check=False).strip()
+    fields = listed.split()
+    return before, (fields[1] if len(fields) >= 2 else None)
+
+
+def _state_restore(root: Path, backup: tuple[bytes | None, str | None]) -> None:
+    before, sha = backup
+    path = root / STATE_PATH
+    if before is None:
+        if path.is_file():
+            path.unlink()
+    else:
+        path.write_bytes(before)
+    if sha:
+        git("update-index", "--cacheinfo", f"100644,{sha},{STATE_PATH}",
+            check=False)
+    else:
+        git("reset", "-q", "--", STATE_PATH, check=False)
+
+
 def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
-               message: str) -> str:
+               message: str, stamp: dict | None = None,
+               report: str | None = None) -> str:
     """Кладёт BATON.json и перечисленные файлы одним коммитом на ветку.
 
     Если ветка смены выкачана в текущем дереве — обычный add/commit/push.
     Иначе коммит собирается плюмбингом поверх `remote/branch` и пушится
-    напрямую: рабочее дерево координатора не трогается вовсе.
+    напрямую: рабочее дерево координатора не трогается вовсе (плюмбинг
+    живёт во временном индексе и смену круга оставить не может).
+
+    `stamp` (ТЗ-99 J1) — поля `agent/STATE.json` для этого же коммита. В
+    дереве они пишутся в файл, в плюмбинге — достраиваются во временный
+    индекс из блоба самой ветки: часы чужого рабочего дерева в коммит
+    эстафеты не едут.
+
+    `report` (ТЗ-101 L1) — отчёт, который называет эстафета. Если его нет,
+    заготовка уезжает ЭТИМ ЖЕ коммитом: в дереве — файлом, в плюмбинге —
+    блобом, и ни там, ни там существующий отчёт не перезаписывается.
+
+    Правило D2 для всех путей отказа в дереве: `agent/BATON.json`
+    возвращается к HEAD, чужое в индексе не трогается. ТЗ-99 J2
+    распространяет его и на штамп: снятый отказом `agent/STATE.json`
+    возвращается своими байтами и своим блобом индекса (своя правка
+    вызывающего переживает отказ), а то, что действительно осталось в
+    индексе, отказ называет словами «в индексе остались: …».
     """
     root = repo_root()
     payload = json.dumps(baton, ensure_ascii=False, indent=1) + "\n"
+    paths = [BATON_PATH, *extra]
+    if stamp is not None and STATE_PATH not in paths:
+        paths.append(STATE_PATH)
 
     if current_branch() == branch:
         if not sync_worktree(remote, branch, quiet=True):
@@ -214,21 +436,45 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
         # Чужое, уже лежащее в индексе, в коммит эстафеты не берётся:
         # ТЗ-37 I5 уехал внутрь коммита «Эстафета: круг 44» именно так.
         staged = [f for f in git("diff", "--cached", "--name-only").splitlines()
-                  if f and f != BATON_PATH and f not in extra]
+                  if f and f not in paths]
         if staged:
             # ТЗ-42 J1: эстафету нельзя передавать из грязного индекса —
             # именно так круг 48 остался непереданным
-            die("в индексе лежит чужое: " + ", ".join(staged[:10])
-                + ". Ход не передан и работа не сдана. Закоммить это "
-                "своим коммитом и повтори: python3 agent/relay.py hand ...")
-        git("add", "--", BATON_PATH, *extra)
+            _baton_back_to_head()      # ТЗ-89 D2
+            die_kept("в индексе лежит чужое: " + ", ".join(staged[:10])
+                     + ". Ход не передан и работа не сдана. Закоммить это "
+                     "своим коммитом и повтори: python3 agent/relay.py hand "
+                     f"... ({BATON_PATH} откатан к HEAD)", extra)
+        # Штамп — ПОСЛЕ проверки чужого: у отказа нет права оставлять в
+        # дереве часы передачи, которая не состоялась (ТЗ-99 J2).
+        backup = _state_backup(root) if stamp is not None else None
+        if stamp is not None:
+            _stamp_working_state(stamp)
+        # ТЗ-101 L1: отчёт, названный эстафетой, едет этим же коммитом. Без
+        # этого штамп J1 указывает STATE в пустоту до первого коммита новой
+        # смены и красит шесть стражей на чужом дереве. Файл создаётся,
+        # только если его нет: черновик приходящей стороны не затирается.
+        created_report: str | None = None
+        if report and not (root / report).is_file():
+            created_report = report
+            paths.append(report)
+            _write_report_skeleton(root, report, baton.get("task") or "")
+            print(f"hand: заготовка отчёта {report} создана и уезжает этим "
+                  "коммитом — заполнять той стороне, которая принимает ход")
+        git("add", "--", *paths)
         try:
-            git("commit", "--only", "-m", message, "--", BATON_PATH, *extra)
+            git("commit", "--only", "-m", message, "--", *paths)
         except SystemExit:
             # ТЗ-42 J1: провал коммита — не тишина: ход не передан
-            die("коммит эстафеты не прошёл. Ход не передан и работа не "
-                "сдана. Разберись (хук/индекс) и повтори: python3 "
-                "agent/relay.py hand ...")
+            # ТЗ-89 D2: корень пропавшего маркера 107 — здесь.
+            _baton_back_to_head()
+            if backup is not None:
+                _state_restore(root, backup)
+            _report_rollback(root, created_report)
+            die_kept("коммит эстафеты не прошёл. Ход не передан и работа не "
+                     "сдана. Разберись (хук/индекс) и повтори: python3 "
+                     f"agent/relay.py hand ... ({BATON_PATH} откатан к HEAD, "
+                     "перечисленные файлы — в индексе)", extra)
         proc = subprocess.run(("git", "push", remote, f"{branch}:{branch}"),
                               capture_output=True)
         if proc.returncode != 0:
@@ -237,10 +483,17 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
             sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
             git("reset", "--mixed", "HEAD~1")
             fetch(remote, branch)
-            subprocess.run(("git", "checkout", f"{remote}/{branch}", "--",
-                            BATON_PATH), capture_output=True)
-            die(f"push отклонён: {remote}/{branch} ушла вперёд. Коммит эстафеты "
-                "снят, файлы на месте. Перечитай relay.py status и повтори.")
+            # Прежний `checkout remote/branch -- BATON` клал чужой BATON
+            # в индекс против нового HEAD — то есть ровно то, что D2
+            # запрещает (зуб test_a_rejected_push_leaves_no_...): теперь
+            # откат к HEAD, а состояние origin покажет relay.py status.
+            _baton_back_to_head()
+            if backup is not None:
+                _state_restore(root, backup)
+            _report_rollback(root, created_report)
+            die_kept(f"push отклонён: {remote}/{branch} ушла вперёд. Коммит "
+                     f"эстафеты снят, {BATON_PATH} откатан к HEAD, файлы на "
+                     "месте. Перечитай relay.py status и повтори.", extra)
         return git("rev-parse", "--short", "HEAD")
 
     fetch(remote, branch)
@@ -248,13 +501,32 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
     with tempfile.TemporaryDirectory() as tmp:
         env = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
         git("read-tree", base, env=env)
-        blobs: list[tuple[str, bytes]] = [(BATON_PATH, payload.encode("utf-8"))]
+        blobs: dict[str, bytes] = {}
         for rel in extra:
             src = root / rel
             if not src.is_file():
                 die(f"нечего добавить: {rel} не найден в рабочем дереве")
-            blobs.append((rel, src.read_bytes()))
-        for rel, data in blobs:
+            blobs[rel] = src.read_bytes()
+        blobs[BATON_PATH] = payload.encode("utf-8")
+        if stamp is not None:
+            # База — блоб STATE с самой ветки, а не файл чужого дерева:
+            # координатор, который ведёт параллельную смену в другой
+            # ветке, уложил бы в коммит эстафеты её часы и её отчёт.
+            shown = git("show", f"{base}:{STATE_PATH}", check=False)
+            blobs[STATE_PATH] = _state_bytes(shown.encode("utf-8") if shown
+                                             else None, stamp)
+        if report and not git_ok("cat-file", "-e", f"{base}:{report}"):
+            # ТЗ-101 L1: в чужое дерево hand не пишет — заготовка существует
+            # только как блоб этого коммита. Отчёт, который на ветке уже
+            # лежит, не перезаписывается: его заполнила та смена.
+            task_rel = baton.get("task") or ""
+            text = (git("show", f"{base}:{task_rel}", check=False)
+                    if task_rel else "")
+            blobs[report] = report_skeleton(report, task_title(text)).encode(
+                "utf-8")
+            print(f"hand: заготовка отчёта {report} уезжает этим коммитом — "
+                  "в рабочем дереве её нет, она в коммите")
+        for rel, data in blobs.items():
             sha = git("hash-object", "-w", "--stdin", stdin=data)
             git("update-index", "--add", "--cacheinfo", f"100644,{sha},{rel}",
                 env=env)
@@ -264,9 +536,9 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
                           capture_output=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
-        die("push отклонён — ветка ушла вперёд. Ход не передан и работа "
-            "не сдана. Перечитай состояние (relay.py status) и повтори "
-            "передачу.")
+        die_kept("push отклонён — ветка ушла вперёд. Ход не передан и работа "
+                 "не сдана. Перечитай состояние (relay.py status) и повтори "
+                 "передачу.", extra)
     fetch(remote, branch)
     return commit[:7]
 
@@ -484,40 +756,448 @@ def cmd_digest(a: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def run_stamp() -> str:
+    """Метка прогона по часам UTC до секунды."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+# Имена Х3/К3 (ТЗ-98, ТЗ-100): `rusterm-relay-verify-` — префикс дерева
+# по умолчанию; метка владельца — сосед `<дерево>.owner`, а не файл
+# внутри дерева: внучатый selfcheck приёмки смотрит `git status
+# --porcelain` того же дерева.
+VERIFY_TREE_PREFIX = "rusterm-relay-verify-"
+VERIFY_OWNER_SUFFIX = ".owner"
+
+
+def untracked_files(work: Path) -> list[str]:
+    """Неотслеживаемые файлы дерева: ровно те, что переживают
+    `checkout --detach` + `reset --hard` (ТЗ-88 C1). Спрятанное в
+    .gitignore в список не входит — `--exclude-standard`.
+
+    К3: исключений нет — verify в дерево приёмки не пишет ничего, и
+    прятать ему нечего.
+    """
+    if not (work / ".git").exists():
+        return []
+    return sorted(line for line in git("-C", str(work), "ls-files",
+                                       "--others", "--exclude-standard",
+                                       check=False).splitlines()
+                  if line.strip())
+
+
+def verify_worktree(path_arg: str | None, head: str) -> Path:
+    """Куда ставить рабочее дерево приёмки (ТЗ-88 C1).
+
+    Явно данный путь уважаем как есть: человек вправе держать своё
+    дерево и переиспользовать его. По умолчанию путь уникальный на
+    прогон — прежний `rusterm-relay-verify` был один на всю машину,
+    `reset --hard` неотслеживаемое не трогает, и мусор одного прогона
+    переходил следующему (красный `test_i5` и ложный вывод о том, что
+    приёмку ломает связанное дерево).
+    """
+    if path_arg:
+        return Path(path_arg)
+    return (Path(tempfile.gettempdir())
+            / f"rusterm-relay-verify-{head[:7]}-{run_stamp()}"
+            f"-{os.getpid()}-{next(_VERIFY_RUNS)}")
+
+
+# ── Х3 (ТЗ-98): кто поставил дерево, тот его и убирает ───────────────────
+# К3 (ТЗ-100): метка владельца — сосед дерева, внутрь не пишется ничего
+# (имена VERIFY_TREE_PREFIX и VERIFY_OWNER_SUFFIX объявлены выше
+# untracked_files)
+
+
+def pid_alive(pid: object) -> bool:
+    """Жив ли процесс: сигнал 0 ничего не посылает, но отвечает на
+    вопрос. Чужой процесс (PermissionError) — жив: его pid не даёт
+    выкинуть дерево, в котором кто-то сидит."""
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+    return True
+
+
+def verify_owner_path(work: Path) -> Path:
+    """Метка владельца — СОСЕД дерева (`<дерево>.owner`), а не файл
+    внутри него (К3). Внучатый selfcheck приёмки смотрит `git status
+    --porcelain` этого же дерева: всё, что лежит в нём, обязано быть либо
+    из git, либо спрятанным в `.gitignore` — то есть чужим мусором,
+    прощающим себе всё остальное."""
+    return work.parent / (work.name + VERIFY_OWNER_SUFFIX)
+
+
+def read_owner_stamp(stamp: Path) -> dict | None:
+    """Содержимое метки владельца. Метки нет (или она не читается) —
+    владеет ею не verify, и трогать её нельзя: под общим `/tmp` чужая
+    работа отличается от мусора только меткой.
+    """
+    try:
+        data = json.loads(stamp.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def verify_owner(work: Path) -> dict | None:
+    """Кто владеет деревом, по его соседней метке. Отсутствие метки =
+    «не трогать», а не «мусор».
+    """
+    return read_owner_stamp(verify_owner_path(work))
+
+
+def stamp_verify_tree(work: Path) -> None:
+    """Метка владельца для каждого созданного прогоном дерева: pid
+    прогона и id прогона (имя дерева по умолчанию несёт штамп UTC, pid и
+    счётчик). Пишется рядом с деревом — в самом дереве после К3 нет
+    ничего, чего не было бы в git."""
+    stamp = verify_owner_path(work)
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(
+        json.dumps({"pid": os.getpid(), "run": work.name}) + "\n",
+        encoding="utf-8")
+
+
+def remove_verify_tree(work: Path) -> None:
+    """Снять дерево, его регистрацию в `.git/worktrees` и соседнюю
+    метку. `worktree remove` не работает на Already-pruned — тогда
+    остаётся каталог, и его убираем руками; prune чистит записи о уже
+    несуществующих."""
+    subprocess.run(("git", "worktree", "remove", "--force", str(work)),
+                   capture_output=True, check=False)
+    if work.exists():
+        shutil.rmtree(work, ignore_errors=True)
+    subprocess.run(("git", "worktree", "prune"), capture_output=True,
+                   check=False)
+    try:
+        verify_owner_path(work).unlink()
+    except OSError:
+        pass
+
+
+def sweep_stale_verify_trees(parent: Path) -> list[Path]:
+    """Убрать осевшие СВОИ деревья под родителем пути по умолчанию — и
+    метки, пережившие своё дерево.
+
+    Кандидат — каталог с префиксом `rusterm-relay-verify-`, несущий метку
+    verify, у которой pid мёртв (прогон убит между `worktree add` и
+    уборкой, либо красный прогон, оставивший дерево для разбора — К2).
+    Дерево без метки не трогается никогда: под общим `/tmp` чужая работа
+    выглядит так же, как своя.
+    """
+    removed: list[Path] = []
+    if not parent.is_dir():
+        return removed
+    for candidate in sorted(parent.glob(VERIFY_TREE_PREFIX + "*")):
+        if not candidate.is_dir():
+            continue
+        owner = verify_owner(candidate)
+        if owner is None or not isinstance(owner.get("pid"), int):
+            continue
+        if pid_alive(owner["pid"]):
+            continue
+        remove_verify_tree(candidate)
+        removed.append(candidate)
+    # метка, пережившая своё дерево: её снимал бы remove_verify_tree, но
+    # дерево сняли не ею (убили между `worktree remove` и unlink). Чужой
+    # файл с таким же расширением остаётся — у него нет нашего префикса
+    # и нашего pid внутри.
+    for stamp in sorted(parent.glob(VERIFY_TREE_PREFIX + "*"
+                                    + VERIFY_OWNER_SUFFIX)):
+        tree = stamp.with_name(stamp.name[:-len(VERIFY_OWNER_SUFFIX)])
+        if tree.exists():
+            continue
+        owner = read_owner_stamp(stamp)
+        if owner is None or not isinstance(owner.get("pid"), int):
+            continue
+        if pid_alive(owner["pid"]):
+            continue
+        try:
+            stamp.unlink()
+        except OSError:
+            continue
+        print(f"verify: убрана метка {stamp} — её дерево уже снято, "
+              f"pid мёртв", flush=True)
+    return removed
+
+
+def verify_refusal(work: Path) -> str | None:
+    """Почему приёмку в этом дереве начинать нельзя (ТЗ-88 C1).
+
+    Молча чужие файлы не убираем: `reset --hard` их всё равно не
+    трогает, а следующий прогон унаследовал бы тот же мусор. Отказ
+    называет каждый файл и команду, которой убрать его самому.
+    """
+    if not work.exists():
+        return None
+    if not (work / ".git").exists():
+        if any(work.iterdir()):
+            return (f"каталог {work} существует, это не рабочее дерево git "
+                    f"и он не пуст — файлы оттуда verify не убирает; "
+                    f"освободите путь сами: rm -rf {work}")
+        return None
+    extra = untracked_files(work)
+    if extra:
+        return (f"в дереве приёмки {work} лежат неотслеживаемые файлы "
+                f"(прошлый прогон или чужая работа):\n  "
+                + "\n  ".join(extra)
+                + f"\nverify их не удаляет. убрать самому: "
+                  f"git -C {work} clean -fd")
+    return None
+
+
 def cmd_verify(a: argparse.Namespace) -> int:
     branch = resolve_branch(a.branch)
     fetch(a.remote, branch)
     head = git("rev-parse", f"{a.remote}/{branch}")
-    work = Path(a.worktree or (tempfile.gettempdir() + "/rusterm-relay-verify"))
-    if (work / ".git").exists():
+    for gone in sweep_stale_verify_trees(Path(tempfile.gettempdir())):
+        print(f"verify: убрано осевшее дерево {gone} — метка владельца, "
+              f"pid мёртв", flush=True)
+    work = verify_worktree(a.worktree, head)
+    refusal = verify_refusal(work)
+    if refusal:
+        sys.stderr.write(f"verify: {refusal}\n")
+        return EXIT_ERROR
+    print(f"дерево приёмки: {work}", flush=True)
+    # Х3: «наше» дерево — то, которое поставили МЫ. Его и убираем после
+    # прогона; чужое остаётся в точности как было.
+    ours = not (work / ".git").exists()
+    if ours:
+        subprocess.run(("git", "worktree", "prune"), capture_output=True)
+        git("worktree", "add", "--detach", str(work), head)
+        stamp_verify_tree(work)
+    else:
         subprocess.run(("git", "-C", str(work), "checkout", "--detach", head),
                        capture_output=True, check=False)
         subprocess.run(("git", "-C", str(work), "reset", "--hard", head),
                        capture_output=True, check=False)
-    else:
-        subprocess.run(("git", "worktree", "prune"), capture_output=True)
-        git("worktree", "add", "--detach", str(work), head)
     print(f"приёмка в {work} на {head[:7]} ({a.remote}/{branch})", flush=True)
-    proc = subprocess.run(("bash", "agent/acceptance.sh"), cwd=str(work))
+    red = True
+    try:
+        proc = subprocess.run(("bash", "agent/acceptance.sh"), cwd=str(work))
+        red = proc.returncode != 0
+    finally:
+        # К2 (ТЗ-100): зелёное дерево убирается сразу, красное остаётся
+        # для разбора. Убирает его следующий прогон — метка владельца и
+        # мёртвый pid делают его осевшим своим деревом (Х3-объезд).
+        if ours and not red:
+            remove_verify_tree(work)
+            print(f"verify: дерево {work} убрано после прогона", flush=True)
     print(f"\nкод возврата приёмки: {proc.returncode} "
           f"({'ПРИНЯТО' if proc.returncode == 0 else 'провалов: %d' % proc.returncode})")
+    if ours and red:
+        print(f"дерево оставлено для разбора: {work} — удалит следующий verify",
+              flush=True)
     return EXIT_OK if proc.returncode == 0 else EXIT_ERROR
+
+
+# ── красная приёмка: что упало и где полный лог (ТЗ-80 A2) ──────────────
+
+_VERIFY_RUNS = itertools.count(1)
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+FAILED_NAMES_CAP = 20
+
+
+def acceptance_log() -> Path:
+    """Куда relay пишет полный прогон приёмки перед передачей хода.
+
+    Лог живёт в git-каталоге этого дерева, а не в `/tmp`: два рабочих
+    дерева на одной машине делят `/tmp` (CONTEXT §3, круг 56), и
+    прогон координатора затёр бы прогон исполнителя.
+    """
+    return git_dir() / "relay-acceptance.log"
+
+
+def failed_test_names(text: str) -> list[str]:
+    """Строки pytest вида «FAILED файл::тест» из произвольного вывода."""
+    names: list[str] = []
+    for raw in text.splitlines():
+        line = ANSI.sub("", raw).strip()
+        if line.startswith(("FAILED ", "ERROR ")) and line not in names:
+            names.append(line)
+    return names
+
+
+def failed_checks(text: str) -> list[str]:
+    """Проваленные проверки самой приёмки (`bad …`), по именам."""
+    checks: list[str] = []
+    for raw in text.splitlines():
+        line = ANSI.sub("", raw).strip()
+        if line.startswith("ПРОВАЛ ") and line not in checks:
+            checks.append(line)
+    return checks
+
+
+def run_acceptance(cwd: Path) -> tuple[int, str]:
+    """Прогон приёмки: вывод идёт в терминал и сохраняется целиком.
+
+    Сохранение нужно потому, что acceptance.sh печатает только хвост
+    каждой проверки — по одному ему не восстановить, что именно упало.
+    """
+    chunks: list[str] = []
+    with acceptance_log().open("w", encoding="utf-8", buffering=1) as log:
+        proc = subprocess.Popen(("bash", "agent/acceptance.sh"),
+                                cwd=str(cwd),
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True,
+                                errors="replace", bufsize=1)
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            log.write(line)
+            chunks.append(line)
+        proc.wait()
+    return proc.returncode, "".join(chunks)
+
+
+def pytest_failure_names(cwd: Path) -> list[str]:
+    """Имена упавших тестов отдельным прогоном, без трейсбэков.
+
+    Нужно, когда приёмка их не показала: она печатает три последние
+    строки прогона, и при нескольких падениях туда попадает не всё.
+    """
+    proc = subprocess.run(
+        (sys.executable, "-m", "pytest", "-q", "--tb=no", "-rf",
+         "-p", "no:randomly"),
+        cwd=str(cwd), capture_output=True, text=True)
+    return failed_test_names(proc.stdout or "")
+
+
+def red_acceptance(rc: int, text: str, cwd: Path) -> str:
+    """Отказ hand: какие тесты упали, какие проверки красные, где лог."""
+    lines = [f"приёмка на дереве красная (код возврата {rc}) — ход не передан."]
+    names = failed_test_names(text) or pytest_failure_names(cwd)
+    if names:
+        lines.append("упавшие тесты:")
+        lines += [f"  {n}" for n in names[:FAILED_NAMES_CAP]]
+        if len(names) > FAILED_NAMES_CAP:
+            lines.append(f"  … и ещё {len(names) - FAILED_NAMES_CAP}")
+    else:
+        lines.append("упавших тестов нет — красна не проверка тестов, "
+                     "а сама приёмка; смотри проваленные проверки ниже")
+    checks = failed_checks(text)
+    if checks:
+        lines.append("проваленные проверки приёмки:")
+        lines += [f"  {c}" for c in checks]
+    lines.append(f"полный лог прогона: {acceptance_log()}")
+    lines.append("исправь и повтори hand")
+    return "\n".join(lines)
+
+
+# ── во что ляжет штамп (ТЗ-100 K1) ───────────────────────────────────────
+
+STATE_PATH = "agent/STATE.json"
+# прежнее состояние — в HEAD, и починка дерева оттуда же
+FIX_STATE_COMMAND = "git checkout HEAD -- agent/STATE.json"
+
+
+def _stamp_source(plumbing: bool, remote: str,
+                  branch: str) -> tuple[str | None, str]:
+    """Откуда `hand` берёт поля STATE для слияния со штампом — и куда
+    поэтому обязан смотреть сторож.
+
+    Это тот же источник, что читает `push_baton`: в дереве смены — файл
+    `agent/STATE.json`, в плюмбинге — блоб STATE самой ветки (ТЗ-99 J1), а
+    не файл чужого рабочего дерева. Сверять не то, что поедет в коммит,
+    значит пропускать порченый блоб и отказывать по целому дереву.
+    """
+    if plumbing:
+        return (show_remote(remote, branch, STATE_PATH),
+                f"{remote}/{branch}:{STATE_PATH}")
+    path = repo_root() / STATE_PATH
+    if not path.is_file():
+        return None, STATE_PATH
+    try:
+        return path.read_text(encoding="utf-8"), STATE_PATH
+    except (OSError, UnicodeDecodeError):
+        return "", STATE_PATH  # не прочитан — дальше «не разбирается»
+
+
+def _stamp_repair(where: str) -> str:
+    if where == STATE_PATH:
+        return (f"{FIX_STATE_COMMAND} — или верни {STATE_PATH} в вид "
+                "JSON-объекта руками")
+    return (f"починь {STATE_PATH} на {where.split(':', 1)[0]}: в чужом "
+            "дереве он может быть и целым, в коммит едет блоб ветки")
+
+
+def state_stamp_refusal(base: str | None, where: str) -> str | None:
+    """Почему с таким STATE ход не передаётся: штамп некуда вкладывать.
+
+    Пришли сюда от ТЗ-98 H2 после ТЗ-99 J1: `hand` пишет `updated_at` сам,
+    поэтому сверка часов блокировала ровно ту передачу, которая эти часы и
+    обновляет (круг 129: отказ на +18.9 мин при честных часах смены).
+    Часы больше не смотрим; смотрим, сливается ли база со штампом — база
+    `{}` означала бы тихую потерю счётчиков и полей прежней смены.
+    Отсутствующего STATE достаточно, чтобы не отказывать: терять нечего,
+    `hand` положит свой объект.
+    """
+    if base is None:
+        return None
+    try:
+        parsed = json.loads(base)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return (f"{where} не разбирается как JSON — поля и счётчики прежней "
+                "смены при штампе потерялись бы — ход не передан, приёмка не "
+                f"запускалась.\n  починить: {_stamp_repair(where)}")
+    if not isinstance(parsed, dict):
+        return (f"{where} — не объект JSON ({type(parsed).__name__}), а "
+                "штамп вкладывается в объект: поля и счётчики прежней смены "
+                "потерялись бы — ход не передан, приёмка не запускалась.\n"
+                f"  починить: {_stamp_repair(where)}")
+    return None
 
 
 def cmd_hand(a: argparse.Namespace) -> int:
     branch = resolve_branch(a.branch)
+    # ТЗ-99 J2: любой отказ hand оставляет вложенную работу на месте,
+    # поэтому все отказы этого пути идут через die_kept — он называет те
+    # файлы из --add, что действительно лежат в индексе.
+    add: list[str] = list(a.add or [])
     if a.to not in ROLES:
-        die(f"--to принимает {ROLES}")
+        die_kept(f"--to принимает {ROLES}", add)
     if stop_file().exists() and not a.force:
-        die(f"пауза: {stop_file()} на месте. relay.py resume — и повтори")
+        die_kept(f"пауза: {stop_file()} на месте. relay.py resume — и повтори",
+                 add)
+    # ТЗ-100 K1: сторож сдачи — не часы (их hand пишет сам), а то, во что
+    # они лягут. --force остаётся выходом, но обход обязан быть слышен.
+    plumbing = current_branch() != branch
+    if plumbing:
+        # блоб ветки могли починить после последней синхронизации —
+        # сверяемся с origin до приёмки, а не после неё
+        fetch(a.remote, branch)
+    refusal = state_stamp_refusal(*_stamp_source(plumbing, a.remote, branch))
+    if refusal:
+        if not a.force:
+            die_kept(refusal, add)
+        print(f"hand: --force поверх нештамбуемого STATE — "
+              f"{refusal.splitlines()[0]}")
+    # ТЗ-66 L1: красная приёмка на дереве — ход не передаётся.
+    # Это закрывает щель: работа, уехавшая мимо хуков (плюмбинг,
+    # amend), больше не уезжает на ветку.
+    acc_script = Path.cwd() / "agent" / "acceptance.sh"
+    if acc_script.exists():
+        # ТЗ-66 L1: в песочницах unit-тестов relay acceptance.sh нет —
+        # проверка опциональна по наличию скрипта
+        rc, text = run_acceptance(Path.cwd())
+        if rc != 0:
+            die_kept(red_acceptance(rc, text, Path.cwd()), add)
     fetch(a.remote, branch)
     baton = read_remote_baton(a.remote, branch)
     if baton is None:
-        die(f"на {a.remote}/{branch} нет {BATON_PATH} — сначала relay.py init")
+        die_kept(f"на {a.remote}/{branch} нет {BATON_PATH} — сначала "
+                 "relay.py init", add)
     me = "executor" if a.to == "coordinator" else "coordinator"
     if baton.get("holder") != me and not a.force:
-        die(f"ход не твой: эстафету держит {baton.get('holder')}, "
-            f"а передать пытается {me}. --force, если уверен.")
+        die_kept(f"ход не твой: эстафету держит {baton.get('holder')}, "
+                 f"а передать пытается {me}. --force, если уверен.", add)
     new = dict(baton)
     new["holder"] = a.to
     new["round"] = baton.get("round", 0) + 1
@@ -533,18 +1213,35 @@ def cmd_hand(a: argparse.Namespace) -> int:
         f"Эстафета: круг {new['round']}, ход у {a.to}"
         + (f" — {new['task']}" if new.get("task") else "")
     )
-    sha = push_baton(a.remote, branch, new, list(a.add or []), message)
+    # ТЗ-101 L1: названный отчёт, которого нет, hand создаёт сам. Путь
+    # обязан остаться внутри репозитория: hand теперь пишет файл, и щель
+    # проверяется до приёмки — красная приёмка не должна оплачивать
+    # заведомо отказанный вызов (~19 минут на живой ветке).
+    report = new.get("report") or ""
+    if (report and outside_repo(report)
+            and not (repo_root() / report).is_file()):
+        die_kept(f"--report вне репозитория: {report!r}. Ход не передан и "
+                 "работа не сдана. Укажи путь внутри репозитория (обычно "
+                 "agent/REPORT-N.md) и повтори.", add)
+    # ТЗ-99 J1: STATE едет этим же коммитом — иначе приходящая сторона
+    # начинает круг с чужими часами и чужим отчётом и красит свой же
+    # страж до первого коммита.
+    sha = push_baton(a.remote, branch, new, add, message,
+                     stamp=_hand_state_stamp(new), report=report or None)
     # ТЗ-42 J1: пуш — не доказательство. Перечитываем BATON с origin:
     # ход считается переданным, только если там теперь держатель a.to.
     fetch(a.remote, branch)
     on_origin = read_remote_baton(a.remote, branch)
     if on_origin is None or on_origin.get("holder") != a.to:
-        die(f"ход НЕ передан: на {a.remote}/{branch} держит "
-            f"{(on_origin or {}).get('holder', 'никто')!r}, а не {a.to!r}. "
-            "Работа не сдана. Проверь relay.py status и повтори hand.")
+        die_kept(f"ход НЕ передан: на {a.remote}/{branch} держит "
+                 f"{(on_origin or {}).get('holder', 'никто')!r}, а не "
+                 f"{a.to!r}. Работа не сдана. Проверь relay.py status и "
+                 "повтори hand.", add)
     print(f"передано коммитом {sha}")
     print(baton_line(on_origin))
-    for rel in a.add or []:
+    print("  " + STATE_PATH + " (тем же коммитом): "
+          + ", ".join(f"{k}={v}" for k, v in _hand_state_stamp(new).items()))
+    for rel in add:
         print("  вложено:", rel)
     return EXIT_OK
 

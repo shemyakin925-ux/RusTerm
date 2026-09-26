@@ -885,7 +885,8 @@ def test_b16_json_commands_carry_expected_keys(capsys):
                          "measure_reason_counts"},
             "metrics": {"metrics", "recorded"},
             "budget": {"ceiling_per_night", "rate_per_second",
-                       "provider_ran", "used", "refused", "samples"},
+                       "provider_ran", "used", "used_total",
+                       "last_probe", "refused", "samples"},
             # ТЗ-31 C5: каденность присоединяется к закреплённой схеме
             "cadence": {"as_of", "instruments", "incomplete",
                         "next_pass_requests", "daily_ceiling"},
@@ -952,3 +953,31 @@ def test_cli_doctor_reports_schema_drift_40(capsys):
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
+
+
+def test_export_of_thin_source_says_words(capsys):
+    """ТЗ-72 S5: источник почти ничего не даёт — CLI говорит это
+    словами до таблицы; демо-база тонкая (4 значения из 28 мер)."""
+    root = tempfile.mkdtemp()
+    try:
+        assert main(["--root", root, "init"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "demo"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "ingest",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "snapshot",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "export",
+                     "--instrument", "US-CLI-DEMO",
+                     "--format", "csv"]) == 0
+        captured = capsys.readouterr()
+        assert "почти ничего не даёт" in captured.err
+        assert "4 из 28" in captured.err
+        assert "missing_data" in captured.err
+        # таблица не пострадала: машина читает как раньше
+        assert "net_margin" in captured.out or "concept" in captured.out
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

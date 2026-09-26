@@ -17,6 +17,7 @@ sha256, снапшот — один атомарный вызов ядра; по
 from __future__ import annotations
 
 import datetime
+import os
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -144,6 +145,20 @@ def collect_synthetic(root, instrument_id: str,
             on_stage(name)
 
     as_of = as_of or _today()
+    # ТЗ-65 K3: KR без ключа — отказ канала с инструкцией, те же
+    # слова, что у rusterm ingest (ТЗ-61 F4), не синтетика
+    from rusterm.markets import get_market, provider_channel
+    from rusterm.providers import channel_key_env
+    market = get_market(instrument_id.split("-", 1)[0])
+    key_env = channel_key_env(market.provider) if market else None
+    if (market is not None
+            and provider_channel(market.provider) is None
+            and key_env and not os.environ.get(key_env)):
+        from rusterm.providers.dart import dart_key_instruction
+        return CollectOutcome(
+            ok=False, reason="dart_key_unset",
+            detail=(f"сбор недоступен: dart_key_unset — "
+                    f"{dart_key_instruction()}"))
     if instrument_id != demo_instrument_id():
         return CollectOutcome(
             ok=False,
@@ -213,13 +228,21 @@ def collect_synthetic(root, instrument_id: str,
                                   reason=f"unexpected_error:{e}",
                                   detail="снапшот не построен; база "
                                          "осталась целой")
+        # ТЗ-64 J5: те же входы — честное «без изменений» в итоге
+        from rusterm.core.snapshot import snapshot_measures_identical
+        prev_id = repos.snapshot.previous_snapshot(instrument_id)
+        unchanged = (prev_id is not None
+                     and snapshot_measures_identical(
+                         repos.snapshot.get_measures(built.snapshot_id),
+                         repos.snapshot.get_measures(prev_id)))
         return CollectOutcome(
             ok=True, facts_stored=result.facts_stored,
             jobs_done=result.jobs_done,
             snapshot_id=built.snapshot_id,
             snapshot_version=built.version,
             detail=(f"фактов {result.facts_stored}; снапшот "
-                    f"v{built.version}"))
+                    f"v{built.version}"
+                    + ("; без изменений" if unchanged else "")))
     finally:
         conn.close()
 
@@ -251,26 +274,18 @@ def _snapshot_measures(repos, instrument_id: str):
 
 
 def _lineage_facts(repos, measures) -> dict:
-    """measure_id -> входные факты (FactRepo.get_fact) — та же цепочка,
-    которую панель источника показывает по клику."""
-    lineage: dict = {}
-    for m in measures:
-        facts = [repos.fact.get_fact(fid)
-                 for fid in repos.snapshot.lineage_fact_ids(m[0])]
-        lineage[m[0]] = [f for f in facts if f is not None]
-    return lineage
+    """ТЗ-64 J2: делегация единой реализации ядра."""
+    from rusterm.core.export import lineage_facts
+    return lineage_facts(repos, measures)
 
 
 def _source_cell(facts: list) -> str:
     """Ячейка источника: вид источника, хэш ответа (укороченный),
-    дата периода факта. Строка со значением без источника уйти не
+    дата периода факта. Реализация одна (data.source_cell, форма
+    'export') — ТЗ-62 G3; строка со значением без источника уйти не
     должна — это проверяет тест."""
-    parts = []
-    for f in facts:
-        kind = f.get("source_kind") or "provider"
-        parts.append(f"{kind}:{str(f.get('source_ref'))[:12]}"
-                     f"@{f.get('period_end')}")
-    return "; ".join(parts)
+    from rusterm.desktop.data import source_cell
+    return source_cell(facts, shape="export")
 
 
 def export_snapshot_csv(repos, instrument_id: str) -> str:
@@ -320,7 +335,9 @@ def export_snapshot_json(repos, instrument_id: str) -> str:
 
 def chart_caption(table: dict, concept: str | None) -> str:
     """Подпись под картинкой (C4.2): эмитент, мера, период, дата
-    выгрузки — из данных таблицы, без досчёта."""
+    выгрузки — из данных таблицы, без досчёта. Форма без источника:
+    подпись не называет документ и хэш — для них в ней нет места
+    (ТЗ-62 G3)."""
     years = table.get("years") or []
     period = f"{years[-1]}–{years[0]}" if years else "—"
     return (f"{table.get('ticker', '—')} · {table.get('name') or '—'}"

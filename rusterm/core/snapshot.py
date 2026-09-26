@@ -57,9 +57,13 @@ _CHAIN_MEASURES: dict[str, dict[str, str]] = {
 # в formulas.py со своим unit-тестом.
 # ТЗ-23 K4: шесть мер получили входы (цена из таблицы price + факты)
 # и считаются в отдельном проходе; остальные ждут своих концептов.
+# ТЗ-68 N1: pe/ps/fcf_yield/net_debt/net_debt_ebitda считаются
+# проходом оценки (их входы в карте v4: cash/total_debt/
+# shares_outstanding — ТЗ-31 C2; eps_diluted/revenue — исходно).
+# Остались честно несчитаемые формулами v0: invested_capital (нужна
+# сумма долга), hhi (нужны пиры), price_adj/total_return/drawdown
+# (нужен ряд цен, а не одна закрытая).
 _UNMAPPED_FORMULAS: tuple[str, ...] = (
-    "invested_capital", "net_debt", "net_debt_ebitda",
-    "fcf_yield", "pe", "ps",
     "total_return", "drawdown", "price_adj", "hhi",
 )
 
@@ -68,6 +72,7 @@ _VALUATION_INPUT_CONCEPTS: tuple[str, ...] = (
     "shares_outstanding", "total_debt", "cash", "st_investments",
     "minority_interest", "preferred_equity", "dps_ttm",
     "invested_capital", "total_equity",
+    "eps_diluted", "revenue",  # ТЗ-68 N1: pe и ps
 )
 
 # ТЗ-23 K4: цена старше семи дней — поводок, а не число; перенос
@@ -92,6 +97,12 @@ _STALE_LOOKBACK_DAYS = 1100
 # ста дней нельзя честно — ноябрь против июня. Порог примерно в квартал
 # с люфтом; причина — существующая period_mismatch, новой нет.
 _PERIOD_GAP_DAYS = 100
+
+# Годовой dps из отчётности годен как «последние 12 месяцев», пока его
+# год кончился не больше ~18 месяцев назад; старше — следующего годового
+# отчёта с дивидендами нет, и выплаты могли прекратиться (координатор,
+# 24.09.2026).
+_DPS_ANNUAL_STALE_DAYS = 550
 
 
 def _eligible_input(period_end: str, anchor_date: date) -> bool:
@@ -220,13 +231,40 @@ class SnapshotBuilder:
         source_errors — {block: причина} для блоков, чей сборщик вернул
         внешнюю ошибку (E1/E2): покрытие получает error, сборка продолжается
         на том, что есть (docs/threat-model-sources.md §2 class A).
+
+        ТЗ-90 A3: строка снапшота создаётся со статусом `building` и
+        помечается `ready` последней записью сборки. Любое исключение
+        удаляет строки этого снапшота и перевынивается — половины
+        снапшота в базе не остаётся, читатели (latest_snapshot_id,
+        previous_snapshot) и так видят только `ready`.
         """
         version = self._next_version(instrument_id)
         snapshot_id = str(uuid4())
         self._snapshots.create_snapshot(snapshot_id, instrument_id, version,
                                         as_of, peer_set_version,
                                         "unverified" if peer_set_version else "none",
-                                        "ready")
+                                        "building")
+        try:
+            result = self._assemble(
+                instrument_id, issuer_id, as_of, peer_set_version,
+                peer_measures, peer_members_previous, peer_members_current,
+                source_errors, snapshot_id, version)
+        except BaseException:
+            self._snapshots.delete_snapshot(snapshot_id)
+            raise
+        self._snapshots.set_status(snapshot_id, "ready")
+        return result
+
+    def _assemble(self, instrument_id: str, issuer_id: str, as_of: str,
+                  peer_set_version: str | None,
+                  peer_measures: list | None,
+                  peer_members_previous: list[str] | None,
+                  peer_members_current: list[str] | None,
+                  source_errors: dict | None,
+                  snapshot_id: str, version: int) -> BuildResult:
+        """Тело сборки: меры, блоки, diff и покрытие. Строку создал
+        build() в статусе `building`; готовность ставит build() после
+        возврата отсюда (ТЗ-90 A3)."""
         self._snapshots.add_block(snapshot_id, "fundamentals", "ready", None)
         result = BuildResult(snapshot_id=snapshot_id, version=version)
 
@@ -344,14 +382,19 @@ class SnapshotBuilder:
                     report["reason"])
             else:
                 metrics = report["metrics"]
-                computed = sum(1 for m in metrics
-                               if m["value"] is not None)
+                # ТЗ-90 A3: имя отдельное. Здесь локальная переменная
+                # называлась `computed` и перепривязывала словарь величин
+                # прохода 1 к целому — `computed.get(concept)` ниже падал
+                # AttributeError, а покрытие fundamentals читалось
+                # счётчиком отрасли.
+                industry_computed = sum(1 for m in metrics
+                                        if m["value"] is not None)
                 grey = [f"{m['concept']} ({m['reason']})"
                         for m in metrics if m["value"] is None]
                 method = (metrics[0]["method_version"] if metrics
                           else "unknown")
-                status = "ready" if computed else "missing"
-                reason = (f"computed {computed}/{len(metrics)} "
+                status = "ready" if industry_computed else "missing"
+                reason = (f"computed {industry_computed}/{len(metrics)} "
                           f"method {method}")
                 if grey:
                     reason += "; grey: " + "; ".join(grey[:8])
@@ -457,7 +500,8 @@ class SnapshotBuilder:
                     "percentile_threshold_not_met")
 
         result.diff = self._diff(instrument_id, issuer_id, snapshot_id,
-                                 peer_members_previous, peer_members_current)
+                                 peer_members_previous, peer_members_current,
+                                 version)
 
         # ── Покрытие: все восемь блоков существуют после каждой сборки ──
         known = {
@@ -713,6 +757,15 @@ class SnapshotBuilder:
     def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:
         return self._snapshots.fact_currency(fact_id)
 
+    def _latest_annual_input(self, issuer_id: str, canonical: str,
+                             min_days: int = 300) -> tuple | None:
+        """ТЗ-69 P1: свежайший ГОДОВОЙ (окно >= min_days дней) факт по
+        каноническому входу — знаменатель поток-меры. Квартальный поток
+        в знаменателе годовой меры — выдумка, а не значение. Теги
+        входа берутся из карты концептов (в фактах — сырые теги)."""
+        return self._snapshots.latest_annual_fact(issuer_id, canonical,
+                                                  min_days=min_days)
+
     # ── ТЗ-31 C2: входы оценочных мер из реальных данных ────────────────
 
     def _nci_never_reported(self, issuer_id: str) -> bool:
@@ -769,6 +822,81 @@ class SnapshotBuilder:
                                    "peer_measure_id": None,
                                    "role": "input"})
         return out
+
+    def _dps_quarterly_ttm(self, issuer_id: str, as_of: str) -> "tuple | None":
+        """Сумма четырёх ПОДРЯД идущих кварталов dps из отчётности
+        (formulas.ttm, словарь §1.2). Квартал — окно 80–100 дней;
+        «подряд» — начало следующего не дальше 5 дней от конца
+        предыдущего; последний квартал закрыт на as_of и свежий
+        (_DPS_ANNUAL_STALE_DAYS). Разрыв — None, а не сумма трёх.
+        Возвращает (сумма, конец, валюта, [fact_id…])."""
+        from rusterm.formulas import ttm
+
+        try:
+            as_of_d = date.fromisoformat(as_of)
+        except (TypeError, ValueError):
+            return None
+        seen: set = set()
+        quarters: list = []
+        for value, start, end, currency, fact_id in \
+                self._snapshots.duration_facts(issuer_id, "dps"):
+            try:
+                s, e = date.fromisoformat(start), date.fromisoformat(end)
+                v = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not 80 <= (e - s).days <= 100 or e > as_of_d:
+                continue
+            if (s, e) in seen:
+                continue  # дубль периода из более поздней подачи
+            seen.add((s, e))
+            quarters.append((s, e, v, currency, fact_id))
+        quarters.sort(key=lambda q: q[1], reverse=True)
+        if not quarters:
+            return None
+        chain = [quarters[0]]
+        for q in quarters[1:]:
+            if len(chain) == 4:
+                break
+            gap = (chain[-1][0] - q[1]).days
+            if 0 < gap <= 5:
+                chain.append(q)
+            elif q[1] < chain[-1][0] - timedelta(days=5):
+                return None  # разрыв: квартала между ними нет
+        if len(chain) < 4:
+            return None
+        if (as_of_d - chain[0][1]).days > _DPS_ANNUAL_STALE_DAYS:
+            return None
+        total, reason = ttm([q[2] for q in reversed(chain)])
+        if reason is not None:
+            return None
+        return (total, chain[0][1].isoformat(), chain[0][3],
+                [q[4] for q in chain])
+
+    def _dps_annual_from_facts(self, issuer_id: str,
+                               as_of: str) -> "tuple | str | None":
+        """Свежайший ГОДОВОЙ dps из отчётности (координатор, 24.09.2026).
+
+        Возвращает (значение, конец, валюта, fact_id), либо строку
+        отказа stale_data, если год кончился больше чем
+        _DPS_ANNUAL_STALE_DAYS назад — старый годовой dps не «последние
+        12 месяцев» (выплаты могли прекратиться), либо None, если
+        годового dps нет. Квартальные и «с начала года» цифры сюда не
+        попадают: окно годового факта >= 300 дней (ТЗ-69 P1)."""
+        row = self._latest_annual_input(issuer_id, "dps")
+        if row is None:
+            return None
+        value, end, currency, fact_id, _start, _length = row
+        try:
+            age = (date.fromisoformat(as_of)
+                   - date.fromisoformat(end)).days
+        except (TypeError, ValueError):
+            return None
+        if age < 0:
+            return None  # год ещё не закрыт на дату снапшота
+        if age > _DPS_ANNUAL_STALE_DAYS:
+            return f"stale_data: dps: last {end}"
+        return (value, end, currency, fact_id)
 
     def _dps_ttm_from_actions(self, instrument_id: str, as_of: str,
                               price_currency: Optional[str]) -> Optional[tuple]:
@@ -830,7 +958,9 @@ class SnapshotBuilder:
         currency_mismatch, а не частное.
         """
         concepts = ("market_cap", "market_cap_total", "ev", "pb",
-                    "ev_ebitda", "div_yield", "roic")
+                    "ev_ebitda", "div_yield", "roic",
+                    "pe", "ps", "fcf_yield", "net_debt",
+                    "net_debt_ebitda", "invested_capital")
         price = (self._prices.price_as_of(instrument_id, as_of)
                  if self._prices is not None else None)
         if price is None:
@@ -979,6 +1109,131 @@ class SnapshotBuilder:
         ev_mid = write("ev", ev_value, ev_reason, price_currency or "",
                        ev_lineage)
 
+        # ── ТЗ-68 N1: net_debt = total_debt - cash - st_investments ──
+        nd_value = None
+        nd_reason = None
+        if total_value is None:
+            nd_reason = "missing_data: market_cap_total"
+        else:
+            missing = sorted(
+                name for name, v in (
+                    ("total_debt", debt), ("cash", cash),
+                    ("st_investments", stinv)) if v is None)
+            if missing:
+                nd_reason = "missing_data: " + ", ".join(missing)
+            else:
+                nd_value = (debt[0] - cash[0] - stinv[0])
+        nd_lineage = []
+        for c in ("total_debt", "cash", "st_investments"):
+            if inputs.get(c):
+                nd_lineage += self._fact_lineage(inputs[c][3])
+        nd_mid = write("net_debt", nd_value, nd_reason,
+                       price_currency or "", nd_lineage)
+
+        # net_debt_ebitda = net_debt / ebitda (ratio; ebitda — проход 1)
+        ebitda_value = computed.get("ebitda")
+        nde_value = None
+        nde_reason = None
+        if nd_value is None:
+            nde_reason = "missing_data: net_debt"
+        elif ebitda_value is None or ebitda_value <= 0:
+            nde_reason = "missing_data: ebitda"
+        else:
+            nde_value = nd_value / ebitda_value
+        ebitda_mid = measure_row_ids.get("ebitda")
+        nde_lineage = ([{"fact_id": None,
+                         "peer_measure_id": ebitda_mid,
+                         "role": "from_ebitda"}] if ebitda_mid else [])
+        write("net_debt_ebitda", nde_value, nde_reason, "ratio",
+              nde_lineage)
+
+        # ТЗ-71 R2: invested_capital = total_equity + total_debt
+        # - cash - st_investments (словарь; minority = 0 для AAPL
+        # подтверждён ТЗ-68 N3, отсутствие названо в lineage)
+        ic_value = None
+        ic_reason = None
+        ic_missing = sorted(
+            name for name, v in (
+                ("total_equity", equity), ("total_debt", debt),
+                ("cash", cash), ("st_investments", stinv)) if v is None)
+        if ic_missing:
+            ic_reason = "missing_data: " + ", ".join(ic_missing)
+        else:
+            ic_value = (equity[0] + debt[0] - cash[0] - stinv[0])
+        ic_lineage = []
+        for c in ("total_equity", "total_debt", "cash", "st_investments"):
+            if inputs.get(c):
+                ic_lineage += self._fact_lineage(inputs[c][3])
+        ic_mid = write("invested_capital", ic_value, ic_reason,
+                       price_currency or "", ic_lineage)
+
+        # ТЗ-69 P1: pe = market_cap_total / net_income_ttm (словарь) —
+        # знаменатель: свежайший ГОДОВОЙ (>= 300 дней) net_income;
+        # квартального потока в годовой мере не бывает
+        annual = self._latest_annual_input(issuer_id, "net_income")
+        if annual is None:
+            pe_reason = "missing_data: net_income_ttm"
+            pe_lineage = []
+            pe_value = None
+        else:
+            ni_value, ni_end, _unit, ni_fact, ni_start, _len = annual
+            if total_value is None:
+                pe_reason = "missing_data: market_cap_total"
+                pe_lineage = []
+                pe_value = None
+            elif ni_value <= 0:
+                pe_reason = "missing_data: net_income"
+                pe_lineage = []
+                pe_value = None
+            else:
+                pe_value = total_value / ni_value
+                pe_reason = None
+                pe_lineage = [{"fact_id": ni_fact,
+                               "peer_measure_id": None,
+                               "role": (f"input:годовое окно "
+                                        f"{ni_start}…{ni_end}")}]
+        write("pe", pe_value, pe_reason, "ratio", pe_lineage)
+
+        # ps = market_cap_total / revenue_ttm (словарь): годовой вход
+        annual_rev = self._latest_annual_input(issuer_id, "revenue")
+        ps_value = None
+        ps_reason = None
+        if total_value is None:
+            ps_reason = "missing_data: market_cap_total"
+        elif annual_rev is None:
+            ps_reason = "missing_data: revenue_ttm"
+        elif annual_rev[0] == 0:
+            # ТЗ-90 A3: нулевая годовая выручка (pre-revenue эмитент) —
+            # отказ по словарю §1.4, а не ZeroDivisionError на всю сборку
+            ps_reason = "denominator_zero"
+        elif annual_rev[0] < 0:
+            ps_reason = "negative_denominator"
+        else:
+            ps_value = total_value / annual_rev[0]
+        ps_lineage = ([{"fact_id": annual_rev[3],
+                        "peer_measure_id": None,
+                        "role": (f"input:годовое окно "
+                                 f"{annual_rev[4]}…{annual_rev[1]}")}]
+                      if annual_rev is not None else [])
+        write("ps", ps_value, ps_reason, "ratio", ps_lineage)
+
+        # fcf_yield = fcf_ttm / market_cap (класс, словарь)
+        fcf_value = computed.get("fcf")
+        fcfy_value = None
+        fcfy_reason = None
+        if mcap_value is None:
+            fcfy_reason = "missing_data: market_cap"
+        elif fcf_value is None:
+            fcfy_reason = "missing_data: fcf"
+        else:
+            fcfy_value = fcf_value / mcap_value
+        fcf_mid = measure_row_ids.get("fcf")
+        fcfy_lineage = ([{"fact_id": None,
+                          "peer_measure_id": fcf_mid,
+                          "role": "from_fcf"}] if fcf_mid else [])
+        write("fcf_yield", fcfy_value, fcfy_reason, "ratio",
+              fcfy_lineage)
+
         # ev_ebitda = ev / ebitda — ratio: обе стороны уже в одной
         # валюте (ev наследует валюту цены, ebitda — валюту фактов
         # эмитента); разные валюты фактов отсечены стражем выше.
@@ -1022,13 +1277,29 @@ class SnapshotBuilder:
         # дней из corporate_action (вендорская база = база цены,
         # ADR-0020); валюты сверяются тем же правилом K6
         dps = inputs.get("dps_ttm")
+        dps_basis = "ttm"
+        dps_refusal = "missing_data: dps_ttm"
         if dps is None:
             dps = self._dps_ttm_from_actions(instrument_id, as_of,
                                              price_currency)
+        if dps is None:
+            # Координатор, 24.09.2026: бесплатный Twelve Data на
+            # дивиденды отвечает 403, а 30 из 44 эмитентов пользователя
+            # подают dps в отчётности. Как ADR-0021 для прибыли —
+            # свежайший ГОДОВОЙ dps, основание «annual».
+            annual = self._dps_annual_from_facts(issuer_id, as_of)
+            quarterly = self._dps_quarterly_ttm(issuer_id, as_of)
+            annual_end = annual[1] if isinstance(annual, tuple) else ""
+            if quarterly is not None and quarterly[1] > annual_end:
+                # свежее годового: четыре подряд идущих квартала
+                dps, dps_basis = quarterly, "ttm"
+            elif isinstance(annual, str):
+                dps_refusal = annual
+            elif annual is not None:
+                dps, dps_basis = annual, "annual"
         dps_cur = dps[2] if dps else None
         if dps is None:
-            write("div_yield", None, "missing_data: dps_ttm", "ratio",
-                  [])
+            write("div_yield", None, dps_refusal, "ratio", [])
         elif dps_cur and price_currency and dps_cur != price_currency:
             write("div_yield", None,
                   mismatch([dps_cur, price_currency]), "ratio",
@@ -1038,15 +1309,21 @@ class SnapshotBuilder:
                                   price_close=price_value)
             # ТЗ-31 C2: dps_ttm из corporate_action несёт lineage на
             # события окна (миграция 42); факт-маршрут — как прежде
-            if isinstance(dps[3], list) and dps[3]:
+            if isinstance(dps[3], list) and dps[3] \
+                    and isinstance(dps[3][0], dict):
                 lineage = self._with_basis(
                     [{"ca_instrument_id": instrument_id,
                       "ca_ex_date": e["ex_date"],
                       "ca_kind": "dividend", "role": "input"}
                      for e in dps[3]], "ttm")
+            elif isinstance(dps[3], list):
+                # четыре квартала из отчётности: каждый — вход меры
+                lineage = self._with_basis(
+                    [row for fid in dps[3]
+                     for row in self._fact_lineage(fid)], dps_basis)
             else:
                 lineage = self._with_basis(
-                    self._fact_lineage(dps[3]), "ttm")
+                    self._fact_lineage(dps[3]), dps_basis)
             write("div_yield", m.value, m.null_reason, "ratio", lineage)
 
         # roic = nopat / avg(invested_capital) — оба входа в валюте
@@ -1099,9 +1376,12 @@ class SnapshotBuilder:
                   self._fact_lineage(ic[3]))
 
     def _diff(self, instrument_id, issuer_id, snapshot_id,
-              peer_prev, peer_cur) -> SnapshotDiff:
+              peer_prev, peer_cur, version) -> SnapshotDiff:
         diff = SnapshotDiff()
-        prev_snapshot_id = self._snapshots.previous_snapshot(instrument_id)
+        # ТЗ-90 A3: базой сравнения служит последняя ГОТОВАЯ версия —
+        # своя building-строка этой сборки версией ниже не является.
+        prev_snapshot_id = self._snapshots.previous_snapshot(
+            instrument_id, before_version=version)
         if prev_snapshot_id:
             prev = {m[3]: m[4] for m in self._snapshots.get_measures(prev_snapshot_id)
                     if m[3] != "percentile" and m[4] is not None}
@@ -1116,3 +1396,14 @@ class SnapshotBuilder:
         diff.revisions = [(c, p) for c, p
                           in self._snapshots.restated_revisions(issuer_id)]
         return diff
+
+
+def snapshot_measures_identical(rows_a: list, rows_b: list) -> bool:
+    """ТЗ-64 J5: содержимое двух снапшотов совпадает — те же меры с
+    теми же величинами, единицами, периодами и причинами отказов.
+    Версия и идентификаторы не участвуют: сбор на тех же входах не
+    должен выдавать себя за изменение."""
+    def key(rows):
+        return sorted((m[3], str(m[4]), m[5], m[6], m[7],
+                       (m[10] or "")) for m in rows)
+    return key(rows_a) == key(rows_b)

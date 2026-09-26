@@ -159,3 +159,71 @@ def snapshot_to_md(measures: list) -> str:
     if footnotes:
         lines += ["", "Причины пустых значений:"] + footnotes
     return "\n".join(lines) + "\n"
+
+
+def lineage_facts(repos, measures) -> dict:
+    """measure_id -> входные факты (ТЗ-62 G3 / ТЗ-64 J2): одна
+    реализация lineage-выборки для CLI-экспорта и десктопа."""
+    lineage: dict = {}
+    for m in measures:
+        facts = [repos.fact.get_fact(fid)
+                 for fid in repos.snapshot.lineage_fact_ids(m[0])]
+        lineage[m[0]] = [f for f in facts if f is not None]
+    return lineage
+
+
+def format_source_cell(facts, shape: str = "table") -> str:
+    """Строка источника из готовых фактов (ТЗ-62 G3): форму задаёт
+    поверхность — 'table' (kind where #sha12 period) или 'export'
+    (kind:sha12@period). Документ, хэш и период одни и те же в любой
+    форме. Подпись графика источника не называет — в ней нет места
+    для хэша."""
+    import json as _json
+
+    cells = []
+    for fact in facts:
+        locator = fact.get("locator")
+        if isinstance(locator, str):
+            try:
+                locator = _json.loads(locator)
+            except ValueError:
+                locator = {"locator": locator}
+        kind = fact.get("source_kind") or "provider"
+        sha = str(fact.get("source_ref") or "")[:12]
+        period = fact.get("period_end") or ""
+        if shape == "export":
+            cells.append(f"{kind}:{sha}@{period}")
+            continue
+        if kind == "manual":
+            where = (locator or {}).get("locator", "") or "файл"
+        else:
+            where = ((locator or {}).get("endpoint")
+                     or (locator or {}).get("locator", ""))
+        cells.append(f"{kind} {where} #{sha} {period}".strip())
+    return "; ".join(cells)
+
+
+def source_lineage_cell(repos, measure_row) -> str:
+    """Колонка/строка источника по lineage меры: входов нет — пустая
+    строка, значения без источника не бывает."""
+    facts = lineage_facts(repos, [measure_row]).get(measure_row[0], [])
+    return format_source_cell(facts)
+
+
+# ТЗ-64 J3: подсказка действия для причин, где оно очевидно. Ключ —
+# первый токен причины; значение — (вид сбора, слова). Команда строится
+# подстановкой инструмента, не текстом.
+ACTION_BY_TOKEN: dict[str, tuple[str, str]] = {
+    "price_close": ("twelvedata", "цены"),
+}
+
+
+def refusal_advice(token: str, instrument_id: str) -> str | None:
+    """Совет действия к причине отказа (ТЗ-64 J3) или None: совет
+    выдумывается только там, где действие очевидно (нет цен — собрать
+    цены); concept_not_mapped совета не получает."""
+    action = ACTION_BY_TOKEN.get(token)
+    if action is None:
+        return None
+    source, what = action
+    return f"{what}: rusterm ingest --source {source} --instrument {instrument_id}"

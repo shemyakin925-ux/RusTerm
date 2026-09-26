@@ -3,15 +3,84 @@
 Реализует v1 формулы: методы, TTM, правила null.
 Каждая формула возвращает (value, null_reason) или (None, reason).
 Никаких исключений — валидные данные или null с причиной.
+
+Правило «никаких исключений и никаких NaN» (ТЗ-82 E2, ADR-0024) держит
+декоратор refuses_non_finite: вход NaN/±inf, арифметика, сошедшая в
+±inf, и степень, упёршаяся в OverflowError, — всё это отказ
+non_finite, а не число-призрак в базе.
 """
 from __future__ import annotations
 
+import functools
+import math
 from typing import Optional, Tuple, Literal, List
 from dataclasses import dataclass
 
 
-NullReason = Literal["denominator_zero", "negative_denominator", "missing_data", "jurisdiction_rate"]
+NullReason = Literal["denominator_zero", "negative_denominator", "missing_data", "jurisdiction_rate", "non_finite"]
 Scope = Literal["issuer", "instrument"]
+
+
+def _has_non_finite(value) -> bool:
+    """NaN или ±inf где-то во входе, в том числе вложенном списком."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return True
+    if isinstance(value, (list, tuple)):
+        return any(_has_non_finite(v) for v in value)
+    return False
+
+
+def _has_missing(value) -> bool:
+    """None где-то во входе, в том числе вложенном списком или парой."""
+    if value is None:
+        return True
+    if isinstance(value, (list, tuple)):
+        return any(_has_missing(v) for v in value)
+    return False
+
+
+def refuses_non_finite(fn):
+    """ТЗ-82 E2: формула обязана вернуть отказ, если вход или частное
+    нечисловые.
+
+    Молчание стоило трёх кругов: clip() в effective_tax выдумал 0.0 из
+    ≈23,8 % AMBEV (ТЗ-58 C4), и тот же класс — «мера подставляет
+    значение вместо отказа» — переживает переписывание: на dd11fbd
+    gross_margin(nan, 100.0) давал (nan, None), а gross_margin(1e308,
+    1e-308) — (inf, None). Причина называется отдельно от missing_data
+    нарочно: «данных нет» и «данные есть, но они не числа» — разные
+    разговора с пользователем, и первый из них чинит пайплайн, а
+    второй — источник.
+
+    Арифметика floats в Python переводит переполнение в inf молча,
+    кроме возведения в степень, которое бросает OverflowError; ловится
+    и то, и другое — формула не имеет права ронять снапшот.
+
+    Проверяет декоратор и второе молчание того же рода: формулы,
+    объявленные как float, вызываются из calculate_measure с фактами,
+    которых может не быть, и арифметика с None бросает TypeError. Формула
+    обязана ответить missing_data; сама по себе проверка на None в
+    числителе есть не везде (roic смотрит только знаменатель), а
+    обещание «никаких исключений» — про все входы.
+    """
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        if _has_non_finite(args) or _has_non_finite(list(kwargs.values())):
+            return None, "non_finite"
+        try:
+            value, reason = fn(*args, **kwargs)
+        except (OverflowError, ZeroDivisionError):
+            return None, "non_finite"
+        except TypeError:
+            if _has_missing(args) or _has_missing(list(kwargs.values())):
+                return None, "missing_data"
+            # Без None во входах TypeError — настоящая ошибка в коде
+            # формулы; глотать её значит прятать поломку под отказ.
+            raise
+        if value is not None and not math.isfinite(value):
+            return None, "non_finite"
+        return value, reason
+    return guarded
 
 
 @dataclass
@@ -84,6 +153,7 @@ def measure_unit(concept: str, input_unit: str = "") -> str:
     return kind
 
 
+@refuses_non_finite
 def effective_tax_rate(tax_expense: float, pretax_income: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """effective_tax = tax_expense / pretax_income, БЕЗ clip (ТЗ-58 C4):
     ставка вне полосы [0, 0.5] — это не 0.0 и не 0.5, а отказ
@@ -102,6 +172,11 @@ def effective_tax_rate(tax_expense: float, pretax_income: float) -> Tuple[Option
     if pretax_income < 0:
         return None, "jurisdiction_rate"
     rate = tax_expense / pretax_income
+    if not math.isfinite(rate):
+        # Делимое и делитель конечные, частное уехало в inf — это не
+        # полоса юрисдикции, а выход за домен (ТЗ-82 E2): в продолжении
+        # строки reasons всё равно не было бы числа.
+        return None, "non_finite"
     if rate < 0.0 or rate > 0.5:
         return None, f"jurisdiction_rate: rate={rate:.4f}"
     return rate, None
@@ -118,6 +193,7 @@ def invested_capital(total_equity: float, minority_interest: float,
     return total_equity + minority_interest + total_debt - cash - st_investments
 
 
+@refuses_non_finite
 def roic(nopat: float, invested_capital_begin: float, invested_capital_end: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """ROIC = nopat / avg(invested_capital_начало, invested_capital_конец).
     
@@ -135,6 +211,7 @@ def roic(nopat: float, invested_capital_begin: float, invested_capital_end: floa
     return nopat / avg_ic, None
 
 
+@refuses_non_finite
 def roe(net_income: float, total_equity_begin: float, total_equity_end: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """ROE = net_income / avg(total_equity_начало, total_equity_конец).
     
@@ -152,6 +229,7 @@ def roe(net_income: float, total_equity_begin: float, total_equity_end: float) -
     return net_income / avg_te, None
 
 
+@refuses_non_finite
 def roe_incl_nci(net_income: float,
                  total_equity_incl_nci_begin: float,
                  total_equity_incl_nci_end: float
@@ -176,6 +254,7 @@ def roe_incl_nci(net_income: float,
     return net_income / avg_eq, None
 
 
+@refuses_non_finite
 def asset_turnover(revenue: float, total_assets_begin: float, total_assets_end: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """Asset Turnover = revenue / avg(total_assets).
     
@@ -207,6 +286,7 @@ def nopat(operating_income: float, tax_rate: float) -> Optional[float]:
     return operating_income * (1.0 - tax_rate)
 
 
+@refuses_non_finite
 def gross_margin(gross_profit: float, revenue: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """Gross Margin = gross_profit / revenue.
 
@@ -223,6 +303,7 @@ def gross_margin(gross_profit: float, revenue: float) -> Tuple[Optional[float], 
     return gross_profit / revenue, None
 
 
+@refuses_non_finite
 def operating_margin(operating_income: float, revenue: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """Operating Margin = operating_income / revenue; правила знаменателя
     те же, что у gross_margin."""
@@ -235,6 +316,7 @@ def operating_margin(operating_income: float, revenue: float) -> Tuple[Optional[
     return operating_income / revenue, None
 
 
+@refuses_non_finite
 def net_margin(net_income: float, revenue: float) -> Tuple[Optional[float], Optional[NullReason]]:
     """Net Margin = net_income / revenue; правила знаменателя те же,
     что у gross_margin."""
@@ -260,6 +342,7 @@ def _divide_checked(numerator: Optional[float],
     return numerator / denominator, None
 
 
+@refuses_non_finite
 def ttm(quarterly: List[Optional[float]]) -> Tuple[Optional[float], Optional[NullReason]]:
     """TTM (data-dictionary.md §1.2): сумма четырёх последних завершённых
     кварталов. Меньше четырёх — TTM нет, missing_data: смешивать годовой
@@ -274,6 +357,7 @@ def ttm(quarterly: List[Optional[float]]) -> Tuple[Optional[float], Optional[Nul
 
 # ── Оценка (data-dictionary.md §3 «Оценка», v1) ────────────────────────
 
+@refuses_non_finite
 def market_cap_per_class(price_close: Optional[float],
                          shares_outstanding: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
     """market_cap(i) = price_close(i) * shares_outstanding(i).
@@ -286,6 +370,7 @@ def market_cap_per_class(price_close: Optional[float],
     return price_close * shares_outstanding, None
 
 
+@refuses_non_finite
 def market_cap_total(class_caps: List[Optional[float]]) -> Tuple[Optional[float], Optional[NullReason]]:
     """market_cap_total = sum(market_cap(i)) по всем классам эмитента — scope=issuer.
 
@@ -297,6 +382,7 @@ def market_cap_total(class_caps: List[Optional[float]]) -> Tuple[Optional[float]
     return sum(class_caps), None
 
 
+@refuses_non_finite
 def enterprise_value(market_cap_total: Optional[float],
                      total_debt: Optional[float],
                      cash: Optional[float],
@@ -319,18 +405,21 @@ def enterprise_value(market_cap_total: Optional[float],
     return value, None
 
 
+@refuses_non_finite
 def price_to_earnings(market_cap_total: Optional[float],
                       net_income_ttm: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
     """pe = market_cap_total / net_income_ttm, null при знаменателе <= 0."""
     return _divide_checked(market_cap_total, net_income_ttm)
 
 
+@refuses_non_finite
 def price_to_book(market_cap_total: Optional[float],
                   total_equity: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
     """pb = market_cap_total / total_equity, null при знаменателе <= 0."""
     return _divide_checked(market_cap_total, total_equity)
 
 
+@refuses_non_finite
 def price_to_sales(market_cap_total: Optional[float],
                    revenue_ttm: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
     """ps = market_cap_total / revenue_ttm; правило нулевого/отрицательного
@@ -338,12 +427,14 @@ def price_to_sales(market_cap_total: Optional[float],
     return _divide_checked(market_cap_total, revenue_ttm)
 
 
+@refuses_non_finite
 def ev_to_ebitda(ev_value: Optional[float],
                  ebitda_ttm: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
     """ev_ebitda = ev / ebitda_ttm, null при ebitda <= 0."""
     return _divide_checked(ev_value, ebitda_ttm)
 
 
+@refuses_non_finite
 def dividend_yield(dps_ttm: Optional[float],
                    price_close: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
     """div_yield(i) = dps_ttm(i) / price_close(i) — на классе акций,
@@ -359,6 +450,7 @@ _INSTRUMENT_SCOPED = {"market_cap", "pe", "pb", "ps", "ev_ebitda", "div_yield",
 
 # ── Рост (data-dictionary.md §3 «Рост», v1) ────────────────────────────
 
+@refuses_non_finite
 def cagr(v_start: Optional[float], v_end: Optional[float], n: Optional[float]) -> Tuple[Optional[float], Optional[NullReason]]:
     """cagr(V, n) = (V_end / V_start)^(1/n) - 1.
 
@@ -382,6 +474,7 @@ def cagr(v_start: Optional[float], v_end: Optional[float], n: Optional[float]) -
 
 # ── Котировки (data-dictionary.md §3 «Котировки», v1) ──────────────────
 
+@refuses_non_finite
 def hhi(shares: List[Optional[float]]) -> Tuple[Optional[float], Optional[NullReason]]:
     """Индекс Герфиндаля–Хиршмана по ДОЛЯМ целого (конвенция дробей).
 
@@ -437,6 +530,7 @@ def price_adj(prices: List[Tuple[str, float]],
     return adjusted
 
 
+@refuses_non_finite
 def total_return(prices_adj: List[Tuple[str, float]]) -> Tuple[Optional[float], Optional[NullReason]]:
     """total_return(t0, t1) = price_adj(t1) / price_adj(t0) - 1 — полная
     доходность по всему ряду (первый и последний элементы)."""
@@ -448,6 +542,7 @@ def total_return(prices_adj: List[Tuple[str, float]]) -> Tuple[Optional[float], 
     return ratio - 1.0, None
 
 
+@refuses_non_finite
 def drawdown(prices_adj: List[Tuple[str, float]]) -> Tuple[Optional[float], Optional[NullReason]]:
     """drawdown(t) = price_adj(t) / max(price_adj[t0..t]) - 1; возвращает
     максимальную просадку по ряду (наименьшее значение).
@@ -455,9 +550,14 @@ def drawdown(prices_adj: List[Tuple[str, float]]) -> Tuple[Optional[float], Opti
     Цена вне домена (<= 0) — отказ missing_data: nonpositive_price
     (B1.1: ряд из неположительных цен раньше давал молчаливый 0.0 —
     «просадки нет» — вместо отказа; настоящий ноль растущего ряда это
-    не подделывает, ряды различимы)."""
+    не подделывает, ряды различимы). Пропуск в середине ряда —
+    missing_data: null_price (ТЗ-82 E2: раньше None в колонке цены
+    ронял сравнение v <= 0 исключением, а формула не имеет права
+    бросать)."""
     if not prices_adj:
         return None, "missing_data"
+    if any(v is None for _, v in prices_adj):
+        return None, "missing_data: null_price"
     if any(v <= 0 for _, v in prices_adj):
         return None, "missing_data: nonpositive_price"
     peak = prices_adj[0][1]
@@ -678,6 +778,13 @@ def calculate_measure(
     else:
         # Неизвестный концепт
         null_reason = "missing_data"
+
+    if value is not None and not math.isfinite(value):
+        # ТЗ-82 E2: закрытость распространяется и на концепты, которые
+        # считают прямо здесь (ebitda, fcf, invested_capital, nopat,
+        # interest_coverage идут мимо формул-обёрток). Значение меры не
+        # уезжает в базу ни NaN, ни inf.
+        value, null_reason = None, "non_finite"
 
     scope: Scope = "instrument" if concept in _INSTRUMENT_SCOPED else "issuer"
     return Measure(

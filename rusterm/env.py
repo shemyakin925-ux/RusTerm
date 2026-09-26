@@ -3,12 +3,15 @@
 Программа не зависит от того, как запустили её шелл: если
 RUSTERM_SEC_UA / RUSTERM_LLM_PROVIDER / RUSTERM_LLM_API_KEY не заданы
 в окружении, они читаются из $RUSTERM_ENV_FILE или ~/.rusterm.env.
+То же касается каталога данных (ТЗ-81 B3): запуск двойным щелчком —
+это пустое окружение, и без файла окно открыло бы ~/.rusterm, а не
+рабочую базу пользователя.
 
 Правила: уже заданная в окружении переменная выигрывает; понимаются
 строки `export NAME=value` и `NAME=value`, кавычки снимаются, пустые
-строки и комментарии пропускаются, имена вне трёх наших игнорируются.
-Значения никогда не печатаются, не логируются и не пишутся в аудит —
-наружу идут только имена и происхождение.
+строки и комментарии пропускаются, имена вне нашего списка
+игнорируются. Значения никогда не печатаются, не логируются и не
+пишутся в аудит — наружу идут только имена и происхождение.
 """
 from __future__ import annotations
 
@@ -17,11 +20,25 @@ import stat
 from pathlib import Path
 
 ENV_NAMES = ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER", "RUSTERM_LLM_API_KEY",
-             "RUSTERM_LLM_MODEL", "RUSTERM_TWELVEDATA_KEY")
+             "RUSTERM_LLM_MODEL", "RUSTERM_TWELVEDATA_KEY",
+             # ТЗ-81 B3: где лежат данные — тот же канал, что у ключей,
+             # иначе собранный .app без шелла читает не ту базу
+             "RUSTERM_DATA",
+             # ТЗ-90 A4: GUIDE §0 велит положить эти две строки в
+             # ~/.rusterm.env — без имени в списке load_env выбрасывает
+             # строку молча, и ключ DART никогда не доезжает до
+             # providers/dart.py, а .app из Finder окружения не имеет
+             # вовсе. Список проверяет тест tests/test_a4_env_names.py:
+             # любое RUSTERM_*-имя, читаемое из окружения под rusterm/,
+             # должно быть перечислено здесь.
+             "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL")
 
 # Происхождения последнего load_env: после бутстрапа doctor обязан
 # показывать, ОТКУДА пришла переменная, а не «окружение» (load_env сам
-# пишет её в os.environ). None — бутстрапа ещё не было.
+# пишет её в os.environ). None — бутстрапа ещё не было. Кэш отвечает
+# только на вопрос «из файла или из оболочки»; сам факт присутствия
+# переменной всегда перечитывается (случай: панель настроек молчала о
+# ключе, добавленном после бутстрапа).
 _LAST_ORIGINS: dict | None = None
 
 
@@ -100,17 +117,20 @@ def report(environ=None) -> dict:
     path = env_file_path(env)
     exists = path.is_file()
     file_values = parse_env_file(_read(path)) if exists else {}
-    if _LAST_ORIGINS is not None:
-        origins = dict(_LAST_ORIGINS)
-    else:
-        origins = {}
-        for name in ENV_NAMES:
-            if env.get(name):
-                origins[name] = "окружение"
-            elif name in file_values:
-                origins[name] = str(path)
-            else:
-                origins[name] = "—"
+    origins: dict = {}
+    cached = _LAST_ORIGINS or {}
+    for name in ENV_NAMES:
+        if env.get(name):
+            # load_env записал значение из файла в окружение — путь файла
+            # точнее слова «окружение», но только если это тот же файл,
+            # что читается сейчас. Происхождение прошлого бутстрапа тут
+            # не берётся: оно показывало ключ мёртвым после его смены.
+            origins[name] = (str(path) if cached.get(name) == str(path)
+                             else "окружение")
+        elif name in file_values:
+            origins[name] = str(path)
+        else:
+            origins[name] = "—"
     return {
         "file": str(path),
         "exists": exists,

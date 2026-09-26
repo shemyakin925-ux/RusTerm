@@ -56,6 +56,18 @@ def _default_transport(url: str, headers: dict) -> tuple:
         raise
 
 
+SEC_UA_NOTE = ("контактная строка (имя и email) по требованию SEC — "
+               "это не секретный ключ")
+
+
+def sec_ua_instruction() -> str:
+    """ТЗ-68 N2: что делать при sec_ua_unset — подстановка из
+    констант, одна реализация для всех поверхностей."""
+    return ("вписать контактную строку (имя и email) в переменную "
+            "RUSTERM_SEC_UA или в ~/.rusterm.env — "
+            + SEC_UA_NOTE)
+
+
 @dataclass
 class EdgarProvider:
     """Провайдер раскрытий одного эмитента: EDGAR не имеет общего фида

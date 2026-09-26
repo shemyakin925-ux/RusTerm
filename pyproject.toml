@@ -11,7 +11,10 @@ authors = [{name = "EquityLab"}]
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=8", "zstandard>=0.22"]
+# ТЗ-82 E1: hypothesis — только здесь, в группе test. Ядро и CLI её не
+# видят (ADR-0024): `grep -rn hypothesis rusterm/` обязан оставаться
+# пустым, число в свойствах не может зависеть от генератора.
+test = ["pytest>=8", "zstandard>=0.22", "hypothesis>=6.100"]
 # ТЗ-22 J8: библиотеки форматов ручного импорта — опциональны; их
 # отсутствие даёт format_unsupported значением, а не поломку (ADR-0011 ①)
 documents = ["pypdf>=4", "python-docx>=1", "openpyxl>=3"]
@@ -31,8 +34,15 @@ exclude = ["tests*", "fixtures*", "agent*", "docs*"]
 testpaths = ["tests"]
 # ТЗ-29 A2: default-прогон не собирает ни один тест, способный дойти
 # до сети или модели; живой путь — только явным -m live.
-addopts = '-q --strict-markers -m "not live"'
+# ТЗ-61 F3: объёмный тест окна (500 бумаг, тайминги) — тоже мимо
+# обычного набора, явный -m volume.
+# ТЗ-83 F1: глубокий фаззинг парсеров (профиль deep, тысячи примеров) —
+# только явным -m slow; обычный прогон обязан уложиться в бюджет пункта E5.
+addopts = '-q --strict-markers -m "not live and not volume and not firsthour and not slow"'
 markers = [
     "integration: тесты с реальными источниками (требуют сеть)",
     "live: живой сетевой/модельный вызов — запускается только явно (-m live), default-прогон его не собирает (TASK-29 A2)",
+    "volume: объёмный прогон окна на 500 бумаг (ТЗ-61 F3) — только явно (-m volume), обычный набор его не гоняет",
+    "firsthour: первый час пользователя целиком (ТЗ-65 K4) — только явно (-m firsthour), обычный набор его не гоняет",
+    "slow: глубокий прогон фаззинга (ТЗ-83 F5) — только явно (-m slow), обычный набор его не гоняет",
 ]

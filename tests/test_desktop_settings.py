@@ -29,7 +29,9 @@ def paths_env(tmp_path, monkeypatch):
     # ни одного «найденного» ключа из машины теста
     for name in ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER",
                  "RUSTERM_LLM_API_KEY", "RUSTERM_LLM_MODEL",
-                 "RUSTERM_TWELVEDATA_KEY"):
+                 "RUSTERM_TWELVEDATA_KEY",
+                 # ТЗ-90 A4: список панели = список загружаемых имён
+                 "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("RUSTERM_ENV_FILE",
                        str(tmp_path / "empty.env"))
@@ -44,21 +46,38 @@ def paths_env(tmp_path, monkeypatch):
 def test_keys_view_names_origin_without_values(paths_env, monkeypatch):
     for name in ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER",
                  "RUSTERM_LLM_API_KEY", "RUSTERM_LLM_MODEL",
-                 "RUSTERM_TWELVEDATA_KEY"):
+                 "RUSTERM_TWELVEDATA_KEY",
+                 # ТЗ-90 A4: те же два имени, что добавились в ENV_NAMES
+                 "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("RUSTERM_LLM_API_KEY", "sk-secret-value-xyz")
+    # ТЗ-81 B3: каталог данных — тоже переменная окружения, и её значение
+    # (путь) обязано оставаться внутри правила «имя и происхождение,
+    # никогда значение»
+    monkeypatch.setenv("RUSTERM_DATA", "/Users/anton/private-catalog")
     view = desktop_data.keys_view()
     rows = {r["name"]: r for r in view["rows"]}
     assert set(rows) == {"RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER",
                          "RUSTERM_LLM_API_KEY", "RUSTERM_LLM_MODEL",
-                         "RUSTERM_TWELVEDATA_KEY"}
+                         "RUSTERM_TWELVEDATA_KEY", "RUSTERM_DATA",
+                         # ТЗ-90 A4: панель шире — два имени, которые
+                         # GUIDE обещает грузить из ~/.rusterm.env
+                         "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL"}
     assert rows["RUSTERM_LLM_API_KEY"]["found"] is True
     assert rows["RUSTERM_LLM_API_KEY"]["origin"] == "окружение"
     assert "sk-secret-value-xyz" not in str(view)
+    assert "/Users/anton/private-catalog" not in str(view)
     missing = rows["RUSTERM_TWELVEDATA_KEY"]
     assert missing["found"] is False
     assert "twelvedata" in missing["purpose"]
     assert "котировки" in missing["purpose"]
+    # ряд без назначения — молчаливая строка панели: по ней пользователь
+    # не узнает, что теряется без переменной (именно сюда бы попал
+    # RUSTERM_DATA без записи в KEY_PURPOSE)
+    assert all(r["purpose"] for r in view["rows"]), \
+        [r["name"] for r in view["rows"] if not r["purpose"]]
+    assert set(desktop_data.KEY_PURPOSE) == set(rows), \
+        "KEY_PURPOSE и панель разошлись"
 
 
 # ── C9.2: лимиты хостов — реестр + правка в config.toml ядра ────────────

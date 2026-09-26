@@ -18,8 +18,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _sandbox_home(cwd: Path) -> Path:
+    """HOME вне git-дерева — иначе правило 4 из store/paths.resolve_root
+    указывает на настоящий каталог разработчика, и тест пишущего режима
+    мигрирует его и пишет в него метрики."""
+    home = cwd.parent / (cwd.name + "-home")
+    home.mkdir(parents=True, exist_ok=True)
+    return home
+
+
 def _run(cwd: Path, *argv: str) -> subprocess.CompletedProcess:
-    env = dict(os.environ, PYTHONPATH=str(ROOT))
+    env = dict(os.environ, PYTHONPATH=str(ROOT),
+               HOME=str(_sandbox_home(cwd)))
+    env.pop("RUSTERM_DATA", None)
     env["RUSTERM_ENV_FILE"] = str(cwd / "empty-env")
     return subprocess.run([sys.executable, "-m", "rusterm.cli", *argv],
                           cwd=cwd, capture_output=True, text=True,
@@ -86,11 +97,14 @@ def test_tui_refuses_absent_dir_and_creates_nothing(tmp_path):
 
 def test_writing_modes_keep_creating(tmp_path):
     """Позитивный контроль: пишущие режимы поведение не меняют —
-    metrics --record и doctor --fix создают каталог данных."""
+    metrics --record и doctor --fix создают каталог данных. Каталог
+    показан явно (`--root .`): с ТЗ-90 A5 без базы в cwd молчаливый
+    выбор ушёл бы по правилу 4 в $HOME/.rusterm — там его проверяет
+    tests/test_b35_markets_readonly.py."""
     tree = _fresh_git_tree(tmp_path, "write-tree")
-    done = _run(tree, "metrics", "--record")
+    done = _run(tree, "--root", ".", "metrics", "--record")
     status = _git_status(tree)
     assert status != "", (done.stdout, done.stderr)
     assert (tree / "rusterm.db").exists()
-    done = _run(tree, "doctor", "--fix")
+    done = _run(tree, "--root", ".", "doctor", "--fix")
     assert done.returncode == 0, (done.stdout, done.stderr)
