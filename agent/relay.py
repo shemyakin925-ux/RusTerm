@@ -923,65 +923,68 @@ def red_acceptance(rc: int, text: str, cwd: Path) -> str:
     return "\n".join(lines)
 
 
-# ── часы сдачи (ТЗ-98 H2) ────────────────────────────────────────────────
+# ── во что ляжет штамп (ТЗ-100 K1) ───────────────────────────────────────
 
 STATE_PATH = "agent/STATE.json"
-# тот же допуск, что у O0 в selfcheck.sh
-STATE_CLOCK_TOLERANCE_MIN = 15
-
-FIX_CLOCK_COMMAND = (
-    "python3 - <<'PY'\n"
-    "import datetime, json, pathlib\n"
-    "p = pathlib.Path('agent/STATE.json')\n"
-    "s = json.loads(p.read_text(encoding='utf-8'))\n"
-    "s['updated_at'] = datetime.datetime.now(datetime.timezone.utc)"
-    ".strftime('%Y-%m-%dT%H:%M:%SZ')\n"
-    "p.write_text(json.dumps(s, ensure_ascii=False, indent=1) + '\\n',\n"
-    "             encoding='utf-8')\n"
-    "print('updated_at =', s['updated_at'])\n"
-    "PY"
-)
+# прежнее состояние — в HEAD, и починка дерева оттуда же
+FIX_STATE_COMMAND = "git checkout HEAD -- agent/STATE.json"
 
 
-def state_clock_refusal(state_file: Path) -> str | None:
-    """Почему с такими часами в agent/STATE.json ход не передаётся.
+def _stamp_source(plumbing: bool, remote: str,
+                  branch: str) -> tuple[str | None, str]:
+    """Откуда `hand` берёт поля STATE для слияния со штампом — и куда
+    поэтому обязан смотреть сторож.
 
-    O0 в selfcheck.sh сравнивает updated_at с реальным временем только
-    в момент коммита и молча пропускает проверку под I5_NESTED, а хук
-    ставит I5_NESTED=1 всегда — то есть ни один коммит-путь часы не
-    сверяет. Отказ здесь: просроченный updated_at значит, что STATE
-    писали давно, и координатор принимает работу по чужим часам.
+    Это тот же источник, что читает `push_baton`: в дереве смены — файл
+    `agent/STATE.json`, в плюмбинге — блоб STATE самой ветки (ТЗ-99 J1), а
+    не файл чужого рабочего дерева. Сверять не то, что поедет в коммит,
+    значит пропускать порченый блоб и отказывать по целому дереву.
     """
-    if not state_file.exists():
-        return None  # песочница unit-тестов: STATE может не быть
+    if plumbing:
+        return (show_remote(remote, branch, STATE_PATH),
+                f"{remote}/{branch}:{STATE_PATH}")
+    path = repo_root() / STATE_PATH
+    if not path.is_file():
+        return None, STATE_PATH
     try:
-        raw = (json.loads(state_file.read_text(encoding="utf-8"))
-               .get("updated_at") or "").strip()
-    except (json.JSONDecodeError, OSError) as exc:
-        return (f"{STATE_PATH} не читается: {exc} — ход не передан, "
-                "приёмка не запускалась")
-    if not raw:
-        return (f"в {STATE_PATH} нет updated_at — ход не передан, приёмка "
-                f"не запускалась.\n  починить: {FIX_CLOCK_COMMAND}")
-    try:
-        stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError:
-        return (f"updated_at={raw!r} — не ISO-8601, ход не передан, приёмка "
-                f"не запускалась.\n  починить: {FIX_CLOCK_COMMAND}")
-    if stamp.tzinfo is None:
-        return (f"updated_at={raw!r} — без часового пояса, ход не передан, "
-                f"приёмка не запускалась.\n  починить: {FIX_CLOCK_COMMAND}")
-    now_utc = datetime.now(timezone.utc)
-    drift = (now_utc - stamp.astimezone(timezone.utc)).total_seconds() / 60
-    if abs(drift) <= STATE_CLOCK_TOLERANCE_MIN:
+        return path.read_text(encoding="utf-8"), STATE_PATH
+    except (OSError, UnicodeDecodeError):
+        return "", STATE_PATH  # не прочитан — дальше «не разбирается»
+
+
+def _stamp_repair(where: str) -> str:
+    if where == STATE_PATH:
+        return (f"{FIX_STATE_COMMAND} — или верни {STATE_PATH} в вид "
+                "JSON-объекта руками")
+    return (f"починь {STATE_PATH} на {where.split(':', 1)[0]}: в чужом "
+            "дереве он может быть и целым, в коммит едет блоб ветки")
+
+
+def state_stamp_refusal(base: str | None, where: str) -> str | None:
+    """Почему с таким STATE ход не передаётся: штамп некуда вкладывать.
+
+    Пришли сюда от ТЗ-98 H2 после ТЗ-99 J1: `hand` пишет `updated_at` сам,
+    поэтому сверка часов блокировала ровно ту передачу, которая эти часы и
+    обновляет (круг 129: отказ на +18.9 мин при честных часах смены).
+    Часы больше не смотрим; смотрим, сливается ли база со штампом — база
+    `{}` означала бы тихую потерю счётчиков и полей прежней смены.
+    Отсутствующего STATE достаточно, чтобы не отказывать: терять нечего,
+    `hand` положит свой объект.
+    """
+    if base is None:
         return None
-    fmt = "%Y-%m-%dT%H:%M:%SZ"
-    return (
-        f"updated_at={stamp.astimezone(timezone.utc).strftime(fmt)} "
-        f"расходится с реальным {now_utc.strftime(fmt)} на {drift:+.1f} мин "
-        f"(допуск {STATE_CLOCK_TOLERANCE_MIN}, тот же, что у O0) — "
-        "ход не передан, приёмка не запускалась.\n"
-        f"  починить: {FIX_CLOCK_COMMAND}")
+    try:
+        parsed = json.loads(base)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return (f"{where} не разбирается как JSON — поля и счётчики прежней "
+                "смены при штампе потерялись бы — ход не передан, приёмка не "
+                f"запускалась.\n  починить: {_stamp_repair(where)}")
+    if not isinstance(parsed, dict):
+        return (f"{where} — не объект JSON ({type(parsed).__name__}), а "
+                "штамп вкладывается в объект: поля и счётчики прежней смены "
+                "потерялись бы — ход не передан, приёмка не запускалась.\n"
+                f"  починить: {_stamp_repair(where)}")
+    return None
 
 
 def cmd_hand(a: argparse.Namespace) -> int:
@@ -995,15 +998,19 @@ def cmd_hand(a: argparse.Namespace) -> int:
     if stop_file().exists() and not a.force:
         die_kept(f"пауза: {stop_file()} на месте. relay.py resume — и повтори",
                  add)
-    # ТЗ-98 H2: просроченные часы — отказ ДО приёмки, а не после неё.
-    # --force остаётся выходом (проверка та же, что у паузы), но отказ
-    # при force печатается: координатор сдаёт ход часами позже, чем
-    # исполнитель писал STATE, и его --force должен быть слышен.
-    refusal = state_clock_refusal(Path.cwd() / STATE_PATH)
+    # ТЗ-100 K1: сторож сдачи — не часы (их hand пишет сам), а то, во что
+    # они лягут. --force остаётся выходом, но обход обязан быть слышен.
+    plumbing = current_branch() != branch
+    if plumbing:
+        # блоб ветки могли починить после последней синхронизации —
+        # сверяемся с origin до приёмки, а не после неё
+        fetch(a.remote, branch)
+    refusal = state_stamp_refusal(*_stamp_source(plumbing, a.remote, branch))
     if refusal:
         if not a.force:
             die_kept(refusal, add)
-        print(f"hand: --force поверх просроченных часов — {refusal.splitlines()[0]}")
+        print(f"hand: --force поверх нештамбуемого STATE — "
+              f"{refusal.splitlines()[0]}")
     # ТЗ-66 L1: красная приёмка на дереве — ход не передаётся.
     # Это закрывает щель: работа, уехавшая мимо хуков (плюмбинг,
     # amend), больше не уезжает на ветку.
