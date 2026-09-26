@@ -161,6 +161,35 @@ test_task99_j2_refusal_names_staged.py + test_no_shared_tmp.py` →
 Mutation campaign (`mutate_j2.py`, scratch worktree, relay.py restored
 after each run) — see `## Runs`.
 
+### Repaired while handing over — the J1 fixture clock
+
+The first `relay.py hand` of this round refused at
+`Итог: пройдено 11, провалено 2`. Reproduced with the whole suite under
+`-rf` (`/tmp/rt99-full.log`, rc=1): all 6 J1 teeth red, each carrying the
+same refusal inside its assertion message —
+
+```
+relay: updated_at=2026-09-26T05:34:17Z расходится с реальным
+2026-09-26T05:53:08Z на +18.9 мин (допуск 15, тот же, что у O0)
+— ход не передан, приёмка не запускалась.
+```
+
+The cause is my J1 fixture, not `relay.py`: `OLD_STATE` carried
+`"updated_at": _minutes_ago(3)` as a **module-level** expression, which
+pytest evaluates at import (collection). By the time this module runs —
+`test_task98_h2_hand_clock.py` and the rest of the suite go first — the
+worktree clock really is ~19 min older than "three minutes ago", and the
+H2 gate refuses correctly. Green in a subset of modules, red in a full
+pass: the defect only shows when the suite is slow, which is exactly the
+path a commit takes.
+
+Fix: `OLD_STATE` holds no clock at all; `_pre_hand_state(**extra)` stamps
+`updated_at` when each test builds its sandbox. Nothing was removed or
+weakened — tooth 2 still asserts the merged fields against `HEAD~1` and
+the freshness of `updated_at` within 120 s, teeth 5–6 go through the same
+helper. Measured after the fix: `6 passed` (rc=0); the full-suite proof is
+the acceptance run nested in this commit.
+
 ## Blocked
 
 Nothing blocked. Both items of this spec are implemented; J2 lands in its
@@ -186,6 +215,12 @@ own commit.
 - **`status: "handed"` is a new value this tool writes.** No guard
   validates the STATE `status` enum, so nothing reddens — but AGENTS.md
   documents only `working` / `awaiting_review`. See `## Disputed` 3.
+- **A sandbox clock set at module import is a time bomb, not a fixture.**
+  Any test that hands a `updated_at`-typed value into `relay.py` must
+  compute it inside the test, next to the file it writes. The J1 module
+  was green in every subset this round and red only in a full pass —
+  which is how a commit runs. Treat "green in `pytest -q path/to/mod.py`"
+  as no evidence at all for this class of assertion.
 - **The plumbing refusal at relay.py:427 has no tooth of its own.** Every
   J2 tooth refuses in the tree path or before `push_baton`; the plumbing
   branch is only reachable when the shift branch is checked out in
@@ -251,6 +286,9 @@ own commit.
 | `pytest -q tests/test_task99_j2_refusal_names_staged.py` | 8 of 8, rc=0 (`/tmp/rt99-j2.log`) |
 | `pytest -q` on the 5 relay/neighbour modules (J1+J2) | 27 tests, all green, rc=0 (`/tmp/rt99-reg5.log` holds `…[100%]` + rc; with `-q` and no `-r` the count line did not reach it, so the number is the dots row) |
 | `python3 mutate_j2.py` | base rc=0; N-table below |
+| first `relay.py hand` of round 129 | refused, `Итог: пройдено 11, провалено 2` (all 6 J1 teeth) |
+| `pytest -q -rf` whole suite, before the fixture fix | rc=1, J1 6 of 6 red on the H2 clock refusal — the defect above |
+| `pytest -q tests/test_task99_j1_hand_stamps_state.py` after the fix | `6 passed` (rc=0) |
 
 Mutation campaigns (`rt99-mut` scratch worktree, detached at `143a48c`,
 relay.py restored and byte-checked after each run; the worktree is
@@ -310,11 +348,18 @@ Status: DONE
   of J1 (a refused hand left its own `status: "handed"` stamp behind;
   teeth 2–3 of the J2 module pin both halves).
 - Items not done: none from this spec.
+- Repair found by the hand itself: the first `hand` of this round refused
+  (`Итог: пройдено 11, провалено 2`) because the J1 sandbox computed its
+  fake `updated_at` at import time, so a slow suite made the H2 clock gate
+  red for the wrong reason. Fixed in `tests/test_task99_j1_hand_stamps_state.py`
+  — no assertion removed or relaxed; see the section «Repaired while
+  handing over» above.
 - Numbers: J1 module 6 of 6, J2 module 8 of 8, relay neighbourhood 27 of
   27, campaigns M1–M6 and N1–N5 as tabled (each mutation but M6 reddens
   at least one tooth, and M6 is declared a lock in
-  `## What not to trust`). Every commit passed acceptance with
-  «Итог: пройдено 13, провалено 0» and `SELFCHECK OK`.
+  `## What not to trust`). Each item commit passed acceptance with
+  «Итог: пройдено 13, провалено 0» and `SELFCHECK OK`; the repair commit
+  below carries its own acceptance run as the full-suite proof.
 - Budgets held: network 0, LLM 0 — git transport (fetch/push) only.
 - Scratch cleanup: mutation worktree `rt99-mut` removed at the end of the
   shift; the campaign scripts live outside the repo

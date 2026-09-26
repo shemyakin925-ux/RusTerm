@@ -82,13 +82,26 @@ def _minutes_ago(minutes: int) -> str:
             - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-# прежнее состояние дел: имена отчёта ещё прошлой смены
+# прежнее состояние дел: имена отчёта ещё прошлой смены. `updated_at`
+# сюда НЕ кладётся: выражение уровня модуля вычисляется при импорте, а
+# до этого модуля полный прогон приёмки доходит через ~19 минут после
+# сборки — `hand` отказывает по проверке часов H2, и зубы 4–6 краснеют
+# не потому, что штамп сломан, а потому, что песочница притворялась
+# свежей, когда таковой уже не была (измерено на круге 129: в
+# подмножестве модулей зелёные, в полном прогоне — красные).
 OLD_STATE = {"task": "agent/TASK-98.md", "report": OLD_REPORT,
              "item": "H1", "step": "последний коммит прежней смены",
              "status": "awaiting_review", "last_commit": "1111111",
              "requests": 39, "net_requests": 39, "llm_calls": 0,
-             "model": "Qoder executor (model id not exposed)",
-             "updated_at": _minutes_ago(3)}
+             "model": "Qoder executor (model id not exposed)"}
+
+
+def _pre_hand_state(**extra: str) -> dict:
+    """STATE прежней смены с часами, честными ОТНОСИТЕЛЬНО этого теста:
+    `hand` обязан увидеть «писали три минуты назад», а не «писали на
+    сборке песочниц»."""
+    return {**OLD_STATE, "updated_at": _minutes_ago(3), **extra}
+
 
 OLD_HANDOFF = ("# REPORT-98\n\n## Done\n\n## HANDOFF\n"
                "Status: DONE\nItems done: H1 — приём прежней смены\n")
@@ -165,7 +178,7 @@ def shift(tmp_path: Path) -> Path:
     _write(work / "agent" / "acceptance.sh", STUB_ACCEPTANCE)
     _write(work / OLD_REPORT, OLD_HANDOFF)
     (work / "agent" / "old_impl.py").write_text("old = 1\n", encoding="utf-8")
-    _json(work / STATE, OLD_STATE)
+    _json(work / STATE, _pre_hand_state())
     _json(work / BATON, {"holder": "executor", "round": 19, "branch": BRANCH,
                          "task": "agent/TASK-98.md", "report": OLD_REPORT,
                          "note": ""})
@@ -268,6 +281,9 @@ def test_the_baton_commit_carries_state_once_and_keeps_other_fields(shift):
     assert paths.count(STATE) == 1, paths
 
     state, baton = _state(shift), _baton(shift)
+    # «как было до `hand`» читается из ветки, а не из постоянной модуля:
+    # счётчики и проза прежней смены не теряются, а часы — меняются
+    pre = _state(shift, "HEAD~1")
     assert state["task"] == baton["task"] == "agent/TASK-99.md", state
     assert state["report"] == baton["report"] == NEW_REPORT, state
     assert state["status"] == "handed", state
@@ -275,13 +291,13 @@ def test_the_baton_commit_carries_state_once_and_keeps_other_fields(shift):
     # поля, остальное для relay — не его
     for key in ("requests", "net_requests", "llm_calls", "model", "item",
                 "step"):
-        assert state[key] == OLD_STATE[key], (key, state)
+        assert state[key] == pre[key] == OLD_STATE[key], (key, state)
     # часы — живые: не прежняя метка и не «круглая» минута
     stamp = datetime.strptime(state["updated_at"],
                               "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     drift = abs((datetime.now(timezone.utc) - stamp).total_seconds())
     assert drift <= 120, f"updated_at не только что: {state['updated_at']}"
-    assert state["updated_at"] != OLD_STATE["updated_at"]
+    assert state["updated_at"] != pre["updated_at"]
 
 
 # ── зуб 3: аргументов нет — STATE всё равно зеркалит BATON ───────────────
@@ -319,8 +335,7 @@ def test_own_state_already_staged_is_not_foreign(shift):
     """Прежний `hand` умер бы на «в индексе лежит чужое»: исполнитель
     коммитит STATE в том же изменении, что и отчёт. Теперь правка
     доживает до коммита эстафеты вместе со штампом."""
-    mine = dict(OLD_STATE)
-    mine["item"] = "J1 — ждёт передачи"
+    mine = _pre_hand_state(item="J1 — ждёт передачи")
     _json(shift / STATE, mine)
     _git(shift, "add", "--", STATE)
 
@@ -339,9 +354,8 @@ def test_plumbing_path_stamps_the_branch_not_this_worktree(shift, tmp_path):
     """Координатор ведёт параллельные смены в своих `coord/*` и сдаёт
     ход плюмбингом. Его рабочие часы — не данные ветки смены, поэтому
     база штампа берётся из блоба STATE самой ветки."""
-    other = dict(OLD_STATE)
-    other.update({"task": "agent/TASK-OTHER.md", "item": "параллельная "
-                                                       "смена координатора"})
+    other = _pre_hand_state(task="agent/TASK-OTHER.md",
+                            item="параллельная смена координатора")
     _json(shift / STATE, other)
     _commit(shift, "параллельная смена в другом дереве (не ветка смены)")
     before = (shift / STATE).read_bytes()
