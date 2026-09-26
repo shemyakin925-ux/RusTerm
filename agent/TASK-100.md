@@ -1,6 +1,6 @@
 # TASK-100 — relay follow-ups from REPORT-98 Disputed
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 132, 26.09)
 - **Report:** `agent/REPORT-100.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Relay:** hand — `python3 agent/relay.py --branch agent/night-11

@@ -31,7 +31,8 @@ Last updated: 25.09.2026, round 122 on `agent/night-11`.
 - **Round 126 (TASK-89) accepted**, fresh clone 13/0: coordinator commits are not implementation for L3; hand does not leave the baton staged. Disputed → TASK-99 (hand stamps STATE; replaces TASK-97 Q12 row 1).
 - **Round 128 (TASK-98) accepted**, fresh clone 13/0: skill names the verify default; hand checks STATE clock; verify removes only its stamped trees; p6_rule.sh stops growing. Disputed → TASK-100. Standing rule: **the Done-when gate governs** when it is wider than the item body.
 - **Round 130 (TASK-99) accepted**, fresh clone 13/0: hand stamps STATE (`status: handed`); refused hand names staged files. Disputed → TASK-101 (hand creates a missing report skeleton); AGENTS.md knows `handed`. Until TASK-101 lands the coordinator commits the next REPORT skeleton before `hand`.
-- Queue: **100** → **101** → **97** → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
+- **Round 132 (TASK-100) accepted**, fresh clone 13/0: hand stamps the clock itself (guard is now «stampable STATE»); red verify keeps its tree; owner stamp is a sibling. 27 asserts replaced under declared ЗАМЕНА-БУЛАВКИ for intentionally changed behaviour, stronger (29+42 new). No Disputed.
+- Queue: **101** → **97** → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
 
 
 **Round 100 (TASK-75) is accepted**, measured in a clean clone of
