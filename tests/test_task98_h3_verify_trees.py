@@ -4,10 +4,11 @@
 убитый посредине процесс оставлял его там навсегда, и деревьев копилось
 сколько угодно (кандидат 3 из REPORT-88, одобрен кругом 126). Теперь
 каждое созданное прогоном дерево несёт метку `.relay-verify-owner`
-(pid + id прогона), снимается после прогона — и зелёного, и красного, —
-а осевшие СВОИ деревья с мёртвым pid выметаются в начале того же
-`verify`. Дерево без метки не удаляется ни при каком pid: под общим
-/tmp чужая работа отличается от мусора только меткой.
+(pid + id прогона), снимается после зелёного прогона, красное остаётся
+для разбора и уходит в начале следующего (`verify`, ТЗ-100 K2), а осевшие
+СВОИ деревья с мёртвым pid выметаются тем же объездом. Дерево без метки
+не удаляется ни при каком pid: под общим /tmp чужая работа отличается от
+мусора только меткой.
 
 Репозиторий тестов — локальный «origin» в `tmp_path`, приёмка —
 заглушка в нём же: настоящий `agent/acceptance.sh` в песочницу не
@@ -151,20 +152,63 @@ def test_green_run_removes_the_tree_it_created(shift_repo: Path,
     assert not tree.exists(), f"дерево приёмки осталось: {tree}"
     assert str(tree) not in _worktrees(shift_repo)
     assert "убрано после прогона" in proc.stdout, proc.stdout
+    assert "дерево оставлено" not in proc.stdout, proc.stdout
 
 
-def test_red_run_removes_the_tree_too(shift_repo: Path,
-                                      tmp_path: Path) -> None:
-    """Красный прогон убирается так же: код возврата сохраняем, но
-    мусор не оставляем (проверка «зелёное и красное дерево убираются
-    одинаково» из пункта H3)."""
+def test_red_run_keeps_its_tree_and_names_it_last(shift_repo: Path,
+                                                  tmp_path: Path) -> None:
+    """Красный прогон дерево НЕ убирает: на нём разбираются, и путь к
+    нему — последняя строка вывода (ТЗ-100 K2). Регистрация рабочего
+    дерева остаётся вместе с каталогом: следующий прогон снимает и то,
+    и другое тем же объездом Х3."""
     home = _sandbox(tmp_path)
     proc = _verify(shift_repo, home)
     assert proc.returncode == 5, proc.stdout + proc.stderr
     tree = _printed_tree(proc)
     assert "ЗАГЛУШКА-ПРИЁМКИ: красная" in proc.stdout, proc.stdout
-    assert not tree.exists(), f"красное дерево оставили: {tree}"
-    assert str(tree) not in _worktrees(shift_repo)
+    assert tree.exists(), f"красное дерево убрано: {tree}"
+    assert str(tree) in _worktrees(shift_repo)
+    assert proc.stdout.rstrip().endswith(
+        f"дерево оставлено для разбора: {tree} — удалит следующий verify"), \
+        proc.stdout
+    assert "убрано после прогона" not in proc.stdout, proc.stdout
+
+
+def test_the_next_run_removes_a_tree_left_by_a_red_one(shift_repo: Path,
+                                                       tmp_path: Path) -> None:
+    """Обещание последней строки держит следующий прогон: осевшее дерево
+    первого прогона снято (метка verify, pid мёртв — объезд Х3 в начале
+    `verify`), а своё красное дерево этого прогона ещё занято разбором."""
+    home = _sandbox(tmp_path)
+    first = _verify(shift_repo, home)
+    assert first.returncode == 5, first.stdout + first.stderr
+    kept = _printed_tree(first)
+    assert kept.exists(), f"первый прогон не оставил дерево: {kept}"
+
+    second = _verify(shift_repo, home)
+    assert second.returncode == 5, second.stdout + second.stderr
+    assert not kept.exists(), f"осевшее красное дерево не убрано: {kept}"
+    assert str(kept) in second.stdout, second.stdout
+    assert str(kept) not in _worktrees(shift_repo)
+    assert _printed_tree(second).exists(), "своё красное дерево убрано"
+
+
+def test_a_red_run_in_a_foreign_tree_promises_nothing(shift_repo: Path,
+                                                      tmp_path: Path) -> None:
+    """Явно данное чужое дерево красным прогоном остаётся на месте, и
+    `verify` не обещает, что его удалит следующий прогон: убирать чужое
+    дерево у объезда Х3 нет ни права, ни метки."""
+    home = _sandbox(tmp_path)
+    head = _git(["rev-parse", f"origin/{BRANCH}"], cwd=shift_repo).stdout.strip()
+    foreign = home / "own-tree"
+    _git(["worktree", "add", "--detach", str(foreign), head], cwd=shift_repo)
+
+    proc = _verify(shift_repo, home, ["--worktree", str(foreign)])
+    assert proc.returncode == 5, proc.stdout + proc.stderr
+    assert foreign.exists(), f"чужое дерево убрано: {foreign}"
+    assert str(foreign) in _worktrees(shift_repo)
+    assert "дерево оставлено" not in proc.stdout, proc.stdout
+    assert "убрано после прогона" not in proc.stdout, proc.stdout
 
 
 def test_stale_stamped_tree_with_dead_pid_is_swept_at_start(

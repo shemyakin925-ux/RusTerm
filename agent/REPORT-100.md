@@ -116,11 +116,69 @@ Measured, this round:
 | M4 unparsable → silent `{}` base | red — 3 teeth |
 | M5 re-add a `updated_at`-missing refusal | red — h2 tooth 5, and the `DRIFT_WORDS` pin names the phrase |
 
+### K2 — a red verify keeps its tree
+
+Ruling #3 of the REPORT-98 disputed list: H3 made a red run remove the
+tree it had just created, so the one artifact worth looking at after a
+failing acceptance — the checked-out tree, with whatever the run left in
+it — disappeared, and inspecting it meant re-running. Green keeps H3's
+behaviour; red keeps the tree and says so on the last line.
+
+`cmd_verify` (`agent/relay.py:795–812`):
+
+- `red = proc.returncode != 0` is captured right after the acceptance
+  subprocess, inside the `try`.
+- The `finally` removes the tree only when `ours and not red`.
+- After the exit-code line, `ours and red` prints as the last line of
+  stdout: `дерево оставлено для разбора: <path> — удалит следующий verify`.
+- `red` is initialised to `True`: if the subprocess call itself raises
+  (bash gone, SIGINT between the checkout and the run) there is no exit
+  code to explain, so no promise line is printed, and the tree is kept
+  and stamped — the next run's sweep collects it. Declared choice, not
+  an oversight: a crashed run is the case where the tree is most useful.
+- Both branches stay inside `ours`. A tree the operator named with
+  `--worktree` is neither removed nor promised to anybody.
+
+Removing the kept tree is not new code: the stamp written at
+`worktree add`, plus the dead pid of the finished run, make it exactly
+the case `sweep_stale_verify_trees` already handles at the start of the
+next `verify` (H3).
+
+Teeth, `tests/test_task98_h3_verify_trees.py` (6 → 8):
+
+| Tooth | Pins |
+|---|---|
+| `test_red_run_keeps_its_tree_and_names_it_last` (replaces `test_red_run_removes_the_tree_too`) | rc 5; directory and worktree registration survive; the promise is literally the last line; no removal message |
+| `test_the_next_run_removes_a_tree_left_by_a_red_one` | the first red tree is named, unregistered and gone after the next run, while that run's own red tree survives |
+| `test_a_red_run_in_a_foreign_tree_promises_nothing` | `--worktree` tree: red, present, registered, and neither message appears |
+| green tooth, +1 assert | a green run does not print the promise |
+
+Measured, this item:
+
+- red-before — the module against `HEAD:agent/relay.py` (K2 source
+  restored afterwards, `git diff --stat` back to the two K2 files):
+  `.FF.....` — 2 of 8 failed, both of them the new red-run teeth.
+- green-after — `tests/test_task98_h3_verify_trees.py` with
+  `test_relay_verify_worktree.py`, `test_cli.py`, `test_manual_seats.py`:
+  59 passed, 0 failed.
+- mutation campaign (`../rt100-scratch/mutate_k2.py`, every mutation
+  reverted; relay.py compared byte-identical afterwards → True):
+
+| Mutation | Result |
+|---|---|
+| M1 red tree removed as before K2 | red — both new red teeth |
+| M2 promise without the path | red — last-line tooth |
+| M3 promise printed for a green run too | red — green tooth's new negative pin |
+| M4 promise printed for a foreign tree | red — foreign-tree tooth |
+| M5 stale sweep disabled | red — next-run tooth + H3's own sweep tooth |
+| M6 owner stamp not written | red — next-run tooth + the stamp tooth |
+
 ## Blocked
 
 (none)
 
 ## What not to trust
+
 
 - **The live `hand` path is not exercised by K1 until the baton moves.**
   Sandboxes prove the gate; a real `hand` on `agent/night-11` runs once
@@ -130,7 +188,11 @@ Measured, this round:
 - `agent/CONTEXT.md:32` states, as an accepted TASK-98 fact, that "hand
   checks STATE clock". After K1 that sentence is stale — CONTEXT.md is the
   coordinator's file, I did not touch it.
-- K2 and K3 are not started yet in this section of the report.
+- K3 is not started yet in this section of the report.
+- K2's kept red tree is a directory under `/tmp` that now survives a
+  failing run. Nothing in this round measured how long one sits there if
+  `verify` is never run again — the sweep only fires at the start of the
+  next run. The K1 `hand` gate is unaffected.
 
 ## Disputed
 
@@ -148,6 +210,12 @@ Measured, this round:
 | 6 | `pytest -q test_report_sections.py test_docs_truth.py` | 34 passed, 1 skipped |
 | 7 | `python3 ../rt100-scratch/mutate_k1.py` | 5/5 mutations red, relay.py restored byte-identical |
 | 8 | commit (nested acceptance) | see below |
+| 9 | `pytest -q tests/test_task98_h3_verify_trees.py` (K2 teeth, unmodified relay.py) | 2 of 8 failed (`.FF.....`) — red-before captured |
+| 10 | same module against `HEAD:agent/relay.py`, then relay.py restored | same 2 failures; `grep -c "дерево оставлено" agent/relay.py` → 1 after restore |
+| 11 | `python3 -m py_compile agent/relay.py` | ok |
+| 12 | `pytest -q` H3 + `test_relay_verify_worktree` + `test_cli` + `test_manual_seats` | 59 passed |
+| 13 | `python3 ../rt100-scratch/mutate_k2.py` | 6/6 mutations red, relay.py restored byte-identical |
+| 14 | commit K2 (nested acceptance) | see below |
 
 ## HANDOFF
 

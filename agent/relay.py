@@ -815,16 +815,22 @@ def cmd_verify(a: argparse.Namespace) -> int:
         subprocess.run(("git", "-C", str(work), "reset", "--hard", head),
                        capture_output=True, check=False)
     print(f"приёмка в {work} на {head[:7]} ({a.remote}/{branch})", flush=True)
+    red = True
     try:
         proc = subprocess.run(("bash", "agent/acceptance.sh"), cwd=str(work))
+        red = proc.returncode != 0
     finally:
-        # зелёное и красное дерево убираются одинаково: дерево приёмки
-        # больше не переходит следующему прогону (Х3, ТЗ-88 C1)
-        if ours:
+        # К2 (ТЗ-100): зелёное дерево убирается сразу, красное остаётся
+        # для разбора. Убирает его следующий прогон — метка владельца и
+        # мёртвый pid делают его осевшим своим деревом (Х3-объезд).
+        if ours and not red:
             remove_verify_tree(work)
             print(f"verify: дерево {work} убрано после прогона", flush=True)
     print(f"\nкод возврата приёмки: {proc.returncode} "
           f"({'ПРИНЯТО' if proc.returncode == 0 else 'провалов: %d' % proc.returncode})")
+    if ours and red:
+        print(f"дерево оставлено для разбора: {work} — удалит следующий verify",
+              flush=True)
     return EXIT_OK if proc.returncode == 0 else EXIT_ERROR
 
 
