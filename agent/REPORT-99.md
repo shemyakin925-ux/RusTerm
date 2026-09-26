@@ -75,10 +75,96 @@ test_task98_h2_hand_clock.py + tests/test_task99_j1_hand_stamps_state.py
 
 Mutation campaign (scratch worktree, `mutate_j1.py`) — see `## Runs`.
 
+### J2 — a refused `hand` names the files it left staged
+
+Spec, verbatim: on refusal `hand` prints
+«в индексе остались: <files> — это твоя работа, не откатана» for every
+`--add` file still staged. Done when: test with a rejecting pre-commit
+stub — output lists both `--add` files; BATON not staged. Ruling #2 keeps
+the behaviour («a refused hand leaves `--add` files staged — work is not
+rolled back») and asks for words only, so `die` stays the exit for every
+other path and only the shape of the message changes.
+
+Implementation (`agent/relay.py`):
+
+- `die_kept(message, extra)` (relay.py:122) — one refusal exit for the
+  whole `hand` path. Prints the refusal, then names the leftovers.
+  **Names are taken from the index at the moment of refusal
+  (`git diff --cached --name-only`), not from the arguments** — the
+  push-rejection path runs `reset --mixed` before it refuses, after which
+  the argument list would name files that are no longer staged. Mutation
+  N3 (argument-derived names) reddens tooth 7, which is exactly that
+  lie;
+- `cmd_hand` (relay.py:987) — `add` hoisted once, and all nine refusals
+  routed through `die_kept(..., add)`: `--to` roles (994), stop file
+  (996), H2 clock (1005), red acceptance (1016), no BATON on the remote
+  (1020), not the holder (1024), push rejections inside `push_baton`, and
+  the post-push origin verification (1051). The early ones matter: a
+  caller whose files are already staged is refused before `push_baton`
+  ever runs, and would otherwise get a bare error and no names;
+- `push_baton` (relay.py:317) — the foreign-index refusal (356), the
+  failed commit (374) and both push rejections (tree 393, plumbing 427)
+  refuse through `die_kept`, each with the same `extra` list;
+- `for rel in add: print("  вложено:", rel)` (relay.py:1060) on success,
+  so the symmetric case says where those files went;
+- `_baton_back_to_head()` unchanged — D2's rule (BATON back to HEAD,
+  foreign staged work untouched) still holds. J2 only reports it.
+
+**Declared repair of J1, not a silent one.** Tooth 1 failed on its first
+run: after a commit rejected by the stub the index held
+`['agent/STATE.json', 'docs/a.md', 'docs/b.md']`. J1's own stamp survived
+the refused hand — a `status: "handed"` line about a transfer that never
+happened, riding into the caller's next commit. That is `hand`'s residue,
+not the caller's work, so ruling #2 does not cover it, and the D2 rule
+that pulls BATON back to HEAD had no equal for STATE. Fixed in this
+commit:
+
+- stamping moved **after** the foreign-index check (relay.py:360–362) — a
+  refusal that happens before any write cannot leave a stamp behind at
+  all;
+- `_state_backup()` (relay.py:288) / `_state_restore()` (relay.py:302) —
+  the file bytes *and* its index blob are remembered before stamping, and
+  restored on every later refusal (commit failure, both push
+  rejections). Restoring the blob with `update-index --cacheinfo` rather
+  than `reset` is what lets tooth 3 pass: the caller's own staged STATE
+  edit has to survive the refusal as *its own* edit, not be wiped to HEAD
+  together with the stamp.
+
+Teeth 2 and 3 are the two halves of this repair; both are red without it
+(measured — N1 and N4 below).
+
+Module `tests/test_task99_j2_refusal_names_staged.py` — 8 teeth, all
+green (`........  [100%]`, rc=0):
+
+| # | Tooth | Proves |
+|---|-------|--------|
+| 1 | Done-when | rejecting `.git/hooks/pre-commit` stub → stderr names **both** `--add` files; `agent/BATON.json` not in `git diff --cached`; origin BATON still `executor`, round 21 |
+| 2 | own stamp rolled back | after a refused hand the worktree STATE equals the pre-hand bytes, its index entry equals the pre-hand blob — no `status: "handed"` survives |
+| 3 | caller's own staged STATE | staged edit survives the refusal, unchanged, and is not reported as foreign |
+| 4 | foreign-index refusal | names own `--add`, leaves `tools/foreign.py` staged untouched, BATON unstaged, worktree STATE untouched (no stamp written at all) |
+| 5 | early refusal | stop-file refusal (before any `git add` inside `hand`) still names the caller's staged work |
+| 6 | no `--add` | refusal prints no leftovers line — the words appear only where there is something to name |
+| 7 | `--add` not staged | file present in the worktree but absent from the index → no line (names come from the index) |
+| 8 | successful hand | commits both files and prints no leftovers line |
+
+Sandbox is a bare origin + clone on `agent/night-j2` (network 0; git
+transport only), with `TMPDIR` inside the sandbox and `HOME` left alone
+for the reason recorded above. The stub `agent/acceptance.sh` exits 0 —
+a clone of a bare origin carries no `core.hooksPath`, so the only hook
+the teeth install is the rejecting `pre-commit` of tooth 1.
+
+Regression, this run: `test_task89_d2_relay_index.py +
+test_task98_h2_hand_clock.py + test_task99_j1_hand_stamps_state.py +
+test_task99_j2_refusal_names_staged.py + test_no_shared_tmp.py` →
+27 tests, no failures.
+
+Mutation campaign (`mutate_j2.py`, scratch worktree, relay.py restored
+after each run) — see `## Runs`.
+
 ## Blocked
 
-Nothing blocked. J2 is not started yet — it is the second item of this
-spec and gets its own commit.
+Nothing blocked. Both items of this spec are implemented; J2 lands in its
+own commit.
 
 ## What not to trust
 
@@ -100,6 +186,20 @@ spec and gets its own commit.
 - **`status: "handed"` is a new value this tool writes.** No guard
   validates the STATE `status` enum, so nothing reddens — but AGENTS.md
   documents only `working` / `awaiting_review`. See `## Disputed` 3.
+- **The plumbing refusal at relay.py:427 has no tooth of its own.** Every
+  J2 tooth refuses in the tree path or before `push_baton`; the plumbing
+  branch is only reachable when the shift branch is checked out in
+  another worktree *and* the push races. The shared helper `die_kept` is
+  covered (N1 reddens four teeth through it), that one call site is not.
+- **The leftovers line names only what is both `--add` and staged.**
+  Foreign index files are listed by the separate «в индексе лежит чужое»
+  message (relay.py:356), not by this line — two refusals, two lists, by
+  design: ruling #2 distinguishes «моя работа» from «чужое».
+- **Tooth 2 and 3 assert bytes and index blobs, not intent.** They catch
+  a stamp that survived a refusal and a caller's edit that got wiped; they
+  do not check that the restored blob is the *right* pre-hand edit in
+  some third scenario. The N2/N4 mutation rows are what make those two
+  teeth mean something.
 - The J1 tests never ran the full `agent/selfcheck.sh`; the numbers above
   are module-level runs plus the commit path that acceptance will re-run.
 
@@ -144,12 +244,20 @@ spec and gets its own commit.
 |---------|--------|
 | `pytest -q tests/test_report_sections.py::test_done_items_have_code_commits_in_round` (shift clone, before any edit) | FAILED, `['H1','H2','H3','H4']` |
 | `pytest -q tests/test_task99_j1_hand_stamps_state.py` | `6 passed` (rc=0) |
-| `pytest -q` on the 4 relay/neighbour modules | `19 passed` (rc=0) |
+| `pytest -q` on the 4 relay/neighbour modules (J1) | `19 passed` (rc=0) |
 | `python3 probe_j1_coordinator_shape.py` | 8 failed → 12 failed, 22 passed (Disputed 1) |
-| `python3 mutate_j1.py` | base rc=0; table below |
+| `python3 mutate_j1.py` | base rc=0; M-table below |
+| first run of J2 tooth 1 | FAILED — index after the refused commit held `['agent/STATE.json', 'docs/a.md', 'docs/b.md']` → the J1 repair above |
+| `pytest -q tests/test_task99_j2_refusal_names_staged.py` | 8 of 8, rc=0 (`/tmp/rt99-j2.log`) |
+| `pytest -q` on the 5 relay/neighbour modules (J1+J2) | 27 tests, all green, rc=0 (`/tmp/rt99-reg5.log` holds `…[100%]` + rc; with `-q` and no `-r` the count line did not reach it, so the number is the dots row) |
+| `python3 mutate_j2.py` | base rc=0; N-table below |
 
-Mutation campaign (`rt99-mut` scratch worktree, relay.py restored after
-each run; the worktree is removed at the end of the shift):
+Mutation campaigns (`rt99-mut` scratch worktree, detached at `143a48c`,
+relay.py restored and byte-checked after each run; the worktree is
+removed at the end of the shift). Tooth numbers refer to the module's own
+order.
+
+J1, `mutate_j1.py` against `tests/test_task99_j1_hand_stamps_state.py`:
 
 | Mutation | Reddens |
 |----------|---------|
@@ -161,14 +269,32 @@ each run; the worktree is removed at the end of the shift):
 | M5 own staged STATE treated as foreign again | 5 |
 | M6 STATE dedup guard removed | nothing — see `## What not to trust` |
 
+J2, `mutate_j2.py` against `tests/test_task99_j2_refusal_names_staged.py`
+(`/tmp/rt99-mut-j2.log`):
+
+| Mutation | Reddens |
+|----------|---------|
+| base, no mutation | nothing — rc=0 (8 teeth, all dots; `mutate_j2.py` greps for the count line and it did not reach the log, so the number is from the dots row) |
+| N1 refusal does not name the leftovers (line silenced) | 1, 2, 4, 5 |
+| N2 refusal does not roll back its own STATE stamp | 1, 2, 3 |
+| N3 leftovers taken from the arguments, not the index | 7 |
+| N4 stamp applied before the foreign-index check | 1, 2, 3, 4 |
+| N5 only the first leftover named instead of all | 1, 2, 4 |
+
+Every mutation reddened at least one tooth, and no anchor in the script
+missed its target (`сбоев якорей/мутаций: 0`), so the campaign ran against
+the file that is in this commit.
+
 ## HANDOFF
 
-Status: PARTIAL — J1 done and committed, J2 pending in the same spec.
+Status: PARTIAL — J1 and J2 done; J2 lands in this commit, the close-out
+hand follows.
 
-- Items done: J1 — this commit (relay.py plus its 6-tooth module).
-- Items not done: J2 (refusal words for files left staged).
-- Numbers: the J1 module green at 6 of 6; the relay neighbourhood
-  regression green at 19 of 19; mutation campaign as tabled above.
+- Items done: J1 (previous commit `0902a22`), J2 (this commit: relay.py
+  plus `tests/test_task99_j2_refusal_names_staged.py`, and the declared
+  J1 repair for the stamp left behind by a refused hand).
+- Numbers: J2 module 8 of 8 green; relay neighbourhood 27 of 27;
+  mutations N1–N5 each reddening at least one tooth.
 - Open asks: three entries in `## Disputed` — the unborn-report shape
   needs a disposition, the H2-before-stamp order is TASK-100 K1's, and
   `handed` needs either a doc line or a different word.

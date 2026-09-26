@@ -119,6 +119,28 @@ def die(message: str) -> None:
     raise SystemExit(EXIT_ERROR)
 
 
+def die_kept(message: str, extra: list[str]) -> None:
+    """Отказ `hand` откатывает BATON, но вложенные через `--add` файлы
+    остаются в индексе — так решает круг 129: чужая работа не откатывается
+    чужой передачей хода. Молча оставить их — значит дать вызывающему
+    гадать, что осталось жить в индексе, а что уехало (ТЗ-89 D2,
+    Disputed 2 → ТЗ-99 J2), поэтому отказ называет их по именам.
+
+    Имена берутся из индекса в момент отказа, а не из аргументов: путь
+    отклонённого push делает `reset --mixed`, после которого файлы уже не
+    staged, и врать про них нечем.
+    """
+    sys.stderr.write(f"relay: {message}\n")
+    if extra:
+        staged = git("diff", "--cached", "--name-only", check=False).splitlines()
+        left = [f for f in staged if f in extra]
+        if left:
+            sys.stderr.write("relay: в индексе остались: "
+                             + ", ".join(left)
+                             + " — это твоя работа, не откатана\n")
+    raise SystemExit(EXIT_ERROR)
+
+
 # ── эстафета ─────────────────────────────────────────────────────────────
 
 
@@ -263,6 +285,35 @@ def _stamp_working_state(stamp: dict) -> None:
     path.write_bytes(_state_bytes(base, stamp))
 
 
+def _state_backup(root: Path) -> tuple[bytes | None, str | None]:
+    """ТЗ-99 J2: отказ откатывает BATON — и штамп J1 обязан откатывать
+    тоже. Это второй файл, который `hand` пишет сам; оставить его в
+    дереве и индексе — значит подарить вызывающему коммит с
+    `status: "handed"` про передачу, которой не было. Запоминаем байты
+    файла и его блоб в индексе: своя правка STATE, положенная в индекс до
+    `hand`, должна пережить отказ именно своей правкой, а не штампом."""
+    path = root / STATE_PATH
+    before = path.read_bytes() if path.is_file() else None
+    listed = git("ls-files", "-s", "--", STATE_PATH, check=False).strip()
+    fields = listed.split()
+    return before, (fields[1] if len(fields) >= 2 else None)
+
+
+def _state_restore(root: Path, backup: tuple[bytes | None, str | None]) -> None:
+    before, sha = backup
+    path = root / STATE_PATH
+    if before is None:
+        if path.is_file():
+            path.unlink()
+    else:
+        path.write_bytes(before)
+    if sha:
+        git("update-index", "--cacheinfo", f"100644,{sha},{STATE_PATH}",
+            check=False)
+    else:
+        git("reset", "-q", "--", STATE_PATH, check=False)
+
+
 def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
                message: str, stamp: dict | None = None) -> str:
     """Кладёт BATON.json и перечисленные файлы одним коммитом на ветку.
@@ -278,7 +329,11 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
     эстафеты не едут.
 
     Правило D2 для всех путей отказа в дереве: `agent/BATON.json`
-    возвращается к HEAD, чужое в индексе не трогается.
+    возвращается к HEAD, чужое в индексе не трогается. ТЗ-99 J2
+    распространяет его и на штамп: снятый отказом `agent/STATE.json`
+    возвращается своими байтами и своим блобом индекса (своя правка
+    вызывающего переживает отказ), а то, что действительно осталось в
+    индексе, отказ называет словами «в индексе остались: …».
     """
     root = repo_root()
     payload = json.dumps(baton, ensure_ascii=False, indent=1) + "\n"
@@ -290,8 +345,6 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
         if not sync_worktree(remote, branch, quiet=True):
             raise SystemExit(EXIT_ERROR)
         (root / BATON_PATH).write_text(payload, encoding="utf-8")
-        if stamp is not None:
-            _stamp_working_state(stamp)
         # Чужое, уже лежащее в индексе, в коммит эстафеты не берётся:
         # ТЗ-37 I5 уехал внутрь коммита «Эстафета: круг 44» именно так.
         staged = [f for f in git("diff", "--cached", "--name-only").splitlines()
@@ -300,10 +353,15 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
             # ТЗ-42 J1: эстафету нельзя передавать из грязного индекса —
             # именно так круг 48 остался непереданным
             _baton_back_to_head()      # ТЗ-89 D2
-            die("в индексе лежит чужое: " + ", ".join(staged[:10])
-                + ". Ход не передан и работа не сдана. Закоммить это "
-                "своим коммитом и повтори: python3 agent/relay.py hand ... "
-                f"({BATON_PATH} откатан к HEAD)")
+            die_kept("в индексе лежит чужое: " + ", ".join(staged[:10])
+                     + ". Ход не передан и работа не сдана. Закоммить это "
+                     "своим коммитом и повтори: python3 agent/relay.py hand "
+                     f"... ({BATON_PATH} откатан к HEAD)", extra)
+        # Штамп — ПОСЛЕ проверки чужого: у отказа нет права оставлять в
+        # дереве часы передачи, которая не состоялась (ТЗ-99 J2).
+        backup = _state_backup(root) if stamp is not None else None
+        if stamp is not None:
+            _stamp_working_state(stamp)
         git("add", "--", *paths)
         try:
             git("commit", "--only", "-m", message, "--", *paths)
@@ -311,10 +369,12 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
             # ТЗ-42 J1: провал коммита — не тишина: ход не передан
             # ТЗ-89 D2: корень пропавшего маркера 107 — здесь.
             _baton_back_to_head()
-            die("коммит эстафеты не прошёл. Ход не передан и работа не "
-                "сдана. Разберись (хук/индекс) и повтори: python3 "
-                f"agent/relay.py hand ... ({BATON_PATH} откатан к HEAD, "
-                "перечисленные файлы — в индексе)")
+            if backup is not None:
+                _state_restore(root, backup)
+            die_kept("коммит эстафеты не прошёл. Ход не передан и работа не "
+                     "сдана. Разберись (хук/индекс) и повтори: python3 "
+                     f"agent/relay.py hand ... ({BATON_PATH} откатан к HEAD, "
+                     "перечисленные файлы — в индексе)", extra)
         proc = subprocess.run(("git", "push", remote, f"{branch}:{branch}"),
                               capture_output=True)
         if proc.returncode != 0:
@@ -328,9 +388,11 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
             # запрещает (зуб test_a_rejected_push_leaves_no_...): теперь
             # откат к HEAD, а состояние origin покажет relay.py status.
             _baton_back_to_head()
-            die(f"push отклонён: {remote}/{branch} ушла вперёд. Коммит эстафеты "
-                f"снят, {BATON_PATH} откатан к HEAD, файлы на месте. "
-                "Перечитай relay.py status и повтори.")
+            if backup is not None:
+                _state_restore(root, backup)
+            die_kept(f"push отклонён: {remote}/{branch} ушла вперёд. Коммит "
+                     f"эстафеты снят, {BATON_PATH} откатан к HEAD, файлы на "
+                     "месте. Перечитай relay.py status и повтори.", extra)
         return git("rev-parse", "--short", "HEAD")
 
     fetch(remote, branch)
@@ -362,9 +424,9 @@ def push_baton(remote: str, branch: str, baton: dict, extra: list[str],
                           capture_output=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
-        die("push отклонён — ветка ушла вперёд. Ход не передан и работа "
-            "не сдана. Перечитай состояние (relay.py status) и повтори "
-            "передачу.")
+        die_kept("push отклонён — ветка ушла вперёд. Ход не передан и работа "
+                 "не сдана. Перечитай состояние (relay.py status) и повтори "
+                 "передачу.", extra)
     fetch(remote, branch)
     return commit[:7]
 
@@ -924,10 +986,15 @@ def state_clock_refusal(state_file: Path) -> str | None:
 
 def cmd_hand(a: argparse.Namespace) -> int:
     branch = resolve_branch(a.branch)
+    # ТЗ-99 J2: любой отказ hand оставляет вложенную работу на месте,
+    # поэтому все отказы этого пути идут через die_kept — он называет те
+    # файлы из --add, что действительно лежат в индексе.
+    add: list[str] = list(a.add or [])
     if a.to not in ROLES:
-        die(f"--to принимает {ROLES}")
+        die_kept(f"--to принимает {ROLES}", add)
     if stop_file().exists() and not a.force:
-        die(f"пауза: {stop_file()} на месте. relay.py resume — и повтори")
+        die_kept(f"пауза: {stop_file()} на месте. relay.py resume — и повтори",
+                 add)
     # ТЗ-98 H2: просроченные часы — отказ ДО приёмки, а не после неё.
     # --force остаётся выходом (проверка та же, что у паузы), но отказ
     # при force печатается: координатор сдаёт ход часами позже, чем
@@ -935,7 +1002,7 @@ def cmd_hand(a: argparse.Namespace) -> int:
     refusal = state_clock_refusal(Path.cwd() / STATE_PATH)
     if refusal:
         if not a.force:
-            die(refusal)
+            die_kept(refusal, add)
         print(f"hand: --force поверх просроченных часов — {refusal.splitlines()[0]}")
     # ТЗ-66 L1: красная приёмка на дереве — ход не передаётся.
     # Это закрывает щель: работа, уехавшая мимо хуков (плюмбинг,
@@ -946,15 +1013,16 @@ def cmd_hand(a: argparse.Namespace) -> int:
         # проверка опциональна по наличию скрипта
         rc, text = run_acceptance(Path.cwd())
         if rc != 0:
-            die(red_acceptance(rc, text, Path.cwd()))
+            die_kept(red_acceptance(rc, text, Path.cwd()), add)
     fetch(a.remote, branch)
     baton = read_remote_baton(a.remote, branch)
     if baton is None:
-        die(f"на {a.remote}/{branch} нет {BATON_PATH} — сначала relay.py init")
+        die_kept(f"на {a.remote}/{branch} нет {BATON_PATH} — сначала "
+                 "relay.py init", add)
     me = "executor" if a.to == "coordinator" else "coordinator"
     if baton.get("holder") != me and not a.force:
-        die(f"ход не твой: эстафету держит {baton.get('holder')}, "
-            f"а передать пытается {me}. --force, если уверен.")
+        die_kept(f"ход не твой: эстафету держит {baton.get('holder')}, "
+                 f"а передать пытается {me}. --force, если уверен.", add)
     new = dict(baton)
     new["holder"] = a.to
     new["round"] = baton.get("round", 0) + 1
@@ -973,21 +1041,22 @@ def cmd_hand(a: argparse.Namespace) -> int:
     # ТЗ-99 J1: STATE едет этим же коммитом — иначе приходящая сторона
     # начинает круг с чужими часами и чужим отчётом и красит свой же
     # страж до первого коммита.
-    sha = push_baton(a.remote, branch, new, list(a.add or []), message,
+    sha = push_baton(a.remote, branch, new, add, message,
                      stamp=_hand_state_stamp(new))
     # ТЗ-42 J1: пуш — не доказательство. Перечитываем BATON с origin:
     # ход считается переданным, только если там теперь держатель a.to.
     fetch(a.remote, branch)
     on_origin = read_remote_baton(a.remote, branch)
     if on_origin is None or on_origin.get("holder") != a.to:
-        die(f"ход НЕ передан: на {a.remote}/{branch} держит "
-            f"{(on_origin or {}).get('holder', 'никто')!r}, а не {a.to!r}. "
-            "Работа не сдана. Проверь relay.py status и повтори hand.")
+        die_kept(f"ход НЕ передан: на {a.remote}/{branch} держит "
+                 f"{(on_origin or {}).get('holder', 'никто')!r}, а не "
+                 f"{a.to!r}. Работа не сдана. Проверь relay.py status и "
+                 "повтори hand.", add)
     print(f"передано коммитом {sha}")
     print(baton_line(on_origin))
     print("  " + STATE_PATH + " (тем же коммитом): "
           + ", ".join(f"{k}={v}" for k, v in _hand_state_stamp(new).items()))
-    for rel in a.add or []:
+    for rel in add:
         print("  вложено:", rel)
     return EXIT_OK
 
