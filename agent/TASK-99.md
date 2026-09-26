@@ -1,6 +1,6 @@
 # TASK-99 — hand starts the next round green (REPORT-89 Disputed)
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 130, 26.09)
 - **Report:** `agent/REPORT-99.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Relay:** hand — `python3 agent/relay.py --branch agent/night-11

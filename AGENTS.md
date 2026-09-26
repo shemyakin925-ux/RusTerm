@@ -44,7 +44,7 @@
   что не успето, вопросы координатору), поставь в `agent/STATE.json`
   `"status": "awaiting_review"`.
 - В `agent/STATE.json` также веди поля: `"status"` (`working` /
-  `awaiting_review`), `"task"` (путь к текущему ТЗ), `"report"`
+  `awaiting_review` / `handed` — последнее ставит сам `relay.py hand`), `"task"` (путь к текущему ТЗ), `"report"`
   (путь к отчёту). По ним координатор понимает, что пора принимать
   работу — без слов в чате.
 
