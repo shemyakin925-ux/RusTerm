@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-100.md",
  "report": "agent/REPORT-100.md",
- "item": "K2 — красная приёмка оставляет дерево для разбора",
- "step": "коммит K2 (nested acceptance)",
+ "item": "K3 — метка владельца дерева: сосед, а не файл внутри",
+ "step": "коммит K3 (вложенная приёмка в pre-commit)",
  "status": "working",
  "last_commit": "8527f03",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-26T10:33:31Z"
+ "updated_at": "2026-09-26T11:11:50Z"
 }

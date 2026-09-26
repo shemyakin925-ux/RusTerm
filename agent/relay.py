@@ -649,10 +649,12 @@ def run_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-# Имена Х3 (ТЗ-98): `.relay-verify-owner` — метка владельца дерева
-# приёмки, `rusterm-relay-verify-` — префикс дерева по умолчанию.
+# Имена Х3/К3 (ТЗ-98, ТЗ-100): `rusterm-relay-verify-` — префикс дерева
+# по умолчанию; метка владельца — сосед `<дерево>.owner`, а не файл
+# внутри дерева: внучатый selfcheck приёмки смотрит `git status
+# --porcelain` того же дерева.
 VERIFY_TREE_PREFIX = "rusterm-relay-verify-"
-VERIFY_OWNER = ".relay-verify-owner"
+VERIFY_OWNER_SUFFIX = ".owner"
 
 
 def untracked_files(work: Path) -> list[str]:
@@ -660,16 +662,15 @@ def untracked_files(work: Path) -> list[str]:
     `checkout --detach` + `reset --hard` (ТЗ-88 C1). Спрятанное в
     .gitignore в список не входит — `--exclude-standard`.
 
-    Х3: собственная метка дерева из списка убирается. Она лежит в
-    .gitignore, но на коммите прежнего дня строки там нет, и refusal не
-    должен называть чужим мусором файл, который положил сюда сам verify.
+    К3: исключений нет — verify в дерево приёмки не пишет ничего, и
+    прятать ему нечего.
     """
     if not (work / ".git").exists():
         return []
     return sorted(line for line in git("-C", str(work), "ls-files",
                                        "--others", "--exclude-standard",
                                        check=False).splitlines()
-                  if line.strip() and line.strip() != VERIFY_OWNER)
+                  if line.strip())
 
 
 def verify_worktree(path_arg: str | None, head: str) -> Path:
@@ -690,7 +691,9 @@ def verify_worktree(path_arg: str | None, head: str) -> Path:
 
 
 # ── Х3 (ТЗ-98): кто поставил дерево, тот его и убирает ───────────────────
-# (имена VERIFY_TREE_PREFIX и VERIFY_OWNER объявлены выше untracked_files)
+# К3 (ТЗ-100): метка владельца — сосед дерева, внутрь не пишется ничего
+# (имена VERIFY_TREE_PREFIX и VERIFY_OWNER_SUFFIX объявлены выше
+# untracked_files)
 
 
 def pid_alive(pid: object) -> bool:
@@ -708,45 +711,72 @@ def pid_alive(pid: object) -> bool:
     return True
 
 
-def verify_owner(work: Path) -> dict | None:
-    """Кто владеет деревом, по метке `.relay-verify-owner`. Метки нет
-    (или она не читается) — дерево чужое: verify его не удалит ни при
-    каком pid. Отсутствие метки = «не трогать», а не «мусор».
+def verify_owner_path(work: Path) -> Path:
+    """Метка владельца — СОСЕД дерева (`<дерево>.owner`), а не файл
+    внутри него (К3). Внучатый selfcheck приёмки смотрит `git status
+    --porcelain` этого же дерева: всё, что лежит в нём, обязано быть либо
+    из git, либо спрятанным в `.gitignore` — то есть чужим мусором,
+    прощающим себе всё остальное."""
+    return work.parent / (work.name + VERIFY_OWNER_SUFFIX)
+
+
+def read_owner_stamp(stamp: Path) -> dict | None:
+    """Содержимое метки владельца. Метки нет (или она не читается) —
+    владеет ею не verify, и трогать её нельзя: под общим `/tmp` чужая
+    работа отличается от мусора только меткой.
     """
     try:
-        data = json.loads((work / VERIFY_OWNER).read_text(encoding="utf-8"))
+        data = json.loads(stamp.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
 
 
+def verify_owner(work: Path) -> dict | None:
+    """Кто владеет деревом, по его соседней метке. Отсутствие метки =
+    «не трогать», а не «мусор».
+    """
+    return read_owner_stamp(verify_owner_path(work))
+
+
 def stamp_verify_tree(work: Path) -> None:
-    """Метка владельца в каждое созданное прогоном дерево: pid прогона и
-    id прогона (имя дерева по умолчанию несёт штамп UTC, pid и счётчик)."""
-    (work / VERIFY_OWNER).write_text(
+    """Метка владельца для каждого созданного прогоном дерева: pid
+    прогона и id прогона (имя дерева по умолчанию несёт штамп UTC, pid и
+    счётчик). Пишется рядом с деревом — в самом дереве после К3 нет
+    ничего, чего не было бы в git."""
+    stamp = verify_owner_path(work)
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(
         json.dumps({"pid": os.getpid(), "run": work.name}) + "\n",
         encoding="utf-8")
 
 
 def remove_verify_tree(work: Path) -> None:
-    """Снять дерево и его регистрацию в `.git/worktrees`. `worktree
-    remove` не работает на Already-pruned — тогда остаётся каталог, и его
-    убираем руками; prune чистит записи о уже несуществующих."""
+    """Снять дерево, его регистрацию в `.git/worktrees` и соседнюю
+    метку. `worktree remove` не работает на Already-pruned — тогда
+    остаётся каталог, и его убираем руками; prune чистит записи о уже
+    несуществующих."""
     subprocess.run(("git", "worktree", "remove", "--force", str(work)),
                    capture_output=True, check=False)
     if work.exists():
         shutil.rmtree(work, ignore_errors=True)
     subprocess.run(("git", "worktree", "prune"), capture_output=True,
                    check=False)
+    try:
+        verify_owner_path(work).unlink()
+    except OSError:
+        pass
 
 
 def sweep_stale_verify_trees(parent: Path) -> list[Path]:
-    """Убрать осевшие СВОИ деревья под родителем пути по умолчанию.
+    """Убрать осевшие СВОИ деревья под родителем пути по умолчанию — и
+    метки, пережившие своё дерево.
 
     Кандидат — каталог с префиксом `rusterm-relay-verify-`, несущий метку
     verify, у которой pid мёртв (прогон убит между `worktree add` и
-    уборкой). Дерево без метки не трогается никогда: под общим `/tmp`
-    чужая работа выглядит так же, как своя.
+    уборкой, либо красный прогон, оставивший дерево для разбора — К2).
+    Дерево без метки не трогается никогда: под общим `/tmp` чужая работа
+    выглядит так же, как своя.
     """
     removed: list[Path] = []
     if not parent.is_dir():
@@ -761,6 +791,26 @@ def sweep_stale_verify_trees(parent: Path) -> list[Path]:
             continue
         remove_verify_tree(candidate)
         removed.append(candidate)
+    # метка, пережившая своё дерево: её снимал бы remove_verify_tree, но
+    # дерево сняли не ею (убили между `worktree remove` и unlink). Чужой
+    # файл с таким же расширением остаётся — у него нет нашего префикса
+    # и нашего pid внутри.
+    for stamp in sorted(parent.glob(VERIFY_TREE_PREFIX + "*"
+                                    + VERIFY_OWNER_SUFFIX)):
+        tree = stamp.with_name(stamp.name[:-len(VERIFY_OWNER_SUFFIX)])
+        if tree.exists():
+            continue
+        owner = read_owner_stamp(stamp)
+        if owner is None or not isinstance(owner.get("pid"), int):
+            continue
+        if pid_alive(owner["pid"]):
+            continue
+        try:
+            stamp.unlink()
+        except OSError:
+            continue
+        print(f"verify: убрана метка {stamp} — её дерево уже снято, "
+              f"pid мёртв", flush=True)
     return removed
 
 

@@ -173,6 +173,66 @@ Measured, this item:
 | M5 stale sweep disabled | red — next-run tooth + H3's own sweep tooth |
 | M6 owner stamp not written | red — next-run tooth + the stamp tooth |
 
+### K3 — the owner stamp is a sibling of the tree
+
+Ruling #4 of the REPORT-98 disputed list. H3 proved ownership by writing
+`.relay-verify-owner` *inside* the acceptance tree, and the live run at
+`2026-09-25T19:18Z` named the cost: check 13 («нет мусора вне git») reads
+`git status --porcelain` of that same tree, and the I5 cases' nested
+selfcheck reads it too — 3 failures, all on `?? .relay-verify-owner`.
+Hiding the file behind a `.gitignore` line made the tree green and the
+guard softer at the same time: the line was the only reason the exemption
+existed, and `untracked_files()` had to know the file by name.
+
+`agent/relay.py`:
+
+- `VERIFY_OWNER` → `VERIFY_OWNER_SUFFIX = ".owner"`; `verify_owner_path()`
+  resolves `<parent>/<tree-name>.owner` (relay.py:714). The stamp is
+  written next to the tree at `worktree add`; the tree receives nothing.
+- `remove_verify_tree()` unlinks the sibling after the tree is gone
+  (`OSError` → ignore: it may already be gone).
+- `sweep_stale_verify_trees()` gained a second pass for stamps that
+  outlived their tree — killed between `worktree remove` and the unlink.
+  Candidate must carry our prefix, a readable dict, an integer pid and a
+  dead pid; everything else (a foreign `*.owner`, a stamp of a live run,
+  a stamp whose tree still stands) is left alone.
+- `untracked_files()` has no exemptions at all (relay.py:660).
+- Foreign trees get nothing at all: `stamp_verify_tree` is only reached
+  for `ours`, so `--worktree` stays clean inside *and* beside.
+
+Teeth, `tests/test_task98_h3_verify_trees.py` (8 → 10, one rename):
+
+| Tooth | Pins |
+|---|---|
+| `test_the_stamp_is_a_sibling_and_nothing_lands_in_the_tree` (replaces `test_the_stamp_lies_in_the_tree_and_is_not_trash`) | stub sees `МЕТКА: есть` beside it and `ВНУТРИ: нет`; `git status --porcelain` empty with the **real** `.gitignore` copied into the fixture repo; sandbox `/tmp` holds only the tree and its sibling |
+| `test_the_repo_gitignore_no_longer_hides_an_in_tree_stamp` | the line is gone from the repo file — the exemption cannot come back as a hide |
+| `test_an_orphan_owner_stamp_is_swept_too` (new) | dead-pid orphan removed; `kakaya-to-sveshaya.owner` and a live-pid orphan both survive |
+| green / red / next-run / stale-sweep / no-stamp / live-pid teeth, +1 assert each | the sibling, not the in-tree file, is what appears and disappears |
+
+Measured, this item:
+
+- red-before — module against `HEAD:agent/relay.py`: `.F..FF..FF`,
+  5 of 10 failed (both K2 red teeth plus the three new/renamed K3
+  claims).
+- green-after — `tests/test_task98_h3_verify_trees.py` alone: 10 passed;
+  with relay/hand neighbours: 44 passed; with `.gitignore`-reading and
+  output guards (`test_task81_b3_build`, `test_no_shared_tmp`,
+  `test_report_sections`, `test_docs_truth`, `test_cli`,
+  `test_manual_seats`): 89 passed, 1 skipped.
+- mutation campaign (`../rt100-scratch/mutate_k3.py`, each mutation
+  reverted; relay.py and `.gitignore` compared byte-identical at the end
+  → True). Whole module run per mutation, so the red list is measured,
+  not predicted:
+
+| Mutation | Result |
+|---|---|
+| M1 stamp written inside the tree again | red — sibling tooth, red-run tooth, stale-sweep tooth (fixtures stamp the sibling; the mutant looks inside) |
+| M2 sibling never unlinked on removal | red — green tooth + sibling tooth (its `/tmp` leftover pin) |
+| M3 orphan pass disabled | red — orphan tooth |
+| M4 orphan pass ignores the live pid | red — orphan tooth's new live-pid pin |
+| M6 tree without a stamp treated as ours | red — next-run tooth + stale-sweep tooth. The no-stamp tooth stayed green: the fabricated `pid: 0` answers `pid_alive` as alive, so this mutant is caught from two sides, not from the «don't touch foreign» side |
+| M5 `.relay-verify-owner` line restored in `.gitignore` | red — gitignore tooth |
+
 ## Blocked
 
 (none)
@@ -188,11 +248,27 @@ Measured, this item:
 - `agent/CONTEXT.md:32` states, as an accepted TASK-98 fact, that "hand
   checks STATE clock". After K1 that sentence is stale — CONTEXT.md is the
   coordinator's file, I did not touch it.
-- K3 is not started yet in this section of the report.
 - K2's kept red tree is a directory under `/tmp` that now survives a
   failing run. Nothing in this round measured how long one sits there if
   `verify` is never run again — the sweep only fires at the start of the
   next run. The K1 `hand` gate is unaffected.
+- K3's tree-purity proof is a stub's `git status --porcelain` in a
+  sandbox. The claim that matters for the round is the real acceptance's
+  check 13, and the only evidence for that is this round's live
+  acceptance at the K3 commit (the `commit K3` row in Runs). Until that
+  line carries its numbers, "13 is green" is a prediction.
+- Trees stamped by the *old* scheme (`.relay-verify-owner` inside) are
+  recognised by nothing after K3: `sweep_stale_verify_trees` looks for
+  the sibling, so such a tree is left in place rather than deleted —
+  safe direction, but it needs a manual removal. Measured here: zero
+  `rusterm-relay-verify-*` entries under either `/tmp` or the session
+  temp dir at close-out, so nothing on this machine is in that state.
+- The stamp now lives in the same directory the tree is created in. A
+  `--worktree` path the operator owns is still never stamped, but if a
+  default-path parent holds a foreign file named exactly
+  `rusterm-relay-verify-…owner`, that file is a sweep candidate once its
+  pid reads as dead. The fixture pins only the two shapes we tested
+  (`kakaya-to-sveshaya.owner`, live pid), not arbitrary names.
 
 ## Disputed
 
@@ -209,13 +285,21 @@ Measured, this item:
 | 5 | `pytest -q` 8 other relay-referencing guards | 35 passed |
 | 6 | `pytest -q test_report_sections.py test_docs_truth.py` | 34 passed, 1 skipped |
 | 7 | `python3 ../rt100-scratch/mutate_k1.py` | 5/5 mutations red, relay.py restored byte-identical |
-| 8 | commit (nested acceptance) | see below |
+| 8 | commit K1 — pre-commit runs `selfcheck.sh`, which runs the full acceptance nested | `Итог: пройдено 13, провалено 0`, `Принято.`, `SELFCHECK OK`, rc 0 → `f7d7750`; wall clock 10:09:24→10:23:10Z |
 | 9 | `pytest -q tests/test_task98_h3_verify_trees.py` (K2 teeth, unmodified relay.py) | 2 of 8 failed (`.FF.....`) — red-before captured |
 | 10 | same module against `HEAD:agent/relay.py`, then relay.py restored | same 2 failures; `grep -c "дерево оставлено" agent/relay.py` → 1 after restore |
 | 11 | `python3 -m py_compile agent/relay.py` | ok |
 | 12 | `pytest -q` H3 + `test_relay_verify_worktree` + `test_cli` + `test_manual_seats` | 59 passed |
 | 13 | `python3 ../rt100-scratch/mutate_k2.py` | 6/6 mutations red, relay.py restored byte-identical |
-| 14 | commit K2 (nested acceptance) | see below |
+| 14 | commit K2 — same hook chain | `Итог: пройдено 13, провалено 0`, `Принято.`, `SELFCHECK OK`, rc 0 → `ee34ced`; wall clock 10:33:31→10:47:01Z |
+| 15 | `pytest -q tests/test_task98_h3_verify_trees.py` (K3 teeth, source at `HEAD`) | 5 of 10 failed (`.F..FF..FF`) — red-before captured |
+| 16 | `python3 -m py_compile agent/relay.py` | ok |
+| 17 | `pytest tests/test_task98_h3_verify_trees.py` | 10 passed |
+| 18 | `pytest` 10 relay/hand neighbour modules (H3 worktree, J1, J1-STATE, H2, K1, state clock, J3, K1-skip, guard, D2 index) | 44 passed |
+| 19 | `pytest` `.gitignore`/tmp/report/docs guards + `test_cli` + `test_manual_seats` | 89 passed, 1 skipped |
+| 20 | `python3 ../rt100-scratch/mutate_k3.py` | 6/6 mutations red; relay.py and `.gitignore` restored byte-identical |
+| 21 | `ls -d /tmp/rusterm-relay-verify-*` and the same in the session temp dir | 0 entries — no old-scheme trees left to migrate |
+| 22 | commit K3 — same hook chain, the first acceptance with no `.gitignore` exemption | see below |
 
 ## HANDOFF
 
