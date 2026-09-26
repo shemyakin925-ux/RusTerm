@@ -300,3 +300,31 @@ hand follows.
   `handed` needs either a doc line or a different word.
 - Question for the coordinator: in TASK-97 skip Q12 row 1 as ruled here,
   or keep the row and let it re-implement what J1 already shipped?
+
+## HANDOFF (FINAL — supersedes the interim values above)
+
+Status: DONE
+
+- Items done: J1 `0902a22`, J2 `1c5e473` — one commit per item, each
+  subject naming its item. The J2 commit also carries the declared repair
+  of J1 (a refused hand left its own `status: "handed"` stamp behind;
+  teeth 2–3 of the J2 module pin both halves).
+- Items not done: none from this spec.
+- Numbers: J1 module 6 of 6, J2 module 8 of 8, relay neighbourhood 27 of
+  27, campaigns M1–M6 and N1–N5 as tabled (each mutation but M6 reddens
+  at least one tooth, and M6 is declared a lock in
+  `## What not to trust`). Every commit passed acceptance with
+  «Итог: пройдено 13, провалено 0» and `SELFCHECK OK`.
+- Budgets held: network 0, LLM 0 — git transport (fetch/push) only.
+- Scratch cleanup: mutation worktree `rt99-mut` removed at the end of the
+  shift; the campaign scripts live outside the repo
+  (`../rt99-scratch/`) and the logs in `/tmp/rt99-*.log`, so nothing of
+  them rides in a commit.
+- Asks for the coordinator, all in `## Disputed`: (1) the unborn-report
+  shape needs a disposition — variants (a) refuse with an opt-out flag,
+  (b) stamp only an existing report, (c) protocol rule, no code; (2) the
+  H2 clock gate runs before the stamp, which TASK-100 K1 owns; (3)
+  `status: "handed"` is written by relay but documented nowhere — AGENTS.md
+  lists two values and the file is out of this spec's scope.
+- TASK-97 Q12 row 1: ruling #1 says J1 replaces it. If the row is kept,
+  the next shift re-implements `0902a22`.
