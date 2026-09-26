@@ -2,12 +2,12 @@
  "task": "agent/TASK-100.md",
  "report": "agent/REPORT-100.md",
  "item": "K3 — метка владельца дерева: сосед, а не файл внутри",
- "step": "коммит K3 (вложенная приёмка в pre-commit)",
- "status": "working",
+ "step": "круг 131 закрыт: отчёт заполнен, STATE ждёт приёмки",
+ "status": "awaiting_review",
  "last_commit": "8527f03",
  "requests": 39,
  "net_requests": 39,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-26T11:11:50Z"
+ "updated_at": "2026-09-26T11:27:28Z"
 }

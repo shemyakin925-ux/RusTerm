@@ -252,11 +252,11 @@ Measured, this item:
   failing run. Nothing in this round measured how long one sits there if
   `verify` is never run again — the sweep only fires at the start of the
   next run. The K1 `hand` gate is unaffected.
-- K3's tree-purity proof is a stub's `git status --porcelain` in a
-  sandbox. The claim that matters for the round is the real acceptance's
-  check 13, and the only evidence for that is this round's live
-  acceptance at the K3 commit (the `commit K3` row in Runs). Until that
-  line carries its numbers, "13 is green" is a prediction.
+- K3's live proof exists but is thin: Runs #22 is one real acceptance at
+  `fcd064d`, green with no exemption in `.gitignore`. What is *not*
+  measured live is the red half — a real failing acceptance leaving its
+  tree plus sibling for the next run. That path is proven only by the
+  stub (`test_red_run_keeps_its_tree_and_names_it_last`).
 - Trees stamped by the *old* scheme (`.relay-verify-owner` inside) are
   recognised by nothing after K3: `sweep_stale_verify_trees` looks for
   the sibling, so such a tree is left in place rather than deleted —
@@ -299,8 +299,27 @@ Measured, this item:
 | 19 | `pytest` `.gitignore`/tmp/report/docs guards + `test_cli` + `test_manual_seats` | 89 passed, 1 skipped |
 | 20 | `python3 ../rt100-scratch/mutate_k3.py` | 6/6 mutations red; relay.py and `.gitignore` restored byte-identical |
 | 21 | `ls -d /tmp/rusterm-relay-verify-*` and the same in the session temp dir | 0 entries — no old-scheme trees left to migrate |
-| 22 | commit K3 — same hook chain, the first acceptance with no `.gitignore` exemption | see below |
+| 22 | commit K3 — same hook chain, the first acceptance running with no `.gitignore` exemption | `Итог: пройдено 13, провалено 0`, `Принято.`, `SELFCHECK OK`, rc 0 → `fcd064d`; wall clock 11:12:22→11:26:15Z. Check 13 («нет мусора вне git») green because the tree is empty, not because a file is hidden |
 
 ## HANDOFF
 
-Status: NOT STARTED — K1 in progress, K2/K3 to follow.
+Status: DONE — all three items of `agent/TASK-100.md` shipped, one commit
+each on `agent/night-11`.
+
+| Item | Commit | What landed | Proof |
+|---|---|---|---|
+| K1 | `f7d7750` | the `hand` gate reads where the STATE stamp will land, not any clock; `state_clock_refusal`, its tolerance and `FIX_CLOCK_COMMAND` deleted | 13 teeth green across h2 + k1, 5/5 mutations red, acceptance 13/0 |
+| K2 | `ee34ced` | green removes its tree, red keeps it and names it on the last stdout line; the next run's sweep collects the kept tree | 8 teeth green, 6/6 mutations red, acceptance 13/0 |
+| K3 | `fcd064d` | owner stamp moved beside the tree as `rusterm-relay-verify-….owner`; nothing written inside the tree; `untracked_files()` has no exemptions; the `.gitignore` line is gone; orphan stamps with a dead pid are swept | 10 teeth green after the change (5 of 10 red before it), 6/6 mutations red, acceptance 13/0 — Runs #22, the first acceptance with no exemption to hide behind |
+
+Doors left open for the coordinator:
+
+- `agent/CONTEXT.md:32` still says "hand checks STATE clock" — stale since
+  K1, and it is the coordinator's file, so untouched.
+- TASK-101's ruling #1 (the `--no-verify` question) is untouched by this
+  round: nothing here relaxed a hook.
+- K2's kept red tree is removed only when the next `verify` starts; no
+  timer-based cleanup was specified and none was measured.
+
+Questions: none blocking. Next from the queue: 101, then 97, 92, 93,
+87 G1, 94 E3–E8, 85, 86.
