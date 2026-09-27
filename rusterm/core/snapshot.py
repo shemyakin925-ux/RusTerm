@@ -875,12 +875,64 @@ class SnapshotBuilder:
             periods[concept] = (chosen[1], chosen[2])
             input_units[concept] = units[0]
 
+        # ── ТЗ-102 M3: сток на границе окна может быть подан только в
+        # базисе restated (годовой баланс едет в следующем отчёте
+        # сравнительной колонкой). as_reported приоритетнее; ДРУГАЯ ДАТА
+        # не подставляется — вход берётся ровно на дату границы. Те же
+        # двери, что у as_reported: as_of и правило давности от anchor.
+        restated_cache: dict[str, dict[str, dict]] = {}
+
+        def restated_rows(concept: str) -> dict[str, dict]:
+            """Стоковые строки этого концепта в базисе restated: дата →
+            строка входа. Приоритет тега выбирает источник и на этой
+            ветке; имя подачи берётся из raw_object-файла, где факт
+            прочитан (accession разборщик знает, но в `fact` он не
+            пишется)."""
+            if concept not in restated_cache:
+                by_date: dict[str, dict] = {}
+                for (_tag, value, fact_id, unit, start, end, _canonical,
+                     url) in self._snapshots.restated_stock_facts(
+                        issuer_id, (concept,)):
+                    if as_of and end > as_of:
+                        continue
+                    if anchor_date is not None and not _eligible_input(
+                            end, anchor_date):
+                        continue
+                    try:
+                        numeric = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    _taxonomy, local = strip_taxonomy(_tag)
+                    cand = {"value": numeric, "fact_id": fact_id,
+                            "unit": unit, "start": start, "end": end,
+                            "rank": priority_rank(concept, local,
+                                                  _taxonomy or "us-gaap"),
+                            "filing": (url or "").rsplit("/", 1)[-1]}
+                    prev = by_date.get(end)
+                    if prev is None or cand["rank"] < prev["rank"]:
+                        by_date[end] = cand
+                restated_cache[concept] = by_date
+            return restated_cache[concept]
+
         def stock_at(concept: str, end: str):
             """Сток на дату конца периода: у мгновенной величины только
-            эта дата и значима; приоритет тега выбирает источник."""
+            эта дата и значима; приоритет тега выбирает источник.
+            ТЗ-102 M3: если на ЭТОЙ дате as_reported нет, берётся
+            restated того же числа — и помечается в lineage."""
             rows = [r for r in by_concept.get(concept, [])
                     if r["end"] == end]
-            return min(rows, key=lambda r: r["rank"]) if rows else None
+            if rows:
+                return min(rows, key=lambda r: r["rank"])
+            return restated_rows(concept).get(end)
+
+        def stock_role(row: dict, basis: str, why: str) -> str:
+            """Роль стокового входа: база окна, дата границы и — если сток
+            пришёл из restated-подачи — её отметка с именем подачи
+            (ТЗ-102 M3). Хвост про несобранный TTM прежний."""
+            mark = (f" basis: restated ({row['filing']})"
+                    if "filing" in row else "")
+            return (f"input:{basis} stock {row['end']}{mark}"
+                    + (f"; TTM не собран: {why}" if why else ""))
 
         # ── Двухпериодные: поток — окно TTM (или годовой запасной),
         # сток — на НАЧАЛО и на КОНЕЦ этого окна; нет предыдущего —
@@ -904,7 +956,15 @@ class SnapshotBuilder:
                 # запрещает: поток из трейлинга, сток с даты годом
                 # раньше даёт меру, которую нельзя прочесть.
                 window_end = stock_at(stock, window.end)
-                earlier = [e for e in stock_ends if e <= window.start]
+                # ТЗ-102 M3: граница «не позже начала окна» ищется по
+                # обеим базам: годовой баланс, приехавший сравнительной
+                # колонкой, — такой же конец периода, как и поданный
+                # свежим отчётом. Даты не подменяются: стока на выбранной
+                # дате нет ни в какой базе — прежний period_mismatch.
+                borders = sorted(set(stock_ends)
+                                 | set(restated_rows(stock)),
+                                 reverse=True)
+                earlier = [e for e in borders if e <= window.start]
                 window_begin = (stock_at(stock, earlier[0])
                                 if earlier else None)
                 if window_end is None or window_begin is None:
@@ -923,8 +983,7 @@ class SnapshotBuilder:
                 periods[concept] = (window.start, window.end)
                 lineage[concept] = window_lineage(window, why) + [
                     {"fact_id": row["fact_id"], "peer_measure_id": None,
-                     "role": (f"input:{window.basis} stock {row['end']}"
-                              + (f"; TTM не собран: {why}" if why else "")),
+                     "role": stock_role(row, window.basis, why),
                      "period_basis": window.basis}
                     for row in (window_end, window_begin)]
                 continue

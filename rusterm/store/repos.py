@@ -725,6 +725,30 @@ class SnapshotRepo:
                 ORDER BY period_end DESC, ingested_at DESC""",
             (issuer_id, *concepts)).fetchall()
 
+    def restated_stock_facts(self, issuer_id: str, concepts: tuple) -> list:
+        """Мгновенные факты сток-концептов в базисе restated — вместе с
+        подачей, из которой они прочитаны (ТЗ-102 M3).
+
+        Годовой баланс эмитент повторяет в следующем отчёте сравнительной
+        колонкой, и разборщик ставит повторенному факту basis='restated'
+        (`determine_basis`: период документа позже периода факта) — поэтому
+        на годовых границах TTM-окна as_reported-стока ровно на его дату и
+        нет. Отбор по дате делает вызывающий, а не SQL: подстановка другой
+        даты запрещена правилом M3, и пусть эта граница останется одной
+        строкой в коде."""
+        placeholders = ",".join("?" * len(concepts))
+        return self.conn.execute(
+            f"""SELECT f.concept, f.value, f.fact_id, f.unit,
+                       f.period_start, f.period_end, f.canonical_concept,
+                       r.url
+                FROM fact f
+                LEFT JOIN raw_object r ON r.sha256 = f.source_ref
+                WHERE f.issuer_id=? AND f.basis='restated'
+                  AND f.status='ok' AND f.period_type='instant'
+                  AND f.canonical_concept IN ({placeholders})
+                ORDER BY f.period_end DESC, f.ingested_at DESC""",
+            (issuer_id, *concepts)).fetchall()
+
     def insert_measure(self,
                        measure_id: str,
                        snapshot_id: str,
