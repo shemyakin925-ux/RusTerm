@@ -1,6 +1,6 @@
 # TASK-102 — rulings on REPORT-97 Disputed (round 136); do before resuming TASK-97
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 138, 27.09)
 - **Report:** `agent/REPORT-102.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Relay:** hand — `python3 agent/relay.py --branch agent/night-11
