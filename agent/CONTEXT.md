@@ -33,7 +33,8 @@ Last updated: 25.09.2026, round 122 on `agent/night-11`.
 - **Round 130 (TASK-99) accepted**, fresh clone 13/0: hand stamps STATE (`status: handed`); refused hand names staged files. Disputed → TASK-101 (hand creates a missing report skeleton); AGENTS.md knows `handed`. Until TASK-101 lands the coordinator commits the next REPORT skeleton before `hand`.
 - **Round 132 (TASK-100) accepted**, fresh clone 13/0: hand stamps the clock itself (guard is now «stampable STATE»); red verify keeps its tree; owner stamp is a sibling. 27 asserts replaced under declared ЗАМЕНА-БУЛАВКИ for intentionally changed behaviour, stronger (29+42 new). No Disputed.
 - **Round 134 (TASK-101) accepted**, fresh clone 13/0, 0 asserts removed: hand writes a missing report skeleton into the baton commit. Its extra refusal of an outside-repo `--report` is kept as part of L1; close-out inside the baton commit is allowed. The relay-hygiene series (98–101) is closed.
-- Queue: **97** → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
+- **Round 136 accepted (partial TASK-97)**, fresh clone 13/0: Q12(5) tariff refusal passes the stage; Q12(6) reparse rebuilds facts; Q11 default root ~/EquityLab/data; Q10 TTM everywhere (migration 46, ADR-0025); Q8 730-day window — period_mismatch 152→0, percentiles 129→170. Disputed → TASK-102 (fresh shares for price measures, same-date restated balances, gap wording, check_mention by file name).
+- Queue: **102** → **97 (from Q5)** → 92 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → 93 → 87 G1 → 94 E3–E8 → 85 → 86 → backlog.
 
 
 **Round 100 (TASK-75) is accepted**, measured in a clean clone of
