@@ -16,7 +16,7 @@ import re
 from typing import Optional
 
 from rusterm.core.industry.aggregate import (build_sector_aggregates,
-                                             period_note)
+                                             period_note, shortfall_note)
 from rusterm.core.snapshot import measure_inputs, stale_exclusions
 from rusterm.markets import get_market
 
@@ -305,6 +305,9 @@ def industry_rows(repos, sector: str, as_of: Optional[str] = None) -> dict:
         # обязан показать это и при отказе, и при числе
         "period_from": a.period_from, "period_to": a.period_to,
         "excluded": dict(a.excluded), "period_note": period_note(a),
+        # ТЗ-102 M4: чем именно «мало участников» — составом или
+        # пустыми значениями; экран обязан сказать это числом
+        "shortfall_note": shortfall_note(a),
     } for a in built["aggregates"]]
     return {"sector": sector, "as_of": as_of,
             "version": version["version"],
@@ -326,7 +329,10 @@ def render_industry(screen: dict) -> list[str]:
     for r in screen["rows"]:
         # ТЗ-97 Q8: «за какие периоды» и «кто вне окна» — и у числа, и
         # у отказа: без этого агрегат выглядит ответом на весь набор
-        note = f" [{r['period_note']}]" if r.get("period_note") else ""
+        # ТЗ-102 M4: сюда же и «участников N, значение меры есть у K»
+        notes = [p for p in (r.get("shortfall_note"), r.get("period_note"))
+                 if p]
+        note = f" [{'; '.join(notes)}]" if notes else ""
         if r["null_reason"]:
             counts = ", ".join(f"{k}={v}" for k, v
                                in sorted(r["reason_counts"].items()))

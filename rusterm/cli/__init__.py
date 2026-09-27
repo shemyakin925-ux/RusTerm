@@ -19,7 +19,7 @@ from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
 from rusterm.providers.budget import ConfigError, RequestGate
 from rusterm.providers import get_provider
 from rusterm.core.industry.aggregate import (build_sector_aggregates,
-                                             period_note)
+                                             period_note, shortfall_note)
 from rusterm.core.snapshot import snapshot_measures_identical
 from rusterm.core.snapshot import SnapshotBuilder, stale_exclusions
 from rusterm.markets import MARKET_CODES
@@ -1354,8 +1354,10 @@ def cmd_industry(args) -> int:
         # ТЗ-97 Q8: диапазон периодов и внеоконные участники — вслух, а
         # не только в структуре: экран «Отрасль» и `rusterm industry`
         # отвечают на «почему тут пусто» одними и теми же словами.
-        note = period_note(a)
-        tail = f"; {note}" if note else ""
+        # ТЗ-102 M4: у отказа `peer_set_too_small`, вызванного пустыми
+        # значениями, та же строка называет участников и число мер.
+        notes = [p for p in (shortfall_note(a), period_note(a)) if p]
+        tail = ("; " + "; ".join(notes)) if notes else ""
         if a.null_reason:
             counts = ("; ".join(f"{k}={v}"
                                 for k, v in sorted(a.reason_counts.items()))

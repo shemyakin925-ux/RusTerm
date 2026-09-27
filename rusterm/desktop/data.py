@@ -608,7 +608,9 @@ def industry_table_rows(screen: dict) -> list[dict]:
         # ТЗ-97 Q8: диапазон периодов и внеоконные участники — в пометке
         # строки, чтобы вкладка «Отрасль» говорила то же, что экран
         # `rusterm industry`, а не молча показывала пустые числа.
-        note = r.get("period_note") or ""
+        # ТЗ-102 M4: там же и «участников N, значение меры есть у K»
+        note = "; ".join(p for p in (r.get("shortfall_note"),
+                                     r.get("period_note")) if p)
         if r.get("null_reason"):
             counts = ", ".join(f"{k}={v}" for k, v
                                in sorted(r.get("reason_counts", {})

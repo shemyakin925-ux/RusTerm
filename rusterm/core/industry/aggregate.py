@@ -59,6 +59,12 @@ class AggregateMeasure:
     period_from: str | None = None
     period_to: str | None = None
     excluded: dict = field(default_factory=dict)
+    # ТЗ-102 M4: сколько участников дошло до расчёта этой меры и у
+    # скольких из них значение есть. Без этих двух чисел отказ
+    # `peer_set_too_small` неотличим от тощего набора, а `n` на отказе
+    # всегда нуль.
+    members_seen: int = 0
+    with_value: int = 0
 
 
 def _with_window(agg: AggregateMeasure, window) -> AggregateMeasure:
@@ -86,6 +92,21 @@ def period_note(agg: AggregateMeasure) -> str:
     return "; ".join(parts)
 
 
+def shortfall_note(agg: AggregateMeasure) -> str:
+    """Чем именно «мало участников»: составом набор или пустыми значениями.
+
+    Нехватка состава (участников меньше порога) фразы не получает — там
+    отказ честный и другой текст был бы оправданием. Фраза звучит только
+    когда участников столько, сколько нужно, а мера доехала не до всех
+    (ТЗ-102 M4)."""
+    if agg.null_reason != "peer_set_too_small":
+        return ""
+    if agg.members_seen < AGGREGATE_MIN_PEERS:
+        return ""
+    return (f"участников {agg.members_seen}, значение меры есть у "
+            f"{agg.with_value}")
+
+
 def sector_aggregate(concept: str, values: list[tuple[str, float | None]],
                      verified: bool = True) -> AggregateMeasure:
     """Медиана и два квартиля по вкладчикам, n — число вкладчиков.
@@ -110,7 +131,8 @@ def sector_aggregate(concept: str, values: list[tuple[str, float | None]],
         return AggregateMeasure(
             concept=concept, n=0,
             null_reason="peer_set_too_small",
-            reason_counts=reason_counts)
+            reason_counts=reason_counts,
+            members_seen=len(values), with_value=len(contributing))
 
     q1, q2, q3 = statistics.quantiles(contributing, n=4, method="inclusive")
     return AggregateMeasure(
@@ -188,7 +210,8 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                 concept=agg.concept, p25=agg.p25, median=agg.median,
                 p75=agg.p75, n=agg.n, null_reason=agg.null_reason,
                 method_version=agg.method_version, currency=present[0],
-                reason_counts=agg.reason_counts)
+                reason_counts=agg.reason_counts,
+                members_seen=agg.members_seen, with_value=agg.with_value)
         if no_snapshot:
             reason_counts = dict(agg.reason_counts)
             reason_counts["no_snapshot_at_date"] = no_snapshot
@@ -196,7 +219,8 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                 concept=agg.concept, p25=agg.p25, median=agg.median,
                 p75=agg.p75, n=agg.n, null_reason=agg.null_reason,
                 method_version=agg.method_version,
-                reason_counts=reason_counts)
+                reason_counts=reason_counts,
+                members_seen=agg.members_seen, with_value=agg.with_value)
         aggregates.append(_with_window(agg, window))
     return {"outcome": "resolved",
             "peer_set_id": peer_set_id,

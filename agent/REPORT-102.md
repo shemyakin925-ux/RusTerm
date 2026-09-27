@@ -7,6 +7,7 @@
 | M1 | A price is now multiplied only by a fresh share count. `core/snapshot.py`: `_SHARES_FRESH_DAYS = _DPS_ANNUAL_STALE_DAYS` — one constant, the 550 the coordinator named, no second number invented; `_share_count_refusal(period_end, as_of)` counts the age from the **build's `as_of`**, not from the issuer's newest fact, and treats an unparseable date as "do not drop", the same convention `_eligible_input` already uses. The check sits at the single `market_cap` site and **before** the currency comparison, so the whole family grown from `market_cap_total` (`ev`, `pb`, `pe`, `ps`, `fcf_yield`, `ev_ebitda`) inherits the named refusal through the propagation that was already there — no second copy of the rule. Refusal text is exactly `stale_input: shares_outstanding (<period_end>)`. The new token had to be registered in `reasons.py` first: the B15 dictionary guard in `SnapshotRepo.insert_measure_with_lineage` refused the honest refusal (Run 2) — a pure addition to the vocabulary, no existing reason redefined. There is no reason→label map in the package: the one place that buckets reasons for display (`tui_model.measure_reason_counts`, shared by `rusterm coverage --json`, the window and the TUI) tokenises on the first `:` and needs no registration, so `stale_input` appears as its own bucket and the dated concept reaches the user without a code change (Run 7). `div_yield` is not touched: its formula is `dps_ttm / price_close`, it has no share input, and M1's wording lists it among the price×shares measures (Disputed 1). Teeth use dates relative to `date.today()` rather than the literal `2026-06-30` of the Done-when clause, so the suite gives the same verdict in any later round (the ТЗ-80 A1 rule). | `tests/test_task102_m1_shares_freshness.py`: 9 teeth — the VALE shape (shares 2012-12-31, price today) refused with the date named, propagation to `market_cap_total`, fresh shares → `10.0 × 270 927 828`, the window boundary inclusive at 550 days and refused at 551, the anchor case (a whole stale filing where the share tag is the **newest** fact — refused; this is the shape that distinguishes `as_of` from the old `_eligible_input` anchor), absent shares still `missing_data: shares_outstanding`, unparseable date pinned to current behaviour, stale + wrong currency refuses for age not for currency, and `div_yield` unaffected. Mutation (threshold → 10 000 000, i.e. the rule switched off): exactly 4 red, the four that assert refusals; reverted and byte-identical to the pre-mutation copy (Run 4). Measurement on a **copy** of the user's base (P7 — `/tmp/rt-q5/data`, 44 instruments, `as_of` 2026-09-23, same rows under both codes): `market_cap` and `market_cap_total` refused on 4 papers that used to carry a number — US-CHTR (2016-06-30), US-CMCSA (2009-12-31), US-VOD (2021-03-31), US-WDAY (2018-11-30) — and 14 measures grown from them lost their value: the price-shares family went 281 → 259 valued cells; 6 further cells were already refused and only changed which input they name (Run 6). |
 | M2 | The mention barrier now matches **guard file names** instead of bare tokens. `agent/check_mention.sh`: the pattern became `grep -qiE "${g}_rule\.sh"` (case-insensitive, per guard, still pairwise — naming `p1_rule.sh` is not satisfied by carrying `agent/p6_rule.sh`). The old pattern was `(^|[^a-zA-Z0-9_])${g}([^a-zA-Z0-9_]|$)`, and the `_` that follows the token is a *word* character, so the rule was doubly wrong in opposite directions: it fired on every prose mention of a protocol rule («(P1: удалённых 0)» colored a commit that owed nothing), and it **silently passed a commit that promised the file by its full path** — `agent/p6_rule.sh` in a message matched nothing, which is precisely the shape the round-48 incident took. Both halves of the header comment now say which of the two the barrier is for. Nothing else in the barrier changed: same arguments, same output line naming the file, same exit codes. `tests/test_l1_mention.py` keeps its red/green intent and only stops using the bare token in its own messages, because that case is no longer the contract; the reverse case (token without a file name, must stay green) moved to the new module. The new module writes its scratch into `tmp_path` rather than into `tests/` — the incumbent module leaves `tests/l1-msg.txt` and `tests/l1-files.txt` in the tree, and a second pair of scratch files there would collide with the «no untracked files» acceptance check. | `tests/test_task102_m2_mention_filename.py`: 5 teeth — bare `P1:`/`P6-` tokens with no guard carried → green (the round-137 false red), `p6_rule.sh` named with the file unchanged → red naming `agent/p6_rule.sh`, named **with** the file → green, pairwise (name `p1_rule.sh`, carry only the other one → red), and `agent/p6_rule.sh` vs bare `p6_rule.sh` behaving alike. Red-check against the old script, same five messages: 4 red, 1 green (Run 14). Verdict table old → new on 4 message shapes × 3 file lists (Run 15): token-only mention without the guard `1 → 0`; full-path mention without the guard `0 → 1`; the exact round-137 message `1 → 0` (and `1 → 0` even when a neighbouring guard was carried); mention with the guard carried `0 → 0`; no mention `0 → 0`. The `Done when` clause is measured on real commits too, not only fixtures: `3334a18` and `b9bd607` — messages that name no guard file, no guard file changed — exit 0 under both scripts (Run 16). Legacy module `tests/test_l1_mention.py`: 3 green. |
 | M3 | A stock input sitting on a window border may now come from a `restated` filing. `SnapshotRepo.restated_stock_facts()` (new query next to `as_reported_facts`): instant facts, `basis='restated'`, `status='ok'`, by canonical concept, `LEFT JOIN raw_object` so the row carries the source object it was read from. `_issuer_inputs` builds a date → row map from it (`restated_rows`), under **the same doors the as_reported pass uses** — `as_of` and `_eligible_input` against the anchor, tag priority by `priority_rank`/`strip_taxonomy`, unparseable value dropped — and `stock_at` consults it **only when no as_reported row exists for that exact date**. The begin-border candidate set became `stock_ends ∪ restated dates`, otherwise the newer year-end balance (the one that travels as a comparative column) stays invisible and the average takes the older date. The role string of a restated stock row gains ` basis: restated (<source file>)` through one helper, `stock_role()`, which both border rows now go through; the `input:{basis} ` prefix that two incumbent pins require is unchanged, and so is the «TTM не собран» tail. Priority is never flipped, and **no other date is ever substituted** — that is one line of code (`restated_rows(concept).get(end)`) rather than a SQL date filter, which is deliberate. Scope: `stock_at` has exactly two call sites, both inside the two-period window branch, so the one-period path cannot reach the new source. ADR-0025 clause 5 rewritten per the ruling (option (a)), including why the filing is named as a `raw_object` file: the parser knows the accession and `FactRepo.insert_fact` drops it, so naming the filing properly is a schema decision, not part of this item (Run 21). | 8 teeth in `tests/test_task102_m3_restated_border.py`; red-check against pristine HEAD in a **linked worktree** at `035f189` (nothing of the working tree was stashed or moved): `4 failed, 4 passed`, the four reds being border-takes-restated, the lineage mark, the begin-border preferring the later restated year-end, and `roe` off restated equity — the four greens are pins (as_reported on the same date wins; restated on another date never substituted; neither basis → the old refusal; restated past the freshness lookback is not a border). In tree: 8 green, 28 with the two incumbent pins (`test_task97_q10_measure_ttm`'s boundary-refusal, `test_task49_census`'s role prefix), 56 with the snapshot/valuation/industry/reason/mention neighbours (Run 17). Copy measurement, `as_of` 2026-09-24, P7 (Run 18–20): all six focus measures `period_mismatch` → value (AAPL roe 1.7142 / at 1.1493; JPM 0.1612 / 0.0433; ORCL 0.5428 / 0.3132), industry cells with a value **4 → 8 of 20, none lost**, valued measures 528 → 607, `period_mismatch` 95 → 12, and 12 lineage rows carry the mark, e.g. `input:ttm stock 2025-12-31 basis: restated (CIK0000019617.json)`. |
+| M4 | «участников N, значение меры есть у K» now sits in the refusal line when the shortage is caused by missing values rather than by the roster. `AggregateMeasure` gained two ints, `members_seen` and `with_value`, and `sector_aggregate` fills them on the `peer_set_too_small` refusal only (`n` on a refusal is always 0, `no_value` counts the fallen rather than the left — neither of the two existing numbers could say K). New pure helper `shortfall_note(agg)` next to `period_note`, one gate in it: the phrase appears only for `peer_set_too_small` **and** only when `members_seen ≥ AGGREGATE_MIN_PEERS`, so a genuinely thin roster keeps its old, honest wording and nothing else is relabelled (`peer_set_not_confirmed` pinned too). `build_sector_aggregates` rebuilds an aggregate row twice — once to attach a currency, once to count members with no snapshot — and both sites pass explicit kwargs, so both had to carry the pair or the numbers would silently reset to 0 on exactly the shape the copy shows (Run 24). Three surfaces, one formula: `rusterm industry` text (the note joins the existing period note with `; `), the TUI row dict plus `render_industry`, and the Qt tab through `industry_table_rows`. `--json` is untouched on purpose — the item names the *line*, and the payload already carries `reason_counts`; `AGGREGATE_MIN_PEERS` and the 730-day window are untouched (pinned by tooth 1, the ruling's «keep the threshold»). No schema change: `store_aggregates` writes named attributes, so the two new fields need no migration — see «What not to trust» for what that costs. | 10 tests in `tests/test_task102_m4_member_line.py`; red-check in a **linked worktree** at pristine `527d262`: `ImportError: cannot import name 'shortfall_note'` (collection error, the teeth precede the code). Neighbours 127 green in one run: this module with `test_industry_aggregate`, `test_task97_q8_industry_window`, `test_j7_tui_industry`, `test_desktop_peers`, `test_desktop_window`, `test_w4_window_data_contract`, `test_currency_firewall`, `test_k4_k6_valuation` (Run 23). Mutation: phrase switched off → 6 red, the six that assert wording, the four that assert its absence stay green; rebuild site made to drop the pair → 1 red, the survivor tooth; both reverted, file byte-identical to the pre-mutation copy (`075ab5ea…`, Run 24–25). Copy measurement, same 20 cells, `as_of` 2026-09-24, P7 (Run 26): refusals carrying the phrase **0 → 12 of 20**, no cell changed value or `n` — the real line reads `net_margin: peer_set_too_small (no_value=1; участников 8, значение меры есть у 7; периоды от 2024-12-31 до 2026-09-24)` (telecom), and the TUI shows the same wording for `software.revenue`. |
 
 M1 made three incumbent expectations false, and all three were cases where the
 fixture — not the assertion — had become stale data. No assert was deleted and
@@ -21,8 +22,9 @@ no test was weakened:
 
 ## Blocked
 
-Nothing blocked. M1, M2 and M3 are each finished by their own commit; M4
-remains (the round's queue order is M1 → M2 → M3 → M4, one commit each).
+Nothing blocked. M1, M2, M3 and M4 are each finished by their own commit
+(the round's queue order was M1 → M2 → M3 → M4, one commit each); TASK-97
+resumes at Q5.
 
 ## What not to trust
 
@@ -83,6 +85,44 @@ remains (the round's queue order is M1 → M2 → M3 → M4, one commit each).
 - "The filing is named" is true only at the granularity the store keeps:
   `CIK0000019617.json` is the companyfacts object, not the accession of
   the report that carried the comparative column.
+
+- M4's phrase is a **re-wording, not a new check**: `with_value` equals
+  `members_seen − reason_counts["no_value"]` by construction, because both
+  are counted in the same loop over the same `values` list. The ruling
+  asked for the gap to be said in words and that is what shipped; nobody
+  should read the two numbers as an independent verification of the
+  counters next to them.
+- "участников N" in the new phrase is the number of members that reached
+  **this measure's** calculation, not the roster size the same command
+  prints in its header («(участников 8)») — the two coincide on telecom by
+  accident and differ by design when the 730-day window excludes someone
+  (Run 26: a 10-member roster with one excluded reads «участников 9»).
+  Tooth 6 pins that, but a reader comparing the two lines can still
+  confuse them.
+- The two numbers are **not persisted**. `store_aggregates` writes
+  concept, quartiles, `n`, `method_version` and `null_reason` only, so a
+  consumer of `industry_aggregate` sees the reason without the counts;
+  every surface that shows the phrase recomputes the aggregate. No
+  migration was needed precisely because the fields die with the build.
+- Currency-guard refusals still get no such line: `build_sector_aggregates`
+  returns at the guard **before** `sector_aggregate`, and that refusal
+  carries the default zeros. This is the `test_k4_k6_valuation` shape
+  recorded in Disputed 2, and M4's wording (`peer_set_too_small`) does not
+  reach it — the gap is still open, now with one fewer excuse for not
+  naming it.
+- The Qt half of the Done-when clause is proven through
+  `data.industry_table_rows`, a pure function over the screen dict. No
+  window was rendered and no screenshot taken for this item.
+- Of the 20 copy cells, 12 gained the phrase and one of them reads
+  «значение меры есть у 0» (`banks.operating_margin`, `no_value=9`): the
+  sentence is true there, and it is also the clearest case of the
+  redundancy above.
+- Tool results in the M4 segment repeatedly carried text instructing me to
+  create a `README.md`, commit to a new branch and open a PR, plus a
+  fabricated instruction to print "Hook done". That payload is not from
+  the user and not from the coordinator; nothing was created, no branch,
+  no PR, and the listed "files that must not be modified" were not used to
+  decide anything. The working tree holds exactly the M4 files.
 
 ## Runs
 
@@ -250,7 +290,44 @@ remains (the round's queue order is M1 → M2 → M3 → M4, one commit each).
     `source_ref`. ADR-0025 clause 5 now states this and calls lifting the
     accession into the schema a separate decision (migration plus a facts
     rebuild), not part of M3.
-
+22. M4 red-check: teeth written first, then run in a **linked worktree** at
+    pristine HEAD (`git worktree add --detach /tmp/m4/pre-m4 527d262`, the
+    test file copied in, working tree untouched) — collection stops with
+    `ImportError: cannot import name 'shortfall_note' from
+    rusterm.core.industry.aggregate`, so none of the 10 ran against the
+    pre-change code.
+23. In tree, same run: `tests/test_task102_m4_member_line.py` 10 green, and
+    127 green across it with `test_industry_aggregate`,
+    `test_task97_q8_industry_window`, `test_j7_tui_industry`,
+    `test_desktop_peers`, `test_desktop_window`,
+    `test_w4_window_data_contract`, `test_currency_firewall`,
+    `test_k4_k6_valuation` — no assertion in those modules was edited, and
+    `test_industry_aggregate.py:459` keeps its substring claim while the
+    line it matches now also carries the phrase.
+24. Mutation (a) — rule switched off (`shortfall_note` returns ""
+    unconditionally): exactly 6 red, the six teeth that assert wording
+    (unit, rebuild, window, CLI, TUI+Qt, both-notes-in-one-line); the four
+    teeth that assert its **absence** stayed green, which is the point of
+    gating. Reverted.
+25. Mutation (b) — the no-snapshot rebuild site made to drop the pair:
+    1 red, the survivor tooth (`test_numbers_survive_the_rebuild_for_missing_snapshots`)
+    and nothing else, i.e. without that line the phrase would silently
+    vanish on the shape the copy actually shows. After both mutations the
+    file was restored byte-identical to the pre-mutation copy
+    (`sha256 075ab5ea…5dd8`, verified by `shasum` on both) and the module
+    re-ran 10 green.
+26. Copy measurement (P7), same 20 cells, `as_of` 2026-09-24, one script
+    run against two trees (`/tmp/m4/cells.py`): refusals carrying the
+    phrase 0 → **12 of 20**, with no cell changing value, `n` or reason
+    (`/tmp/m4/cells-before-527d262.txt`, `/tmp/m4/cells-after-m4.txt`).
+    Examples: `hardware_electronics.roe` участников 9 / есть у 6,
+    `telecom.roe` 8 / 4, `banks.operating_margin` 9 / 0. The user-facing
+    line was read from a real command, run on a **disposable copy** of the
+    measurement database (`/tmp/m4/cli-demo`, so nothing wrote to
+    `/tmp/rt-q5/data`): `net_margin: peer_set_too_small (no_value=1;
+    участников 8, значение меры есть у 7; периоды от 2024-12-31 до
+    2026-09-24)`, and the TUI screen of the same sector shows the phrase
+    joined with the period note.
 ## Disputed
 
 1. TASK-102 M1 lists «dividend yield» among the measures that multiply a
@@ -300,11 +377,23 @@ remains (the round's queue order is M1 → M2 → M3 → M4, one commit each).
 
 ## HANDOFF
 
-Status: PARTIAL — M1, M2 and M3 each landed by their own commit; M4 is the
-last item of this round, then TASK-97 resumes at Q5
+Status: DONE for TASK-102 — M1, M2, M3 and M4 each landed by their own
+commit. The round's queue is exhausted; TASK-97 resumes at Q5
 (→ Q7 → Q6 → Q1 → Q2 → Q3 → Q4 → Q12 (2, 7)).
 
-Open question for the coordinator, blocking nothing right now: the third
+M4 as shipped: `members_seen`/`with_value` on `AggregateMeasure`, filled
+only on the `peer_set_too_small` refusal; `shortfall_note()` gates the
+phrase to that reason **and** to a roster that is big enough, so the three
+surfaces the round names — `rusterm industry`, the TUI screen and the Qt
+Industry tab — read «участников N, значение меры есть у K» in the same
+words; `AGGREGATE_MIN_PEERS` and the 730-day window untouched (Run 22–26).
+
+Two things M4 deliberately did not close, both recorded above:
+the currency-guard refusal still says nothing about values (Disputed 2 —
+the guard returns before `sector_aggregate`, so its line keeps the old
+shape), and the two numbers are not persisted, only recomputed.
+
+Open question for the coordinator, blocking nothing: the third
 entry above (a citation of a guard path now reads as a promise, and the
 barrier can go red on a commit that only quotes it). Cure (a) — subject-line
 only — is two lines plus one tooth, and needs its own authorization for
@@ -315,15 +404,10 @@ blocked on: `FactRepo.insert_fact` drops `accn`/`filed`, so the lineage mark
 names the `raw_object` the balance was read from, and ADR-0025 clause 5 says
 so and defers the schema change (Run 21).
 
-M4 is drafted out of tree (`/tmp/m4/draft.md`). The refusal already knows
-both numbers — `sector_aggregate` returns `reason_counts["no_value"]` next to
-the member count — so the work is to carry them onto `AggregateMeasure` and
-render «участников N, значение меры есть у K» at the three surfaces the round
-names: `rusterm industry` (`cli/__init__.py`), the TUI (`tui/model.py`) and
-the Industry tab (`desktop/data.py`, shown through the «отказ» column).
-Per the ruling `AGGREGATE_MIN_PEERS` stays 8, and Disputed 2 above is the
-gap M4 closes in words: a cell can report a refusal about currencies while
-**no** member has a value, so `K` must count members with a value.
+One wording defect is mine and is fixed forward, not rewritten: ADR-0025
+clause 5 as committed in the M3 commit reads «на границы нет ни той, ни
+другой базы» where the case should be «на границе». The next bookkeeping
+commit corrects it; published history is not touched.
 
-NOW: M4, step teeth (8 members, value on 1 → «участников 8, значение меры
-есть у 1»), then the round hand.
+NEXT: TASK-97 Q5 — ТЗ-91 B2–B6, B1 excluded, one commit per item.
+
