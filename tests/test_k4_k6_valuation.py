@@ -24,6 +24,13 @@ from rusterm.store.repos import (Instrument, Issuer, PeerSetRepo,
 
 TODAY = date.today().isoformat()
 OLD = date.fromordinal(date.today().toordinal() - 30).isoformat()
+# ТЗ-102 M1: число акций — множитель цены, и свежим оно считается, пока
+# его период кончился не раньше as_of − 550 дней. Прежняя дата фикстуры
+# (2024-12-31) сегодня уже за этим порогом, поэтому именно акции
+# получают свежую дату, отсчитанную от today: иначе этот файл проверял
+# бы отказ по давности вместо формул и валют, которые здесь заявлены.
+# Относительная дата не гниёт: тест даёт тот же результат в любом круге.
+FRESH_SHARES = date.fromordinal(date.today().toordinal() - 90).isoformat()
 
 
 @pytest.fixture()
@@ -102,7 +109,7 @@ def test_valuation_measures_compute_from_price_and_facts(env):
                          [{"date": TODAY, "close": 10.0,
                            "currency": "USD"}])
     # цена * акция; фундаментал в фактах; ebitda/nopat — первый проход
-    _fact(conn, "i1", "shares_outstanding", 7.0)
+    _fact(conn, "i1", "shares_outstanding", 7.0, end=FRESH_SHARES)
     _fact(conn, "i1", "total_equity", 35.0)
     _fact(conn, "i1", "total_debt", 5.0)
     _fact(conn, "i1", "cash", 2.0)
@@ -140,7 +147,7 @@ def test_k6_ratio_with_mixed_currencies_is_refused(env):
     repos.price.put_rows("US-P", "twelvedata",
                          [{"date": TODAY, "close": 10.0,
                            "currency": "USD"}])
-    _fact(conn, "i1", "shares_outstanding", 7.0)
+    _fact(conn, "i1", "shares_outstanding", 7.0, end=FRESH_SHARES)
     _fact(conn, "i1", "total_equity", 3500.0, currency="KRW")
     rows = _build(conn, repos, "US-P", "i1")
     pb = _measure(rows, "pb")
@@ -180,7 +187,7 @@ def test_k6_mixed_currency_aggregate_refused_ratio_computes(env):
                              [{"date": TODAY, "close": 10.0 + i,
                                "currency": price_ccy}])
         _fact(conn, issuer, "shares_outstanding", 7.0 + i,
-              currency=cur)
+              currency=cur, end=FRESH_SHARES)
         _fact(conn, issuer, "revenue", 100.0 + i, currency=cur)
         _fact(conn, issuer, "net_income", 10.0 + i, currency=cur)
         builder = SnapshotBuilder(repos.snapshot, repos.peer_set,

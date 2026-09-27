@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-102.md",
  "report": "agent/REPORT-102.md",
- "item": "Q8 сдан; следующий по очереди координатора — Q5 (ТЗ-91 B2-B5, кроме B1)",
- "step": "Q8 сдан: коммит 41bddba (приёмка в pre-commit: Итог: пройдено 13, провалено 0), запушено 1fcc5b8..41bddba, REPORT-97 дополнен (строка Done, проза с таблицей было→стало пяти секторов, Runs 30-39, Disputed 6-7, What not to trust, HANDOFF). Очередь не кончена: следующий Q5 (ТЗ-91 B2-B5, кроме B1), затем Q7, Q6, Q1-Q4, Q12 (2, 7). Песочницы замера — /tmp/rt-q8-meas, /tmp/rt-q8-meas2, /tmp/rt-q8-red, /tmp/rt-q8-mut, /tmp/rt-q10-meas, /tmp/rt-q126: все мои, все ~500 МБ, удалять после приёмки круга; ~/EquityLab не записывался (P7)",
- "status": "handed",
- "last_commit": "41bddba",
+ "item": "M1 — цена умножается только на свежее число акций (порог as_of − 550 дней, якорь as_of, отказ stale_input: shares_outstanding (<дата>))",
+ "step": "M1: правило в _valuation_pass (один сайт market_cap, производные наследуют), токен stale_input в словаре B15, 9 зубов tests/test_task102_m1_shares_freshness.py, мутация (порог выключен → 4 красных, файл восстановлен), починка двух fixture-дат через FRESH_SHARES и перенацеленный пин US-VALE в replay, замер было→стало на КОПИИ базы (281 → 259 ячеек с значением; отказаны CHTR/CMCSA/VOD/WDAY с датой в причине), чтение причины через rusterm coverage --json. Идёт коммит M1 (pre-commit прогоняет приёмку). Дальше по очереди круга: M2, M3, M4, затем TASK-97 с Q5. Песочницы: /tmp/rt-q5 (копия базы), /tmp/rt-q8-meas, /tmp/rt-q8-meas2, /tmp/rt-q8-red, /tmp/rt-q8-mut, /tmp/rt-q10-meas, /tmp/rt-q126 — все мои, удалять после приёмки круга; ~/EquityLab не записывался (P7)",
+ "status": "working",
+ "last_commit": "b9bd607",
  "requests": 40,
  "net_requests": 40,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-27T05:37:36Z"
+ "updated_at": "2026-09-27T06:52:00Z"
 }

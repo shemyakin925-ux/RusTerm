@@ -102,6 +102,27 @@ _STALE_LOOKBACK_DAYS = 1100
 # 24.09.2026).
 _DPS_ANNUAL_STALE_DAYS = 550
 
+# ТЗ-102 M1: число акций — множитель цены, и свежий отчёт о выручке его
+# не обновляет: тег CommonStockSharesOutstanding датирован своим числом.
+# Тот же порог, что у годового dps (координатор, 27.09.2026:
+# «цена × 14-летнее число акций хуже честного отказа»).
+_SHARES_FRESH_DAYS = _DPS_ANNUAL_STALE_DAYS
+
+
+def _share_count_refusal(period_end: Optional[str],
+                         as_of: Optional[str]) -> Optional[str]:
+    """ТЗ-102 M1: причина отказа по давности числа акций, или None.
+    Якорь — as_of сборки, а не самый свежий факт эмитента. Неразбираемая
+    дата не отбрасывается — то же соглашение, что у `_eligible_input`."""
+    try:
+        age = (date.fromisoformat(as_of)
+               - date.fromisoformat(period_end)).days
+    except (TypeError, ValueError):
+        return None
+    if age > _SHARES_FRESH_DAYS:
+        return f"stale_input: shares_outstanding ({period_end})"
+    return None
+
 
 def _eligible_input(period_end: str, anchor_date: date) -> bool:
     """Входной факт годен, пока его конец отстаёт от anchor не более
@@ -1285,6 +1306,11 @@ class SnapshotBuilder:
         mcap_reason = None
         if shares is None:
             mcap_reason = "missing_data: shares_outstanding"
+        elif (stale_shares := _share_count_refusal(shares[1], as_of)):
+            # ТЗ-102 M1: давность проверяется раньше валюты — у просрочен-
+            # ного числа акций нет права на частное, какой бы валюты оно
+            # ни было.
+            mcap_reason = stale_shares
         elif shares_cur and price_currency \
                 and shares_cur != price_currency:
             mcap_reason = mismatch([shares_cur, price_currency])
