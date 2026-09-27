@@ -61,7 +61,10 @@ def test_tax_rate_outside_band_refuses_instead_of_clipping():
     value, reason = effective_tax_rate(1000.0, 0)
     assert value is None and reason == "denominator_zero"
     value, reason = effective_tax_rate(1000.0, -4000.0)
-    assert value is None and reason == "jurisdiction_rate"
+    # ТЗ-91 B2: pretax < 0 — отрицательный ЗНАМЕНАТЕЛЬ, а не полоса
+    # юрисдикции: ставка неотделима, и числа в продолжении не было бы.
+    # Отказ остаётся отказом (было: jurisdiction_rate).
+    assert value is None and reason == "negative_denominator"
     value, reason = effective_tax_rate(None, 4000.0)
     assert value is None and reason == "missing_data"
 

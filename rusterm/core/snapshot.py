@@ -124,6 +124,14 @@ def _share_count_refusal(period_end: Optional[str],
     return None
 
 
+def _denominator_refusal(value: float) -> str:
+    """ТЗ-91 B2: отказ знаменателя, у которого ЕСТЬ число: ноль —
+    denominator_zero, отрицательный — negative_denominator (словарь
+    §1.4). `missing_data: <вход>` здесь врёт: вход на месте, нет
+    частного."""
+    return "denominator_zero" if value == 0 else "negative_denominator"
+
+
 def _eligible_input(period_end: str, anchor_date: date) -> bool:
     """Входной факт годен, пока его конец отстаёт от anchor не более
     чем на _STALE_LOOKBACK_DAYS дней; неразбираемая дата не
@@ -419,11 +427,16 @@ class SnapshotBuilder:
                         # ТЗ-58 C4: отказ цепочки называет отвалившееся
                         # ЗВЕНО (например effective_tax при снятом
                         # clip), а не голое missing_data; уже названная
-                        # причина исходных входов не перекрывается
+                        # причина исходных входов не перекрывается.
+                        # ТЗ-91 B2: звеном считается только тот kwarg,
+                        # который остался None, — исходный вход цепочки
+                        # (operating_income) мерой не был и в computed
+                        # не попадает, а факт с числом называть
+                        # отсутствующим нельзя.
                         missing_chain = sorted(
-                            {source for source in _CHAIN_MEASURES.get(
-                                concept, {}).values()
-                             if computed.get(source) is None})
+                            {source for kwarg, source in
+                             _CHAIN_MEASURES.get(concept, {}).items()
+                             if kw.get(kwarg) is None})
                         if missing_chain:
                             named = input_reasons.get(concept)
                             if named in (None, "missing_data"):
@@ -1302,10 +1315,9 @@ class SnapshotBuilder:
         # None — только у вызывающей стороны вне сборки снапшота (тесты
         # старого прогона): тогда потоки считают прежним годовым проходом.
         windows = windows or {}
-        concepts = ("market_cap", "market_cap_total", "ev", "pb",
-                    "ev_ebitda", "div_yield", "roic",
-                    "pe", "ps", "fcf_yield", "net_debt",
-                    "net_debt_ebitda", "invested_capital")
+        price_concepts = ("market_cap", "market_cap_total", "ev", "pb",
+                          "ev_ebitda", "div_yield", "roic",
+                          "pe", "ps", "fcf_yield")
         price = (self._prices.price_as_of(instrument_id, as_of)
                  if self._prices is not None else None)
         if price is None:
@@ -1353,8 +1365,95 @@ class SnapshotBuilder:
             if why:
                 result.annual_fallbacks.append((concept, why))
 
+        # ── ТЗ-91 B2: меры, которым цена не нужна, считаются всегда ───
+        # До этого пункта отказ по цене писался во все 13 строк прохода,
+        # и net_debt / net_debt_ebitda / invested_capital стояли пустыми
+        # с `missing_data: price_close`, хотя их входы — факты
+        # отчётности и ebitda первого прохода.
+        debt = inputs.get("total_debt")
+        cash = inputs.get("cash")
+        stinv = inputs.get("st_investments")
+        minority = inputs.get("minority_interest")
+        equity = inputs.get("total_equity")
+        # ТЗ-32 D7 (вердикт: отсутствие — не ноль): 0.0 требует
+        # ПОЛОЖИТЕЛЬНОГО свидетельства — в фактах есть блок капитала
+        # (total_equity) и ни разу не отчитан ни один концепт NCI;
+        # тогда ноль производен от набора фактов, а его причина видна
+        # в lineage ролью nci_absent_in_equity_block на факте блока
+        # капитала. Нет блока капитала — minority остаётся None:
+        # ev получает missing_data с именем входа.
+        nci_lineage: list = []
+        if (minority is None and equity is not None
+                and self._nci_never_reported(issuer_id)):
+            minority = (0.0, None, None, equity[3])
+            nci_lineage = [{"fact_id": equity[3],
+                            "peer_measure_id": None,
+                            "role": "nci_absent_in_equity_block"}]
+
+        # ── ТЗ-68 N1: net_debt = total_debt - cash - st_investments ──
+        # ТЗ-91 B2: рынок капитала в формуле не участвует, поэтому
+        # отказ `missing_data: market_cap_total` исчез — долг и деньги
+        # на месте, числа нет только без них.
+        nd_value = None
+        nd_reason = None
+        nd_missing = sorted(
+            name for name, v in (
+                ("total_debt", debt), ("cash", cash),
+                ("st_investments", stinv)) if v is None)
+        if nd_missing:
+            nd_reason = "missing_data: " + ", ".join(nd_missing)
+        else:
+            nd_value = (debt[0] - cash[0] - stinv[0])
+        nd_lineage = []
+        for c in ("total_debt", "cash", "st_investments"):
+            if inputs.get(c):
+                nd_lineage += self._fact_lineage(inputs[c][3])
+        write("net_debt", nd_value, nd_reason,
+              price_currency or "", nd_lineage)
+
+        # net_debt_ebitda = net_debt / ebitda (ratio; ebitda — проход 1)
+        # ТЗ-91 B2: у ebitda, отличного от нуля, знаменатель есть —
+        # причина называется им, а не missing_data.
+        ebitda_value = computed.get("ebitda")
+        nde_value = None
+        nde_reason = None
+        if nd_value is None:
+            nde_reason = "missing_data: net_debt"
+        elif ebitda_value is None:
+            nde_reason = "missing_data: ebitda"
+        elif ebitda_value <= 0:
+            nde_reason = _denominator_refusal(ebitda_value)
+        else:
+            nde_value = nd_value / ebitda_value
+        ebitda_mid = measure_row_ids.get("ebitda")
+        nde_lineage = ([{"fact_id": None,
+                         "peer_measure_id": ebitda_mid,
+                         "role": "from_ebitda"}] if ebitda_mid else [])
+        write("net_debt_ebitda", nde_value, nde_reason, "ratio",
+              nde_lineage)
+
+        # ТЗ-71 R2: invested_capital = total_equity + total_debt
+        # - cash - st_investments (словарь; minority = 0 для AAPL
+        # подтверждён ТЗ-68 N3, отсутствие названо в lineage)
+        ic_value = None
+        ic_reason = None
+        ic_missing = sorted(
+            name for name, v in (
+                ("total_equity", equity), ("total_debt", debt),
+                ("cash", cash), ("st_investments", stinv)) if v is None)
+        if ic_missing:
+            ic_reason = "missing_data: " + ", ".join(ic_missing)
+        else:
+            ic_value = (equity[0] + debt[0] - cash[0] - stinv[0])
+        ic_lineage = []
+        for c in ("total_equity", "total_debt", "cash", "st_investments"):
+            if inputs.get(c):
+                ic_lineage += self._fact_lineage(inputs[c][3])
+        write("invested_capital", ic_value, ic_reason,
+              price_currency or "", ic_lineage)
+
         if price_reason is not None:
-            for concept in concepts:
+            for concept in price_concepts:
                 write(concept, None, price_reason, "", [])
             return
 
@@ -1398,7 +1497,6 @@ class SnapshotBuilder:
               self._fact_lineage(shares[3] if shares else None))
 
         # pb = market_cap_total / total_equity; валюты сторон совпадать
-        equity = inputs.get("total_equity")
         equity_cur = equity[2] if equity else None
         pb_value = None
         pb_reason = None
@@ -1417,24 +1515,8 @@ class SnapshotBuilder:
               self._fact_lineage(equity[3] if equity else None))
 
         # ev = market_cap_total + долг - деньги + меньшинство + префы
-        debt = inputs.get("total_debt")
-        cash = inputs.get("cash")
-        stinv = inputs.get("st_investments")
-        minority = inputs.get("minority_interest")
-        # ТЗ-32 D7 (вердикт: отсутствие — не ноль): 0.0 требует
-        # ПОЛОЖИТЕЛЬНОГО свидетельства — в фактах есть блок капитала
-        # (total_equity) и ни разу не отчитан ни один концепт NCI;
-        # тогда ноль производен от набора фактов, а его причина видна
-        # в lineage ролью nci_absent_in_equity_block на факте блока
-        # капитала. Нет блока капитала — minority остаётся None:
-        # ev получает missing_data с именем входа.
-        nci_lineage: list = []
-        equity = inputs.get("total_equity")
-        if minority is None and equity is not None                 and self._nci_never_reported(issuer_id):
-            minority = (0.0, None, None, equity[3])
-            nci_lineage = [{"fact_id": equity[3],
-                            "peer_measure_id": None,
-                            "role": "nci_absent_in_equity_block"}]
+        # (входы и решение о нулевом меньшинстве — выше, в блоке мер
+        # без цены)
         ev_value = None
         ev_reason = None
         if total_value is None:
@@ -1466,64 +1548,6 @@ class SnapshotBuilder:
         ev_mid = write("ev", ev_value, ev_reason, price_currency or "",
                        ev_lineage)
 
-        # ── ТЗ-68 N1: net_debt = total_debt - cash - st_investments ──
-        nd_value = None
-        nd_reason = None
-        if total_value is None:
-            nd_reason = "missing_data: market_cap_total"
-        else:
-            missing = sorted(
-                name for name, v in (
-                    ("total_debt", debt), ("cash", cash),
-                    ("st_investments", stinv)) if v is None)
-            if missing:
-                nd_reason = "missing_data: " + ", ".join(missing)
-            else:
-                nd_value = (debt[0] - cash[0] - stinv[0])
-        nd_lineage = []
-        for c in ("total_debt", "cash", "st_investments"):
-            if inputs.get(c):
-                nd_lineage += self._fact_lineage(inputs[c][3])
-        nd_mid = write("net_debt", nd_value, nd_reason,
-                       price_currency or "", nd_lineage)
-
-        # net_debt_ebitda = net_debt / ebitda (ratio; ebitda — проход 1)
-        ebitda_value = computed.get("ebitda")
-        nde_value = None
-        nde_reason = None
-        if nd_value is None:
-            nde_reason = "missing_data: net_debt"
-        elif ebitda_value is None or ebitda_value <= 0:
-            nde_reason = "missing_data: ebitda"
-        else:
-            nde_value = nd_value / ebitda_value
-        ebitda_mid = measure_row_ids.get("ebitda")
-        nde_lineage = ([{"fact_id": None,
-                         "peer_measure_id": ebitda_mid,
-                         "role": "from_ebitda"}] if ebitda_mid else [])
-        write("net_debt_ebitda", nde_value, nde_reason, "ratio",
-              nde_lineage)
-
-        # ТЗ-71 R2: invested_capital = total_equity + total_debt
-        # - cash - st_investments (словарь; minority = 0 для AAPL
-        # подтверждён ТЗ-68 N3, отсутствие названо в lineage)
-        ic_value = None
-        ic_reason = None
-        ic_missing = sorted(
-            name for name, v in (
-                ("total_equity", equity), ("total_debt", debt),
-                ("cash", cash), ("st_investments", stinv)) if v is None)
-        if ic_missing:
-            ic_reason = "missing_data: " + ", ".join(ic_missing)
-        else:
-            ic_value = (equity[0] + debt[0] - cash[0] - stinv[0])
-        ic_lineage = []
-        for c in ("total_equity", "total_debt", "cash", "st_investments"):
-            if inputs.get(c):
-                ic_lineage += self._fact_lineage(inputs[c][3])
-        ic_mid = write("invested_capital", ic_value, ic_reason,
-                       price_currency or "", ic_lineage)
-
         # ТЗ-97 Q10: pe = market_cap_total / net_income_ttm (словарь) —
         # знаменатель берётся из окна TTM первого прохода; нет окна —
         # прежний свежайший годовой вход (ТЗ-69 P1), квартального потока
@@ -1535,7 +1559,8 @@ class SnapshotBuilder:
             if total_value is None:
                 pe_reason = "missing_data: market_cap_total"
             elif ni_win.value <= 0:
-                pe_reason = "missing_data: net_income"
+                # ТЗ-91 B2: у net_income ЕСТЬ число, нет только частного
+                pe_reason = _denominator_refusal(ni_win.value)
             else:
                 pe_reason = None
                 pe_value = total_value / ni_win.value
@@ -1551,7 +1576,7 @@ class SnapshotBuilder:
                 if total_value is None:
                     pe_reason = "missing_data: market_cap_total"
                 elif ni_value <= 0:
-                    pe_reason = "missing_data: net_income"
+                    pe_reason = _denominator_refusal(ni_value)
                 else:
                     pe_value = total_value / ni_value
                     pe_reason = None

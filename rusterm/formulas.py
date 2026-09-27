@@ -159,8 +159,10 @@ def effective_tax_rate(tax_expense: float, pretax_income: float) -> Tuple[Option
     ставка вне полосы [0, 0.5] — это не 0.0 и не 0.5, а отказ
     jurisdiction_rate с числом в продолжении; clip выдумывал значение.
 
-    При pretax_income <= 0 -> None, jurisdiction_rate.
     При pretax_income == 0 -> denominator_zero.
+    При pretax_income < 0 -> negative_denominator (ТЗ-91 B2: убыток до
+    налогов — отрицательный знаменатель, а не «полоса юрисдикции»:
+    ставка неотделима, и числа в продолжении не было бы).
     При tax_expense is None -> missing_data.
     """
     if tax_expense is None:
@@ -170,7 +172,7 @@ def effective_tax_rate(tax_expense: float, pretax_income: float) -> Tuple[Option
     if pretax_income == 0:
         return None, "denominator_zero"
     if pretax_income < 0:
-        return None, "jurisdiction_rate"
+        return None, "negative_denominator"
     rate = tax_expense / pretax_income
     if not math.isfinite(rate):
         # Делимое и делитель конечные, частное уехало в inf — это не
@@ -776,8 +778,9 @@ def calculate_measure(
             kwargs.get("v_start"), kwargs.get("v_end"), kwargs.get("n"))
 
     else:
-        # Неизвестный концепт
-        null_reason = "missing_data"
+        # ТЗ-91 B2: концепт не неизвестен данным — он не описан ни одной
+        # формулой. `missing_data` врал бы: входов хватает, нет отображения.
+        value, null_reason = None, "concept_not_mapped"
 
     if value is not None and not math.isfinite(value):
         # ТЗ-82 E2: закрытость распространяется и на концепты, которые

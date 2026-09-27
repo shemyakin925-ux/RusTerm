@@ -118,8 +118,13 @@ def test_v4_every_s3_formula_present_with_value_or_fixed_reason():
             m = measures[name]
             if m[4] is not None:
                 continue
-            assert m[10] in FIXED_REASONS or m[10].startswith(
-                "missing_data: price_close"), (
+            # X3 (то же соглашение, что у test_m3_snapshot): причиной
+            # считается первый токен — «missing_data: total_debt,
+            # st_investments» называет отсутствующие входы и потому не
+            # слабее голого missing_data. Прежняя форма допускала только
+            # точные токены и префикс price_close, потому что без цены
+            # весь проход отказывал одной ценовой причиной (ТЗ-91 B2).
+            assert m[10].split(":")[0] in FIXED_REASONS, (
                 f"{name}: причина {m[10]!r} вне фиксированного набора")
         # ни одна не пропала молча: пустых причин нет
         for name, m in measures.items():
