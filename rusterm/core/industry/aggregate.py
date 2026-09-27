@@ -17,21 +17,23 @@ AGGREGATE_MIN_PEERS вкладчиков — агрегата нет: null с п
 peer_set_too_small (I6). Не подтверждённый набор —
 peer_set_not_confirmed: решение о верифицированности принимает
 вызывающая сторона, эта функция знает только значения.
+
+ТЗ-97 Q8 (решение пользователя 24.09): окно разрыва концов периодов
+участников — 2 года (INDUSTRY_PERIOD_WINDOW_DAYS), прежний порог ТЗ-22
+J3 в 100 дней отменял агрегат всего сектора из-за одного другого
+финансового года. Теперь участник вне окна исключается с пометкой
+(excluded + счётчик причин), а остальные считаются; строка агрегата
+несёт диапазон периодов включённых («периоды от … до …»).
 """
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass, field, replace
 
 from rusterm.core.peers import (AGGREGATE_MIN_PEERS, currency_bound,
-                                currency_guard)
+                                currency_guard, period_window)
 
 METHOD_VERSION = "industry.v1"
-
-# ТЗ-22 J3: порог разрыва концов периодов участников — тот же, что в
-# перцентильной сборке; причина существующая — period_mismatch.
-_PERIOD_GAP_DAYS = 100
 
 _VERIFIED_ORIGINS = ("manual", "catalog")
 
@@ -52,6 +54,36 @@ class AggregateMeasure:
     currency: str | None = None
     # причины, по которым участники не внесли вклад: причина -> счётчик
     reason_counts: dict = field(default_factory=dict)
+    # ТЗ-97 Q8: диапазон концов периодов включённых участников и кто
+    # остался вне окна (instrument_id -> period_end)
+    period_from: str | None = None
+    period_to: str | None = None
+    excluded: dict = field(default_factory=dict)
+
+
+def _with_window(agg: AggregateMeasure, window) -> AggregateMeasure:
+    """Окно периодов — часть строки, а не только расчёта: отказ тоже
+    обязан называть диапазон и исключённых, иначе «почему тут пусто»
+    приходится угадывать по составу набора."""
+    counts = dict(agg.reason_counts)
+    if window.excluded:
+        counts["period_out_of_window"] = len(window.excluded)
+    return replace(agg, period_from=window.period_from,
+                   period_to=window.period_to,
+                   excluded=dict(window.excluded), reason_counts=counts)
+
+
+def period_note(agg: AggregateMeasure) -> str:
+    """«периоды от … до …» и кто вне окна — одной формулировкой для
+    `rusterm industry`, экрана «Отрасль» и вкладки Qt: пользователь не
+    должен выбирать, где ему поверят (ТЗ-97 Q8)."""
+    parts = []
+    if agg.period_from and agg.period_to:
+        parts.append(f"периоды от {agg.period_from} до {agg.period_to}")
+    if agg.excluded:
+        parts.append("вне окна: " + ", ".join(
+            f"{iid} ({end})" for iid, end in sorted(agg.excluded.items())))
+    return "; ".join(parts)
 
 
 def sector_aggregate(concept: str, values: list[tuple[str, float | None]],
@@ -106,6 +138,7 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
     for concept in concepts:
         values: list[tuple[str, float | None]] = []
         measure_ids: list[str] = []
+        member_measures: dict[str, str] = {}
         period_ends: dict[str, str] = {}
         for iid in sorted(members):
             sid = members[iid]
@@ -119,9 +152,22 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                 else float(row[4])
             if row is not None:
                 measure_ids.append(row[0])
+                member_measures[iid] = row[0]
                 if row[7]:
-                    period_ends[row[0]] = row[7]
+                    period_ends[iid] = row[7]
             values.append((iid, value))
+        # ТЗ-97 Q8: окно периодов — 2 года; участник старше самого
+        # свежего вне окна исключается с пометкой и в расчёт не входит
+        # (ни значением, ни валютой, ни причиной no_value)
+        window = period_window(period_ends)
+        if window.excluded:
+            stale_measures = {member_measures[iid]
+                              for iid in window.excluded
+                              if iid in member_measures}
+            values = [pair for pair in values
+                      if pair[0] not in window.excluded]
+            measure_ids = [mid for mid in measure_ids
+                           if mid not in stale_measures]
         # ТЗ-21 H3: агрегат несёт валюту, в которой заявлен; смешение
         # валют абсолютной меры — currency_mismatch с перечнем
         currencies: set[str] = set()
@@ -129,22 +175,10 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
             currencies |= repos.snapshot.currencies_for_measure(mid)
         guard = currency_guard(concept, currencies)
         if guard is not None:
-            aggregates.append(AggregateMeasure(
+            aggregates.append(_with_window(AggregateMeasure(
                 concept=concept, p25=None, median=None, p75=None,
                 n=len([v for _, v in values if v is not None]),
-                null_reason=guard))
-            continue
-        # ТЗ-22 J3: участники на разных календарях вносят свои последние
-        # закрытые периоды; разрыв больше порога — отказ по имени
-        ends = sorted(period_ends.values())
-        if len(ends) >= 2 and (
-                date.fromisoformat(ends[-1])
-                - date.fromisoformat(ends[0])).days > _PERIOD_GAP_DAYS:
-            aggregates.append(AggregateMeasure(
-                concept=concept,
-                n=len([v for _, v in values if v is not None]),
-                null_reason="period_mismatch",
-                reason_counts={}))
+                null_reason=guard), window))
             continue
         agg = sector_aggregate(concept, values, verified=verified)
         # одновалютный абсолютный агрегат заявляет свою валюту
@@ -163,7 +197,7 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                 p75=agg.p75, n=agg.n, null_reason=agg.null_reason,
                 method_version=agg.method_version,
                 reason_counts=reason_counts)
-        aggregates.append(agg)
+        aggregates.append(_with_window(agg, window))
     return {"outcome": "resolved",
             "peer_set_id": peer_set_id,
             "peer_set_version_id": version["peer_set_version_id"],

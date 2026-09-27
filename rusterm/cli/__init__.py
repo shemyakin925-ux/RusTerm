@@ -18,7 +18,8 @@ from rusterm.core.export import format_source_cell, refusal_advice, snapshot_to_
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
 from rusterm.providers.budget import ConfigError, RequestGate
 from rusterm.providers import get_provider
-from rusterm.core.industry.aggregate import build_sector_aggregates
+from rusterm.core.industry.aggregate import (build_sector_aggregates,
+                                             period_note)
 from rusterm.core.snapshot import snapshot_measures_identical
 from rusterm.core.snapshot import SnapshotBuilder, stale_exclusions
 from rusterm.markets import MARKET_CODES
@@ -1032,6 +1033,12 @@ def cmd_snapshot(args) -> int:
             print(f"{instrument_id}: годовой, TTM не собран: "
                   + "; ".join(f"{c} ({note})"
                               for c, note in result.annual_fallbacks))
+        # ТЗ-97 Q8: пиры вне окна периодов — вслух: их значения не вошли
+        # в перцентиль, и без этой строки «перцентилей: 3» выглядело бы
+        # полным сравнением.
+        if result.excluded_period:
+            print(f"{instrument_id}: вне окна периодов: "
+                  + ", ".join(sorted(result.excluded_period)))
         if result.diff.metric_changes:
             print("изменение метрик: " + "; ".join(
                 f"{c}: {o} -> {n}" for c, o, n in result.diff.metric_changes))
@@ -1313,7 +1320,9 @@ def cmd_industry(args) -> int:
                 "aggregates": [{"concept": a.concept, "p25": a.p25,
                                 "median": a.median, "p75": a.p75, "n": a.n,
                                 "null_reason": a.null_reason,
-                                "reason_counts": a.reason_counts}
+                                "reason_counts": a.reason_counts,
+                                "period_note": period_note(a),
+                                "excluded": dict(a.excluded)}
                                for a in built["aggregates"]]},
                 ensure_ascii=False))
         return 1
@@ -1333,24 +1342,31 @@ def cmd_industry(args) -> int:
             "aggregates": [{"concept": a.concept, "p25": a.p25,
                             "median": a.median, "p75": a.p75, "n": a.n,
                             "null_reason": a.null_reason,
-                            "reason_counts": a.reason_counts}
+                            "reason_counts": a.reason_counts,
+                            "period_note": period_note(a),
+                            "excluded": dict(a.excluded)}
                            for a in built["aggregates"]],
         }, ensure_ascii=False))
         return 0
     print(f"сектор {args.sector}: версия {built['version']} на {as_of} "
           f"(участников {len(built['members'])})")
     for a in built["aggregates"]:
+        # ТЗ-97 Q8: диапазон периодов и внеоконные участники — вслух, а
+        # не только в структуре: экран «Отрасль» и `rusterm industry`
+        # отвечают на «почему тут пусто» одними и теми же словами.
+        note = period_note(a)
+        tail = f"; {note}" if note else ""
         if a.null_reason:
             counts = ("; ".join(f"{k}={v}"
                                 for k, v in sorted(a.reason_counts.items()))
                       ) or "нет причин"
-            print(f"  {a.concept}: {a.null_reason} ({counts})")
+            print(f"  {a.concept}: {a.null_reason} ({counts}{tail})")
         else:
             counts = "; ".join(f"{k}={v}"
                                for k, v in sorted(a.reason_counts.items()))
             suffix = f"; {counts}" if counts else ""
             print(f"  {a.concept}: {a.p25} / {a.median} / {a.p75} "
-                  f"(n={a.n}{suffix})")
+                  f"(n={a.n}{suffix}{tail})")
     return 0
 
 

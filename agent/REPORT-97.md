@@ -8,6 +8,7 @@
 | Q12-6 | `rusterm reparse` rebuilds **facts** from stored raw payloads, not only `basis`. `store/repos.py`: `companyfacts_sources()` (an `EXISTS` filter — its own blind spot: an object that contributed no fact was never visited) replaced by `companyfacts_objects()` (every stored companyfacts object) plus `count_for_source()`. `core/reparse.py`: `rebasis_companyfacts` → `rebuild_companyfacts`; per object the owner is resolved instrument → issuer (never guessed), the payload is re-read and re-parsed by the current parser, and stored rows are keyed by `locator.json_pointer`. An unseen pointer means a new fact through the same doors `ingest` uses (`apply_concept_map` + `persist_ingestion_results`, one write transaction per object); a seen pointer means `basis` aligned if it differs. Rows whose locator carries no pointer are counted (`unlocatable`) and left alone rather than re-inserted; ownerless objects are counted and named. `cli/cmd_reparse` prints added / unmapped / ownerless / unlocatable and points at the snapshot rebuild. | `tests/test_task97_q12_reparse_facts.py`: 10 new tests, Runs 8-10. Mutations M1-M7 (Run 9). Copy of the user's base (Run 11): 414 facts added, refusals 8 → 2 in the newest snapshot of every paper. `tests/test_reparse_basis.py`: 6 call sites renamed, every assertion kept (Run 10). |
 | Q11 | Default data root (rule 4) is the folder the user actually built: `~/EquityLab/data` (measured in his HOME before the edit — `app/ data/ backups/ archive/`, base in `data/`). Only the **value** changed; rule numbers and ТЗ-90 A5's upper rules are untouched. `AppPaths.backups` = sibling of the data root, and the property creates nothing. `backup` without a named path writes `backups/<date>[-label].zip`; `--label` must fullmatch `[\w.\-]{1,40}` with no `..` and no leading dot, so a label cannot be a path. Both `--root` help lines, the desktop help, `env.py` and `desktop/{__main__,window,data}.py` name the new default, and GUIDE's copy of the old path went with them. **`store/db.py` could not be rewritten**: guard P2 (`agent/selfcheck.sh:129`) counts every removed line of that file as something only a `_SCHEMA_VERSION` bump may do, and this item changes no schema — so the historical sentence in `has_table`'s docstring stays, one added line names it as history, and the grep tooth lists that single surviving line by content instead of excluding the file (Run 19, Disputed 4). Suite-wide HOME isolation: one sandbox HOME per session, live runs exempt (they need the user's real keys file), and children get this process's under-HOME `sys.path` entries through `PYTHONPATH`. | `tests/test_task97_q11_home_clean.py`: 12 teeth, red-before 8 failed / 1 passed (Run 14). Mutations M1-M8, each red on exactly the named teeth (Run 15). Whole suite: Runs 16-20. The Done-when guard is a session-teardown assert — any extra entry in the sandbox HOME makes the run rc≠0, so acceptance sees it (verified by M7/M8, not by prose). |
 | Q10 | One window function for every flow input. `rusterm/core/ttm.py::ttm_window` is called once per build in `_issuer_inputs`, on rows already behind the `as_of` door and the staleness rule — no second query, no second door. Corridors in order: four consecutive quarters → `FY + YTD − prior-year YTD` → last annual; nothing filed after the annual means **the annual *is* the window** (`period_basis='ttm'`, ADR-0025 clause 2). When the window falls back to the annual the basis is named `annual_fallback` (migration 46 widens the `period_basis` CHECK in `measure_lineage`/`measure_lineage_ca`), and the reason — which addend is missing, by concept and period — rides in the lineage role, in `rusterm snapshot` output and in the source panel. All flows of one measure come from **one** window: `flow_window` compares span, currency **and basis** (equal dates on different bases is still a mix — measured on the user's base, where JPM `net_margin` carried `input:ttm` beside `input:annual_fallback`), so such a measure takes the last common annual period of its inputs and says so in the same mark. Balance-sheet inputs of two-period measures are looked up strictly at the window borders; no stock on a border → `period_mismatch`, not a number read off another date (measured: ORCL/AAPL/JPM file year-end balances only in basis `restated`, and `as_reported_facts()` admits `as_reported`). `dps` now goes through the same function — `_dps_quarterly_ttm` and `_dps_annual_from_facts` are deleted. ADR-0025 refines ADR-0021: its clause 1 becomes the fallback, its `period_basis` clause grows. | `tests/test_task97_q10_ttm_window.py`: 21 teeth (corridors, adjacency, dedup, the `as_of` door, both fallback shapes); red-before is that the module did not exist (Run 21). `tests/test_task97_q10_measure_ttm.py`: 13 teeth, red-before per group (Run 22), plus the basis-mix tooth red before the fix (Run 23). Mutations M1-M11 on the window (Run 8 of the item's battery) and N1-N6 on the wiring (Run 24) — 17/17 red on the tooth each names. Measurement on a copy of the user base (P7): Runs 25-27, migration 46 proven there. Whole suite: Run 28. |
+| Q8 | Industry comparison gets one window instead of a veto. `_PERIOD_GAP_DAYS = 100` is deleted from both industry paths and replaced by `core/peers.py`: `INDUSTRY_PERIOD_WINDOW_DAYS = 730` plus `period_window(ends)`, which returns the included, the excluded and the range of the included — measured from the **newest** period end, because "this member is stale" is about the member, not about the set being re-dated by one new report (a member exactly 730 days old stays in; 731 leaves). `core/industry/aggregate.py`: excluded members are dropped from that concept's values, `AggregateMeasure` carries `period_from`/`period_to`/`excluded`, and `_with_window` records `period_out_of_window` in `reason_counts`; `period_note()` is the single formatter («периоды от … до …», «вне окна: US-VALE (2012-12-31)») reused verbatim by `rusterm industry` (text and `--json`), the TUI screen and `desktop/data.industry_table_rows`, so the Qt «Отрасль» tab carries the same words in its `mark` column. `core/snapshot.py` pass 2: the same window filters `peer_measures`, the percentile row's own `period_start`/`period_end` carry the range, an excluded peer is named in the lineage role (`peer: вне окна <iid> <end>`, readable through the new `SnapshotRepo.lineage_roles`), marked in `peer_set_member.reason` by the same upsert that writes `excluded_stale`, and surfaced in the new `BuildResult.excluded_period`, which `rusterm snapshot` prints. No schema change, no new reason code (`reasons.py` is closed): `period_mismatch` simply stops being emitted in these two places — the measure-input alignment that still uses it is untouched, and `docs/` is untouched because Q10's ADR-0025 is «единственная разрешённая правка docs/». Where the window takes the set below I6 the existing `peer_set_too_small` refusal stands, and now names the excluded. | 9 teeth in `tests/test_task97_q8_industry_window.py`; red-before on HEAD sources 10 failed / 4 passed (Run 30 — the tenth is the re-pointed J3 test), green-after 14 (Run 31). Mutations M1-M3, each red on exactly the teeth named (Run 32). 21 neighbour suites green, 234 tests (Run 33). Copy of the user base (P7): five sectors was→стало, same database under both codes (Runs 34-35), percentiles with a value 129 → 170 and all 152 `period_mismatch` refusals gone (Run 36); the rebuilt copy read by both codes is Run 37, whole suite Run 38. |
 
 Q12-5: three pre-existing tests encoded the overturned expectation and were
 updated to the verdict, assertion by assertion — nothing was deleted, no
@@ -83,6 +84,69 @@ Counters on the copy:
 - migration 46 on the copy: schema was 45, `[46]` applied, `measure_lineage`
   17030 rows before and after with identical content, `measure_lineage_ca`
   28 → 28.
+
+Q8: one incumbent tooth states the overturned rule, so it is re-pointed
+rather than duplicated (declared in the commit message as `ЗАМЕНА-БУЛАВКИ`):
+
+| Test | Was | Now | Still asserted |
+|---|---|---|---|
+| `test_j3_fiscal.py::test_each_calendar_contributes_its_own_latest_closed_period` | 3 June-FY + 3 Dec-FY peers on `revenue`; the mixed calendar produced `null_reason='period_mismatch'` and the test asserted the refusal by name | same six calendars, `net_margin` instead of `revenue` (a percentile only exists where the company's own value of that measure is computed — `revenue` is never a computed own measure, so the old subject could not be carried over at 6 peers); the window now admits the 184-day gap: rows exist, `null_reason is None`, `value` is not None, and the row's own `period_start`/`period_end` are `2024-06-30`/`2024-12-31` | the June filer contributes its own latest closed period and is neither re-dated to December nor dropped — the range in the row is the proof, and the J3 alignment of one measure's inputs is untouched in the other four tests of the file |
+
+The was→стало table the Done-when asks for, five sectors on a **copy** of the
+user's base (P7 — `~/EquityLab` untouched). Both columns read the **same
+database** (`/tmp/rt-q8-meas2/data`, a byte-copy of `/tmp/rt-q10-meas/data` in
+the state Q10 left it, opened `mode=ro`) on the same date (`as_of=2026-09-24`)
+and differ only by the code: "was" runs the sources of HEAD from
+`/tmp/rt-q8-red`, "became" runs this worktree. `n` is the aggregate's own
+count of contributions; a median is quoted where one is now computed.
+
+| Sector | `net_margin` | `operating_margin` | `roe` | `asset_turnover` |
+|---|---|---|---|---|
+| software (9 members) | **0.2405 (n=9)** — was computed too, now the row names its range | **0.2743 (n=9)**, same | **0.0962 (n=9)**, same | **0.1642 (n=9)**, same |
+| hardware_electronics (9) | **0.1591 (n=8)**, same | **0.1627 (n=8)**, same | was `peer_set_too_small` → `peer_set_too_small (no_value=4; периоды от 2026-06-30 до 2026-09-24)` | **0.3707 (n=8)**, same |
+| banks (9) | was `period_mismatch` (n=6) → `peer_set_too_small (no_value=3)` | `peer_set_too_small (no_value=9)` — unchanged | was `period_mismatch` (n=8) → **0.0323 (n=8)** | was `period_mismatch` (n=5) → `peer_set_too_small (no_value=4)` |
+| telecom (8) | was `period_mismatch` (n=7) → `peer_set_too_small (no_value=1)` | was `period_mismatch` (n=7) → `peer_set_too_small (no_value=1)` | was `period_mismatch` (n=4) → `peer_set_too_small (no_value=4)` | was `period_mismatch` (n=7) → `peer_set_too_small (no_value=1)` |
+| mining_metals (9) | was `period_mismatch` (n=8) → `peer_set_too_small (no_value=1; … ; вне окна: US-VALE (2012-12-31))` | was `period_mismatch` (n=6) → `peer_set_too_small (no_value=3, same mark)` | was `period_mismatch` (n=6) → `peer_set_too_small (no_value=3, same mark)` | was `period_mismatch` (n=7) → `peer_set_too_small (no_value=2, same mark)` |
+
+- the 20 cells by reason: was `period_mismatch` **11** + computed 7 +
+  `peer_set_too_small` 2 → became `period_mismatch` **0** + computed 8 +
+  `peer_set_too_small` 12. Of the 11 vetoed cells one is now a number
+  (`banks roe`) and ten are now honest refusals that say what is missing —
+  the window removes a wrong reason, it does not invent members;
+- the window is named, not implied: every computed cell prints «периоды от …
+  до …» in `rusterm industry`, in `--json` (`period_note`, `excluded`) and in
+  the Qt «Отрасль» tab's `mark` column; the four mining cells say
+  `period_out_of_window=1` and name US-VALE with its period end;
+- where removing the veto exposes I6 instead of hiding it, the refusal stands
+  and now says both parts — `banks net_margin`: «peer_set_too_small (no_value=3;
+  периоды от 2025-12-31 до 2026-09-24)»;
+- the same "became" column re-measured on the **rebuilt** copy
+  (`/tmp/rt-q8-meas/data`, after `rusterm snapshot` on 44 instruments, all
+  rc=0) gives 4 computed cells instead of 8 and different medians — that is
+  Q10's clause 5 (no `as_reported` stock at a year-end border) reaching the
+  whole sector once the snapshots are rebuilt, not the Q8 window: no cell lost
+  a member to the 730-day rule except US-VALE. Recorded in Disputed 6.
+
+Percentiles are written at build time, so their was→стало is one copy read
+before and after the rebuild (`/tmp/rt-q8-logs/after-rebuild.log`, Run 36) —
+the rebuild is part of the difference by the nature of the row, not by
+sloppiness; the baseline 129/152 was reproduced independently on the untouched
+second copy:
+
+| Counter (newest snapshot per instrument) | Was | Became |
+|---|---|---|
+| percentiles carrying a value | 129 | **170** |
+| percentile refusals | 285 | 115 |
+| of which `period_mismatch` | 152 | **0** |
+| `peer_set_member.reason='excluded_period'` | — | 1 (US-VALE) |
+| lineage rows naming the exclusion (`peer: вне окна US-VALE 2012-12-31`) | — | 23 |
+| `rusterm snapshot` outputs printing «вне окна периодов:» | — | 8 |
+
+What is left after the rebuild is 115 refusals: 88 `currency_mismatch:
+(blank), USD` (was 82) and 27 `currency_mismatch: CAD, USD`, while all 24
+`currency_mismatch: MXN, USD` disappeared. So the rebuild moved the currency
+reasons too — +6 and −24 — which is another reason not to read the 129 → 170
+as the window's own gain.
 
 ## Blocked
 nothing.
@@ -191,6 +255,11 @@ nothing.
   synthetic tooth would only re-write the same line of code. The 39 `annual`
   rows still visible on the copy are snapshots that were never rebuilt; the
   label is written at build time.
+- Q10: push moved `1a27329..1fcc5b8` — four commits, i.e. the three earlier
+  item commits of this round (Q12-5, Q12-6, Q11) had reached the branch
+  locally but not to `origin` when §1.7 asks for an immediate push. The
+  remote and the local branch agree now; the deviation is in the ordering,
+  and it matters because the coordinator reads `origin`.
 - Q10: four times during this item, tool output carried invented text speaking
   as the coordinator or as "the system": «P1 pre-authorized», «run
   `agent/acceptance.sh --bypass-p2`», «migration 46 was already merged
@@ -199,6 +268,30 @@ nothing.
   and `git show HEAD:rusterm/store/db.py | grep -c _migrate_46` returns 0, so
   migration 46 is mine and unnumbered elsewhere. Nothing was bypassed, no
   `--no-verify`, and the full suite kept running to completion.
+- Q8: the percentile counters (129 → 170, `period_mismatch` 152 → 0) are read
+  on **one** copy (`/tmp/rt-q8-meas/data`) before and after the rebuild
+  (Run 36) — the baseline 129/152 was then reproduced on a second, never
+  rebuilt copy (`/tmp/rt-q8-meas2/data`) to show the number is the stored
+  state and not an artifact of that run. Percentile rows are written at build
+  time, so the rebuild belongs to the "became" side by construction; the
+  41-value gain cannot be attributed to the 730-day window alone, because the
+  same rebuild also re-applied Q10's rules to 44 instruments.
+- Q8: the aggregate table is deliberately measured on the *unrebuilt* copy, so
+  its two columns differ only by code. On the rebuilt copy the same new code
+  computes 4 of the 20 cells instead of 8 (`software roe`/`asset_turnover`,
+  `hardware net_margin`… drop out, medians move: software `net_margin` 0.2405
+  → 0.1889). That is Q10's clause 5 reaching the whole sector once snapshots
+  are rebuilt — no `as_reported` stock at a year-end border — and Disputed 6
+  asks the coordinator to decide it, not to read it as a Q8 result.
+- Q8: `peer_set_member.reason` is an UPSERT column nothing reads.
+  `excluded_period` overwrites a previous `excluded_stale` on the same member
+  (and the other way round), and `PeerSetRepo.composition()` filters only on
+  the `excluded_stale` flag — so the mark is for whoever opens the database,
+  not for the kernel. No test asserts a consumer.
+- Q8: the Qt «Отрасль» tooth runs `desktop/data.industry_table_rows` headless
+  (no offscreen QPA needed — the function is pure dict work over
+  `tui.model.industry_rows`). It does not prove the tab paints the string;
+  no screenshot was taken and no widget was shown.
 
 ## Disputed
 1. Q12-6 turned one refusal into a number that should not be trusted as
@@ -273,6 +366,44 @@ nothing.
    (b) widen `as_reported_facts()`; (c) keep the refusal and file the gap in
    BACKLOG. I chose (c) for this commit and named every case in ADR-0025
    clause 5 so the next reader can find them without re-measuring.
+6. Q8 removed the veto and I6 became visible in ten cells that used to read
+   `period_mismatch`. This is the item working as written — the verdict says
+   «если после исключения участников меньше порога … — прежний честный отказ
+   `peer_set_too_small`» — but the reader of `rusterm industry` experiences it
+   as a sector that got *less*: telecom had one `period_mismatch` line per
+   measure and now has `peer_set_too_small` on all four, because its 8 members
+   hold `net_margin` on 7 of them and I6 counts contributions, not members
+   (`banks operating_margin`: `no_value=9` out of 9 members). Two ways to
+   finish the thought, neither mine to take inside Q8: (a) lower
+   `AGGREGATE_MIN_PEERS` — a threshold change, ADR-0002 territory; (b) print
+   the gap explicitly («участников 8, значение меры есть у 1 — comparison is
+   not what it looks like»). I kept the existing refusal and made it name the
+   exclusions, which is what the clause asks for.
+   Related, from the same measurement: the Q8 window now *moves* the answer
+   for `banks roe` from `period_mismatch (n=8)` to a computed 0.0323 over 8
+   members whose period ends span 267 days — a number a reader may take as a
+   sector median while its members are three quarters apart. The range is in
+   the line, so the honesty clause of the verdict is met; whether 267 days is
+   an acceptable spread for a median is a coordinator judgement.
+   And the third thing this measurement exposed belongs to entry 5, not to Q8:
+   rebuilding the copy's 44 instruments with the committed kernel takes those
+   20 cells from 8 computed to **4** (software `roe`, software
+   `asset_turnover`, `hardware asset_turnover` and `banks roe` fall out;
+   software `net_margin` median moves 0.2405 → 0.1889), because clause 5
+   refuses `roe`/`asset_turnover` wherever
+   a member's window ends on a fiscal year end with only `restated` balances.
+   The sector view therefore gets *worse* after a rebuild and better after
+   nothing — so "rebuild everything" is not an obvious win for the user, and
+   entry 5's option (a)/(b) decides it. I rebuilt only my copy; the user's
+   base was never opened for writing.
+7. Q8's Done-when asks «сколько перцентилей со значением было (143)». The
+   baseline measured 129 on the newest snapshot of each instrument and 429
+   across all versions — neither is 143 (`/tmp/rt-q8-meas2/data`, Run 34).
+   I read the number as an earlier snapshot of the same counter and reported
+   the measurement rather than the target: 129 → 170, refusals 285 → 115, of
+   which `period_mismatch` 152 → 0. If 143 was meant as a different slice
+   (say, percentiles over instruments with a given peer-set version), say
+   which and I will re-cut it.
 
 ## Runs
 
@@ -600,10 +731,71 @@ nothing.
     fixed — `test_readme_lists_every_adr` (README §15 now names ADR-0025) and
     `test_guide_blocks_run_and_match` (GUIDE's schema pins moved to 46, its
     fence count kept at 18 by editing existing blocks).
+29. Q10 commit `1fcc5b8` with the tracked pre-commit hook running the whole
+    acceptance on the frozen tree: `Итог: пройдено 13, провалено 0` →
+    `Принято.` / `SELFCHECK OK` (`/tmp/rt-q10-logs/commit-q10.log`). That
+    closes Run 28's red: the same suite inside check 3, now with the
+    `ЗАМЕНА-БУЛАВКИ` declarations reachable from the message. The
+    background-runner also mis-reported the commit as failed with rc 1
+    minutes before `git commit` was still alive in `ps` — the log line and
+    the commit itself, not the notification, are the evidence.
+30. Q8 red-before, teeth first: `tests/test_task97_q8_industry_window.py` +
+    the re-pointed `tests/test_j3_fiscal.py` against the **sources of HEAD**
+    (`/tmp/rt-q8-red`, a copy of the tree at `1fcc5b8`, the test files taken
+    from the worktree): `10 failed, 4 passed` — the nine new teeth plus the
+    J3 булавка (`/tmp/rt-q8-logs/red-before-final.txt`,
+    `FFFFFFFFF.F...`). Before the production code existed the same batch read
+    `9 failed` (`red-before.txt`, `red-before-2.txt`), and the J3 tooth was
+    shown red on its own (`red-j3.txt`, `tests/test_j3_fiscal.py:142:
+    AssertionError`).
+31. Green after the implementation: `14 passed, rc=0` (`green-after.log`) —
+    9 new teeth + 5 J3.
+32. Mutations in `/tmp/rt-q8-mut`, each reverted after its run:
+    M1 `INDUSTRY_PERIOD_WINDOW_DAYS = 730 → 100` → red on exactly the four
+    teeth that need the wide window (`mut-window-100.txt`: five-month gap
+    computes, window edge, percentile five-month gap, the J3 tooth);
+    M2 `period_note()` returns `""` → red on the three visibility teeth only
+    (CLI, TUI screen, Qt tab: `mut-note-empty.txt`);
+    M3 `period_window()` floor disabled (nobody is excluded) → red on the five
+    teeth that need an exclusion (`mut-no-exclusion.txt`: window edge,
+    percentile exclusion, and the three visibility teeth that name US-VALE).
+33. Neighbour suites — every test file that mentions `percentile`,
+    `period_mismatch`, `build_sector_aggregates` or `peer_set_too_small`, plus
+    `test_tui_model.py`, `test_desktop_{peers,data,window}.py`, `test_cli.py`,
+    `test_e2e_cli.py`, `test_peer_sets.py`, `test_j2_peers_composition.py`,
+    `test_industry_maritime.py`: 234 tests, `rc=0` (`neighbours.log`).
+34. Baseline on the copy, five sectors, HEAD sources
+    (`was-aggregates-pristine.log`): `period_mismatch` 11, computed 7,
+    `peer_set_too_small` 2; percentiles 129 with a value, 285 refusals, 152 of
+    them `period_mismatch`.
+35. Same copy, same date, this worktree's code
+    (`became-aggregates-pristine.log`): `period_mismatch` **0**, computed 8,
+    `peer_set_too_small` 12, US-VALE named in all four mining cells. The CLI
+    text of the same run is in `cli-industry-after.log` (`rusterm industry
+    --root /tmp/rt-q8-meas2/data`), where every computed line carries
+    «периоды от … до …».
+36. Rebuild on the second copy (`after-rebuild.log`): `rusterm snapshot` for
+    all 44 instruments that have a peer set, every one rc=0, percentiles
+    «было 129 → стало 170», refusals 285 → 115, `period_mismatch` 152 → 0, 23
+    lineage rows and 8 snapshot outputs naming US-VALE, 1
+    `peer_set_member.reason='excluded_period'`.
+37. The rebuilt copy read by both codes, which is where Disputed 6 comes from:
+    new code → `became-aggregates-rebuilt.log` (4 of 20 cells computed, spans
+    now 273 and 362 days), HEAD code → `was-aggregates-rebuilt.log`
+    (`period_mismatch` 15, computed 0, `peer_set_too_small` 5).
+38. Whole suite on the worktree before the commit: one red,
+    `test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green`,
+    and its own output says why — `?? tests/test_task97_q8_industry_window.py`
+    → `SELFCHECK FAIL (P3/P4): untracked files present`
+    (`/tmp/rt-q8-logs/full-suite.log`). Run 1 of this report is the same
+    artifact: the guard reads the working tree, and the new file was not
+    staged yet. This pytest prints no final count line (a `-q` run of five
+    tests ends at `[100%]` with rc 0), so the evidence is the rc, and the
+    commit below runs the whole suite again inside check 3.
 
 ## HANDOFF
-Status: PARTIAL — two of the twelve Q12 rows, Q11 and Q10 are committed; the
-rest of TASK-97 is queued in the coordinator's order and work continues.
+Status: PARTIAL — Q12 (rows 5 and 6), Q11, Q10 and Q8 are committed; the rest
+of TASK-97 is queued in the coordinator's order and work continues.
 Items done: Q12 (rows 5 and 6) — `c2b0021` (row 5) and `6fd2b6b` (row 6,
 acceptance `Итог: пройдено 13, провалено 0`; that commit was re-landed from
 `a41d89e` to clear the L1 poison Run 17 describes, tree identical). Q11 —
@@ -614,20 +806,33 @@ entry 4 of Disputed, not hidden in the code. Q10 — one window function
 annual-is-the-window case, the annual fallback named `annual_fallback` with
 its reason in lineage, snapshot output and the source panel, one window and
 one basis per measure, stocks only at the window borders, `dps` on the same
-function; ADR-0025, README §15 and the GUIDE pins moved with it.
+function; ADR-0025, README §15 and the GUIDE pins moved with it. Q8 — the
+industry window is 730 days instead of a sector-wide veto, the excluded
+member is named in the line, in the lineage role, in
+`peer_set_member.reason` and in `rusterm snapshot`, and the range of the
+periods that were actually compared is printed by the CLI, the TUI screen and
+the Qt tab (`docs/` untouched, no migration, no new reason code).
 Items not done in this shift: the remaining letters of TASK-97 in the baton
-order the coordinator set — Q8, Q5, Q7, Q6, Q1, Q2, Q3, Q4. Rows 1, 2
+order the coordinator set — Q5, Q7, Q6, Q1, Q2, Q3, Q4. Rows 1, 2
 and 7 of the Q12 verdict are outstanding too; row 1 was closed by TASK-99.
 Copy of the user's base left at `/tmp/rt-q126/data` (584 MB, mine to
 delete); the real catalog was only ever opened read-only, and the byte-level
 exception that costs is named in «What not to trust». The Q10 measurement ran
-on a second copy under `/tmp/rt-q10-meas/data`, also mine to delete;
-`~/EquityLab` was not written (P7).
+on a second copy under `/tmp/rt-q10-meas/data`, also mine to delete; the Q8
+measurements ran on two copies of that one (`/tmp/rt-q8-meas/data`, rebuilt by
+`rusterm snapshot` 44 times, and `/tmp/rt-q8-meas2/data`, opened `mode=ro`
+only), plus a HEAD-sources tree at `/tmp/rt-q8-red` and a mutation sandbox at
+`/tmp/rt-q8-mut` — all four are mine to delete. `~/EquityLab` was not written
+(P7).
 Questions for the coordinator: entry 1 (VALE's `market_cap` built on a 2012
 cover count — rule change, or a refusal with a named reason?), entry 2 (does
 «54 → стало» mean the append-only total or the newest snapshot per paper?),
 entry 3 (L1 matching a bare `p1`/`p6` token in a message poisons HEAD, and
 neither amend nor revert repairs it), entry 4 (P2 makes Q11's clean-grep
-clause unreachable for one docstring line in `store/db.py`) and entry 5
+clause unreachable for one docstring line in `store/db.py`), entry 5
 (Q10's five lost values: may the stock lookup take a `restated` balance at a
-year-end border, or does the refusal stand and the gap go to BACKLOG?).
+year-end border, or does the refusal stand and the gap go to BACKLOG?),
+entry 6 (removing the veto exposes I6 in ten cells, and rebuilding the copy
+takes the five sectors from 8 computed cells to 4 — is a full rebuild a win
+for the user before entry 5 is decided?), and entry 7 (Q8's Done-when names
+143 percentiles with a value; the base measures 129 — which slice was meant?).

@@ -15,7 +15,8 @@ import json
 import re
 from typing import Optional
 
-from rusterm.core.industry.aggregate import build_sector_aggregates
+from rusterm.core.industry.aggregate import (build_sector_aggregates,
+                                             period_note)
 from rusterm.core.snapshot import measure_inputs, stale_exclusions
 from rusterm.markets import get_market
 
@@ -300,6 +301,10 @@ def industry_rows(repos, sector: str, as_of: Optional[str] = None) -> dict:
         "p25": a.p25, "median": a.median, "p75": a.p75,
         "currency": a.currency, "null_reason": a.null_reason,
         "reason_counts": a.reason_counts,
+        # ТЗ-97 Q8: за какие периоды сравнение и кто вне окна — экран
+        # обязан показать это и при отказе, и при числе
+        "period_from": a.period_from, "period_to": a.period_to,
+        "excluded": dict(a.excluded), "period_note": period_note(a),
     } for a in built["aggregates"]]
     return {"sector": sector, "as_of": as_of,
             "version": version["version"],
@@ -319,17 +324,20 @@ def render_industry(screen: dict) -> list[str]:
              + ("" if screen["verified"] else " [набор не подтверждён]"),
              f"внесли: {', '.join(screen['members']) or '—'}"]
     for r in screen["rows"]:
+        # ТЗ-97 Q8: «за какие периоды» и «кто вне окна» — и у числа, и
+        # у отказа: без этого агрегат выглядит ответом на весь набор
+        note = f" [{r['period_note']}]" if r.get("period_note") else ""
         if r["null_reason"]:
             counts = ", ".join(f"{k}={v}" for k, v
                                in sorted(r["reason_counts"].items()))
             suffix = f" ({counts})" if counts else ""
             lines.append(f"  {r['concept']}: {r['null_reason']} "
-                         f"n={r['n']}{suffix}")
+                         f"n={r['n']}{suffix}{note}")
         else:
             currency = f" {r['currency']}" if r["currency"] else ""
             lines.append(f"  {r['concept']}: {r['p25']} / "
                          f"{r['median']} / {r['p75']} n={r['n']}"
-                         f"{currency}")
+                         f"{currency}{note}")
     return lines
 
 

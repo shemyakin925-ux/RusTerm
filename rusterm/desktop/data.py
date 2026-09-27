@@ -605,6 +605,10 @@ def industry_table_rows(screen: dict) -> list[dict]:
     """
     rows = []
     for r in screen.get("rows", []):
+        # ТЗ-97 Q8: диапазон периодов и внеоконные участники — в пометке
+        # строки, чтобы вкладка «Отрасль» говорила то же, что экран
+        # `rusterm industry`, а не молча показывала пустые числа.
+        note = r.get("period_note") or ""
         if r.get("null_reason"):
             counts = ", ".join(f"{k}={v}" for k, v
                                in sorted(r.get("reason_counts", {})
@@ -612,6 +616,8 @@ def industry_table_rows(screen: dict) -> list[dict]:
             mark = f"отказ: {r['null_reason']}"
             if counts:
                 mark += f" ({counts})"
+            if note:
+                mark += f"; {note}"
             rows.append({"concept": r["concept"], "p25": NO_DATA,
                          "median": NO_DATA, "p75": NO_DATA, "n": r["n"],
                          "mark": mark, "refused": True})
@@ -620,7 +626,7 @@ def industry_table_rows(screen: dict) -> list[dict]:
                          "p25": format_value(r["p25"]),
                          "median": format_value(r["median"]),
                          "p75": format_value(r["p75"]), "n": r["n"],
-                         "mark": "", "refused": False})
+                         "mark": note, "refused": False})
     return rows
 
 

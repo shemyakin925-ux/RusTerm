@@ -689,6 +689,15 @@ class SnapshotRepo:
             (measure_id,)).fetchall()
         return [r[0] for r in rows]
 
+    def lineage_roles(self, measure_id: str) -> List[str]:
+        """Все роли строк lineage меры. ТЗ-97 Q8: пометка «пир вне окна
+        периодов» живёт именно в роли — у читателя отказа перцентиля
+        должно быть имя и период, а не догадка о составе набора."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT role FROM measure_lineage WHERE measure_id=?"
+            " ORDER BY role", (measure_id,)).fetchall()
+        return [r[0] for r in rows]
+
     def instruments_for_fact(self, fact_id: str) -> List[str]:
         """Инструменты, чьи снапшоты содержат меры с lineage,
         ссылающимся на факт (процесс 5, узел recompute)."""

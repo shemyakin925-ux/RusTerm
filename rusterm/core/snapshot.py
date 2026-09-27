@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from uuid import uuid4
 
-from rusterm.core.peers import currency_guard, evaluate, percentile_share
+from rusterm.core.peers import (currency_guard, evaluate,
+                                percentile_share, period_window)
 from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow,
                               is_annual_window, ttm_window)
 from rusterm.formulas import (calculate_measure, effective_tax_rate,
@@ -94,11 +95,6 @@ base_concepts: tuple[str, ...] = tuple(sorted(
 
 # Правило давности (TASK-12 Y2): три года плюс люфт на сдвиг фингода.
 _STALE_LOOKBACK_DAYS = 1100
-
-# ТЗ-22 J3: сравнивать величины пиров с разрывом концов периодов больше
-# ста дней нельзя честно — ноябрь против июня. Порог примерно в квартал
-# с люфтом; причина — существующая period_mismatch, новой нет.
-_PERIOD_GAP_DAYS = 100
 
 # Годовой dps из отчётности годен как «последние 12 месяцев», пока его
 # год кончился не больше ~18 месяцев назад; старше — следующего годового
@@ -275,6 +271,10 @@ class BuildResult:
     measures: int = 0
     percentiles: int = 0
     excluded_stale: list = field(default_factory=list)
+    # ТЗ-97 Q8: пиры, чей последний закрытый период старше самого
+    # свежего в наборе больше чем на окно (2 года). Исключены с
+    # пометкой, а не отменили сравнение; их называет `rusterm snapshot`.
+    excluded_period: list = field(default_factory=list)
     peer_suspect: bool = False
     diff: SnapshotDiff = field(default_factory=SnapshotDiff)
     # ТЗ-97 Q10: [(концепт меры, почему TTM не собран)] — их показывает
@@ -518,13 +518,55 @@ class SnapshotBuilder:
             result.peer_suspect = status.suspect
             by_concept: dict[str, list[float]] = {}
             measure_ids: dict[str, list[str]] = {}
+            peer_of_measure: dict[str, str] = {}
             for peer_id, mid, concept, value, _fresh in fresh:
                 if value is None:
                     continue
                 by_concept.setdefault(concept, []).append(float(value))
                 measure_ids.setdefault(concept, []).append(mid)
+                peer_of_measure[mid] = peer_id
             for concept, values in by_concept.items():
                 own = computed.get(concept)
+                # ТЗ-97 Q8 (решение пользователя 24.09): окно периодов
+                # сравнения — 2 года. Пир, чей последний закрытый период
+                # старше самого свежего в наборе больше чем на окно,
+                # исключается с пометкой, а не отменяет перцентили:
+                # один другой фингод (Vodafone — март) больше не стоит
+                # всего набора. Строка несёт диапазон включённых.
+                mids = measure_ids[concept]
+                ends = self._snapshots.period_ends_for_measures(mids)
+                window = period_window({peer_of_measure[mid]:
+                                        ends.get(mid) or ""
+                                        for mid in mids})
+                kept, dropped = [], []
+                for mid in mids:
+                    (dropped if peer_of_measure[mid] in window.excluded
+                     else kept).append(mid)
+                if dropped:
+                    measure_ids[concept] = kept
+                    values = [v for mid, v in zip(mids, values)
+                              if mid in kept]
+                    for mid in dropped:
+                        if peer_of_measure[mid] not in \
+                                result.excluded_period:
+                            result.excluded_period.append(
+                                peer_of_measure[mid])
+                            # пометка в составе — тем же механизмом, что
+                            # у excluded_stale: исключённый виден не
+                            # только в этой сборке
+                            self._peers.add_member(
+                                peer_set_version, peer_of_measure[mid],
+                                "excluded_period")
+                # строка перцентиля показывает, за какие периоды идёт
+                # сравнение; без окон (у пиров нет дат) — как раньше
+                pct_start = window.period_from or ""
+                pct_end = window.period_to or as_of
+                lineage = [{"fact_id": None, "peer_measure_id": mid,
+                            "role": "peer"} for mid in measure_ids[concept]]
+                lineage += [
+                    {"fact_id": None, "peer_measure_id": mid,
+                     "role": f"peer: вне окна {peer_of_measure[mid]} "
+                             f"{ends.get(mid)}"} for mid in dropped]
                 # ТЗ-21 H3: валютный стоп-кран — абсолютные меры в
                 # наборе с разными валютами получают currency_mismatch
                 # с перечнем валют; ratio/count не трогаются
@@ -536,43 +578,14 @@ class SnapshotBuilder:
                     currencies |= self._snapshots.currencies_for_measure(own_mid)
                 guard = currency_guard(concept, currencies)
                 if guard:
-                    lineage = [{"fact_id": None, "peer_measure_id": mid,
-                                "role": "peer"}
-                               for mid in measure_ids[concept]]
                     self._snapshots.insert_measure_with_lineage(
                         dict(measure_id=str(uuid4()),
                              snapshot_id=snapshot_id,
                              scope="issuer", scope_ref=issuer_id,
                              concept="percentile", value=None,
-                             unit="ratio", period_start="",
-                             period_end=as_of, formula_id="percentile",
+                             unit="ratio", period_start=pct_start,
+                             period_end=pct_end, formula_id="percentile",
                              method_version="v1", null_reason=guard,
-                             peer_set_version=peer_set_version),
-                        lineage)
-                    result.percentiles += 1
-                    continue
-                # ТЗ-22 J3: у пиров на разных календарях свои последние
-                # закрытые периоды; разрыв больше порога — честный отказ
-                ends = sorted(e for e in
-                              self._snapshots.period_ends_for_measures(
-                                  measure_ids[concept]).values()
-                              if e)
-                if len(ends) >= 2 and (
-                        date.fromisoformat(ends[-1])
-                        - date.fromisoformat(ends[0])).days \
-                        > _PERIOD_GAP_DAYS:
-                    lineage = [{"fact_id": None, "peer_measure_id": mid,
-                                "role": "peer"}
-                               for mid in measure_ids[concept]]
-                    self._snapshots.insert_measure_with_lineage(
-                        dict(measure_id=str(uuid4()),
-                             snapshot_id=snapshot_id,
-                             scope="issuer", scope_ref=issuer_id,
-                             concept="percentile", value=None,
-                             unit="ratio", period_start="",
-                             period_end=as_of, formula_id="percentile",
-                             method_version="v1",
-                             null_reason="period_mismatch",
                              peer_set_version=peer_set_version),
                         lineage)
                     result.percentiles += 1
@@ -580,13 +593,12 @@ class SnapshotBuilder:
                 share = percentile_share(values, own) if own is not None else None
                 if share is None:
                     continue  # порог 5: перцентили не считаются
-                lineage = [{"fact_id": None, "peer_measure_id": mid,
-                            "role": "peer"} for mid in measure_ids[concept]]
                 self._snapshots.insert_measure_with_lineage(
                     dict(measure_id=str(uuid4()), snapshot_id=snapshot_id,
                          scope="issuer", scope_ref=issuer_id,
                          concept="percentile", value=repr(share),
-                         unit="ratio", period_start="", period_end=as_of,
+                         unit="ratio", period_start=pct_start,
+                         period_end=pct_end,
                          formula_id="percentile", method_version="v1",
                          null_reason=None, peer_set_version=peer_set_version),
                     lineage)
