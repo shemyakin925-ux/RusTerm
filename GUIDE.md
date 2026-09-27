@@ -42,7 +42,7 @@ RUSTERM_TWELVEDATA_KEY=...                         # котировки (ADR-001
 ```console
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide init
 каталог: /tmp/rusterm-guide
-применено миграций: 44; schema_version=45
+применено миграций: 45; schema_version=46
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide demo
 создан демо-инструмент US-CLI-DEMO (эмитент issuer-cli-demo); данные синтетические, выдуманные — не данные эмитента
@@ -67,7 +67,7 @@ $ python3 -m rusterm.cli --root /tmp/rusterm-guide demo
 ```console
 $ RUSTERM_ENV_FILE=/nonexistent/env python3 -m rusterm.cli --root /tmp/rusterm-guide follow AAPL
 каталог: /tmp/rusterm-guide
-применено миграций: 0; schema_version=45
+применено миграций: 0; schema_version=46
 US-AAPL: 1/5 каталог — готово (запросов 0)
 US-AAPL: 2/5 поиск в SEC — отказ (запросов 0)
 нет контакта SEC (network_provider_requires_gate:edgar); офлайн-режим требует --cik и --name; задайте их или заполните ~/.rusterm.env
@@ -136,7 +136,7 @@ RUSTERM_DATA=/Users/you/equitylab
 (ТЗ-95 F1; путь в ней — тот же каталог, который окно и показало):
 
 ```
-база в /Users/you/equitylab — схема 44, программе нужна 45; обновите: rusterm --root /Users/you/equitylab init
+база в /Users/you/equitylab — схема 44, программе нужна 46; обновите: rusterm --root /Users/you/equitylab init
 ```
 
 После `init` то же окно покажет актуальную схему; ни одна из этих команд
@@ -200,7 +200,7 @@ concept_map_version: us-gaap.v4
 
 ```console
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide status --json
-{"data_dir": "/private/tmp/rusterm-guide", "schema_version": 45, "schema_version_expected": 45, "schema_version_observed": 45, "instruments": 1, "watchlists": 1, "snapshots": [{"instrument_id": "US-CLI-DEMO", "snapshot_id": "523637c9-89de-4039-a92d-af7c8c80a773", "version": 1, "as_of": "2026-09-18"}], "coverage": {"ready": 2, "stale": 1, "processing": 0, "missing": 5, "error": 0}, "concept_map_version": "us-gaap.v4", "concept_map_version_ifrs": "ifrs-full.v2", "market_codes": ["US", "CA", "OTC", "KR", "BR", "AU"], "peer_sets": [], "budget": {"ceiling_per_night": 5000, "rate_per_second": 5, "provider_ran": false, "used": 0, "samples": {}}, "env": {"file": "/tmp/empty-guide-env", "exists": true, "world_readable": false, "vars": {"RUSTERM_SEC_UA": "—", "RUSTERM_LLM_PROVIDER": "—", "RUSTERM_LLM_API_KEY": "—", "RUSTERM_LLM_MODEL": "—", "RUSTERM_TWELVEDATA_KEY": "—", "RUSTERM_DATA": "—", "RUSTERM_DART_KEY": "—", "RUSTERM_LLM_BASE_URL": "—"}}, "chat": {"calls_total": 0, "calls_today": 0, "per_model": {}}}
+{"data_dir": "/private/tmp/rusterm-guide", "schema_version": 46, "schema_version_expected": 46, "schema_version_observed": 46, "instruments": 1, "watchlists": 1, "snapshots": [{"instrument_id": "US-CLI-DEMO", "snapshot_id": "523637c9-89de-4039-a92d-af7c8c80a773", "version": 1, "as_of": "2026-09-18"}], "coverage": {"ready": 2, "stale": 1, "processing": 0, "missing": 5, "error": 0}, "concept_map_version": "us-gaap.v4", "concept_map_version_ifrs": "ifrs-full.v2", "market_codes": ["US", "CA", "OTC", "KR", "BR", "AU"], "peer_sets": [], "budget": {"ceiling_per_night": 5000, "rate_per_second": 5, "provider_ran": false, "used": 0, "samples": {}}, "env": {"file": "/tmp/empty-guide-env", "exists": true, "world_readable": false, "vars": {"RUSTERM_SEC_UA": "—", "RUSTERM_LLM_PROVIDER": "—", "RUSTERM_LLM_API_KEY": "—", "RUSTERM_LLM_MODEL": "—", "RUSTERM_TWELVEDATA_KEY": "—", "RUSTERM_DATA": "—", "RUSTERM_DART_KEY": "—", "RUSTERM_LLM_BASE_URL": "—"}}, "chat": {"calls_total": 0, "calls_today": 0, "per_model": {}}}
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide coverage --instrument US-CLI-DEMO
 US-CLI-DEMO	corporate_actions	missing причина: no_data:corporate_actions

@@ -675,6 +675,20 @@ class SnapshotRepo:
         return [dict(zip(("instrument_id", "ex_date", "kind", "role"),
                          r)) for r in rows]
 
+    def period_marks(self, measure_id: str) -> List[str]:
+        """Пометки базы периода меры (ТЗ-97 Q10, ADR-0025): роли строк
+        lineage, помеченных годовым запасным вместо TTM. Выборка идёт по
+        period_basis, а не по подстроке роли: текст пометки — дело ядра,
+        а ограничение схемы — факт, который нельзя перевести и потерять.
+        Панель окна и `rusterm snapshot` показывают входные документы, а
+        «мера считана годовым» живёт только здесь."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT role FROM measure_lineage
+               WHERE measure_id=?
+                 AND period_basis='annual_fallback' ORDER BY role""",
+            (measure_id,)).fetchall()
+        return [r[0] for r in rows]
+
     def instruments_for_fact(self, fact_id: str) -> List[str]:
         """Инструменты, чьи снапшоты содержат меры с lineage,
         ссылающимся на факт (процесс 5, узел recompute)."""

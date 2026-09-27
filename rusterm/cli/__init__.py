@@ -1025,6 +1025,13 @@ def cmd_snapshot(args) -> int:
         print(f"{instrument_id}: мер: {result.measures} — со значением "
               f"{with_value}, пусто {null_measures}; "
               f"перцентилей: {pct_value}{refused}")
+        # ТЗ-97 Q10: «годовой, TTM не собран» — вслух. Мера на годовом
+        # основании не должна выглядеть трейлинговой: без этой строки
+        # пользователь видел бы число и верил в последние 12 месяцев.
+        if result.annual_fallbacks:
+            print(f"{instrument_id}: годовой, TTM не собран: "
+                  + "; ".join(f"{c} ({note})"
+                              for c, note in result.annual_fallbacks))
         if result.diff.metric_changes:
             print("изменение метрик: " + "; ".join(
                 f"{c}: {o} -> {n}" for c, o, n in result.diff.metric_changes))

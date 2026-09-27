@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 45  # 44 (ТЗ-33 E1) + 45: chat_transcript/chat_turn — расшифровки разговоров (ТЗ-36 H1)
+_SCHEMA_VERSION = 46  # 45 (ТЗ-36 H1) + 46: период_basis в lineage пропускает 'annual_fallback' (ТЗ-97 Q10, ADR-0025)
 
 
 def _checksum(text: str) -> str:
@@ -686,6 +686,68 @@ def _migrate_45_chat_transcripts(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[45] = (_migrate_45_chat_transcripts,
                           _CHAT_TRANSCRIPT_DDL + ";" + _CHAT_TURN_DDL)
+
+
+# Миграция 46 (ТЗ-97 Q10, ADR-0025): третья база периода в lineage.
+# Годовой запасной выход обязан называться в схеме так же, как в коде:
+# CHECK из миграции 43 пропускает только 'ttm'|'annual', и строка
+# «годовой, TTM не собран» падала бы на вставке (IntegrityError), т.е.
+# сама честная отметка не могла бы попасть в базу. Перестройка по
+# образцу миграции 38: новая таблица, перелив, DROP, RENAME. Порядок
+# столбцов сохраняем как его поставил ALTER 43 — period_basis последний,
+# иначе SELECT * у существующих вызывающих сторон читает не тот столбец.
+# У measure_lineage_ca своего индекса нет; idx_measure_lineage_measure
+# обязан вернуться — его сверяет doctor (_SCHEMA_INDEXES).
+_MEASURE_LINEAGE_V46_DDL = """CREATE TABLE measure_lineage_new (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        fact_id TEXT,
+        peer_measure_id TEXT,
+        role TEXT NOT NULL,
+        period_basis TEXT CHECK (period_basis IS NULL OR period_basis
+            IN ('ttm','annual','annual_fallback')),
+        PRIMARY KEY (measure_id, fact_id, peer_measure_id, role),
+        CHECK (fact_id IS NOT NULL OR peer_measure_id IS NOT NULL))"""
+
+_MEASURE_LINEAGE_V46_COLUMNS = (
+    "measure_id, fact_id, peer_measure_id, role, period_basis")
+
+_MEASURE_LINEAGE_CA_V46_DDL = """CREATE TABLE measure_lineage_ca_new (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        ca_instrument_id TEXT NOT NULL,
+        ca_ex_date TEXT NOT NULL,
+        ca_kind TEXT NOT NULL,
+        role TEXT NOT NULL,
+        period_basis TEXT CHECK (period_basis IS NULL OR period_basis
+            IN ('ttm','annual','annual_fallback')),
+        PRIMARY KEY (measure_id, ca_instrument_id, ca_ex_date, ca_kind,
+                     role),
+        FOREIGN KEY (ca_instrument_id, ca_ex_date, ca_kind)
+            REFERENCES corporate_action(instrument_id, ex_date, kind))"""
+
+_MEASURE_LINEAGE_CA_V46_COLUMNS = (
+    "measure_id, ca_instrument_id, ca_ex_date, ca_kind, role, period_basis")
+
+
+def _migrate_46_period_basis_fallback(conn: sqlite3.Connection) -> None:
+    """CHECK обеих таблиц lineage ширится на 'annual_fallback'; данные и
+    порядок столбцов не меняются — только ограничение."""
+    for table, new_ddl, cols in (
+            ("measure_lineage", _MEASURE_LINEAGE_V46_DDL,
+             _MEASURE_LINEAGE_V46_COLUMNS),
+            ("measure_lineage_ca", _MEASURE_LINEAGE_CA_V46_DDL,
+             _MEASURE_LINEAGE_CA_V46_COLUMNS)):
+        conn.execute(new_ddl)
+        conn.execute(f"INSERT INTO {table}_new ({cols})"
+                     f" SELECT {cols} FROM {table}")
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_measure_lineage_measure"
+                 " ON measure_lineage(measure_id)")
+
+
+_CUSTOM_MIGRATIONS[46] = (
+    _migrate_46_period_basis_fallback,
+    _MEASURE_LINEAGE_V46_DDL + ";" + _MEASURE_LINEAGE_CA_V46_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

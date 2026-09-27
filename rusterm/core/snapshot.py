@@ -13,6 +13,8 @@ from datetime import date, timedelta
 from uuid import uuid4
 
 from rusterm.core.peers import currency_guard, evaluate, percentile_share
+from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow,
+                              is_annual_window, ttm_window)
 from rusterm.formulas import (calculate_measure, effective_tax_rate,
                               invested_capital, measure_unit, nopat)
 from rusterm.normalize.concepts import priority_rank, strip_taxonomy
@@ -181,6 +183,92 @@ class SnapshotDiff:
 
 
 @dataclass
+class IssuerInputs:
+    """Входы мер первого прохода (ТЗ-97 Q10): к прежним четырём словарям
+    добавлены окна — TTM-окно по каждому потоковому концепту и меры,
+    которые из-за отсутствия окна пришлось читать годовым (в значении
+    названо недостающее слагаемое)."""
+    inputs: dict = field(default_factory=dict)
+    lineage: dict = field(default_factory=dict)
+    reasons: dict = field(default_factory=dict)
+    periods: dict = field(default_factory=dict)
+    units: dict = field(default_factory=dict)
+    windows: dict = field(default_factory=dict)
+    fallbacks: dict = field(default_factory=dict)
+
+
+def window_lineage(window: TtmWindow, why: str = "") -> list:
+    """Строки lineage слагаемых окна (ТЗ-97 Q10): роль называет слагаемое
+    и его период, база периода едет в той же строке — приближение
+    перестает быть невидимым (ТЗ-32 D6). `why` — почему окна TTM нет:
+    для запасного годового оно обязательно."""
+    rows = []
+    if not why and window.basis == ANNUAL_FALLBACK:
+        # Причина живёт в самом окне, а не в доброй воле вызывающей
+        # стороны: запасной выход не молчит ни на одном пути.
+        why = "; ".join(window.missing)
+    for c in window.components:
+        role = f"input:{window.basis} {c.role} {c.start}…{c.end}"
+        rows.append({"fact_id": c.fact_id, "peer_measure_id": None,
+                     "role": (role + f"; TTM не собран: {why}"
+                              if why else role),
+                     "period_basis": window.basis})
+    return rows
+
+
+def fallback_role(window_start: str, window_end: str, note: str) -> str:
+    """Роль строки lineage для меры, считанной годовым вместо трейлинга
+    (ТЗ-97 Q10): база периода, окно и названное недостающее слагаемое —
+    читатель не должен догадываться. Одно написание на все запасные
+    годовые пути (общий годовой период входов, свежий годовой факт,
+    `_annual_common_period`): иначе ветки одного отказа расходятся
+    текстом и поверхностями."""
+    role = (f"input:{ANNUAL_FALLBACK} годовое окно "
+            f"{window_start}…{window_end}")
+    return f"{role}; TTM не собран: {note}" if note else role
+
+
+def annual_window_note(concept: str) -> str:
+    """Годовое основание меры, у потока которого окно в проходе входов
+    не собралось (ТЗ-97 Q10): в отличие от `fallback_note` здесь
+    годового факта как раз хватает (его и берут), поэтому называть
+    недостающее слагаемое нечем — названо само окно."""
+    return f"{concept}: окна потока нет в проходе входов"
+
+
+def fallback_note(windows: dict, concepts) -> str:
+    """Почему мера читана годовым, а не трейлингом (ТЗ-97 Q10): текст
+    называет каждое недостающее слагаемое. Концепт без окна — тоже
+    назван: «годовой запасной» молча не бывает."""
+    parts: list = []
+    for c in concepts:
+        window = windows.get(c)
+        if window is None:
+            parts.append(f"{c}: нет ни TTM-окна, ни годового факта")
+        elif window.basis == ANNUAL_FALLBACK:
+            parts.extend(window.missing)
+    return "; ".join(parts)
+
+
+def annual_route_note(windows: dict, concepts) -> str:
+    """Почему мера всё-таки села на общий ГОДОВОЙ период, а не на
+    TTM-окно (ТЗ-97 Q10): либо у потока нет окна и `fallback_note`
+    называет недостающее слагаемое, либо окна потоков меры РАЗНЫЕ и в
+    одной мере их смешивать нельзя. Пустой строки не бывает: запасной
+    выход не молчит, иначе пометка «годовой» исчезает с поверхностей, а
+    основание меры остаётся годовым.
+    """
+    note = fallback_note(windows, concepts)
+    if note:
+        return note
+    spans = []
+    for c in concepts:
+        w = windows.get(c)
+        spans.append(f"{c} {w.start}…{w.end}" if w else f"{c} без окна")
+    return "общего TTM-окна нет: " + "; ".join(spans)
+
+
+@dataclass
 class BuildResult:
     snapshot_id: str
     version: int
@@ -189,6 +277,10 @@ class BuildResult:
     excluded_stale: list = field(default_factory=list)
     peer_suspect: bool = False
     diff: SnapshotDiff = field(default_factory=SnapshotDiff)
+    # ТЗ-97 Q10: [(концепт меры, почему TTM не собран)] — их показывает
+    # `rusterm snapshot` и подвал экспорта; мера на годовом основании
+    # не должна выглядеть трейлинговой.
+    annual_fallbacks: list = field(default_factory=list)
 
 
 class SnapshotBuilder:
@@ -269,8 +361,13 @@ class SnapshotBuilder:
         result = BuildResult(snapshot_id=snapshot_id, version=version)
 
         # ── Проход 1: формулы §3, чьи входы в карте V0 ──
+        issuer = self._issuer_inputs(issuer_id, as_of=as_of)
         inputs, lineage_by_concept, input_reasons, periods, input_units = \
-            self._issuer_inputs(issuer_id, as_of=as_of)
+            issuer.inputs, issuer.lineage, issuer.reasons, issuer.periods, \
+            issuer.units
+        # ТЗ-97 Q10: где TTM-окно не собралось, мера читана годовым —
+        # пометка уходит в вывод команды и в подвал экспорта.
+        result.annual_fallbacks.extend(sorted(issuer.fallbacks.items()))
         computed: dict[str, float] = {}
         formula_groups: list[tuple[dict, bool]] = [
             (_MEASURE_FORMULAS, False),
@@ -364,7 +461,7 @@ class SnapshotBuilder:
         # совпадать (K6), иначе currency_mismatch.
         self._valuation_pass(snapshot_id, issuer_id, instrument_id,
                              as_of, computed, written_measures,
-                             measure_row_ids, result)
+                             measure_row_ids, result, issuer.windows)
 
         # ── ТЗ-24 N2: блок industry_metrics из секторного модуля ──
         industry_entry = None
@@ -521,14 +618,23 @@ class SnapshotBuilder:
         return result
 
     def _issuer_inputs(self, issuer_id: str,
-                       as_of: Optional[str] = None) -> tuple[dict, dict, dict,
-                                                       dict, dict]:
+                       as_of: Optional[str] = None) -> IssuerInputs:
         """Входы всех формул §3 по каноническим концептам (TASK-9 V0/V4).
+
+        ТЗ-97 Q10: потоковый вход меры — последние двенадцать месяцев на
+        дату as_of (окно собирается в rusterm.core.ttm), а не свежий
+        неполный период и не внаглую годовой. Все потоки одной меры
+        обязаны прийти из одного окна: разные окна в одной мере —
+        смешивание баз. Собрать окно нечем — мера берёт последний общий
+        ГОДОВОЙ период входов, и это помечено (period_basis
+        'annual_fallback' + названное недостающее слагаемое); нет и
+        годового — прежний отказ. Запасной выход и окна уходят в
+        IssuerInputs.windows / .fallbacks, чтобы их увидел проход оценки.
 
         Однопериодные: пересечение периодов входов (unit, start, end),
         приоритет тега карты выбирает источник. Двухпериодные (roe,
-        asset_turnover): конец выбранного периода + предыдущий период
-        того же стока, иначе missing_prior_period. Цепочка nopat берёт
+        asset_turnover): сток берётся на НАЧАЛО и на КОНЕЦ окна потока,
+        иначе missing_prior_period. Цепочка nopat берёт
         ставку из посчитанной effective_tax. Отсутствующий вход назван
         по имени — «missing_data: <концепты>» через запятую в
         отсортированном порядке (X3, TASK-14 A4); нет общего периода —
@@ -612,19 +718,91 @@ class SnapshotBuilder:
             return sorted({r["end"] for r in by_concept.get(concept, [])},
                           reverse=True)
 
+        # ── ТЗ-97 Q10: одно TTM-окно на каждый потоковый концепт ──
+        # Двери (as_of, правило давности) пройдены выше: окно собирается
+        # по тем же строкам, что видят меры, второго запроса нет.
+        # Стоки окна не дают: их период короче года, ядро возвращает
+        # None, и в windows концепт не попадает.
+        unit_by_fact: dict = {}
+        for rows in by_concept.values():
+            for r in rows:
+                unit_by_fact[r["fact_id"]] = r["unit"]
+        windows: dict[str, TtmWindow] = {}
+        window_units: dict[str, str] = {}
+        for key, rows in by_concept.items():
+            best: dict = {}
+            for r in rows:
+                # приоритет тега карты выбирает ОДИН факт на период:
+                # пересоставленный факт не должен попасть в слагаемое
+                # вместо предпочтительного тега
+                span = (r["start"], r["end"])
+                if span not in best or r["rank"] < best[span]["rank"]:
+                    best[span] = r
+            window = ttm_window(
+                [(r["value"], r["start"], r["end"], r["fact_id"])
+                 for r in best.values()], as_of or anchor or "", key)
+            if window is None:
+                continue
+            units = {unit_by_fact.get(c.fact_id) for c in window.components}
+            if len(units) != 1:
+                continue  # окно из разных валют — не вход меры (K6)
+            windows[key] = window
+            window_units[key] = units.pop()
+
+        def flow_window(concepts) -> Optional[TtmWindow]:
+            """Общее TTM-окно потоковых входов меры (ТЗ-97 Q10): все
+            входы собраны, границы окна одни и те же, валюта одна.
+            Иначе None — числитель из трейлинга и знаменатель из
+            годового в одной мере смешивать запрещено.
+
+            Равные границы — ещё не равные базы: у потока, для которого
+            после годового ничего не подано, годовой и есть окно (база
+            `ttm`), а у потока, чьё окно собрать нечем, тот же годовой
+            стоит как запасной выход (`annual_fallback`). Два таких входа
+            дают одну меру с двумя объяснениями в lineage, и читатель
+            карточки не знает, какое верно: база тоже обязана совпасть."""
+            found = [windows.get(c) for c in concepts]
+            if any(w is None for w in found):
+                return None
+            first = found[0]
+            if any((w.start, w.end) != (first.start, first.end)
+                   for w in found[1:]):
+                return None
+            if any(w.basis != first.basis for w in found[1:]):
+                return None
+            if len({window_units[c] for c in concepts}) != 1:
+                return None
+            return first
+
         inputs: dict[str, dict] = {}
         lineage: dict[str, list] = {}
         reasons: dict[str, str] = {}
         periods: dict[str, tuple[str, str]] = {}
         input_units: dict[str, str] = {}
+        fallbacks: dict[str, str] = {}
 
         # ── Однопериодные формулы ──
         for concept, inputs_map in _MEASURE_FORMULAS.items():
-            needed = set(inputs_map.values())
-            absent = sorted(a for a in needed if a not in by_concept)
+            needed = sorted(set(inputs_map.values()))
+            absent = [a for a in needed if a not in by_concept]
             if absent:
                 # причина называет концепты, которых не было (X3)
-                reasons[concept] = absent_reason(sorted(absent))
+                reasons[concept] = absent_reason(absent)
+                continue
+            # ТЗ-97 Q10: поток меры — последние двенадцать месяцев, а не
+            # свежий неполный период; все входы из одного окна.
+            window = flow_window(needed)
+            if window is not None:
+                inputs[concept] = {kw: windows[a].value
+                                   for kw, a in inputs_map.items()}
+                lineage[concept] = [row for a in needed
+                                    for row in window_lineage(windows[a])]
+                periods[concept] = (window.start, window.end)
+                input_units[concept] = window_units[needed[0]]
+                if window.basis == ANNUAL_FALLBACK:
+                    # Та же отметка, что и в общем годовом пути: мера
+                    # считана годовой, и это идёт и в lineage, и в окно.
+                    fallbacks[concept] = fallback_note(windows, needed)
                 continue
             key_sets = [{(r["unit"], r["start"], r["end"])
                          for r in by_concept[a]} for a in needed]
@@ -632,7 +810,20 @@ class SnapshotBuilder:
             if not common:
                 reasons[concept] = "period_mismatch"
                 continue
-            chosen = max(common, key=lambda k: (k[2], k[1]))
+            # окна нет — вся мера берёт последний ОБЩИЙ ГОДОВОЙ период
+            # входов (числитель и знаменатель одного года); общего года
+            # нет — прежнее поведение по свежайшему общему периоду
+            annual = [k for k in common if is_annual_window(k[1], k[2])]
+            basis = ANNUAL_FALLBACK if annual else None
+            # Причина «почему не TTM» обязана быть и здесь: окна меры нет,
+            # и названо либо недостающее слагаемое, либо то, что окна
+            # входов разные (Q10: смесь окон в одной мере запрещена).
+            note = annual_route_note(windows, needed) if basis else ""
+            if basis:
+                fallbacks[concept] = note
+                chosen = max(annual, key=lambda k: (k[2], k[1]))
+            else:
+                chosen = max(common, key=lambda k: (k[2], k[1]))
             values: dict[str, float] = {}
             lin: list = []
             units: list[str] = []
@@ -641,23 +832,68 @@ class SnapshotBuilder:
                 values[kwarg] = row["value"]
                 units.append(row["unit"])
                 lin.append({"fact_id": row["fact_id"],
-                            "peer_measure_id": None, "role": "input"})
+                            "peer_measure_id": None,
+                            "role": ("input" if basis is None else
+                                     fallback_role(chosen[1], chosen[2],
+                                                   note)),
+                            "period_basis": basis})
             inputs[concept] = values
             lineage[concept] = lin
             periods[concept] = (chosen[1], chosen[2])
             input_units[concept] = units[0]
 
-        # ── Двухпериодные: конец выбранного периода + предыдущий период
-        # того же стока; нет предыдущего — missing_prior_period ──
+        def stock_at(concept: str, end: str):
+            """Сток на дату конца периода: у мгновенной величины только
+            эта дата и значима; приоритет тега выбирает источник."""
+            rows = [r for r in by_concept.get(concept, [])
+                    if r["end"] == end]
+            return min(rows, key=lambda r: r["rank"]) if rows else None
+
+        # ── Двухпериодные: поток — окно TTM (или годовой запасной),
+        # сток — на НАЧАЛО и на КОНЕЦ этого окна; нет предыдущего —
+        # missing_prior_period ──
         for concept, (flow, stock) in _TWO_PERIOD_MEASURES.items():
             flow_rows = by_concept.get(flow, [])
             stock_ends = period_ends(stock)
-            absent = sorted(a for a in (flow, stock)
-                            if a not in by_concept)
+            absent = [a for a in (flow, stock) if a not in by_concept]
             if absent:
                 # A4: пропуск называет отсутствующую сторону, как
                 # однопериодная ветка (X3)
-                reasons[concept] = absent_reason(sorted(absent))
+                reasons[concept] = absent_reason(absent)
+                continue
+            # ── ТЗ-97 Q10: окно потока задаёт обе даты стока ──
+            window = windows.get(flow)
+            if window is not None:
+                # Сток ищется СТРОГО на границы окна: на его конец и
+                # последний не позже начала (баланс на дату года эмитент
+                # подаёт днём раньше). Ближайшая «похожая» дата вместо
+                # границы — это уже другое окно, а смесь окон Q10
+                # запрещает: поток из трейлинга, сток с даты годом
+                # раньше даёт меру, которую нельзя прочесть.
+                window_end = stock_at(stock, window.end)
+                earlier = [e for e in stock_ends if e <= window.start]
+                window_begin = (stock_at(stock, earlier[0])
+                                if earlier else None)
+                if window_end is None or window_begin is None:
+                    reasons[concept] = "period_mismatch"
+                    continue
+                why = (fallback_note(windows, [flow])
+                       if window.basis == ANNUAL_FALLBACK else "")
+                if why:
+                    fallbacks[concept] = why
+                inputs[concept] = {
+                    flow: window.value,
+                    f"{stock}_begin": window_begin["value"],
+                    f"{stock}_end": window_end["value"],
+                }
+                input_units[concept] = window_units[flow]
+                periods[concept] = (window.start, window.end)
+                lineage[concept] = window_lineage(window, why) + [
+                    {"fact_id": row["fact_id"], "peer_measure_id": None,
+                     "role": (f"input:{window.basis} stock {row['end']}"
+                              + (f"; TTM не собран: {why}" if why else "")),
+                     "period_basis": window.basis}
+                    for row in (window_end, window_begin)]
                 continue
             chosen = max((k for k in
                           {(r["unit"], r["start"], r["end"])
@@ -714,21 +950,38 @@ class SnapshotBuilder:
         if absent:
             reasons["nopat"] = absent_reason(sorted(absent))
         else:
-            et_end = et_period[1]
-            oi_candidates = [r for r in oi_rows if r["end"] == et_end]
-            if not oi_candidates:
-                reasons["nopat"] = "period_mismatch"
-            else:
-                oi_row = min(oi_candidates, key=lambda r: r["rank"])
-                inputs["nopat"] = {"operating_income": oi_row["value"]}
+            oi_window = windows.get("operating_income")
+            if oi_window is not None and \
+                    (oi_window.start, oi_window.end) == et_period:
+                # ТЗ-97 Q10: ставка и операционная прибыль — из одного
+                # окна; window_lineage уже несёт базу периода
+                why = (fallback_note(windows, ["operating_income"])
+                       if oi_window.basis == ANNUAL_FALLBACK else "")
+                if why:
+                    fallbacks["nopat"] = why
+                inputs["nopat"] = {"operating_income": oi_window.value}
                 periods["nopat"] = et_period
-                input_units["nopat"] = oi_row["unit"]
-                lineage["nopat"] = [
-                    {"fact_id": oi_row["fact_id"], "peer_measure_id": None,
-                     "role": "input"},
-                ]
+                input_units["nopat"] = window_units["operating_income"]
+                lineage["nopat"] = window_lineage(oi_window, why)
+            else:
+                et_end = et_period[1]
+                oi_candidates = [r for r in oi_rows if r["end"] == et_end]
+                if not oi_candidates:
+                    reasons["nopat"] = "period_mismatch"
+                else:
+                    oi_row = min(oi_candidates, key=lambda r: r["rank"])
+                    inputs["nopat"] = {"operating_income": oi_row["value"]}
+                    periods["nopat"] = et_period
+                    input_units["nopat"] = oi_row["unit"]
+                    lineage["nopat"] = [
+                        {"fact_id": oi_row["fact_id"],
+                         "peer_measure_id": None, "role": "input"},
+                    ]
 
-        return inputs, lineage, reasons, periods, input_units
+        return IssuerInputs(inputs=inputs, lineage=lineage,
+                            reasons=reasons, periods=periods,
+                            units=input_units, windows=windows,
+                            fallbacks=fallbacks)
 
     def _next_version(self, instrument_id: str) -> int:
         return self._snapshots.max_version(instrument_id) + 1
@@ -779,12 +1032,15 @@ class SnapshotBuilder:
         return not rows
 
     def _annual_common_period(self, issuer_id: str,
-                              concepts: tuple) -> Optional[dict]:
+                              concepts: tuple,
+                              note: str = "") -> Optional[dict]:
         """Последний общий ГОДОВОЙ период (350..380 дней) по концептам:
         {concept: (value, fact_id)} с приоритетом карты, иначе None.
         Для ev_ebitda и roic (ТЗ-31 C2): квартальный знаменатель давал
-        бы кратную ошибку; годовой период отчётности — честный TTM-
-        эквивалент, период виден в строках lineage."""
+        бы кратную ошибку. ТЗ-97 Q10: это НЕ «честный TTM-эквивалент» —
+        это годовой вместо трейлинга, и он помечен `annual_fallback` с
+        окном и названной причиной в каждой строке lineage. `note` —
+        почему общего окна меры нет."""
         rows = self._snapshots.as_reported_facts(issuer_id, concepts)
         by_concept: dict[str, list] = {}
         for concept, value, fact_id, _unit, start, end, canonical in rows:
@@ -820,83 +1076,75 @@ class SnapshotBuilder:
             out["values"][c] = row["value"]
             out["lineage"].append({"fact_id": row["fact_id"],
                                    "peer_measure_id": None,
-                                   "role": "input"})
+                                   "role": fallback_role(start, end, note)})
         return out
 
-    def _dps_quarterly_ttm(self, issuer_id: str, as_of: str) -> "tuple | None":
-        """Сумма четырёх ПОДРЯД идущих кварталов dps из отчётности
-        (formulas.ttm, словарь §1.2). Квартал — окно 80–100 дней;
-        «подряд» — начало следующего не дальше 5 дней от конца
-        предыдущего; последний квартал закрыт на as_of и свежий
-        (_DPS_ANNUAL_STALE_DAYS). Разрыв — None, а не сумма трёх.
-        Возвращает (сумма, конец, валюта, [fact_id…])."""
-        from rusterm.formulas import ttm
+    def _dps_window(self, issuer_id: str,
+                    as_of: str) -> "tuple | str | None":
+        """TTM-окно по подачам dps из отчётности (ТЗ-97 Q10): дивиденды
+        считаются тем же окном, что и остальные потоки, — четыре подряд
+        квартала, алгебра FY + YTD − YTD прошлого года, а если после
+        последнего годового ничего не подано, годовой И ЕСТЬ окно.
 
-        try:
-            as_of_d = date.fromisoformat(as_of)
-        except (TypeError, ValueError):
+        Возвращает (окно, валюта), строку отказа stale_data (окно кончилось
+        больше _DPS_ANNUAL_STALE_DAYS назад — выплаты могли прекратиться,
+        координатор 24.09.2026) либо None, если окна нет. Валюта: все
+        слагаемые обязаны быть в одной, иначе окну не доверять (K6)."""
+        rows = self._snapshots.duration_facts(issuer_id, "dps")
+        if not rows:
             return None
-        seen: set = set()
-        quarters: list = []
-        for value, start, end, currency, fact_id in \
-                self._snapshots.duration_facts(issuer_id, "dps"):
-            try:
-                s, e = date.fromisoformat(start), date.fromisoformat(end)
-                v = float(value)
-            except (TypeError, ValueError):
-                continue
-            if not 80 <= (e - s).days <= 100 or e > as_of_d:
-                continue
-            if (s, e) in seen:
-                continue  # дубль периода из более поздней подачи
-            seen.add((s, e))
-            quarters.append((s, e, v, currency, fact_id))
-        quarters.sort(key=lambda q: q[1], reverse=True)
-        if not quarters:
+        # duration_facts отдаёт (value, start, end, currency, fact_id)
+        # новыми первыми: пересоставленный факт того же периода — тот,
+        # что подан позже (ТЗ-22 J2)
+        currency_by_fact = {r[4]: r[3] for r in rows}
+        window = ttm_window([(r[0], r[1], r[2], r[4]) for r in rows],
+                            as_of, "dps")
+        if window is None:
             return None
-        chain = [quarters[0]]
-        for q in quarters[1:]:
-            if len(chain) == 4:
-                break
-            gap = (chain[-1][0] - q[1]).days
-            if 0 < gap <= 5:
-                chain.append(q)
-            elif q[1] < chain[-1][0] - timedelta(days=5):
-                return None  # разрыв: квартала между ними нет
-        if len(chain) < 4:
+        currencies = {currency_by_fact.get(c.fact_id)
+                      for c in window.components}
+        if len(currencies) != 1:
             return None
-        if (as_of_d - chain[0][1]).days > _DPS_ANNUAL_STALE_DAYS:
-            return None
-        total, reason = ttm([q[2] for q in reversed(chain)])
-        if reason is not None:
-            return None
-        return (total, chain[0][1].isoformat(), chain[0][3],
-                [q[4] for q in chain])
-
-    def _dps_annual_from_facts(self, issuer_id: str,
-                               as_of: str) -> "tuple | str | None":
-        """Свежайший ГОДОВОЙ dps из отчётности (координатор, 24.09.2026).
-
-        Возвращает (значение, конец, валюта, fact_id), либо строку
-        отказа stale_data, если год кончился больше чем
-        _DPS_ANNUAL_STALE_DAYS назад — старый годовой dps не «последние
-        12 месяцев» (выплаты могли прекратиться), либо None, если
-        годового dps нет. Квартальные и «с начала года» цифры сюда не
-        попадают: окно годового факта >= 300 дней (ТЗ-69 P1)."""
-        row = self._latest_annual_input(issuer_id, "dps")
-        if row is None:
-            return None
-        value, end, currency, fact_id, _start, _length = row
         try:
             age = (date.fromisoformat(as_of)
-                   - date.fromisoformat(end)).days
+                   - date.fromisoformat(window.end)).days
         except (TypeError, ValueError):
             return None
-        if age < 0:
-            return None  # год ещё не закрыт на дату снапшота
         if age > _DPS_ANNUAL_STALE_DAYS:
-            return f"stale_data: dps: last {end}"
-        return (value, end, currency, fact_id)
+            return f"stale_data: dps: last {window.end}"
+        return (window, currencies.pop())
+
+    def _dps_input(self, dps_fact, issuer_id: str, instrument_id: str,
+                   as_of: str, price_currency: Optional[str]):
+        """dps для div_yield в порядке источников (ТЗ-31 C2, ТЗ-97 Q10):
+        факт dps_ttm → события корпоративных действий (вендорская база =
+        база цены, ADR-0020) → окно TTM по подачам dps.
+
+        Возвращает ((значение, конец, валюта), строки lineage, отказ,
+        почему TTM не собран). Отказ назван всегда, когда значения нет:
+        NULL без причины запрещён (I4)."""
+        if dps_fact is not None:
+            return ((dps_fact[0], dps_fact[1], dps_fact[2]),
+                    self._with_basis(self._fact_lineage(dps_fact[3]),
+                                     TTM), None, "")
+        events = self._dps_ttm_from_actions(instrument_id, as_of,
+                                           price_currency)
+        if events is not None:
+            return ((events[0], events[1], events[2]),
+                    self._with_basis(
+                        [{"ca_instrument_id": instrument_id,
+                          "ca_ex_date": e["ex_date"],
+                          "ca_kind": "dividend", "role": "input"}
+                         for e in events[3]], TTM), None, "")
+        window = self._dps_window(issuer_id, as_of)
+        if isinstance(window, str):
+            return (None, [], window, "")
+        if window is not None:
+            edge, currency = window
+            why = fallback_note({"dps": edge}, ["dps"])
+            return ((edge.value, edge.end, currency),
+                    window_lineage(edge, why), None, why)
+        return (None, [], "missing_data: dps_ttm", "")
 
     def _dps_ttm_from_actions(self, instrument_id: str, as_of: str,
                               price_currency: Optional[str]) -> Optional[tuple]:
@@ -946,7 +1194,8 @@ class SnapshotBuilder:
     def _valuation_pass(self, snapshot_id: str, issuer_id: str,
                         instrument_id: str, as_of: str,
                         computed: dict, written_measures: set,
-                        measure_row_ids: dict, result) -> None:
+                        measure_row_ids: dict, result,
+                        windows: Optional[dict] = None) -> None:
         """ТЗ-23 K4: шесть мер §3 получают входы.
 
         Цена — последняя закрытая строка таблицы price не позже as_of
@@ -957,6 +1206,10 @@ class SnapshotBuilder:
         знаменатель обязаны быть в одной валюте — иначе
         currency_mismatch, а не частное.
         """
+        # Окна TTM считаются один раз в _issuer_inputs и приходят сюда;
+        # None — только у вызывающей стороны вне сборки снапшота (тесты
+        # старого прогона): тогда потоки считают прежним годовым проходом.
+        windows = windows or {}
         concepts = ("market_cap", "market_cap_total", "ev", "pb",
                     "ev_ebitda", "div_yield", "roic",
                     "pe", "ps", "fcf_yield", "net_debt",
@@ -1000,6 +1253,13 @@ class SnapshotBuilder:
         def mismatch(pair: list) -> str:
             a, b = sorted(pair)
             return f"currency_mismatch: {a}, {b}"
+
+        def mark_fallback(concept: str, why: str) -> None:
+            """ТЗ-97 Q10: мера, прочитанная годовым вместо трейлинга,
+            попадает в список пометок — его печатает `rusterm snapshot`
+            и показывает окно."""
+            if why:
+                result.annual_fallbacks.append((concept, why))
 
         if price_reason is not None:
             for concept in concepts:
@@ -1167,54 +1427,92 @@ class SnapshotBuilder:
         ic_mid = write("invested_capital", ic_value, ic_reason,
                        price_currency or "", ic_lineage)
 
-        # ТЗ-69 P1: pe = market_cap_total / net_income_ttm (словарь) —
-        # знаменатель: свежайший ГОДОВОЙ (>= 300 дней) net_income;
-        # квартального потока в годовой мере не бывает
-        annual = self._latest_annual_input(issuer_id, "net_income")
-        if annual is None:
-            pe_reason = "missing_data: net_income_ttm"
-            pe_lineage = []
-            pe_value = None
-        else:
-            ni_value, ni_end, _unit, ni_fact, ni_start, _len = annual
+        # ТЗ-97 Q10: pe = market_cap_total / net_income_ttm (словарь) —
+        # знаменатель берётся из окна TTM первого прохода; нет окна —
+        # прежний свежайший годовой вход (ТЗ-69 P1), квартального потока
+        # в мере не бывает ни в одном из путей
+        pe_value = None
+        pe_lineage: list = []
+        ni_win = windows.get("net_income")
+        if ni_win is not None:
             if total_value is None:
                 pe_reason = "missing_data: market_cap_total"
-                pe_lineage = []
-                pe_value = None
-            elif ni_value <= 0:
+            elif ni_win.value <= 0:
                 pe_reason = "missing_data: net_income"
-                pe_lineage = []
-                pe_value = None
             else:
-                pe_value = total_value / ni_value
                 pe_reason = None
-                pe_lineage = [{"fact_id": ni_fact,
-                               "peer_measure_id": None,
-                               "role": (f"input:годовое окно "
-                                        f"{ni_start}…{ni_end}")}]
+                pe_value = total_value / ni_win.value
+                why = fallback_note(windows, ["net_income"])
+                pe_lineage = window_lineage(ni_win, why)
+                mark_fallback("pe", why)
+        else:
+            annual = self._latest_annual_input(issuer_id, "net_income")
+            if annual is None:
+                pe_reason = "missing_data: net_income_ttm"
+            else:
+                ni_value, ni_end, _unit, ni_fact, ni_start, _len = annual
+                if total_value is None:
+                    pe_reason = "missing_data: market_cap_total"
+                elif ni_value <= 0:
+                    pe_reason = "missing_data: net_income"
+                else:
+                    pe_value = total_value / ni_value
+                    pe_reason = None
+                    # ТЗ-97 Q10: окно по net_income в проходе не собрало —
+                    # мера на последнем годовом, и это помечено так же,
+                    # как на остальных запасных годовых путях.
+                    why = annual_window_note("net_income")
+                    pe_lineage = self._with_basis(
+                        [{"fact_id": ni_fact, "peer_measure_id": None,
+                          "role": fallback_role(ni_start, ni_end, why)}],
+                        ANNUAL_FALLBACK)
+                    mark_fallback("pe", why)
         write("pe", pe_value, pe_reason, "ratio", pe_lineage)
 
-        # ps = market_cap_total / revenue_ttm (словарь): годовой вход
-        annual_rev = self._latest_annual_input(issuer_id, "revenue")
+        # ps = market_cap_total / revenue_ttm (словарь): то же окно
         ps_value = None
         ps_reason = None
-        if total_value is None:
-            ps_reason = "missing_data: market_cap_total"
-        elif annual_rev is None:
-            ps_reason = "missing_data: revenue_ttm"
-        elif annual_rev[0] == 0:
-            # ТЗ-90 A3: нулевая годовая выручка (pre-revenue эмитент) —
-            # отказ по словарю §1.4, а не ZeroDivisionError на всю сборку
-            ps_reason = "denominator_zero"
-        elif annual_rev[0] < 0:
-            ps_reason = "negative_denominator"
+        ps_lineage: list = []
+        rev_win = windows.get("revenue")
+        if rev_win is not None:
+            if total_value is None:
+                ps_reason = "missing_data: market_cap_total"
+            elif rev_win.value == 0:
+                # ТЗ-90 A3: нулевая выручка (pre-revenue эмитент) —
+                # отказ по словарю §1.4, а не ZeroDivisionError
+                ps_reason = "denominator_zero"
+            elif rev_win.value < 0:
+                ps_reason = "negative_denominator"
+            else:
+                ps_value = total_value / rev_win.value
+                why = fallback_note(windows, ["revenue"])
+                ps_lineage = window_lineage(rev_win, why)
+                mark_fallback("ps", why)
         else:
-            ps_value = total_value / annual_rev[0]
-        ps_lineage = ([{"fact_id": annual_rev[3],
-                        "peer_measure_id": None,
-                        "role": (f"input:годовое окно "
-                                 f"{annual_rev[4]}…{annual_rev[1]}")}]
-                      if annual_rev is not None else [])
+            annual_rev = self._latest_annual_input(issuer_id, "revenue")
+            if total_value is None:
+                ps_reason = "missing_data: market_cap_total"
+            elif annual_rev is None:
+                ps_reason = "missing_data: revenue_ttm"
+            elif annual_rev[0] == 0:
+                # ТЗ-90 A3: нулевая годовая выручка (pre-revenue эмитент) —
+                # отказ по словарю §1.4, а не ZeroDivisionError на всю
+                # сборку
+                ps_reason = "denominator_zero"
+            elif annual_rev[0] < 0:
+                ps_reason = "negative_denominator"
+            else:
+                ps_value = total_value / annual_rev[0]
+            if annual_rev is not None:
+                # ТЗ-97 Q10: то же годовое основание, что и у pe — помечено
+                # окном и причиной, а не молча «годовое окно» в lineage.
+                why = annual_window_note("revenue")
+                ps_lineage = self._with_basis(
+                    [{"fact_id": annual_rev[3], "peer_measure_id": None,
+                      "role": fallback_role(annual_rev[4], annual_rev[1],
+                                            why)}], ANNUAL_FALLBACK)
+                if ps_value is not None:
+                    mark_fallback("ps", why)
         write("ps", ps_value, ps_reason, "ratio", ps_lineage)
 
         # fcf_yield = fcf_ttm / market_cap (класс, словарь)
@@ -1237,17 +1535,37 @@ class SnapshotBuilder:
         # ev_ebitda = ev / ebitda — ratio: обе стороны уже в одной
         # валюте (ev наследует валюту цены, ebitda — валюту фактов
         # эмитента); разные валюты фактов отсечены стражем выше.
-        # ТЗ-31 C2: знаменатель — ГОДОВОЙ общий период (TTM-
-        # эквивалент): квартальный ebitda давал бы кратную ошибку;
-        # нет годового — прежнее поведение (мера ebitda первого
-        # прохода, период виден в её строке)
+        # ТЗ-97 Q10: знаменатель — окно TTM по слагаемым ebitda; нет
+        # окна — прежний годовой общий период (ТЗ-31 C2), и он же
+        # последняя опора перед мерой первого прохода.
         ebitda_value = computed.get("ebitda")
         ebitda_mid = measure_row_ids.get("ebitda")
+        oi_win = windows.get("operating_income")
+        dna_win = windows.get("d_and_a")
         if ev_reason is not None and ev_value is None:
             write("ev_ebitda", None, "missing_data: ev", "ratio", [])
+        elif (oi_win is not None and dna_win is not None
+                and (oi_win.start, oi_win.end) == (dna_win.start,
+                                                   dna_win.end)):
+            why = fallback_note(windows, ["operating_income", "d_and_a"])
+            m = calculate_measure("ev_ebitda", ev=ev_value,
+                                  ebitda_ttm=oi_win.value + dna_win.value)
+            write("ev_ebitda", m.value, m.null_reason, "ratio",
+                  self._with_basis(
+                      [{"fact_id": None, "peer_measure_id": ev_mid,
+                        "role": "input"}], oi_win.basis)
+                  + window_lineage(oi_win, why)
+                  + window_lineage(dna_win, why))
+            mark_fallback("ev_ebitda", why)
         else:
+            # ТЗ-97 Q10: общего окна EBITDA не собрало (окна её потоков
+            # разошлись или одного из них нет) — мера садится на последний
+            # общий ГОДОВОЙ период и помечается как запасной выход, а не
+            # как TTM.
+            ebitda_flows = ("operating_income", "d_and_a")
+            why = annual_route_note(windows, ebitda_flows)
             annual_ebitda = self._annual_common_period(
-                issuer_id, ("operating_income", "d_and_a"))
+                issuer_id, ebitda_flows, why)
             if annual_ebitda is not None:
                 m = calculate_measure(
                     "ev_ebitda", ev=ev_value,
@@ -1257,7 +1575,8 @@ class SnapshotBuilder:
                       self._with_basis(
                           [{"fact_id": None, "peer_measure_id": ev_mid,
                             "role": "input"}]
-                          + annual_ebitda["lineage"], "annual"))
+                          + annual_ebitda["lineage"], ANNUAL_FALLBACK))
+                mark_fallback("ev_ebitda", why)
             elif ebitda_value is None or not ebitda_mid:
                 write("ev_ebitda", None, "missing_data: ebitda", "ratio",
                       [])
@@ -1273,58 +1592,23 @@ class SnapshotBuilder:
                         "role": "input"}])
 
         # div_yield = dps_ttm / price_close — валюты обязаны совпасть.
-        # ТЗ-31 C2: нет факта dps_ttm — TTM по скользящему окну 365
-        # дней из corporate_action (вендорская база = база цены,
-        # ADR-0020); валюты сверяются тем же правилом K6
-        dps = inputs.get("dps_ttm")
-        dps_basis = "ttm"
-        dps_refusal = "missing_data: dps_ttm"
-        if dps is None:
-            dps = self._dps_ttm_from_actions(instrument_id, as_of,
-                                             price_currency)
-        if dps is None:
-            # Координатор, 24.09.2026: бесплатный Twelve Data на
-            # дивиденды отвечает 403, а 30 из 44 эмитентов пользователя
-            # подают dps в отчётности. Как ADR-0021 для прибыли —
-            # свежайший ГОДОВОЙ dps, основание «annual».
-            annual = self._dps_annual_from_facts(issuer_id, as_of)
-            quarterly = self._dps_quarterly_ttm(issuer_id, as_of)
-            annual_end = annual[1] if isinstance(annual, tuple) else ""
-            if quarterly is not None and quarterly[1] > annual_end:
-                # свежее годового: четыре подряд идущих квартала
-                dps, dps_basis = quarterly, "ttm"
-            elif isinstance(annual, str):
-                dps_refusal = annual
-            elif annual is not None:
-                dps, dps_basis = annual, "annual"
+        # ТЗ-97 Q10: dps приведены к той же функции окна, что и
+        # остальные потоки (было: квартальная цепочка и годовой вход
+        # двумя отдельными маршрутами с ручным выбором свежего).
+        dps, dps_lineage, dps_refusal, why = self._dps_input(
+            inputs.get("dps_ttm"), issuer_id, instrument_id, as_of,
+            price_currency)
+        mark_fallback("div_yield", why)
         dps_cur = dps[2] if dps else None
         if dps is None:
-            write("div_yield", None, dps_refusal, "ratio", [])
+            write("div_yield", None, dps_refusal, "ratio", dps_lineage)
         elif dps_cur and price_currency and dps_cur != price_currency:
-            write("div_yield", None,
-                  mismatch([dps_cur, price_currency]), "ratio",
-                  self._fact_lineage(dps[3]))
+            write("div_yield", None, mismatch([dps_cur, price_currency]),
+                  "ratio", dps_lineage)
         else:
             m = calculate_measure("div_yield", dps_ttm=dps[0],
                                   price_close=price_value)
-            # ТЗ-31 C2: dps_ttm из corporate_action несёт lineage на
-            # события окна (миграция 42); факт-маршрут — как прежде
-            if isinstance(dps[3], list) and dps[3] \
-                    and isinstance(dps[3][0], dict):
-                lineage = self._with_basis(
-                    [{"ca_instrument_id": instrument_id,
-                      "ca_ex_date": e["ex_date"],
-                      "ca_kind": "dividend", "role": "input"}
-                     for e in dps[3]], "ttm")
-            elif isinstance(dps[3], list):
-                # четыре квартала из отчётности: каждый — вход меры
-                lineage = self._with_basis(
-                    [row for fid in dps[3]
-                     for row in self._fact_lineage(fid)], dps_basis)
-            else:
-                lineage = self._with_basis(
-                    self._fact_lineage(dps[3]), dps_basis)
-            write("div_yield", m.value, m.null_reason, "ratio", lineage)
+            write("div_yield", m.value, m.null_reason, "ratio", dps_lineage)
 
         # roic = nopat / avg(invested_capital) — оба входа в валюте
         # отчётности; nopat посчитан из тех же фактов (K6: одна валюта)
@@ -1341,13 +1625,50 @@ class SnapshotBuilder:
                                        si[0]), None, price_currency,
                       None)
                 ic_lineage_extra = nci_lineage
-        annual_nopat = self._annual_common_period(
-            issuer_id, ("operating_income", "tax_expense",
-                        "pretax_income"))
+        annual_nopat = None
         nop = computed.get("nopat")
+        # ТЗ-97 Q10: поток roic (nopat) — из общего окна TTM его
+        # слагаемых; знаменатель остаётся моментным значением
+        # производного invested_capital (ТЗ-31 C2) — см. отклонение в
+        # отчёте
+        roi_flows = ("operating_income", "tax_expense", "pretax_income")
+        roi_windows = [windows.get(c) for c in roi_flows]
+        roi_window = (roi_windows[0]
+                      if all(w is not None for w in roi_windows) and
+                      len({(w.start, w.end) for w in roi_windows}) == 1
+                      else None)
+        if roi_window is None:
+            # Окна нет — знаменатель меры берёт последний ОБЩИЙ ГОДОВОЙ
+            # период, и помечается он как запасной выход, а не как TTM.
+            roi_note = annual_route_note(windows, list(roi_flows))
+            annual_nopat = self._annual_common_period(issuer_id,
+                                                      roi_flows, roi_note)
         if ic is None:
             write("roic", None, "missing_data: invested_capital",
                   "ratio", [])
+        elif roi_window is not None:
+            values = dict(zip(roi_flows, roi_windows))
+            why = fallback_note(windows, list(roi_flows))
+            rate, _rate_reason = effective_tax_rate(
+                values["tax_expense"].value,
+                values["pretax_income"].value)
+            nop_value = (nopat(values["operating_income"].value, rate)
+                         if rate is not None else None)
+            lineage = self._with_basis(
+                window_lineage(values["operating_income"], why)
+                + window_lineage(values["tax_expense"], why)
+                + window_lineage(values["pretax_income"], why)
+                + self._fact_lineage(ic[3]) + ic_lineage_extra,
+                roi_window.basis)
+            if nop_value is None:
+                write("roic", None, "missing_data: nopat", "ratio",
+                      lineage)
+            else:
+                m = calculate_measure("roic", nopat=nop_value,
+                                      invested_capital_begin=ic[0],
+                                      invested_capital_end=ic[0])
+                write("roic", m.value, m.null_reason, "ratio", lineage)
+                mark_fallback("roic", why)
         elif annual_nopat is not None:
             rate, rate_reason = effective_tax_rate(
                 annual_nopat["values"]["tax_expense"],
@@ -1356,7 +1677,8 @@ class SnapshotBuilder:
                               rate) if rate is not None else None
             if nop_value is None:
                 write("roic", None, "missing_data: nopat", "ratio",
-                      annual_nopat["lineage"])
+                      self._with_basis(annual_nopat["lineage"],
+                                       ANNUAL_FALLBACK))
             else:
                 m = calculate_measure("roic", nopat=nop_value,
                                       invested_capital_begin=ic[0],
@@ -1365,7 +1687,8 @@ class SnapshotBuilder:
                       self._with_basis(
                           annual_nopat["lineage"]
                           + self._fact_lineage(ic[3])
-                          + ic_lineage_extra, "annual"))
+                          + ic_lineage_extra, ANNUAL_FALLBACK))
+                mark_fallback("roic", roi_note)
         elif nop is None:
             write("roic", None, "missing_data: nopat", "ratio", [])
         else:

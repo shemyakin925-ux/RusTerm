@@ -191,27 +191,36 @@ def test_golden_units_currencies_and_periods(env):
         assert by_concept[concept][5] == "ratio", concept
     # dps_ttm без факта: значение пришло из corporate_action
     assert by_concept["div_yield"][4] is not None
-    # ТЗ-32 D6: база периода видна в lineage — годовое приближение
-    # (annual) у ev_ebitda и roic, окно 365 дней (ttm) у div_yield
+    # ТЗ-32 D6 + ТЗ-97 Q10: база периода видна в lineage. У Apple после
+    # годового FY2025 не подано ничего, и по Q10 этот годовой И ЕСТЬ
+    # окно TTM (база ttm, окно = год) — не «годовое приближение».
     for concept in ("ev_ebitda", "roic"):
         mid = by_concept[concept][0]
         bases = {r[0] for r in conn.execute(
             """SELECT period_basis FROM measure_lineage
                WHERE measure_id=? AND period_basis IS NOT NULL""",
             (mid,))}
-        assert bases == {"annual"}, (concept, bases)
+        assert bases == {"ttm"}, (concept, bases)
+        roles = [r[0] for r in conn.execute(
+            "SELECT role FROM measure_lineage WHERE measure_id=?", (mid,))]
+        assert not [role for role in roles
+                    if "annual_fallback" in role], (concept, roles)
     div_mid = by_concept["div_yield"][0]
     bases = {r[0] for r in conn.execute(
         """SELECT period_basis FROM measure_lineage_ca
            WHERE measure_id=?""", (div_mid,))}
     assert bases == {"ttm"}, bases
-    # годовой период назван: FY2025 у знаменателя ev_ebitda
+    # окно названо целиком, а не только его конец: Q10 требует в lineage
+    # видеть окно TTM и все слагаемые
     mid = by_concept["ev_ebitda"][0]
-    periods = {r[0] for r in conn.execute(
-        """SELECT f.period_end FROM measure_lineage l
+    windows = {(r[0], r[1]) for r in conn.execute(
+        """SELECT f.period_start, f.period_end FROM measure_lineage l
            JOIN fact f ON f.fact_id = l.fact_id
-           WHERE l.measure_id=? AND l.period_basis='annual'""", (mid,))}
-    assert "2025-09-27" in periods, periods
+           WHERE l.measure_id=? AND l.period_basis='ttm'""", (mid,))}
+    assert ("2024-09-29", "2025-09-27") in windows, windows
+    roles = [r[0] for r in conn.execute(
+        "SELECT role FROM measure_lineage WHERE measure_id=?", (mid,))]
+    assert any("2024-09-29…2025-09-27" in role for role in roles), roles
     conn.close()
 
 

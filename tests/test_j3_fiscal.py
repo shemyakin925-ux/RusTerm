@@ -191,12 +191,19 @@ def test_facts_after_as_of_are_not_closed_yet(env):
     net_margin = next(m for m in rows if m[3] == "net_margin")
     assert net_margin[4] is not None
     assert net_margin[7] == "2024-12-31", "h1fy25 ещё не закрыт на дату"
-    # на более позднюю дату тот же конвейер берёт уже полугодие
+    # ТЗ-97 Q10: на более позднюю дату полугодие в знаменатель само не
+    # идёт — поток не имеет права быть смесью шести месяцев и года. Без
+    # прошлогоднего полугодия берётся последний годовой, и это не тихо:
+    # база периода и недостающее слагаемое названы в lineage.
     builder.build("US-D", "id", "2025-07-15")
     rows = repos.snapshot.get_measures(
         repos.snapshot.latest_snapshot_id("US-D"))
     net_margin = next(m for m in rows if m[3] == "net_margin")
-    assert net_margin[7] == "2025-06-30"
+    assert net_margin[7] == "2024-12-31", net_margin
+    marks = repos.snapshot.period_marks(net_margin[0])
+    assert marks, net_margin
+    assert any("2024-01-01…2024-12-31" in m for m in marks), marks
+    assert any("ytd_prior" in m and "2024-06-30" in m for m in marks), marks
 
 
 def test_add_records_fiscal_year_end(tmp_path, monkeypatch, capsys):

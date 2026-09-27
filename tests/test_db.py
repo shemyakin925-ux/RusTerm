@@ -1,6 +1,7 @@
 """Тесты инкремента И3: база данных SQLite, миграции, единственный писатель."""
 from __future__ import annotations
 
+import re
 import sqlite3
 import tempfile
 import time
@@ -20,12 +21,14 @@ def test_schema_version_is_36():
     + 42 (corporate_action — вход мер: lineage на события; ТЗ-31 C2)
     + 43 (period_basis ttm|annual в lineage; ТЗ-32 D6)
     + 44 (ownership_transaction; ТЗ-33 E1)
-    + 45 (chat_transcript, chat_turn; ТЗ-36 H1)."""
-    assert _SCHEMA_VERSION == 45
+    + 45 (chat_transcript, chat_turn; ТЗ-36 H1)
+    + 46 (период_basis lineage пропускает annual_fallback; ТЗ-97 Q10,
+    ADR-0025)."""
+    assert _SCHEMA_VERSION == 46
 
 
 def test_apply_migrations_creates_all_tables():
-    """M3: миграция создаёт все таблицы и создаёт все таблицы; текущая версия — 45 (ТЗ-36 H1)."""
+    """M3: миграция создаёт все таблицы и создаёт все таблицы; текущая версия — 46 (ТЗ-97 Q10)."""
     import os
     tmpdir = tempfile.mkdtemp()
     db_path = os.path.join(tmpdir, "test.db")
@@ -37,7 +40,7 @@ def test_apply_migrations_creates_all_tables():
         # Берём максимальную версию (последняя применённая)
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 45
+        assert row[0] == 46
         # Ключевые таблицы
         tables = ["issuer", "instrument", "listing", "fact", "peer_set", "snapshot",
                   "measure", "coverage", "job", "audit_log",
@@ -216,8 +219,9 @@ def test_migration_33_keeps_data_and_allows_gzip():
         # v32-база получает 33 (gzip), 35 (governance), 36 (canonical),
         # 37 (issuer_ingest_state), 38 (индексы), 39 (агрегат) и
         # 40 (ручной импорт, TASK-19 F4)
-        assert newly == [33, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45], \
-            f"ожидались [33, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45], получили {newly}"
+        assert newly == [33, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+                         46], \
+            f"ожидались [33…45, 46], получили {newly}"
         rows = dict(conn.execute(
             "SELECT sha256, compression FROM raw_object").fetchall())
         assert rows == {"a" * 64: "none", "b" * 64: "zstd"}, (
@@ -487,11 +491,101 @@ def test_v39_database_migrates_fact_source_kind_defaults_provider(monkeypatch):
         # подъём: схема дозировано доезжает до 40
         monkeypatch.setattr(db_module, "_SCHEMA_VERSION", real_version)
         newly = apply_migrations(conn)
-        assert newly == [40, 41, 42, 43, 44, 45]
+        assert newly == [40, 41, 42, 43, 44, 45, 46]
         rows = conn.execute(
             "SELECT fact_id, source_kind FROM fact").fetchall()
         assert len(rows) == 1
         assert rows[0][0] == "f1" and rows[0][1] == "provider"
+    finally:
+        conn.close()
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── ТЗ-97 Q10 / ADR-0025: миграция 46 ширит CHECK обеих таблиц lineage ──
+
+_PERIOD_TABLES = ("measure_lineage", "measure_lineage_ca")
+
+
+def _narrow_period_ddl(conn, table: str) -> str:
+    """DDL таблицы lineage в виде до миграции 46: CHECK берётся из
+    живой схемы и сужается, а не переписывается руками. Если форма
+    ограничения разъедётся, замена не сработает и зуб краснеет сам —
+    молча проверить «ширение» на несуществующем прошлом нельзя."""
+    ddl = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+        (table,)).fetchone()[0]
+    narrow = ddl.replace("'ttm','annual','annual_fallback'", "'ttm','annual'")
+    assert narrow != ddl, f"CHECK таблицы {table} не в ожидаемой форме: {ddl}"
+    # имя в sqlite_master после ALTER ... RENAME хранится в кавычках;
+    # обе формы одинаково подходят, поэтому замена — по началу строки
+    renamed = re.sub(rf'^CREATE TABLE "?{table}"?',
+                     f"CREATE TABLE {table}_narrow", narrow, count=1)
+    assert "_narrow" in renamed.split("(")[0], renamed.split("(")[0]
+    return renamed
+
+
+def test_migration_46_widens_period_basis_and_keeps_lineage_rows():
+    """Годовой запасной выход обязан проходить через схему: миграция 43
+    пропустила только `ttm|annual`, и честная пометка «годовой, TTM не
+    собран» падала бы на вставке (IntegrityError) — т.е. сама отметка не
+    могла бы попасть в базу. Миграция 46 ширит CHECK обеих таблиц,
+    переливает строки с их базой, возвращает индекс доктора и не
+    превращает ограничение в декорацию: четвёртого значения нет."""
+    tmpdir = tempfile.mkdtemp()
+    conn = sqlite3.connect(f"{tmpdir}/t46.db", timeout=30,
+                           isolation_level=None)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        apply_migrations(conn)
+        narrow = {t: _narrow_period_ddl(conn, t) for t in _PERIOD_TABLES}
+        conn.execute("PRAGMA foreign_keys=OFF")
+        for table in _PERIOD_TABLES:
+            conn.execute(f"DROP TABLE {table}")
+        conn.execute(narrow["measure_lineage"])
+        conn.execute(narrow["measure_lineage_ca"])
+        conn.execute("""INSERT INTO measure_lineage_narrow
+                        (measure_id, fact_id, peer_measure_id, role,
+                         period_basis)
+                        VALUES ('m1','f1',NULL,'input:annual','annual')""")
+        conn.execute("""INSERT INTO measure_lineage_ca_narrow
+                        (measure_id, ca_instrument_id, ca_ex_date, ca_kind,
+                         role, period_basis)
+                        VALUES ('m1','US:A','2026-01-01','dividend','input',
+                                'annual')""")
+        for table in _PERIOD_TABLES:
+            conn.execute(f"ALTER TABLE {table}_narrow RENAME TO {table}")
+        conn.execute("DELETE FROM schema_version WHERE version=46")
+
+        assert apply_migrations(conn) == [46]
+        # база периода переживает перелив, а не обнуляется
+        assert conn.execute("SELECT period_basis FROM measure_lineage"
+                            ).fetchone()[0] == "annual"
+        assert conn.execute("SELECT period_basis FROM measure_lineage_ca"
+                            ).fetchone()[0] == "annual"
+        for table in _PERIOD_TABLES:
+            ddl = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE name=?",
+                (table,)).fetchone()[0]
+            assert "annual_fallback" in ddl, (table, ddl)
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='index'"
+            " AND name='idx_measure_lineage_measure'").fetchone(), \
+            "перестройка потеряла индекс, который сверяет doctor"
+        # ширение — не отмена: неизвестная база периода по-прежнему отказ
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("""INSERT INTO measure_lineage
+                            (measure_id, fact_id, peer_measure_id, role,
+                             period_basis)
+                            VALUES ('m2','f2',NULL,'input','quarterly')""")
+        conn.execute("""INSERT INTO measure_lineage
+                        (measure_id, fact_id, peer_measure_id, role,
+                         period_basis)
+                        VALUES ('m3','f3',NULL,
+                         'input:annual_fallback','annual_fallback')""")
+        assert conn.execute("SELECT COUNT(*) FROM measure_lineage"
+                            ).fetchone()[0] == 2
     finally:
         conn.close()
         import shutil

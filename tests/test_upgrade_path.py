@@ -32,8 +32,8 @@ GOLDEN = json.loads((DATA / "golden_schema44.json").read_text(
     encoding="utf-8"))
 
 CASES = {
-    "schema41.sqlite": [42, 43, 44, 45],
-    "schema44.sqlite": [45],
+    "schema41.sqlite": [42, 43, 44, 45, 46],
+    "schema44.sqlite": [45, 46],
 }
 
 
@@ -59,21 +59,40 @@ def _counts(db_path: Path) -> dict:
     return out
 
 
+def _lineage_rows(db_path: Path) -> list:
+    """Содержимое measure_lineage по прежним столбцам: миграция 46 (ТЗ-97
+    Q10) пересобирает таблицу ради нового CHECK — сравнение по строкам
+    до и после и есть проверка, что перелив ничего не потерял и не
+    переписал. Новый столбец period_basis сознательно не участвует: на
+    базе schema 41 его ещё нет."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return [tuple(r) for r in conn.execute(
+            "SELECT measure_id, fact_id, peer_measure_id, role"
+            " FROM measure_lineage ORDER BY measure_id, role")]
+    finally:
+        conn.close()
+
+
 @pytest.mark.parametrize("fixture,expected", sorted(CASES.items()))
 def test_upgrade_applies_missing_migrations_and_keeps_counts(
         tmp_path, fixture, expected):
     paths = _fresh_copy(tmp_path, fixture)
     counts_before = _counts(paths.db_path)
+    lineage_before = _lineage_rows(paths.db_path)
     conn = sqlite3.connect(str(paths.db_path))
     applied = apply_migrations(conn)
     assert applied == expected, (fixture, applied)
-    assert current_schema_version(conn) == 45
+    assert current_schema_version(conn) == 46
     # идемпотентность: применённая миграция не переписывается
     assert apply_migrations(conn) == []
     conn.commit()
     conn.close()
     assert _counts(paths.db_path) == counts_before
     assert counts_before == GOLDEN["counts"]
+    # ТЗ-97 Q10: пересобранная миграцией 46 таблица дошла до конца целой
+    assert _lineage_rows(paths.db_path) == lineage_before, (fixture,)
+    assert lineage_before, f"фикстура {fixture} без строк lineage"
 
 
 def test_doctor_is_green_after_upgrade(tmp_path):

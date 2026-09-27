@@ -899,6 +899,15 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict,
              f" ({panel['method_version']})",
              f"значение: {value_text}",
              f"единица: {measure_row.get('unit') or '—'}"]
+    # ТЗ-97 Q10: «в окне … пометка». Мера, прочитанная годовым вместо
+    # трейлинга, обязана сказать это вслух: в панели она выглядела бы
+    # как последние двенадцать месяцев.
+    marks = repos.snapshot.period_marks(
+        (measure_row.get("measure") or {}).get("measure_id"))
+    for mark in marks:
+        tail = mark.split("TTM не собран: ", 1)
+        lines.append(f"годовой, TTM не собран: {tail[1]}"
+                     if len(tail) > 1 else mark)
     if measure_row["null_reason"]:
         lines.append(f"причина: {measure_row['null_reason']}")
         tail = measure_row["null_reason"].split(":", 1)[1].strip() \
