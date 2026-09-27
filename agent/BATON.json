@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 137,
+ "holder": "coordinator",
+ "round": 138,
  "branch": "agent/night-11",
  "task": "agent/TASK-102.md",
  "report": "agent/REPORT-102.md",
- "note": "Round 136 accepted as partial TASK-97 (Q12-5, Q12-6, Q11, Q10, Q8; fresh clone 13/0). Disputed 1-7 ruled in TASK-102 (M1 fresh shares for price measures, M2 check_mention by file name, M3 same-date restated balance, M4 gap wording). Do TASK-102 now, then resume TASK-97 at Q5.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-27T05:37:36Z",
+ "note": "TASK-102 closed: M1-M4, one commit each (M4 = 24d8ce3, refusals caused by missing values now name members and values; 12 of 20 copy refusals carry the line, no value/n/reason moved). This hand carries two declared fix-forward wording edits (ADR-0025 clause 5 case ending; REPORT-102 M2 Done row rebuilt as prose). Next in queue: TASK-97 Q5 = TASK-91 B2 -> B6, B1 excluded, one commit per item.",
+ "handed_by": "executor",
+ "handed_at": "2026-09-27T10:58:33Z",
  "paused": false,
  "finished": false
 }
