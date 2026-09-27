@@ -1354,9 +1354,40 @@ class SnapshotBuilder:
             result.measures += 1
             return measure_id
 
-        def mismatch(pair: list) -> str:
-            a, b = sorted(pair)
-            return f"currency_mismatch: {a}, {b}"
+        def mismatch(currencies: list) -> str:
+            """ТЗ-91 B3: перечень валют в согласованном порядке; две
+            стороны у pb — частный случай того же формата."""
+            return ("currency_mismatch: "
+                    + ", ".join(sorted({c for c in currencies if c})))
+
+        def fact_currencies(*names: str) -> set:
+            return {inputs[n][2] for n in names
+                    if inputs.get(n) and inputs[n][2]}
+
+        def money_currency(names: tuple, with_price: bool = False):
+            """ТЗ-91 B3: валюта денежной меры — валюта её фактов, а не
+            цены: OTC/ADR-бумага с ценой в USD и отчётностью в GBP
+            получает GBP под тем же числом. Цена участвует только там,
+            где она вход (`with_price` — ev). Вход с пустой валютой в
+            спор не вступает: на легасивных строках отказ вытеснил бы
+            прежнюю подпись, а не чужой код. Больше одной валюты —
+            подписи нет: несуществующему числу валюта не назначается.
+            """
+            curs = fact_currencies(*names)
+            if with_price and price_currency:
+                curs.add(price_currency)
+            if len(curs) > 1:
+                return "", mismatch(sorted(curs))
+            return (curs.pop() if curs else ""), None
+
+        def upstream(reason, name: str) -> str:
+            """ТЗ-91 B3: отказ входа-меры передаётся наружу своим
+            токеном: `missing_data: <name>` на месте назвало бы
+            отсутствующим то, что пришло и отклонено по валюте, — та же
+            ложь, которую запретил B2."""
+            if (reason or "").startswith("currency_mismatch"):
+                return reason
+            return f"missing_data: {name}"
 
         def mark_fallback(concept: str, why: str) -> None:
             """ТЗ-97 Q10: мера, прочитанная годовым вместо трейлинга,
@@ -1396,12 +1427,16 @@ class SnapshotBuilder:
         # на месте, числа нет только без них.
         nd_value = None
         nd_reason = None
+        nd_unit, nd_conflict = money_currency(
+            ("total_debt", "cash", "st_investments"))
         nd_missing = sorted(
             name for name, v in (
                 ("total_debt", debt), ("cash", cash),
                 ("st_investments", stinv)) if v is None)
         if nd_missing:
             nd_reason = "missing_data: " + ", ".join(nd_missing)
+        elif nd_conflict:
+            nd_reason = nd_conflict
         else:
             nd_value = (debt[0] - cash[0] - stinv[0])
         nd_lineage = []
@@ -1409,7 +1444,7 @@ class SnapshotBuilder:
             if inputs.get(c):
                 nd_lineage += self._fact_lineage(inputs[c][3])
         write("net_debt", nd_value, nd_reason,
-              price_currency or "", nd_lineage)
+              measure_unit("net_debt", nd_unit), nd_lineage)
 
         # net_debt_ebitda = net_debt / ebitda (ratio; ebitda — проход 1)
         # ТЗ-91 B2: у ebitda, отличного от нуля, знаменатель есть —
@@ -1418,7 +1453,7 @@ class SnapshotBuilder:
         nde_value = None
         nde_reason = None
         if nd_value is None:
-            nde_reason = "missing_data: net_debt"
+            nde_reason = upstream(nd_reason, "net_debt")
         elif ebitda_value is None:
             nde_reason = "missing_data: ebitda"
         elif ebitda_value <= 0:
@@ -1437,12 +1472,16 @@ class SnapshotBuilder:
         # подтверждён ТЗ-68 N3, отсутствие названо в lineage)
         ic_value = None
         ic_reason = None
+        ic_unit, ic_conflict = money_currency(
+            ("total_equity", "total_debt", "cash", "st_investments"))
         ic_missing = sorted(
             name for name, v in (
                 ("total_equity", equity), ("total_debt", debt),
                 ("cash", cash), ("st_investments", stinv)) if v is None)
         if ic_missing:
             ic_reason = "missing_data: " + ", ".join(ic_missing)
+        elif ic_conflict:
+            ic_reason = ic_conflict
         else:
             ic_value = (equity[0] + debt[0] - cash[0] - stinv[0])
         ic_lineage = []
@@ -1450,7 +1489,7 @@ class SnapshotBuilder:
             if inputs.get(c):
                 ic_lineage += self._fact_lineage(inputs[c][3])
         write("invested_capital", ic_value, ic_reason,
-              price_currency or "", ic_lineage)
+              measure_unit("invested_capital", ic_unit), ic_lineage)
 
         if price_reason is not None:
             for concept in price_concepts:
@@ -1517,10 +1556,16 @@ class SnapshotBuilder:
         # ev = market_cap_total + долг - деньги + меньшинство + префы
         # (входы и решение о нулевом меньшинстве — выше, в блоке мер
         # без цены)
+        # ТЗ-91 B3: отказ по отсутствующему входу первее валютного спора —
+        # спор касается только тех входов, что на месте, а без входа мера
+        # невозможна при любых валютах.
         ev_value = None
         ev_reason = None
+        ev_unit, ev_conflict = money_currency(
+            ("total_debt", "cash", "st_investments", "minority_interest",
+             "preferred_equity"), with_price=True)
         if total_value is None:
-            ev_reason = "missing_data: market_cap_total"
+            ev_reason = upstream(mcap_reason, "market_cap_total")
         else:
             missing = sorted(
                 name for name, v in (
@@ -1529,6 +1574,8 @@ class SnapshotBuilder:
                     ("minority_interest", minority)) if v is None)
             if missing:
                 ev_reason = "missing_data: " + ", ".join(missing)
+            elif ev_conflict:
+                ev_reason = ev_conflict
             else:
                 m = calculate_measure(
                     "ev", market_cap_total=total_value,
@@ -1545,8 +1592,8 @@ class SnapshotBuilder:
             if inputs.get(c):
                 ev_lineage += self._fact_lineage(inputs[c][3])
         ev_lineage += nci_lineage
-        ev_mid = write("ev", ev_value, ev_reason, price_currency or "",
-                       ev_lineage)
+        ev_mid = write("ev", ev_value, ev_reason,
+                       measure_unit("ev", ev_unit), ev_lineage)
 
         # ТЗ-97 Q10: pe = market_cap_total / net_income_ttm (словарь) —
         # знаменатель берётся из окна TTM первого прохода; нет окна —
@@ -1655,8 +1702,8 @@ class SnapshotBuilder:
               fcfy_lineage)
 
         # ev_ebitda = ev / ebitda — ratio: обе стороны уже в одной
-        # валюте (ev наследует валюту цены, ebitda — валюту фактов
-        # эмитента); разные валюты фактов отсечены стражем выше.
+        # валюте (ev отказан по валютам своих входов выше, ebitda —
+        # валюты фактов эмитента).
         # ТЗ-97 Q10: знаменатель — окно TTM по слагаемым ebitda; нет
         # окна — прежний годовой общий период (ТЗ-31 C2), и он же
         # последняя опора перед мерой первого прохода.
@@ -1665,7 +1712,7 @@ class SnapshotBuilder:
         oi_win = windows.get("operating_income")
         dna_win = windows.get("d_and_a")
         if ev_reason is not None and ev_value is None:
-            write("ev_ebitda", None, "missing_data: ev", "ratio", [])
+            write("ev_ebitda", None, upstream(ev_reason, "ev"), "ratio", [])
         elif (oi_win is not None and dna_win is not None
                 and (oi_win.start, oi_win.end) == (dna_win.start,
                                                    dna_win.end)):
@@ -1743,10 +1790,30 @@ class SnapshotBuilder:
             te, td = inputs.get("total_equity"), inputs.get("total_debt")
             c, si = inputs.get("cash"), inputs.get("st_investments")
             if None not in (te, td, c, si, minority):
+                # ТЗ-91 B3: подпись этого числа — валюта тех же фактов,
+                # из которых оно собрано, а не валюта цены: roic читает
+                # отсюда свою знаменательную сторону.
                 ic = (invested_capital(te[0], minority[0], td[0], c[0],
-                                       si[0]), None, price_currency,
+                                       si[0]), None,
+                      money_currency(("total_equity", "total_debt", "cash",
+                                      "st_investments",
+                                      "minority_interest"))[0],
                       None)
                 ic_lineage_extra = nci_lineage
+        # ТЗ-91 B3: стороны roic — поток nopat и моментный капитал;
+        # больше одной валюты между ними — K6-отказ, а не частное.
+        # Валюта числителя берётся с уже записанной строки nopat: его
+        # слагаемые — потоки, а они в этот проход не попадают.
+        nopat_mid = measure_row_ids.get("nopat")
+        roic_curs: set = set()
+        if nopat_mid:
+            roic_curs = {c for c
+                         in self._snapshots.currencies_for_measure(nopat_mid)
+                         if c}
+        if ic is not None and ic[2]:
+            roic_curs.add(ic[2])
+        roic_conflict = (mismatch(sorted(roic_curs))
+                         if len(roic_curs) > 1 else None)
         annual_nopat = None
         nop = computed.get("nopat")
         # ТЗ-97 Q10: поток roic (nopat) — из общего окна TTM его
@@ -1768,6 +1835,8 @@ class SnapshotBuilder:
         if ic is None:
             write("roic", None, "missing_data: invested_capital",
                   "ratio", [])
+        elif roic_conflict is not None:
+            write("roic", None, roic_conflict, "ratio", [])
         elif roi_window is not None:
             values = dict(zip(roi_flows, roi_windows))
             why = fallback_note(windows, list(roi_flows))
