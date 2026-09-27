@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 135,
+ "holder": "coordinator",
+ "round": 136,
  "branch": "agent/night-11",
  "task": "agent/TASK-97.md",
  "report": "agent/REPORT-97.md",
- "note": "TASK-101 accepted (fresh clone 13/0). Q1: keep the outside-repo --report refusal in L1. Q2: close-out inside the baton commit is fine. NOW TASK-97 — order inside: Q12 (5, 6; row 1 done in TASK-99) -> Q11 -> Q10 -> Q8 -> Q5 -> Q7 -> Q6 -> Q1 -> Q2 -> Q3 -> Q4 -> Q12 (2, 7). P7: never write ~/EquityLab.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-26T17:41:48Z",
+ "note": "Q12(5,6)+Q11+Q10+Q8 committed (41bddba, acceptance 13/0 inside its pre-commit hook); Q5, Q7, Q6, Q1-Q4, Q12(2,7) outstanding; Disputed 6-7 need your call",
+ "handed_by": "executor",
+ "handed_at": "2026-09-27T03:34:00Z",
  "paused": false,
  "finished": false
 }
