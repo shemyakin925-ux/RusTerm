@@ -94,6 +94,24 @@ order is M1 → M2 → M3 → M4, one commit each).
    OK», 45 minutes because check 3's full-suite run nests I5's own selfcheck
    (acceptance → pytest → I5 → acceptance → pytest). The commit's pre-commit
    hook re-runs the same acceptance over the committed set.
+10. M1 landed as `49c6320` with that same verdict printed by the hook («Итог:
+    пройдено 13, провалено 0»), pushed `b9bd607..49c6320`.
+11. M2 written and measured before it lands; its Done row and its own Runs
+    come with the next commit, together with the third entry of the disputes
+    section below. One obstacle found on
+    the way, because it is a consequence of the rule itself: under name
+    matching, the *already published* M1 message cites `p1_rule.sh` in
+    prose, and the last-commit half of the L1 barrier reads a citation as an
+    unfulfilled promise — measured: the new script exits 1 on `49c6320`, the
+    old one exits 0. Published history is not rewritten, so M2 cannot be
+    M1's direct child: this bookkeeping commit (report + STATE, script still
+    the old one) goes between them, and M2 lands on top of it.
+12. First attempt at this bookkeeping commit was rejected by its own hook:
+    «Итог: пройдено 11, провалено 2», both reds the same test —
+    `test_report_sections.py::test_disputed_lines_live_only_in_disputed_section`,
+    because a wrapped line of Run 11 began with the word «Disputed» outside
+    the disputes section. Reworded and re-run; the tree was left intact by
+    the failure (both files stayed staged), which is what ТЗ-100 K2 buys.
 
 ## Disputed
 
@@ -120,4 +138,4 @@ order is M1 → M2 → M3 → M4, one commit each).
 Status: PARTIAL — M1 is finished by this commit; M2, M3 and M4 still have to
 be done in this round (one commit per item), then TASK-97 resumes at Q5.
 
-NOW: M1, step commit; then M2, M3, M4.
+NOW: M2, step commit (the guard-script change).
