@@ -159,7 +159,6 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
     no_snapshot = sum(1 for sid in members.values() if sid is None)
     for concept in concepts:
         values: list[tuple[str, float | None]] = []
-        measure_ids: list[str] = []
         member_measures: dict[str, str] = {}
         period_ends: dict[str, str] = {}
         for iid in sorted(members):
@@ -173,7 +172,6 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
             value = None if row is None or row[4] is None \
                 else float(row[4])
             if row is not None:
-                measure_ids.append(row[0])
                 member_measures[iid] = row[0]
                 if row[7]:
                     period_ends[iid] = row[7]
@@ -183,18 +181,20 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
         # (ни значением, ни валютой, ни причиной no_value)
         window = period_window(period_ends)
         if window.excluded:
-            stale_measures = {member_measures[iid]
-                              for iid in window.excluded
-                              if iid in member_measures}
             values = [pair for pair in values
                       if pair[0] not in window.excluded]
-            measure_ids = [mid for mid in measure_ids
-                           if mid not in stale_measures]
         # ТЗ-21 H3: агрегат несёт валюту, в которой заявлен; смешение
-        # валют абсолютной меры — currency_mismatch с перечнем
+        # валют абсолютной меры — currency_mismatch с перечнем.
+        # ТЗ-103 N2: валюта приходит только от участников СО ЗНАЧЕНИЕМ:
+        # отказная строка меры не вносит в сравнение ни числа, ни
+        # валюты, иначе набор из одних отказов отказывался по валютам,
+        # которых в сравнении не было вовсе (отчётная причина —
+        # `peer_set_too_small`, ТЗ-102 M4).
         currencies: set[str] = set()
-        for mid in measure_ids:
-            currencies |= repos.snapshot.currencies_for_measure(mid)
+        for iid, v in values:
+            mid = member_measures.get(iid) if v is not None else None
+            if mid:
+                currencies |= repos.snapshot.currencies_for_measure(mid)
         guard = currency_guard(concept, currencies)
         if guard is not None:
             aggregates.append(_with_window(AggregateMeasure(
