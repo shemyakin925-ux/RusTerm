@@ -307,28 +307,33 @@ class CompanyFactsParser:
         endpoint = context.get(
             "endpoint", "https://data.sec.gov/api/xbrl/companyfacts")
 
-        # TASK-18 G4 (§0.3 ruling 2): парсится та таксономия, которую
-        # несёт payload; обе — побеждает us-gaap. Ни одной из двух —
-        # разбираются все разделы как раньше (dei и прочие остаются
-        # неотображёнными). Имя таксономии уже живёт в json_pointer
-        # каждого факта — видимость без миграции.
+        # TASK-18 G4 (§0.3 ruling 2): разбираются финансовые разделы
+        # payload. ТЗ-97 Q4 (ТЗ-87 G3): «обе — побеждает us-gaap»
+        # понимается ПО КОНЦЕПТАМ, а не по всему payload: раньше раздел
+        # ifrs-full молча отбрасывался, если в payload был хоть один
+        # us-gaap-тег, и эмитент 20-F оставался без мер (KSPI: us-gaap
+        # 2 тега / 4 строки против ifrs-full 152 тегов / 1015 строк).
+        # Теперь разбираются оба раздела, а выбор источника на один
+        # концепт делает приоритет тега: us-gaap ранг 0, ifrs-full
+        # смещён на _IFRS_RANK_OFFSET, dei — на _DEI_RANK_OFFSET,
+        # поэтому us-gaap по-прежнему выигрывает там, где закрыты оба.
+        # Ни одного из двух — разбираются все разделы как раньше (dei и
+        # прочие остаются неотображёнными). Имя таксономии уже живёт в
+        # json_pointer каждого факта — видимость без миграции.
         # ТЗ-78 Y2: dei добавляется как ДОПОЛНИТЕЛЬНЫЙ раздел к любой
         # основной таксономии, а не заменяет её: обложка 10-K несёт
         # EntityCommonStockSharesOutstanding, которого нет в us-gaap, и
-        # приоритет решается в snapshot через priority_rank — us-gaap
-        # ранг 0, dei ранг 1000+ (см. _DEI_RANK_OFFSET), поэтому если
-        # эмитент подаёт оба тега для одной меры, us-gaap выигрывает.
+        # приоритет решается в snapshot через priority_rank.
         facts_root = doc.get("facts")
         if not isinstance(facts_root, dict):
             # Раздела facts нет или он не словарь: один зачтённый пропуск
             # на раздел (та же симметрия, что у tables и facts выше).
             result.unparsed += 1
             facts_root = {}
-        if "us-gaap" in facts_root:
-            taxonomies = [("us-gaap", facts_root["us-gaap"])]
-        elif "ifrs-full" in facts_root:
-            taxonomies = [("ifrs-full", facts_root["ifrs-full"])]
-        else:
+        taxonomies = [(name, facts_root[name])
+                      for name in ("us-gaap", "ifrs-full")
+                      if name in facts_root]
+        if not taxonomies:
             taxonomies = list(facts_root.items())
         if "dei" in facts_root and all(t != "dei" for t, _ in taxonomies):
             taxonomies = taxonomies + [("dei", facts_root["dei"])]

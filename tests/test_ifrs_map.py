@@ -4,7 +4,10 @@
   отображаются в None (они дают неверное число там, где сейчас честная
   дыра); st_investments не имеет IFRS-тега вовсе;
 - us-gaap-карта байт-в-байт та же, что на origin/main (ruling 1);
-- payload с двумя таксономиями парсится под us-gaap (ruling 2);
+- payload с двумя таксономиями: us-gaap выигрывает по КОНЦЕПТУ
+  (priority_rank со смещением ifrs-full) — ТЗ-97 Q4 уточняет ruling 2:
+  раньше раздел ifrs-full отбрасывался целиком, если в payload был хоть
+  один us-gaap-тег;
 - rusterm/formulas.py байт-в-байт равен origin/main (механический страж).
 """
 from __future__ import annotations
@@ -55,6 +58,9 @@ def test_every_named_ifrs_tag_maps_to_its_concept():
         "Equity": "total_equity_incl_nci",
         "CashAndCashEquivalents": "cash",
         "CashFlowsFromUsedInOperatingActivities": "ocf",
+        # ТЗ-97 Q4: себестоимость по payload KSPI (9 строк KZT, 20-F) и
+        # VALE (50 строк USD, 20-F/6-K)
+        "CostOfSales": "cogs",
         "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities":
             "capex",
         "FinanceCosts": "interest_expense",
@@ -64,7 +70,7 @@ def test_every_named_ifrs_tag_maps_to_its_concept():
         assert canonical_for(tag, "ifrs-full") == concept, tag
     assert set(expected) == {t for tags in CONCEPT_MAP_IFRS.values()
                              for t in tags}, "карта != таблица §0.2"
-    assert CONCEPT_MAP_VERSION_IFRS == "ifrs-full.v2"
+    assert CONCEPT_MAP_VERSION_IFRS == "ifrs-full.v3"
 
 
 def test_forbidden_lookalikes_map_to_none():

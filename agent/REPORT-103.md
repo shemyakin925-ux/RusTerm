@@ -909,6 +909,134 @@ database`; after, the same click leaves the status line above and the window
 open on its old catalogue.
 
 
+### ТЗ-97 Q4 — `G3`: a 20-F payload that carries two taxonomy sections
+
+**The cause, named with the evidence.** Live
+`https://data.sec.gov/api/xbrl/companyfacts/CIK0001985487.json` (KSPI,
+fetched 28.09.2026, 1 of the 5 requests Q4 is allowed) carries `us-gaap`
+with **two** tags — `OtherAssets`, `OtherLiabilities`, 4 entries, neither
+of them in the map — and `ifrs-full` with **152** tags / 1015 entries, 924
+of them in KZT. `CompanyFactsParser.parse` chose ONE taxonomy for the
+whole payload
+(`if "us-gaap" in facts_root: … elif "ifrs-full" in facts_root: …`, old
+`rusterm/parsers/__init__.py:307-336`), so those two dead `us-gaap` tags
+silently deleted the entire IFRS section. KSPI therefore had no filing
+facts at all: 7 rows in the catalogue (3 `dei`, 4 unmapped `us-gaap`), and
+every measure refused. Same filter held VALE (4 695 `us-gaap` rows parsed,
+3 947 `ifrs-full` rows dropped) and BHP; VOD gained rows but no numbers,
+and that is the honest answer (below). It was never a map gap for the
+nuclear tags — `ifrs-full.v2` already mapped Revenue/ProfitLoss/Assets —
+the one real map gap Q4 closes is `cogs` (rule 9, with a fixture).
+
+**What changed.**
+1. `rusterm/parsers/__init__.py` — both financial sections of one payload
+   are parsed (`us-gaap`, `ifrs-full`, then `dei` as an extra section as
+   ТЗ-78 Y2 requires); a payload with neither is parsed as before.
+2. `rusterm/normalize/concepts.py` — `_IFRS_RANK_OFFSET = 100`: TASK-18
+   §0.3 ruling 2 («both → us-gaap wins») is kept, but it now decides
+   **per concept** instead of per payload: us-gaap rank 0 < ifrs-full
+   100+ < dei 1000+.
+3. `rusterm/core/snapshot.py::_latest_canonical` — on one `period_end` two
+   facts of the same canonical concept can now come from different
+   taxonomies; the pick takes `min(priority_rank)` instead of whichever
+   row the database returned first. Without this the source of a valuation
+   input would have depended on row order.
+4. `ifrs-full.v3` — one tag added under rule 9: `cogs <- CostOfSales`.
+   Payload proof (rule 9 requires it, and it is in the code comment): KSPI
+   9 rows KZT (20-F, up to 2025-12-31), VALE 50 rows USD (20-F/6-K).
+   Without it `gross_profit` and `gross_margin` refused `missing_data:
+   cogs` where cost of sales is disclosed.
+5. `tools/trim_companyfacts.py` — the trimmer mirrored the parser: both
+   sections kept, and the annual-form list per taxonomy
+   (`ifrs-full`: 20-F/40-F/6-K; before, 20-F filers trimmed to nothing).
+6. Fixture `tests/data/edgar/companyfacts_q4_kspi.json` — the real KSPI
+   response, trimmed by the same recipe (11 953 bytes, sha256
+   `4333c899e4d89d78b8f476b901210ad1f16538099823921addda5ae45675fafa`),
+   plus the `us-gaap` section verbatim (unfiltered — those are the two
+   tags that caused the drop) and `dei` as filed.
+7. `tests/test_task97_q4_ifrs_ingest.py` — 12 teeth, all offline: fixture
+   bytes/provenance; the parser emits all three taxonomies from one
+   payload; per-concept us-gaap priority end-to-end (a synthetic
+   two-section payload assembles `asset_turnover` = 1000/100 = 10.0, the
+   ifrs number would give 9.99); rank-offset invariants; KSPI 76 facts
+   (`us-gaap` 4 / `ifrs-full` 69 / `dei` 3), 4 unmapped, 29 measures, 10
+   valued — the ten named; the same payload without the IFRS section
+   refuses all six reporting-only measures while `market_cap` (from `dei`)
+   survives — that is «было» as a tooth, not as prose; every refusal is a
+   dictionary word (`is_known_reason`); VALE r3 fixture 48 facts / 11
+   valued with M1's `stale_input: shares_outstanding (2012-12-31)` still a
+   refusal; and the trimmer keeps both sections and the 20-F form.
+8. `tests/test_task96_r3_replay.py` — US-VALE line moved 5→48 facts,
+   2→6 fact years, 0→11 valued, with the ЗАМЕНА-БУЛАВКИ/ПОЧЕМУ СИЛЬНЕЕ
+   note above the table (facts grew, M1's refusal is still asserted by
+   name); the stale claim that the IFRS section «is trimmed to `dei`» is
+   corrected in the same comment.
+
+**Cause in words, as the Done-when asks.** `rusterm export --format md` on
+the KSPI sandbox prints the reason under every gray row — measured, not
+claimed: `- [6] fcf: missing_data: capex`, `- [3] ebitda: missing_data:
+operating_income`, `- [12] net_debt: missing_data: st_investments,
+total_debt`, `- [8] gross_margin: missing_data: gross_profit`. The window
+prints the same string through `desktop/data.py` (`нет данных:
+{null_reason}`), and `rusterm snapshot` reports the counts.
+
+**Numbers, «было → стало».** Both sides are read-only copies of the user's
+catalogue under `/tmp` (P7 — `~/EquityLab` was not opened for writing), the
+same pipeline `reparse` + `snapshot --as-of 2026-09-28`, «было» = HEAD
+`b51e8aa` code, «стало» = this commit.
+
+| | facts | measures | valued |
+|---|---|---|---|
+| catalogue | 617 236 → 628 380 | — | — |
+| `ifrs-full` rows | 10 329 → 21 473 | — | — |
+| US-KSPI | 7 → 625 (+618 IFRS) | 31 → 36 | **0 → 11** |
+| US-BHP | 157 → 3 036 (+2 879) | 34 → 40 | **2 → 22** |
+| US-VALE | 4 712 → 8 659 (+3 947) | 39 → 39 | **15 → 14** |
+| US-VOD | 9 → 3 009 (+3 700) | 34 → 34 | **0 → 0** |
+
+The +11 144 rows are exactly those four issuers (KSPI 618 + VALE 3 947 +
+BHP 2 879 + VOD 3 700): the base's other IFRS filers (AMX, RIO, TECK, the
+CA market) had no `us-gaap` section, so nothing was dropped from them
+before and nothing changed for them now.
+
+VALE's −1 is the honest part, and it is not a lost number without a word:
+`gross_profit` 13 456 000 000, `gross_margin` 0.3504, `interest_coverage`
+3.58 and a `percentile` appeared, while `fcf`, `invested_capital`,
+`net_debt` and `net_debt_ebitda` moved to `stale_data: capex: last
+2017-12-31` / `stale_data: st_investments: last 2012-12-31, total_debt:
+last 2012-12-31`. Mechanism, measured: before, the newest `period_end`
+among the valuation inputs was 2012-12-31, so the 2012 debt tags defined
+the anchor and were eligible against it; fresh IFRS balance rows moved the
+anchor to 2025-12-31, and a 2012 debt row is now outside the lookback
+window. The programme refuses to divide a 2025 balance sheet by 2013 debt
+— the numbers were already mixed before, the anchor just hid it.
+
+VOD 0 → 0 with a reason instead of a blank: its IFRS history ends
+2018-03-31, so all 3 700 rows arrive and every measure says `stale_data:
+<input>: last 2018-03-31` (`market_cap` says `stale_input:
+shares_outstanding (2021-03-31)`). Q4's Done-when asked for the cause in
+words rather than an empty column; for VOD the cause is that the filings
+stopped, and that is what the window now says.
+
+**Budget.** Q4 allows ≤ 5 live requests: 2 spent (KSPI and VALE
+companyfacts, one each). Everything else in this item — parser, snapshot,
+both before/after copies, all 12 teeth — is network 0.
+
+**Verification.** `pytest tests/test_task97_q4_ifrs_ingest.py
+tests/test_task96_r3_replay.py tests/test_ifrs_map.py
+tests/test_edgar_parser.py tests/test_concept_map.py` green (1 xfail
+strict in `test_ifrs_map.py`, pre-existing: G4's tooth still expects the
+whole-payload pick, and I do not weaken it — see Disputed 19). Wider set
+of 30 files incl. `test_guide_truth.py`, `test_docs_truth.py`,
+`test_reparse_basis.py`, `test_task97_q12_reparse_facts.py`,
+`test_m3_snapshot.py`, `test_desktop_data.py`, `test_invariants.py`:
+**277 passed, 4 xfailed, 0 failed in 113.96s**; the citable re-run of a 28-file
+set is `220 passed, 1 skipped, 6 deselected, 4 xfailed in 44.26s` (Runs 78-85).
+Acceptance caught one defect in the fixture — the run had started to depend on
+the calendar day it was launched on; fixed in Run 85, and none of the numbers
+above moved.
+
+
 ## Blocked
 
 Nothing blocked. Budget held: network 0, LLM 0 — no fetch, no provider call, no
@@ -1281,6 +1409,64 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     hands the child the default path, so it can run — the general question is
     the harness's: should `-m live` restore the real env file the way it keeps
     the real HOME?
+
+19. **Q4 / `test_ifrs_map.py::test_g4_payload_taxonomy_us_gaap_wins_and_ifrs_parses`
+    is left `xfail(strict=True)` and still asserts the whole-payload pick.**
+    Its body says a two-section payload must parse `us-gaap` *instead of*
+    `ifrs-full`; that is exactly the behaviour Q4 removes, so after this
+    commit the tooth describes a ruling that no longer holds. It is someone
+    else's era pin (TASK-18 G4, xfail-marked since ТЗ-31 C2), so I neither
+    deleted it nor weakened it nor let it XPASS — the set still shows 4
+    xfailed. Ruling wanted: restate it as a per-concept pin (the wording is
+    already in the module docstring and in
+    `tests/test_task97_q4_ifrs_ingest.py::test_us_gaap_wins_the_concept_when_both_sections_close_it`),
+    or keep it as a tombstone of the old ruling.
+20. **Q4 / KSPI capex is disclosed only under a forbidden tag, so `fcf`
+    stays `missing_data: capex`.** The live payload has 9 KZT rows of
+    `PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets`
+    and no `PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities`.
+    TASK-18 G3 put that long tag into `_FORBIDDEN_LOOKALIKES` («they give a
+    wrong number where there is now an honest hole»: it sums PP&E +
+    intangibles + investment property + other non-current). I added it to
+    `CONCEPT_MAP_IFRS["capex"]`, saw it collide with the pin, and reverted —
+    the ban and its tooth are untouched, and KSPI keeps the hole. If the
+    coordinator wants the number, rule 9 and the ban conflict here and only
+    one of them can stand; a conditional tag (use the combined tag only when
+    the separate one is absent) has no mechanism in the map today.
+21. **Q4 / `gross_margin` refuses `missing_data: gross_profit` while
+    `gross_profit` has a value.** KSPI (fixture and base) gets
+    `gross_profit` = revenue − cogs from Q7's formula, and `gross_margin`
+    still reads the *fact* `gross_profit`, which KSPI never files —
+    `rusterm export --format md` prints both lines side by side: `- [13]
+    gross_profit: (число)` and `- [8] gross_margin: missing_data:
+    gross_profit`. VALE is unaffected (it files `GrossProfit`). The shape of
+    a fix exists — `_CHAIN_MEASURES` already feeds `nopat` from the finished
+    `effective_tax` measure — but wiring `gross_margin` to the derived
+    measure is Q7's family, not Q4's ingest item, so it is reported, not
+    done.
+22. **Q4 / `pe` and `ps` do not check that numerator and denominator share
+    a currency, and IFRS filers now reach that gap.** On the KSPI fixture
+    sandbox the price is USD and every fact is KZT, and the export prints
+    `pe 0.0166` — off by the FX rate — while `pb` next to it honestly
+    refuses `currency_mismatch: KZT, USD`. K6 guards `pb`, `div_yield` and
+    `roic`; `pe`/`ps` compute `total_value / ni_win.value` with no currency
+    comparison (`rusterm/core/snapshot.py:1853-1939`). Pre-existing, not
+    introduced here: US-AMX on the user base has valued `pe` and `ps` with
+    MXN facts and a USD price both before and after this commit. What Q4
+    changes is that KSPI/BHP-class issuers get income facts at all, so the
+    gap becomes reachable. Pinned by
+    `tests/test_task97_q4_ifrs_ingest.py::test_pe_and_ps_on_kspi_straddle_currencies`,
+    which is written as a measurement of the hole, not as an approval of it
+    — the fix (extend the guard to `pe`/`ps`) is a ruling for the
+    coordinator.
+23. **Q4 / `issuer.reporting_currency` says USD for KSPI while its filings
+    are KZT.** Base read (copy, read-only): US-KSPI `reporting_currency =
+    USD`, facts `KZT, USD, TJS` — 618 of the new rows are KZT, and 4 are
+    TJS (Tajik operations, real disclosure). The column is metadata from the
+    registry path, not derived from the filings, so any consumer that trusts
+    it over the facts' own unit will mislabel absolute measures. Out of Q4;
+    named because Disputed 22 depends on which currency a measure is
+    allowed to claim.
 
 ## Runs
 
@@ -1837,8 +2023,118 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     `bash agent/p6_rule.sh precommit` → exit 0; `git status --porcelain |
     grep '^??'` → empty. `agent/BATON.json` still names `agent/TASK-103.md`, so
     `agent/CONTEXT.md` stays out of this round's commits (Disputed 17).
+78. Q4 budget (TASK-97 line 11 — «Q4 — до 5 (payload KSPI)»): **2 live requests
+    spent, 3 unused**, both through `EdgarProvider(gate=RequestGate())` in
+    `/tmp/q4-probe/fetch.py`, nothing written to any catalogue.
+    `https://data.sec.gov/api/xbrl/companyfacts/CIK0001985487.json` → KSPI
+    `ifrs-full` 152 concepts / 1 015 entries (KZT 924, shares 36, pure 14,
+    KZT/shares 34, USD 1, TJS 6), `us-gaap` **2 concepts / 4 entries** (all KZT),
+    `dei` 1 / 3. `.../CIK0000917851.json` → VALE `us-gaap` 337 / 9 365,
+    `ifrs-full` 380 / 7 462, `dei` 2 / 28. The 20-F filers' `us-gaap` sections are
+    that thin — which is exactly the section the old filter kept, and threw the
+    rest away with. Round counter 38 → 40 requests; every other Q4 check (fixture
+    replay, the 12 teeth, both before/after copies) is network 0.
+79. Q4 teeth, fresh run: `python3 -m pytest tests/test_task97_q4_ifrs_ingest.py
+    tests/test_task96_r3_replay.py` → `16 passed in 1.02s` — the 12 new offline
+    teeth plus the 4 replay pins with the re-pointed US-VALE line.
+80. Q4 neighbourhood: 28 modules that reach the parser, either concept map,
+    `priority_rank`, `_latest_canonical`, the trimmer, GUIDE and the report
+    guards → `220 passed, 1 skipped, 6 deselected, 4 xfailed in 44.26s`
+    (`/tmp/q4-batch2.log`). An earlier 30-module set printed `277 passed,
+    7 deselected, 4 xfailed in 113.96s`; that run's tee'd log kept only the
+    progress dots, so the 28-module number is the citable one. The 4 xfailed are
+    the pre-existing pins and none of them flipped to green — under
+    `strict=True` a flip would be the sign that Q4 covertly satisfied TASK-18's
+    narrower wording of ruling 2 (Disputed 19).
+81. «было → стало» (P7): `/tmp/q4-probe/cmp.py <repo> <root> [reparse]` runs
+    `python3 -m rusterm.cli --root <root> reparse` and then
+    `snapshot --instrument <US-KSPI|US-VALE|US-VOD|US-BHP> --as-of 2026-09-28`
+    on both sides — «было» = `/tmp/q4-before-data` with the parent commit's code
+    in a throwaway worktree (`/tmp/rusterm-head`, removed after the run),
+    «стало» = `/tmp/q4-base-data` with this tree. Both roots are copies of the
+    user's catalogue under `/tmp`; `~/EquityLab` was read once to make the copy
+    and never passed to the pipeline. The table in Done is their output.
+82. The words behind the gray rows: `python3 -m rusterm.cli --root
+    /tmp/q4-base-data export --instrument US-KSPI --format md` → 25 measure
+    lines; the four footnotes quoted in Done are from this log
+    (`/tmp/q4-export-kspi.md`), verbatim: `[3] ebitda: missing_data:
+    operating_income`, `[6] fcf: missing_data: capex`, `[8] gross_margin:
+    missing_data: gross_profit`, `[12] net_debt: missing_data: st_investments,
+    total_debt`.
+83. Guards for Q4, as P1 counts them per staged file:
+    `tests/test_ifrs_map.py removed=1 added=1` (the version pin re-pointed
+    `v2` → `v3`, declared in the commit message),
+    `tests/test_task97_q4_ifrs_ingest.py removed=0 added=54`, every other staged
+    `.py` `0/0`; the US-VALE replay row is a value change carrying the same
+    declaration. `bash agent/p6_rule.sh precommit` → exit 0; `git status
+    --porcelain | grep '^??'` → empty with the fixture and the new module staged.
+    `agent/CONTEXT.md` again stays out of the commit while the baton names
+    TASK-103 (Disputed 17).
+84. Q4's first commit attempt was rejected, and the reason is the workflow fact
+    from Run 41 repeating itself: `git commit -F FILE` writes `COMMIT_EDITMSG`
+    only *after* the hook, so `agent/p1_rule.sh` read the previous commit's
+    message and the declaration was invisible —
+    `P1 (staged): необъявленная замена булавок: tests/test_ifrs_map.py (нет
+    объявления ЗАМЕНА-БУЛАВКИ/ПОЧЕМУ СИЛЬНЕЕ)`, `SELFCHECK FAIL (P1)`, no
+    acceptance ran, no commit. Fix without touching a guard:
+    `cp /tmp/commit-q4.txt "$(git rev-parse --git-path COMMIT_EDITMSG)"`, then
+    `bash agent/p1_rule.sh` → `P1: OK (staged)`, then the same `git commit -F`.
+    The line still belongs in PROTOCOL.md, which the queue keeps off-limits.
+85. Q4's acceptance came back red, and the cause was not the check that
+    reported it. Check 11 («Тесты проходят без zstandard») reruns the whole
+    suite, and by then the clock had crossed midnight: the sandbox in
+    `tests/test_task97_q4_ifrs_ingest.py` builds its instrument with
+    `rusterm add`, which stamps `ticker_history.valid_from = today`, while the
+    test pins `AS_OF = "2026-09-28"` — so the pinned date fell one day behind
+    the ticker's own validity window and the cached-price stage answered
+    `у 'US-KSPI' нет тикера на 2026-09-28`. Verdict `Итог: пройдено 12,
+    провалено 1` with 6 setup ERRORs in the new file; the commit did not
+    happen, HEAD stayed `b51e8aa`. The gzip fallback is not implicated.
+    Fix in the fixture, not in the pin: the sandbox declares its listing valid
+    from 2015-01-01 through the repo door (`add_ticker_history`), so the run
+    stopped depending on the calendar day it was launched on. Re-verified both
+    ways: with the blocked `zstandard` (same stub as acceptance:
+    `PYTHONPATH=/tmp/nozstd-block`) → `12 passed in 0.37s`; normally →
+    `12 passed in 0.44s`. No other module carries that date: `grep -rn
+    "2026-09-28" tests/*.py` names only this file.
 
 
 ## HANDOFF
 
-Status: not started yet — TASK-103 done, TASK-97 Q5 in progress.
+Status: **PARTIAL** — TASK-103 done; TASK-97 done through Q4 (Q5, Q7, Q6, Q1,
+Q2, Q3, Q4 = 7 of the 9 queue items); remaining: **Q12 rows 2 and 7**.
+
+- Round 139, branch `agent/night-11`, baton `holder: executor`, report this
+  file. Last accepted commit before Q4: `b51e8aa` (Q3).
+- Worth the coordinator's attention: Q4's first acceptance was red on check 11
+  («Тесты проходят без zstandard»), and the gzip fallback was innocent — that
+  check reruns the suite, and by then the clock had crossed midnight, so a
+  fixture that pinned `as_of` while `rusterm add` stamped the ticker from
+  *today* fell a day behind its own ticker window (Run 85). Fixed in the
+  fixture. Any future test that pins a date must also pin the ticker's
+  `valid_from`, otherwise it rots silently the next morning.
+- Queue order is TASK-97's own: `Q5 → Q7 → Q6 → Q1 → Q2 → Q3 → Q4 → Q12(2, 7)`,
+  so the round ends when rows 2 and 7 of Q12 are committed.
+- Q12 row 2: «Собрать» on a non-demo ticker must run `rusterm follow` for that
+  ticker in the background with stage output in the window; the demo path stays
+  as it is. Offscreen tooth with the `tests/data` stub transport asserting the
+  call.
+- Q12 row 7: time `tests/test_task65_k4_firsthour.py` offline; ≤ 60 s ⇒ drop the
+  `firsthour` marker, else keep it and record the measured time in Disputed.
+- Requests: 40 spent (38 for Q2's ownership forms, 2 for Q4's payloads).
+  Q2's own cap is 40 and is reached; Q4 has 3 of 5 left, but its payloads are
+  already recorded as fixtures, so no further live call is planned. Twelve Data
+  stays 401/paid-only (ADR-0018), so no price runs.
+- Decisions owed by the coordinator (all in Disputed, none blocking):
+  **20** — KSPI's capex appears only under a `_FORBIDDEN_LOOKALIKES` tag, so
+  `fcf` stays refused: TASK-97's rule 9 («собери что можешь») vs TASK-31's ban;
+  **21** — `gross_margin` refuses `missing_data: gross_profit` while the derived
+  `gross_profit` is valued, i.e. `_MEASURE_FORMULAS` reads the *fact*, and
+  `_CHAIN_MEASURES` is the shape of a fix;
+  **22** — `pe`/`ps` have no K6 currency guard (pre-existing: US-AMX reported
+  valued `pe` and `ps` over MXN facts against a USD price before and after Q4) —
+  wants its own queue item;
+  **23** — `issuer.reporting_currency` for KSPI is `USD` while its facts are
+  `KZT, USD, TJS` (618 of them KZT).
+- `agent/STATE.json` after this commit: `status: working`, `item`/`step`
+  describing Q4, `last_commit` = the Q4 commit.

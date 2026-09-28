@@ -138,6 +138,19 @@ US-AAPL: мер: 29 — со значением 13, пусто 16; перцен�
 это порядка ста бумаг; `rusterm budget` показывает, сколько уже
 изведено.
 
+Иностранный эмитент на форме 20-F нередко подаёт одну и ту же отчётность
+в двух разделах ответа EDGAR: `us-gaap` — пара технических тегов,
+`ifrs-full` — вся отчётность. Разбираются оба раздела; раньше второй
+молча отбрасывался, если первый был представлен хоть чем-то, и бумага
+оставалась без мер. Приоритет прежний, но решает поконцептно: там, где
+один концепт закрыт в обоих разделах, число берётся из `us-gaap`
+(ранги `ifrs-full` смещены на 100, обложка `dei` — на 1000). Пустая
+мера обязана быть названа словом из словаря причин — `missing_data:
+<вход>`, `stale_data: <вход>: last <дата>`, `currency_mismatch: ...` —
+его печатают и окно, и `export` (пример честного отказа: VOD подаёт
+XBRL до 2018-03-31 включительно, поэтому все её меры `stale_data`, а не
+пустой клетка).
+
 Дальше — окно. Чтобы CLI, окно и собранное `.app` открыли одну и ту же
 базу, добавьте в `~/.rusterm.env` третью строку (ТЗ-90 A5):
 
@@ -232,7 +245,7 @@ concept_map_version: us-gaap.v4
 
 ```console
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide status --json
-{"data_dir": "/private/tmp/rusterm-guide", "schema_version": 46, "schema_version_expected": 46, "schema_version_observed": 46, "instruments": 1, "watchlists": 1, "snapshots": [{"instrument_id": "US-CLI-DEMO", "snapshot_id": "523637c9-89de-4039-a92d-af7c8c80a773", "version": 1, "as_of": "2026-09-18"}], "coverage": {"ready": 2, "stale": 1, "processing": 0, "missing": 5, "error": 0}, "concept_map_version": "us-gaap.v4", "concept_map_version_ifrs": "ifrs-full.v2", "market_codes": ["US", "CA", "OTC", "KR", "BR", "AU"], "peer_sets": [], "budget": {"ceiling_per_night": 5000, "rate_per_second": 5, "provider_ran": false, "used": 0, "samples": {}}, "env": {"file": "/tmp/empty-guide-env", "exists": true, "world_readable": false, "vars": {"RUSTERM_SEC_UA": "—", "RUSTERM_LLM_PROVIDER": "—", "RUSTERM_LLM_API_KEY": "—", "RUSTERM_LLM_MODEL": "—", "RUSTERM_TWELVEDATA_KEY": "—", "RUSTERM_DATA": "—", "RUSTERM_DART_KEY": "—", "RUSTERM_LLM_BASE_URL": "—"}}, "chat": {"calls_total": 0, "calls_today": 0, "per_model": {}}}
+{"data_dir": "/private/tmp/rusterm-guide", "schema_version": 46, "schema_version_expected": 46, "schema_version_observed": 46, "instruments": 1, "watchlists": 1, "snapshots": [{"instrument_id": "US-CLI-DEMO", "snapshot_id": "523637c9-89de-4039-a92d-af7c8c80a773", "version": 1, "as_of": "2026-09-18"}], "coverage": {"ready": 2, "stale": 1, "processing": 0, "missing": 5, "error": 0}, "concept_map_version": "us-gaap.v4", "concept_map_version_ifrs": "ifrs-full.v3", "market_codes": ["US", "CA", "OTC", "KR", "BR", "AU"], "peer_sets": [], "budget": {"ceiling_per_night": 5000, "rate_per_second": 5, "provider_ran": false, "used": 0, "samples": {}}, "env": {"file": "/tmp/empty-guide-env", "exists": true, "world_readable": false, "vars": {"RUSTERM_SEC_UA": "—", "RUSTERM_LLM_PROVIDER": "—", "RUSTERM_LLM_API_KEY": "—", "RUSTERM_LLM_MODEL": "—", "RUSTERM_TWELVEDATA_KEY": "—", "RUSTERM_DATA": "—", "RUSTERM_DART_KEY": "—", "RUSTERM_LLM_BASE_URL": "—"}}, "chat": {"calls_total": 0, "calls_today": 0, "per_model": {}}}
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide coverage --instrument US-CLI-DEMO
 US-CLI-DEMO	corporate_actions	missing причина: no_data:corporate_actions

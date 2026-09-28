@@ -45,20 +45,28 @@ KEEP_ENTRY_FIELDS = ("val", "accn", "form", "filed", "fy", "fp",
 GOLDEN_PATH = REPO_ROOT / "tests" / "data" / "golden_m2.json"
 
 # Формы годовой отчётности по таксономии (TASK-18 G6): us-gaap —
-# домашние 10-K; ifrs-full — иностранные эмитенты MJDS: 40-F и 6-K.
-_FORMS_BY_TAXONOMY = {"us-gaap": ("10-K",), "ifrs-full": ("40-F", "6-K")}
+# домашние 10-K; ifrs-full — иностранные эмитенты MJDS: 20-F, 40-F и 6-K.
+# ТЗ-97 Q4: 20-F добавлен — это годовой отчёт иностранного эмитента по
+# МСФО (KSPI, VALE), без него обрезка выбрасывала весь годовой раздел.
+_FORMS_BY_TAXONOMY = {"us-gaap": ("10-K",),
+                      "ifrs-full": ("20-F", "40-F", "6-K")}
+
+
+def _financial_taxonomies(doc: dict) -> list:
+    """Финансовые разделы payload'а в порядке приоритета: us-gaap,
+    ifrs-full — ровно те, что разбирает парсер (ТЗ-97 Q4: оба, если оба
+    в payload; раньше инструмент держал один раздел, как и прежний
+    парсер). Пусто — значит ни одного из двух."""
+    facts = doc.get("facts", {})
+    return [name for name in ("us-gaap", "ifrs-full") if name in facts]
 
 
 def _taxonomy_of(doc: dict) -> str | None:
     """Таксономия payload'а: us-gaap, если есть; иначе ifrs-full;
     иначе None (TASK-18 G6: обрезка держит ту таксономию, что несёт
     payload, — поменялся только верхний ключ)."""
-    facts = doc.get("facts", {})
-    if "us-gaap" in facts:
-        return "us-gaap"
-    if "ifrs-full" in facts:
-        return "ifrs-full"
-    return None
+    taxonomies = _financial_taxonomies(doc)
+    return taxonomies[0] if taxonomies else None
 
 
 def golden_pointer_tags(golden_path: Path) -> set[str]:
@@ -75,26 +83,12 @@ def golden_pointer_tags(golden_path: Path) -> set[str]:
     return tags
 
 
-def trim(doc: dict, golden_path: Path = GOLDEN_PATH) -> dict:
-    taxonomy = _taxonomy_of(doc)
-    if taxonomy is None:
-        return {
-            "cik": doc.get("cik"),
-            "entityName": doc.get("entityName"),
-            "facts": {},
-        }
-    tag_map = CONCEPT_MAP_IFRS if taxonomy == "ifrs-full" else CONCEPT_MAP
-    tags = {tag for tags in tag_map.values() for tag in tags}
-    if taxonomy != "ifrs-full":
-        # golden-указатели относятся к us-gaap словарю (TASK-10 W1)
-        tags |= golden_pointer_tags(golden_path)
-
-    usgaap = doc.get("facts", {}).get(taxonomy, {})
+def _trim_section(section: dict, tags: set[str], taxonomy: str) -> dict:
     out_concepts: dict = {}
-    for name in sorted(usgaap):
+    for name in sorted(section):
         if name not in tags:
             continue
-        node = usgaap[name]
+        node = section[name]
         units_out: dict = {}
         forms = _FORMS_BY_TAXONOMY.get(taxonomy, ("10-K",))
         for unit, entries in node.get("units", {}).items():
@@ -127,11 +121,35 @@ def trim(doc: dict, golden_path: Path = GOLDEN_PATH) -> dict:
                     for e in kept]
         if units_out:
             out_concepts[name] = {"units": units_out}
+    return out_concepts
+
+
+def trim(doc: dict, golden_path: Path = GOLDEN_PATH) -> dict:
+    taxonomies = _financial_taxonomies(doc)
+    if not taxonomies:
+        return {
+            "cik": doc.get("cik"),
+            "entityName": doc.get("entityName"),
+            "facts": {},
+        }
+    facts = doc.get("facts", {})
+    golden_tags = golden_pointer_tags(golden_path)
+    out_facts: dict = {}
+    for taxonomy in taxonomies:
+        tag_map = (CONCEPT_MAP_IFRS if taxonomy == "ifrs-full"
+                   else CONCEPT_MAP)
+        tags = {tag for values in tag_map.values() for tag in values}
+        if taxonomy != "ifrs-full":
+            # golden-указатели относятся к us-gaap словарю (TASK-10 W1)
+            tags |= golden_tags
+        trimmed = _trim_section(facts.get(taxonomy, {}), tags, taxonomy)
+        if trimmed:
+            out_facts[taxonomy] = trimmed
 
     return {
         "cik": doc.get("cik"),
         "entityName": doc.get("entityName"),
-        "facts": {taxonomy: out_concepts},
+        "facts": out_facts,
     }
 
 

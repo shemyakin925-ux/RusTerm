@@ -1167,7 +1167,10 @@ class SnapshotBuilder:
                 continue
             if as_of and end > as_of:
                 continue        # период ещё не закрыт на дату сборки
-            closed.setdefault(key, []).append((numeric, end, fact_id))
+            taxonomy, local = strip_taxonomy(concept)
+            closed.setdefault(key, []).append(
+                (numeric, end, fact_id,
+                 priority_rank(key, local, taxonomy or "us-gaap")))
             if key not in newest or end > newest[key]:
                 newest[key] = end
         anchor = max(newest.values(), default=None)
@@ -1179,18 +1182,25 @@ class SnapshotBuilder:
         stale: dict = {}
         for key, items in closed.items():
             best = None
-            for numeric, end, fact_id in items:
+            best_rank = 1 << 30
+            for numeric, end, fact_id, rank in items:
                 if (anchor_date is not None
                         and key != "shares_outstanding"
                         and not _eligible_input(end, anchor_date)):
                     continue
-                if best is None or end > best[1]:
+                # ТЗ-97 Q4: на одной дате могут стоять два факта одного
+                # концепта из разных таксономий (20-F подаёт баланс и
+                # us-gaap-, и ifrs-full-тегами) — источник выбирает
+                # приоритет тега, а не порядок строк в базе.
+                if best is None or end > best[1] or (
+                        end == best[1] and rank < best_rank):
                     best = (numeric, end,
                             self._fact_currency_by_id(fact_id), fact_id)
+                    best_rank = rank
             if best is not None:
                 out[key] = best
             else:
-                stale[key] = max(end for _numeric, end, _fact in items)
+                stale[key] = max(row[1] for row in items)
         return out, stale
 
     def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:

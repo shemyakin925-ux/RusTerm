@@ -124,13 +124,22 @@ for _concept in CONCEPT_MAP:
 # Payload-доказательство тега (правило 9): IncomeTaxExpenseContinuingOperations —
 # RY 12 фактов до 2026-01-31, CNQ 6 до 2025-12-31, NGGTF 6 до
 # 2025-09-30 (companyfacts, tests/data/edgar/companyfacts_m6_*.json).
-CONCEPT_MAP_VERSION_IFRS = "ifrs-full.v2"
+CONCEPT_MAP_VERSION_IFRS = "ifrs-full.v3"  # v3: + cogs <- CostOfSales по payload-доказательствам KSPI/VALE (ТЗ-97 Q4)
 
 CONCEPT_MAP_IFRS: dict[str, tuple[str, ...]] = {
     "revenue": ("Revenue", "RevenueFromContractsWithCustomers"),
     "net_income": ("ProfitLossAttributableToOwnersOfParent", "ProfitLoss"),
     "operating_income": ("ProfitLossFromOperatingActivities",),
     "gross_profit": ("GrossProfit",),
+    # ТЗ-97 Q4 (правило 9): cogs <- CostOfSales — payload-доказательства
+    # companyfacts: KSPI 9 строк KZT (20-F, до 2025-12-31) и VALE 50
+    # строк USD (20-F/6-K). Без него gross_profit и gross_margin
+    # отказывали missing_data: cogs там, где себестоимость подана.
+    # Dropped-входы названы в отчёте: capex у KSPI подан только тегом из
+    # _FORBIDDEN_LOOKALIKES (TASK-18 G3: он складывает PP&E, нематериальные,
+    # инвестиционное имущество и прочие внеоборотные — неверное число там,
+    # где честная дыра), operating_income у KSPI не раскрывается вовсе.
+    "cogs": ("CostOfSales",),
     "pretax_income": ("ProfitLossBeforeTax",),
     "tax_expense": ("IncomeTaxExpenseContinuingOperations",),
     "d_and_a": ("DepreciationAndAmortisationExpense",
@@ -152,8 +161,15 @@ _IFRS_TAG_TO_CONCEPT: dict[str, str] = {
     for tag in tags
 }
 
+# ТЗ-97 Q4 (ТЗ-87 G3): смещение рангов IFRS — то же механическое правило,
+# что у dei (_DEI_RANK_OFFSET), только со своим номером. Payload с обеими
+# таксономиями теперь разбирается целиком (rusterm/parsers), и на один
+# канонический концепт могут прийти два факта; смещение даёт us-gaap
+# безусловный приоритет, а ifrs-full — приоритет над обложкой dei.
+_IFRS_RANK_OFFSET = 100
+
 _IFRS_PRIORITY: dict[str, dict[str, int]] = {
-    concept: {tag: rank for rank, tag in enumerate(tags)}
+    concept: {tag: _IFRS_RANK_OFFSET + rank for rank, tag in enumerate(tags)}
     for concept, tags in CONCEPT_MAP_IFRS.items()
 }
 
@@ -309,8 +325,9 @@ def priority_rank(concept: str, local_tag: str,
     """Ранг тега внутри концепта (0 — самый приоритетный). Неизвестный
     тег получает ранг за пределами таблицы. Таксономия выбирает таблицу
     приоритетов (us-gaap / ifrs-full / cvm-dfp / dei, TASK-18 G3,
-    ТЗ-56 Z2, ТЗ-78 Y2). Смещение `_DEI_RANK_OFFSET` даёт us-gaap
-    безусловный приоритет, когда оба тега закрыты одним концептом."""
+    ТЗ-56 Z2, ТЗ-78 Y2). Смещения `_IFRS_RANK_OFFSET` (=100) и
+    `_DEI_RANK_OFFSET` (=1000) дают us-gaap безусловный приоритет, когда
+    один концепт закрыт тегами разных таксономий (ТЗ-97 Q4)."""
     if taxonomy == "ifrs-full":
         return _IFRS_PRIORITY.get(concept, {}).get(local_tag, 1 << 30)
     if taxonomy == "cvm-dfp":
