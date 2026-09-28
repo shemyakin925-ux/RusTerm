@@ -1036,6 +1036,53 @@ Acceptance caught one defect in the fixture — the run had started to depend on
 the calendar day it was launched on; fixed in Run 85, and none of the numbers
 above moved.
 
+### ТЗ-97 Q12 (строка 7) — the first-hour test earns its place in the normal set
+
+**Verdict applied.** «прав»: a test that must redden on its own does not wear
+the `firsthour` marker. The row gives one file and one decision rule — offline
+and ≤ 60 s ⇒ drop the marker, otherwise keep it and write the measured runtime
+into Disputed. The measurement says drop.
+
+**Measured, on a quiet machine, offline** (the module writes a `sitecustomize`
+stub that re-points `EdgarProvider` and `TwelveDataProvider` at `tests/data`,
+then drives the real CLI in subprocesses — network 0):
+- before the change, explicitly: `pytest -m firsthour
+  tests/test_task65_k4_firsthour.py` → `1 passed in 11.46s`;
+- after the marker was removed, the same file in the default configuration →
+  `1 passed in 15.42s`, and re-measured on the final tree (Run 86) →
+  `1 passed in 11.39s`;
+- together with its neighbours `tests/test_cli.py` and
+  `tests/test_desktop_window.py` → `77 passed in 21.02s`.
+Stage numbers the run prints (Run 86, verbatim): `firsthour: init 0.2 с; add
+0.4 с; ingest edgar 0.2 с; ingest twelvedata 7.7 с; snapshot 0.2 с; окно 2.1 с;
+export 0.2 с; запросов 6; мер со значением 11 из 29; с происхождением 11 из 11`
+— the «окно» stage wobbles by 0.1 с between runs, which is why the file's
+docstring quotes the wall time and the dominant price stage, not every step.
+Three more numbers say the change is safe rather than merely fast: `-m
+firsthour` after the edit collects 2 tests and both come from
+`tests/test_desktop_f2_double_click.py` (`tests/test_desktop_f2_double_click.py:
+2`, i.e. K4 really left the marker set), K4 really runs in the default
+configuration, and it runs there without breaking the Q11 HOME guard —
+`pytest tests/test_task65_k4_firsthour.py tests/test_task97_q11_home_clean.py
+tests/test_report_sections.py tests/test_guide_truth.py tests/test_docs_truth.py
+tests/test_state_report_tracked.py tests/test_desktop_f2_double_click.py` →
+`51 passed, 1 skipped, 2 deselected in 16.42s` (Run 87). Both wall times sit
+under the 60 s line in the row, twice over.
+
+**What changed.** The test file and one config line. In
+`tests/test_task65_k4_firsthour.py` the `@pytest.mark.firsthour` decorator is
+gone, the module docstring's claim that the normal set does not run it is
+replaced by the measurement and the reason, and the `import pytest` that no
+longer has a purpose in the file was deleted. `pyproject.toml` keeps both the
+marker declaration and the `addopts` exclusion — `tests/test_desktop_f2_double_click.py`
+still carries `pytestmark = pytest.mark.firsthour` (a `.app` build, far over the
+budget), so the config is not dead — but the marker's own description named
+ТЗ-65 K4, and after this commit that is no longer true, so the description now
+names the file that actually wears the marker and records the measured 11.4 s
+that moved K4 back into the normal set. Nothing else had to move.
+
+**Budget.** network 0.
+
 
 ## Blocked
 
@@ -2097,15 +2144,37 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     `PYTHONPATH=/tmp/nozstd-block`) → `12 passed in 0.37s`; normally →
     `12 passed in 0.44s`. No other module carries that date: `grep -rn
     "2026-09-28" tests/*.py` names only this file.
+86. Row 7 re-measured on the tree as it will be committed
+    (`python3 -m pytest tests/test_task65_k4_firsthour.py -s`,
+    `QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0`) →
+    `firsthour: init 0.2 с; add 0.4 с; ingest edgar 0.2 с; ingest twelvedata
+    7.7 с; snapshot 0.2 с; окно 2.1 с; export 0.2 с; запросов 6; мер со
+    значением 11 из 29; с происхождением 11 из 11` and `1 passed in 11.39s`.
+    The same command before the edit, selected by the marker, was
+    `1 passed in 11.46s` — so removing the marker moved nothing but coverage.
+87. Row 7 guards: `python3 -m pytest --collect-only -q -m firsthour` →
+    `tests/test_desktop_f2_double_click.py: 2` (K4 is out of the marker set,
+    and the marker is still used, so `pyproject` stays meaningful);
+    `python3 -m pytest --markers | grep firsthour` prints the rewritten
+    description; and the batch
+    `python3 -m pytest tests/test_task65_k4_firsthour.py
+    tests/test_task97_q11_home_clean.py tests/test_report_sections.py
+    tests/test_guide_truth.py tests/test_docs_truth.py
+    tests/test_state_report_tracked.py tests/test_desktop_f2_double_click.py`
+    → `51 passed, 1 skipped, 2 deselected in 16.42s` — K4 now runs inside the
+    default selection without tripping the Q11 «прогон набора создал в
+    подменённом HOME лишнее» teardown that Disputed 11 documents for the f2
+    build.
 
 
 ## HANDOFF
 
-Status: **PARTIAL** — TASK-103 done; TASK-97 done through Q4 (Q5, Q7, Q6, Q1,
-Q2, Q3, Q4 = 7 of the 9 queue items); remaining: **Q12 rows 2 and 7**.
+Status: **PARTIAL** — TASK-103 done; TASK-97 done through Q12 row 7 (Q5, Q7,
+Q6, Q1, Q2, Q3, Q4 + Q12/7 = 8 of the 9 queue items); remaining: **Q12 row 2**.
 
 - Round 139, branch `agent/night-11`, baton `holder: executor`, report this
-  file. Last accepted commit before Q4: `b51e8aa` (Q3).
+  file. Q4 was accepted and pushed as `18f92c3` (acceptance 13/0); before it,
+  Q3 was `b51e8aa`.
 - Worth the coordinator's attention: Q4's first acceptance was red on check 11
   («Тесты проходят без zstandard»), and the gzip fallback was innocent — that
   check reruns the suite, and by then the clock had crossed midnight, so a
@@ -2114,13 +2183,17 @@ Q2, Q3, Q4 = 7 of the 9 queue items); remaining: **Q12 rows 2 and 7**.
   fixture. Any future test that pins a date must also pin the ticker's
   `valid_from`, otherwise it rots silently the next morning.
 - Queue order is TASK-97's own: `Q5 → Q7 → Q6 → Q1 → Q2 → Q3 → Q4 → Q12(2, 7)`,
-  so the round ends when rows 2 and 7 of Q12 are committed.
+  so the round ends when row 2 of Q12 is committed.
+- Q12 row 7 is done in this commit: `tests/test_task65_k4_firsthour.py` was
+  timed offline at `1 passed in 11.39s`, under the row's 60 s line, so the
+  `firsthour` marker came off and the test now runs in the default set — which
+  is where acceptance's bare `pytest -q` will keep it honest from now on.
+  `pyproject.toml` keeps the marker (the f2 `.app` build still wears it) with
+  its description corrected to name that file instead of K4.
 - Q12 row 2: «Собрать» on a non-demo ticker must run `rusterm follow` for that
   ticker in the background with stage output in the window; the demo path stays
   as it is. Offscreen tooth with the `tests/data` stub transport asserting the
   call.
-- Q12 row 7: time `tests/test_task65_k4_firsthour.py` offline; ≤ 60 s ⇒ drop the
-  `firsthour` marker, else keep it and record the measured time in Disputed.
 - Requests: 40 spent (38 for Q2's ownership forms, 2 for Q4's payloads).
   Q2's own cap is 40 and is reached; Q4 has 3 of 5 left, but its payloads are
   already recorded as fixtures, so no further live call is planned. Twelve Data
@@ -2137,4 +2210,5 @@ Q2, Q3, Q4 = 7 of the 9 queue items); remaining: **Q12 rows 2 and 7**.
   **23** — `issuer.reporting_currency` for KSPI is `USD` while its facts are
   `KZT, USD, TJS` (618 of them KZT).
 - `agent/STATE.json` after this commit: `status: working`, `item`/`step`
-  describing Q4, `last_commit` = the Q4 commit.
+  describing Q12 row 7, `last_commit` = the Q4 commit (`18f92c3`), requests
+  unchanged at 40 — row 7 spent none.

@@ -2,8 +2,12 @@
 
 Сценарий ТЗ-63 целиком на записанных ответах (hermetic-стаб EDGAR:
 карта тикеров, биржи, companyfacts из tests/data) — без сети.
-Печатает тайминги и числа; в обычном наборе не гоняется
-(pyproject addopts), явный вызов: pytest -m firsthour.
+Печатает тайминги и числа.
+
+ТЗ-97 Q12 (строка 7): маркер `firsthour` снят — тест офлайн и укладывается
+в 60 с. Замер прогона: `1 passed in 11.39s`, из них ~7.7 с — шаг цен
+twelvedata. Такой тест не должен ждать явного вызова: он обязан покраснеть сам,
+если путь первого часа сломан.
 """
 from __future__ import annotations
 
@@ -13,8 +17,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-
-import pytest  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -70,7 +72,6 @@ _tw.TwelveDataProvider = _T
     (stub_dir / "sitecustomize.py").write_text(code, encoding="utf-8")
 
 
-@pytest.mark.firsthour
 def test_first_hour_scenario(tmp_path, capsys):
     stub = tmp_path / "stub"
     stub.mkdir()
