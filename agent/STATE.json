@@ -1,6 +1,6 @@
 {
- "task": "agent/TASK-97.md",
- "report": "agent/REPORT-103.md",
+ "task": "agent/TASK-104.md",
+ "report": "agent/REPORT-104.md",
  "item": "ТЗ-97 Q12 (строка 2) in this commit: «Собрать» on a non-demo paper used to call collect_synthetic in the UI thread and print a five-command refusal (reason synthetic_demo_only, 0 requests, nothing written). Now the window starts a _FollowWorker that runs the new door desktop_actions.follow_instrument, which parses [\"--root\", root, \"follow\", ticker, \"--market\", market] with cli._build_parser and calls the same cli.cmd_follow the terminal calls — no stage body is copied. cmd_follow grew two optional arguments (emit, cancel) and FOLLOW_CANCELLED = 130; its stdout is byte-identical, which tests/test_guide_truth.py proves by executing the GUIDE §1.1 block. The ticker is read from the store door (ticker_for_instrument), not split from the identifier, so a renamed paper is collected under its live ticker. The demo branch is untouched.",
  "step": "Row 2 committed as 583ab93 through the hook: acceptance «Итог: пройдено 13, провалено 0», GIT_COMMIT_EXIT=0, pushed (0 ahead). The first acceptance preview was 12/1 on check 6 («Qt только в rusterm/desktop/»), because the new Qt module was named tests/test_task97_q12_collect_follow.py while the guard allows PySide6 outside rusterm/desktop/ only in tests/test_desktop_*.py; the guard was not touched, the module moved to tests/test_desktop_task97_q12_collect_follow.py (Run 95-97). Evidence: 9 teeth 9 passed in 10.00s; batch 262 passed, 4 skipped, 3 deselected, 1 xfailed in 88.69s before the rename and the same counts in 91.56s after; guards 60 passed, 1 skipped, 2 deselected in 27.19s; before/after numbers in the report table were measured on /tmp sandboxes with recorded tests/data transports, network 0 (P7). TASK-97's queue is complete — Q5, Q7, Q6, Q1, Q2, Q3, Q4, Q12 rows 7 and 2 — so the baton goes to the coordinator and the next item needs a new ТЗ (BACKLOG.md and TASK-*.md are mine to read, not to write).",
  "status": "handed",
@@ -9,5 +9,5 @@
  "net_requests": 40,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-28T20:17:28Z"
+ "updated_at": "2026-09-28T22:44:40Z"
 }

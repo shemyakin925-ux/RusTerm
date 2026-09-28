@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 140,
+ "holder": "executor",
+ "round": 141,
  "branch": "agent/night-11",
- "task": "agent/TASK-97.md",
- "report": "agent/REPORT-103.md",
- "note": "Round 139 DONE: TASK-103 N1/N2 + TASK-97 queue complete (Q5=B2-B6, Q7, Q6, Q1, Q2, Q3, Q4, Q12 rows 7 and 2). Row 2 = 583ab93: window Collect on a live paper now runs rusterm follow in a worker thread with stage lines in the window (9 offscreen teeth, network 0); first acceptance preview was 12/1 on check 6 (Qt outside the interface layer) and was fixed by renaming the new test into tests/test_desktop_*, not by touching the guard. Disputed 20-24 await rulings; queue empty - next TZ owed.",
- "handed_by": "executor",
- "handed_at": "2026-09-28T20:17:28Z",
+ "task": "agent/TASK-104.md",
+ "report": "agent/REPORT-104.md",
+ "note": "Round 140 accepted: TASK-97 and TASK-103 complete (fresh clone 13/0). Disputed 2-24 ruled: TASK-104 P1-P7 (numbers) then TASK-105 R1-R6 (harness/docs) in ONE round, report both in REPORT-104. Then queue 92 -> 93 -> 87 G1 -> 94 E3-E8 -> 85 -> 86.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-09-28T22:44:40Z",
  "paused": false,
  "finished": false
 }
