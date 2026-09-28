@@ -2360,6 +2360,26 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     (`/tmp/q12-batch3.log`). The count is Run 93's exactly: the module moved from
     being listed by hand to being caught by the `tests/test_desktop_*.py` glob,
     so the same 9 teeth arrive once either way.
+98. Row 2 committed through the hook: `git commit -F /tmp/commit-row2.txt` →
+    `/tmp/row2-commit.log`, hook acceptance
+    `Итог: пройдено 13, провалено 0` / `Принято.` / `SELFCHECK OK`,
+    `GIT_COMMIT_EXIT=0`, commit `583ab93` — 8 files, +907/-69, message carries
+    the ЗАМЕНА-БУЛАВКИ line for the one re-pointed pin
+    (`tests/test_desktop_window.py::test_collect_refuses_non_demo_with_cli_words`
+    → `::test_collect_on_non_demo_starts_follow_in_the_worker_thread`) and the
+    check-6 rename story. Pushed: `git rev-list --count origin/agent/night-11..HEAD`
+    → 0.
+99. Scratch cleanup before the hand: the multi-hundred-megabyte /tmp copies of
+    the user's catalogue that the before/after tables were measured on are
+    deleted (`/tmp/q4-base-data`, `/tmp/q4-before-data`, `/tmp/rusterm-q2`,
+    `/tmp/rusterm-q2live`, `/tmp/rusterm-nolag`, `/tmp/q4-probe`, ~1.8 GB). What
+    remains, for re-checking: the measurement scripts and their logs
+    (`/tmp/q12-before.py`, `/tmp/q12-probe.py`, `/tmp/q12-batch2.log`,
+    `/tmp/q12-batch3.log`, `/tmp/row2-commit.log`, `/tmp/b2/rebuild.py`,
+    `/tmp/q4-replay-kspi.py`). Every number quoted in this report was read from
+    those outputs while they existed; a rebuild of the same A/B needs a fresh
+    read-only copy of `~/EquityLab/data` (P7 — the original was never opened for
+    writing at any point).
 
 
 ## HANDOFF
@@ -2371,8 +2391,8 @@ rows 1, 5, 6 were done in earlier rounds.
 
 - Round 139, branch `agent/night-11`, baton `holder: executor`, report this
   file. Commits this round, oldest first: N1 `131f6ba`, N2 `69cda54`, then
-  Q5/Q7/Q6/Q1/Q2, Q3 `b51e8aa`, Q4 `18f92c3`, Q12 row 7 `232e3bb`, Q12 row 2 =
-  this commit. Each went through the hook with «Итог: пройдено 13, провалено 0».
+  Q5/Q7/Q6/Q1/Q2, Q3 `b51e8aa`, Q4 `18f92c3`, Q12 row 7 `232e3bb`, Q12 row 2
+  `583ab93`. Each went through the hook with «Итог: пройдено 13, провалено 0».
 - Worth the coordinator's attention: Q4's first acceptance was red on check 11
   («Тесты проходят без zstandard»), and the gzip fallback was innocent — that
   check reruns the suite, and by then the clock had crossed midnight, so a
@@ -2389,7 +2409,7 @@ rows 1, 5, 6 were done in earlier rounds.
   bare `pytest -q` will keep it honest from now on. `pyproject.toml` keeps the
   marker (the f2 `.app` build still wears it) with its description corrected to
   name that file instead of K4.
-- Q12 row 2 (this commit): «Собрать» on a non-demo paper runs
+- Q12 row 2 (`583ab93`): «Собрать» on a non-demo paper runs
   `rusterm follow AAPL --market US` for the selected paper (measured press, Run
   88) in a worker thread and streams the six stage lines
   into the window; the demo paper keeps the synthetic pipeline, and
