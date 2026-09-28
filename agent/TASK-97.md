@@ -1,6 +1,6 @@
 # TASK-97 — работа координатора переходит к тебе: отрасли, честность мер, ядро снапшота
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 140, 29.09)
 - **Report:** `agent/REPORT-97.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). Состояние: `agent/CONTEXT.md`.
 - **Relay:** сдать — `python3 agent/relay.py --branch agent/night-11

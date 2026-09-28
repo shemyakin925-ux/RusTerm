@@ -1,6 +1,6 @@
 # TASK-103 — two small fixes from REPORT-102 Disputed; then resume TASK-97
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 140, 29.09)
 - **Report:** `agent/REPORT-103.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Relay:** hand — `python3 agent/relay.py --branch agent/night-11
