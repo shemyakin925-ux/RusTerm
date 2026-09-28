@@ -42,6 +42,10 @@ from rusterm.store.repos import Instrument, Issuer, RepoRegistry
 AS_OF = date.today().isoformat()
 FRESH_SHARES = date.fromordinal(date.today().toordinal() - 90).isoformat()
 FY_END = "2025-12-31"      # годовой период, закрытый до as_of
+# ТЗ-91 B5: у знаменателя roic две границы — капитал и на НАЧАЛО окна
+# потока. Эмитент подаёт его каждый год сравнительной колонкой, поэтому
+# в фикстуре есть и предыдущее закрытие.
+PRIOR_FY_END = "2024-12-31"
 
 
 @pytest.fixture()
@@ -113,6 +117,14 @@ def _base(conn, issuer_id="i1", balance="GBP", flows="GBP"):
     _stock(conn, issuer_id, "cash", 2.0, FY_END, balance)
     _stock(conn, issuer_id, "st_investments", 1.0, FY_END, balance)
     _stock(conn, issuer_id, "total_equity", 35.0, FY_END, balance)
+    # ТЗ-91 B5: тот же баланс годом раньше — вторая граница знаменателя
+    # roic. Числа оставлены одинаковыми, чтобы среднее совпало с
+    # одиночным значением: ни одна golden-булавка файла не двигается, а
+    # зуб на среднем — в tests/test_task91_b5_roic_average.py.
+    _stock(conn, issuer_id, "total_debt", 5.0, PRIOR_FY_END, balance)
+    _stock(conn, issuer_id, "cash", 2.0, PRIOR_FY_END, balance)
+    _stock(conn, issuer_id, "st_investments", 1.0, PRIOR_FY_END, balance)
+    _stock(conn, issuer_id, "total_equity", 35.0, PRIOR_FY_END, balance)
 
 
 def _build(repos, iid="US-B3", issuer="i1"):

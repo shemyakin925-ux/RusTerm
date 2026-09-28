@@ -495,7 +495,8 @@ class SnapshotBuilder:
         # совпадать (K6), иначе currency_mismatch.
         self._valuation_pass(snapshot_id, issuer_id, instrument_id,
                              as_of, computed, written_measures,
-                             measure_row_ids, result, issuer.windows)
+                             measure_row_ids, result, issuer.windows,
+                             issuer.periods)
 
         # ── ТЗ-24 N2: блок industry_metrics из секторного модуля ──
         industry_entry = None
@@ -1160,6 +1161,140 @@ class SnapshotBuilder:
     def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:
         return self._snapshots.fact_currency(fact_id)
 
+    # ТЗ-91 B5: допуск границы окна, в котором ищется капитал на её
+    # начало. 52/53-недельные календари сдвигают дату закрытия периода на
+    # несколько дней; дырка в пару недель — это уже другой период, а не
+    # та же граница.
+    _CAPITAL_BORDER_TOLERANCE_DAYS = 10
+    # Моментные входы капитала: слагаемые формулы словаря и поданный
+    # целиком итог (ТЗ-31 C2 читает его на конце окна точно так же).
+    _CAPITAL_INPUT_CONCEPTS = ("invested_capital", "total_equity",
+                               "total_debt", "cash", "st_investments",
+                               "minority_interest")
+
+    def _capital_at(self, issuer_id: str, boundary: Optional[str],
+                    as_of: Optional[str] = None) -> Optional[tuple]:
+        """Инвестированный капитал НА ГРАНИЦУ окна потока (ТЗ-91 B5).
+
+        Словарь определяет roic как nopat / СРЕДНЕЕ капитала на начало и
+        конец потока, поэтому у знаменателя две даты; эта — начало. Входят
+        те же моментные концепты, что в строку `invested_capital` прохода
+        оценки, и те же двери, что у `_latest_canonical` (B4): период позже
+        as_of границей не является, а брошенный годы назад тег не является
+        входом сегодняшней сборки.
+
+        Граница ищется по обеим базам — как у двухпериодных мер первого
+        прохода (ТЗ-102 M3): годовой баланс эмитент повторяет в следующем
+        отчёте сравнительной колонкой, и только там он и остаётся, когда
+        ранняя подача вычищена дедупом. Даты не подменяются: ни в
+        as_reported, ни в restated входа на границе нет — None, а
+        вызывающая сторона ставит `missing_prior_period`, а не переносит
+        сегодняшнее число на вчерашнюю дату.
+
+        (значение, дата, {валюты}, строки lineage) либо None. Меньшинство:
+        правило D7 («отсутствующая NCI — ноль, если блок капитала
+        подавался») — свойство раскрытия эмитента, а не даты, поэтому ноль
+        на этой границе ставят только эмитенты, которые NCI не отчитывали
+        никогда; остальным без NCI на границе капитал не строится.
+        """
+        try:
+            border = date.fromisoformat(boundary)
+        except (TypeError, ValueError):
+            return None
+
+        def gap_days(end: str) -> Optional[int]:
+            try:
+                gap = abs((date.fromisoformat(end) - border).days)
+            except (TypeError, ValueError):
+                return None
+            return gap if gap <= self._CAPITAL_BORDER_TOLERANCE_DAYS else None
+
+        rows = self._snapshots.as_reported_facts(
+            issuer_id, _VALUATION_INPUT_CONCEPTS)
+        # Якорь — самый свежий ЗАКРЫТЫЙ к дате сборки период, ровно как в
+        # `_latest_canonical`: период позже as_of ещё не закрыт и не имеет
+        # права отсчитывать давность, иначе сборка на прошлую дату
+        # отвергла бы капитал на границе как брошенный, отмерив её от
+        # периода, которого на ту дату ещё не было.
+        anchor = max((r[5] for r in rows if r[5]
+                      and not (as_of and r[5] > as_of)), default=None)
+        try:
+            anchor_date = date.fromisoformat(anchor) if anchor else None
+        except (TypeError, ValueError):
+            anchor_date = None
+
+        # (расстояние до границы, ранг тега) -> лучшая строка концепта
+        at: dict[str, tuple] = {}
+
+        def scan(source_rows, *, restated: bool) -> None:
+            for row in source_rows:
+                (concept, value, fact_id, _unit, _start, end,
+                 canonical) = row[:7]
+                key = canonical or concept
+                if key not in self._CAPITAL_INPUT_CONCEPTS or not end:
+                    continue
+                if as_of and end > as_of:
+                    continue
+                if (anchor_date is not None
+                        and not _eligible_input(end, anchor_date)):
+                    continue
+                gap = gap_days(end)
+                if gap is None:
+                    continue
+                if restated and key in at:
+                    continue        # as_reported границы приоритетнее
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError):
+                    continue
+                _taxonomy, local = strip_taxonomy(concept)
+                # ТЗ-102 M3: имя подачи, из которой прочитан повторенный
+                # баланс, — в raw_object, в `fact` его нет
+                filing = ((row[7] or "").rsplit("/", 1)[-1]
+                          if restated else None)
+                cand = (gap,
+                        priority_rank(key, local, _taxonomy or "us-gaap"),
+                        numeric, end, fact_id,
+                        self._fact_currency_by_id(fact_id), filing)
+                if key not in at or cand[:2] < at[key][:2]:
+                    at[key] = cand
+
+        scan(rows, restated=False)
+        missing = [k for k in self._CAPITAL_INPUT_CONCEPTS if k not in at]
+        if missing:
+            scan(self._snapshots.restated_stock_facts(
+                issuer_id, tuple(missing)), restated=True)
+
+        needed = ("total_equity", "total_debt", "cash", "st_investments")
+        picked: list = []
+        if "invested_capital" in at:
+            # капитал, поданный целиком, — тот же вход, что и на конце
+            # окна: его разбирает `_latest_canonical`, здесь берётся то же
+            # правило приоритета источника
+            value = at["invested_capital"][2]
+            picked = [at["invested_capital"]]
+        elif all(k in at for k in needed):
+            picked = [at[k] for k in needed]
+            nci = at.get("minority_interest")
+            if nci is None:
+                if not self._nci_never_reported(issuer_id):
+                    return None
+                minority_value = 0.0
+            else:
+                picked.append(nci)
+                minority_value = nci[2]
+            value = invested_capital(at["total_equity"][2], minority_value,
+                                     at["total_debt"][2], at["cash"][2],
+                                     at["st_investments"][2])
+        else:
+            return None
+        return (value, max(c[3] for c in picked),
+                {c[5] for c in picked if c[5]},
+                [{"fact_id": c[4], "peer_measure_id": None,
+                  "role": f"input: capital at {c[3]}"
+                          + (f" basis: restated ({c[6]})" if c[6] else "")}
+                 for c in picked])
+
     def _latest_annual_input(self, issuer_id: str, canonical: str,
                              as_of: Optional[str] = None) -> tuple | None:
         """ТЗ-69 P1: свежайший ГОДОВОЙ (коридор 350..380 дней — тот же,
@@ -1351,20 +1486,24 @@ class SnapshotBuilder:
                         instrument_id: str, as_of: str,
                         computed: dict, written_measures: set,
                         measure_row_ids: dict, result,
-                        windows: Optional[dict] = None) -> None:
+                        windows: Optional[dict] = None,
+                        periods: Optional[dict] = None) -> None:
         """ТЗ-23 K4: шесть мер §3 получают входы.
 
         Цена — последняя закрытая строка таблицы price не позже as_of
         (K1): нет цены — missing_data: price_close; цена старше порога
         — причина, не число, и никакой перенос вчерашней цены за
         сегодняшний день. Фундаментальные входы — факты по
-        каноническим концептам. K6: у ratio-мер числитель и
-        знаменатель обязаны быть в одной валюте — иначе
-        currency_mismatch, а не частное.
+        каноническим концептам. `periods` — окна потоков первого прохода:
+        по ним находится граница начала знаменателя roic (ТЗ-91 B5).
+        K6: у ratio-мер числитель и знаменатель обязаны быть в одной
+        валюте — иначе currency_mismatch, а не частное.
         """
         # Окна TTM считаются один раз в _issuer_inputs и приходят сюда;
         # None — только у вызывающей стороны вне сборки снапшота (тесты
         # старого прогона): тогда потоки считают прежним годовым проходом.
+        # `periods` — те же окна в виде пар дат; у roic по ним находится
+        # граница начала, когда числитель пришёл из первого прохода (B5).
         windows = windows or {}
         price_concepts = ("market_cap", "market_cap_total", "ev", "pb",
                           "ev_ebitda", "div_yield", "roic",
@@ -1852,7 +1991,7 @@ class SnapshotBuilder:
         # roic = nopat / avg(invested_capital) — оба входа в валюте
         # отчётности; nopat посчитан из тех же фактов (K6: одна валюта)
         ic = inputs.get("invested_capital")
-        ic_lineage_extra: list = []
+        ic_lineage: list = []
         if ic is None:
             # ТЗ-31 C2: производный инвестированный капитал по формуле
             # словаря из фактов последнего момента; NCI — по правилу
@@ -1864,26 +2003,22 @@ class SnapshotBuilder:
                 # из которых оно собрано, а не валюта цены: roic читает
                 # отсюда свою знаменательную сторону.
                 ic = (invested_capital(te[0], minority[0], td[0], c[0],
-                                       si[0]), None,
+                                       si[0]), te[1],
                       money_currency(("total_equity", "total_debt", "cash",
                                       "st_investments",
                                       "minority_interest"))[0],
                       None)
-                ic_lineage_extra = nci_lineage
-        # ТЗ-91 B3: стороны roic — поток nopat и моментный капитал;
-        # больше одной валюты между ними — K6-отказ, а не частное.
-        # Валюта числителя берётся с уже записанной строки nopat: его
-        # слагаемые — потоки, а они в этот проход не попадают.
-        nopat_mid = measure_row_ids.get("nopat")
-        roic_curs: set = set()
-        if nopat_mid:
-            roic_curs = {c for c
-                         in self._snapshots.currencies_for_measure(nopat_mid)
-                         if c}
-        if ic is not None and ic[2]:
-            roic_curs.add(ic[2])
-        roic_conflict = (mismatch(sorted(roic_curs))
-                         if len(roic_curs) > 1 else None)
+                # ТЗ-91 B5: у производного числа есть входные id — четыре
+                # слагаемых и NCI. Раньше знаменатель шёл в lineage только
+                # целиком поданным, и последняя ветка писала меру на
+                # пустой строке (I4).
+                sources = ([te, td, c, si]
+                           + ([] if nci_lineage else [minority]))
+                ic_lineage = [{"fact_id": s[3], "peer_measure_id": None,
+                               "role": "input"}
+                              for s in sources if s[3]] + nci_lineage
+        else:
+            ic_lineage = self._fact_lineage(ic[3])
         annual_nopat = None
         nop = computed.get("nopat")
         # ТЗ-97 Q10: поток roic (nopat) — из общего окна TTM его
@@ -1903,6 +2038,60 @@ class SnapshotBuilder:
             annual_nopat = self._annual_common_period(issuer_id,
                                                       roi_flows, roi_note,
                                                       as_of)
+        # ТЗ-91 B5: граница начала берётся из того же окна nopat, которым
+        # считается числитель: окно TTM → общий годовой период → период
+        # nopat первого прохода.
+        nopat_period = (periods or {}).get("nopat")
+        border = (roi_window.start if roi_window is not None
+                  else annual_nopat["period"][0]
+                  if annual_nopat is not None
+                  else (nopat_period or (None, None))[0])
+        cap_begin = self._capital_at(issuer_id, border, as_of)
+        # ТЗ-91 B3: стороны roic — поток nopat и моментный капитал;
+        # больше одной валюты между ними — K6-отказ, а не частное.
+        # Валюта числителя берётся с уже записанной строки nopat: его
+        # слагаемые — потоки, а они в этот проход не попадают. С B5
+        # знаменатель — две моментные даты, и валюты дают обе.
+        nopat_mid = measure_row_ids.get("nopat")
+        roic_curs: set = set()
+        if nopat_mid:
+            roic_curs = {c for c
+                         in self._snapshots.currencies_for_measure(nopat_mid)
+                         if c}
+        if ic is not None and ic[2]:
+            roic_curs.add(ic[2])
+        if cap_begin is not None:
+            roic_curs |= cap_begin[2]
+        roic_conflict = (mismatch(sorted(roic_curs))
+                         if len(roic_curs) > 1 else None)
+        # (значение числителя, его lineage, отметка годового выхода)
+        numerator: Optional[tuple] = None
+        if roi_window is not None:
+            values = dict(zip(roi_flows, roi_windows))
+            why = fallback_note(windows, list(roi_flows))
+            rate, _rate_reason = effective_tax_rate(
+                values["tax_expense"].value,
+                values["pretax_income"].value)
+            numerator = ((nopat(values["operating_income"].value, rate)
+                          if rate is not None else None),
+                         self._with_basis(
+                             window_lineage(values["operating_income"], why)
+                             + window_lineage(values["tax_expense"], why)
+                             + window_lineage(values["pretax_income"], why),
+                             roi_window.basis),
+                         why)
+        elif annual_nopat is not None:
+            rate, _rate_reason = effective_tax_rate(
+                annual_nopat["values"]["tax_expense"],
+                annual_nopat["values"]["pretax_income"])
+            numerator = ((nopat(annual_nopat["values"]["operating_income"],
+                                rate) if rate is not None else None),
+                         self._with_basis(annual_nopat["lineage"],
+                                          ANNUAL_FALLBACK),
+                         roi_note)
+        elif nop is not None:
+            numerator = (nop, [], "")
+
         if ic is None:
             # ТЗ-91 B4: отказ знаменателя передаётся тем же `upstream`,
             # что и у net_debt_ebitda: `missing_data: invested_capital`
@@ -1912,57 +2101,22 @@ class SnapshotBuilder:
                   "ratio", [])
         elif roic_conflict is not None:
             write("roic", None, roic_conflict, "ratio", [])
-        elif roi_window is not None:
-            values = dict(zip(roi_flows, roi_windows))
-            why = fallback_note(windows, list(roi_flows))
-            rate, _rate_reason = effective_tax_rate(
-                values["tax_expense"].value,
-                values["pretax_income"].value)
-            nop_value = (nopat(values["operating_income"].value, rate)
-                         if rate is not None else None)
-            lineage = self._with_basis(
-                window_lineage(values["operating_income"], why)
-                + window_lineage(values["tax_expense"], why)
-                + window_lineage(values["pretax_income"], why)
-                + self._fact_lineage(ic[3]) + ic_lineage_extra,
-                roi_window.basis)
-            if nop_value is None:
-                write("roic", None, "missing_data: nopat", "ratio",
-                      lineage)
-            else:
-                m = calculate_measure("roic", nopat=nop_value,
-                                      invested_capital_begin=ic[0],
-                                      invested_capital_end=ic[0])
-                write("roic", m.value, m.null_reason, "ratio", lineage)
-                mark_fallback("roic", why)
-        elif annual_nopat is not None:
-            rate, rate_reason = effective_tax_rate(
-                annual_nopat["values"]["tax_expense"],
-                annual_nopat["values"]["pretax_income"])
-            nop_value = nopat(annual_nopat["values"]["operating_income"],
-                              rate) if rate is not None else None
-            if nop_value is None:
-                write("roic", None, "missing_data: nopat", "ratio",
-                      self._with_basis(annual_nopat["lineage"],
-                                       ANNUAL_FALLBACK))
-            else:
-                m = calculate_measure("roic", nopat=nop_value,
-                                      invested_capital_begin=ic[0],
-                                      invested_capital_end=ic[0])
-                write("roic", m.value, m.null_reason, "ratio",
-                      self._with_basis(
-                          annual_nopat["lineage"]
-                          + self._fact_lineage(ic[3])
-                          + ic_lineage_extra, ANNUAL_FALLBACK))
-                mark_fallback("roic", roi_note)
-        elif nop is None:
-            write("roic", None, "missing_data: nopat", "ratio", [])
+        elif numerator is None or numerator[0] is None:
+            write("roic", None, "missing_data: nopat", "ratio",
+                  numerator[1] if numerator else [])
+        elif cap_begin is None:
+            # ТЗ-91 B5: капитала на начало окна нет — средний знаменатель
+            # выдуман, а перенос сегодняшнего числа на вчерашнюю дату
+            # запрещён и двухпериодным меркам первого прохода, и M3.
+            write("roic", None, "missing_prior_period", "ratio",
+                  numerator[1] + ic_lineage)
         else:
-            m = calculate_measure("roic", nopat=nop,
-                                  invested_capital_begin=ic[0],
+            m = calculate_measure("roic", nopat=numerator[0],
+                                  invested_capital_begin=cap_begin[0],
                                   invested_capital_end=ic[0])
             write("roic", m.value, m.null_reason, "ratio",
-                  self._fact_lineage(ic[3]))
+                  numerator[1] + ic_lineage + cap_begin[3])
+            mark_fallback("roic", numerator[2])
 
     def _diff(self, instrument_id, issuer_id, snapshot_id,
               peer_prev, peer_cur, version) -> SnapshotDiff:

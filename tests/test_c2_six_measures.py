@@ -95,6 +95,20 @@ _FACTS = [
      "duration"),
 ]
 
+# ТЗ-91 B5: у roic знаменатель — СРЕДНЕЕ капитала на начало и конец окна
+# потока. Баланс FY2024 (2024-09-28) в companyfacts Apple лежит
+# сравнительной колонкой 10-K за FY2025: разборщик штампует её
+# basis='restated' (ТЗ-102 M3), и именно она даёт вторую границу.
+_PRIOR_YEAR = [
+    ("total_debt", "96662000000", "USD", "2024-09-28", "2024-09-28",
+     "instant"),
+    ("cash", "29943000000", "USD", "2024-09-28", "2024-09-28", "instant"),
+    ("st_investments", "35228000000", "USD", "2024-09-28", "2024-09-28",
+     "instant"),
+    ("total_equity", "56950000000", "USD", "2024-09-28", "2024-09-28",
+     "instant"),
+]
+
 
 @pytest.fixture()
 def env(tmp_path):
@@ -122,6 +136,17 @@ def env(tmp_path):
                'companyfacts.v1', 'ok', 0, ?, 'provider')""",
             (f"f-g-{canonical}-{end}", canonical, start, end, ptype,
              value, unit, obj.sha256, canonical))
+    for canonical, value, unit, start, end, ptype in _PRIOR_YEAR:
+        conn.execute(
+            """INSERT INTO fact(fact_id, issuer_id, concept, period_start,
+               period_end, period_type, value, unit, currency, basis,
+               origin, source_ref, locator, parser_version, status,
+               ingested_at, canonical_concept, source_kind)
+               VALUES (?, 'i-g', ?, ?, ?, ?, ?, ?, 'USD',
+               'restated', 'extracted', ?, '{}',
+               'companyfacts.v1', 'ok', 0, ?, 'provider')""",
+            (f"f-p-{canonical}-{end}", canonical, start, end, ptype,
+             value, unit, obj.sha256, canonical))
     conn.commit()
     # реальные строки цен и дивидендов из записанных payload
     price_rows = td.TwelveDataProvider.parse_series(
@@ -147,7 +172,8 @@ def test_six_valuation_measures_have_golden_values(env):
     """Шесть мер на реальных входах; числа закреплены за ночью.
     price_close = 304.91 (2026-08-11); dps_ttm = 0.26+0.26+0.27+0.27
     по окну 365 дней; ebitda/год = 133.05e9 + 11.698e9; minority = 0
-    (NCI ни разу не отчитан)."""
+    (NCI ни разу не отчитан); roic — на среднем капитале двух годовых
+    границ (ТЗ-91 B5)."""
     conn, by_concept = env
 
     def value(concept):
@@ -166,6 +192,11 @@ def test_six_valuation_measures_have_golden_values(env):
     nopat = 133_050_000_000.0 * (1.0 - rate)
     ebitda_fy = 133_050_000_000.0 + 11_698_000_000.0
     dps_ttm = 0.26 + 0.26 + 0.27 + 0.27
+    # ТЗ-91 B5: знаменатель roic — СРЕДНЕЕ капитала на начало окна потока
+    # (2024-09-28, сравнительная колонка) и на его конец (свежий момент
+    # 2026-06-27 — прежнее отклонение ТЗ-31 C2, пункт его не трогает)
+    ic_begin = 56_950_000_000.0 + 0.0 + 96_662_000_000.0 \
+        - 29_943_000_000.0 - 35_228_000_000.0
 
     assert value("market_cap") == pytest.approx(mcap, rel=1e-12)
     assert value("market_cap_total") == pytest.approx(mcap, rel=1e-12)
@@ -176,7 +207,8 @@ def test_six_valuation_measures_have_golden_values(env):
                                                rel=1e-12)
     assert value("div_yield") == pytest.approx(dps_ttm / price,
                                                rel=1e-12)
-    assert value("roic") == pytest.approx(nopat / ic, rel=1e-12)
+    assert value("roic") == pytest.approx(nopat / ((ic_begin + ic) / 2.0),
+                                          rel=1e-12)
     conn.close()
 
 

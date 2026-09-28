@@ -249,10 +249,113 @@ Measured, B4:
   `after1.json` == `after2.json`) and the value change disappears; the numbers
   above are the pinned-seed sweep.
 
+### ТЗ-97 Q5 / ТЗ-91 B5 — `roic` divides by the average of two capital dates
+
+Rule implemented:
+
+- `calculate_measure("roic", …)` was called with the same invested capital as
+  `invested_capital_begin` **and** `invested_capital_end` (the task names
+  `:1221`/`:1232`); the dictionary defines the denominator as the average of two
+  dates. New `SnapshotBuilder._capital_at(issuer_id, border, as_of)` builds the
+  capital **at the start of the NOPAT window**, from the same instant concepts as
+  the valuation row and through the same two doors as `_latest_canonical` (B4).
+- The border comes from whichever route produced the numerator, so numerator and
+  denominator are always over the same window: TTM window start → common annual
+  period start → pass 1's `nopat` period. `_valuation_pass` now also receives
+  `issuer.periods` for the third case.
+- ±10 days (`_CAPITAL_BORDER_TOLERANCE_DAYS`), as the clause states: a 52/53-week
+  calendar shifts a period close by a few days, a two-week hole is another
+  period. A balance 20 days off the border refuses, one 2 days off computes.
+- No capital at the border is `missing_prior_period` — the same token pass 1 uses
+  for its two-period measures — not a carry-forward of today's number onto
+  yesterday's date. `nopat` and the single-dated `invested_capital` row keep
+  their values; only the ratio is refused.
+- The border is looked up in both bases, the way a two-period measure of pass 1
+  does (ТЗ-102 M3): an issuer repeats its year-end balance as a comparative
+  column of next year's report, and that column is all that survives once the
+  early filing is deduped. `as_reported` at the border wins, `restated` fills
+  only the concepts missing there, and the filing a restated row came from is
+  named in the lineage role (`input: capital at 2024-12-31 basis: restated
+  (CIK0001001838.json)`). This is not decorative: on the user's base both real
+  value movers take their opening balance from comparative columns.
+- The I4 hole in the derived denominator is closed. Before, `invested_capital`
+  entered `roic`'s lineage only when it was filed whole, and the last branch
+  wrote a valued measure on an empty lineage list. Now every component id of
+  both dates is a lineage row, and the K6 currency union covers both denominator
+  dates — a GBP opening balance under a USD closing one gives
+  `currency_mismatch: GBP, USD`, not a ratio out of two currencies.
+- NCI is taken from the same border. D7 (never-reported NCI = 0) is a property of
+  the issuer's disclosure, not of a date, so only issuers that never reported NCI
+  get the zero at the border; for the rest a border without NCI refuses.
+- Refusal order is B3's and B4's, unchanged: end-side input refusal → currency
+  dispute → `missing_data: nopat` → `missing_prior_period` → value.
+- Found while reviewing this commit's own diff: `_capital_at` first computed its
+  staleness anchor over *all* rows, while `_latest_canonical` computes it over
+  periods closed by `as_of`. A build dated in the past therefore measured the
+  border's age against a period that did not exist yet. The anchor now ignores
+  periods after `as_of`, exactly like B4; `test_a_period_after_as_of_does_not_move_the_staleness_anchor`
+  is red without that line (tooth verified by reverting the line and re-running).
+
+Measured, B5:
+
+- Teeth: `tests/test_task91_b5_roic_average.py`, 12 tests — the Done-when's two
+  year-ends (4.8/33, and explicitly *not* 4.8/37), refusal not a carry-forward
+  (`missing_prior_period`, numerator intact), pass 1 still naming its own refusal
+  (`roe` → `period_mismatch` for the same missing date), the calendar shift
+  accepted, a three-week hole rejected, the comparative column supplying the
+  border, a reported aggregate taken whole, NCI from the same border, NCI
+  reported but absent at the border → refusal, both dates present in lineage, a
+  border side in another currency → `currency_mismatch: GBP, USD`, and the anchor
+  tooth above.
+- Red before the fix: **all 12** failed on the pre-B5 code (linked worktree
+  `/tmp/rusterm-b5-before` at `b377704`, the teeth file copied in, nothing else
+  changed), e.g. `assert '0.12972972972972974' is None` for the K6 tooth — the
+  old code divided by a single date and never refused. After: 12 green.
+- Three accepted files were touched and no assert was deleted or weakened:
+  `test_c2_six_measures.py` (AAPL golden, see the `ЗАМЕНА-БУЛАВКИ` block in the
+  commit message), `test_k4_k6_valuation.py` and `test_task91_b3_currency_unit.py`
+  (both only gained a second year-end **with the same numbers**, so the average
+  equals the single value and none of their pins moves). The four FY2024 numbers
+  the c2 fixture now files as `restated` were checked against the copy of the
+  user's base (read-only): Apple carries exactly `cash 29 943 000 000`,
+  `st_investments 35 228 000 000`, `total_debt 96 662 000 000`, `total_equity
+  56 950 000 000` at `period_end = 2024-09-28`, `period_type = instant`, and with
+  the same `basis = 'restated'` — the fixture is the disclosure, not invented
+  roundness.
+- User's base copy, P7: `~/EquityLab/data` byte-copied per side, the original
+  never opened for writing, `as_of` 2026-09-28, `PYTHONHASHSEED=0` on both sides
+  (Disputed 5), 44 instruments rebuilt per side. **4 papers moved, all of them on
+  `roic` and nothing else: 2 numbers changed — US-ADSK 0.6403185000346572 →
+  0.46461069412550393, US-SCCO 0.3670788908764005 → 0.3691530064459498 — and 2
+  values became refusals `missing_prior_period` — US-SNPS 0.023366968388875455,
+  US-WDAY 0.08190476908616366. Measures with a value 542 → 540, unit labels
+  changed 0, no other concept changed on any paper.**
+- Both refusals were then checked against the copy by hand, because a refusal is
+  only honest if the date really is missing: SNPS's NOPAT window is
+  2024-11-01…2025-10-31 while its earliest `total_debt` tag is 2025-04-30 (180
+  days off the border); WDAY's window is 2025-02-01…2026-01-31 while its
+  `total_debt` jumps 2024-04-30 → 2026-01-31. Neither issuer has a debt tag at
+  the border, so the token names a hole in the disclosure, not in the code. The
+  two movers do: ADSK's opening capital 3 035 000 000 = equity 2 621 000 000 +
+  debt 2 300 000 000 − cash 1 599 000 000 − st_inv 287 000 000 at 2025-01-31,
+  three of those four rows coming from comparative columns; SCCO's
+  11 993 100 000 at 2024-12-31 including NCI 66 600 000.
+- The first sweep of this measurement was thrown away, not reported: it compared
+  the B5 dump against `/tmp/b4-measure/after1.json`, an artifact produced
+  mid-B4-development, and printed 16 impossible `missing_data → stale_data`
+  relabels. The numbers above come from a fresh `b377704`-vs-this-tree pair, and
+  a third run after the anchor fix reproduced them cell for cell.
+- Observation, no code change: the derived denominator inside `roic` uses
+  `formulas.invested_capital`, which adds NCI, while the `invested_capital`
+  *row* is ТЗ-71 R2's sum without it. SCCO files NCI 76 400 000, so its `roic`
+  end side is 12 129 400 000 where the row prints 12 053 000 000. Pre-existing
+  (the pre-B5 ratio used the same 12 129 400 000), and B5 keeps both denominator
+  dates on one rule; recorded in Disputed 6 instead of being silently unified.
+
 ## Blocked
 
 Nothing blocked. Budget held: network 0, LLM 0 — no fetch, no provider call, no
-model request in either item.
+model request in B2, B3, B4 or B5.
 
 ## What not to trust
 
@@ -384,6 +487,23 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
    pick the presentation deterministically where a period exists in two units —
    e.g. prefer the issuer's reporting currency, else the lexicographically
    smallest unit — and pin it with a tooth. Not started on my own initiative.
+6. **B5 / two definitions of invested capital in the same pass.** The
+   `invested_capital` **row** is ТЗ-71 R2's `equity + debt − cash − st_inv`, with
+   minority interest deliberately absent (N3 pinned `minority = 0` for AAPL);
+   `formulas.invested_capital(...)`, which `roic` uses for both of its dates,
+   **adds** minority interest. For an issuer that reports NCI the two disagree by
+   exactly that amount — on the user's base SCCO: the row 12 053 000 000, the
+   number inside `roic` 12 129 400 000 (NCI 76 400 000). B5 inherited the
+   disagreement (`roic` already called the formula before the commit) and did not
+   widen it: both denominator dates now use the same rule, so the average is
+   internally consistent. Which side is right is a dictionary question, not a
+   B5 one: either the row should carry NCI (then its own golden moves again, and
+   `pb`/`ev` inputs may follow), or `roic` should divide by the row's definition.
+   Same family, second case: when an issuer *files* `invested_capital` whole,
+   `roic` takes that aggregate while the row still prints the sum of its
+   components (pinned in `test_reported_capital_at_the_border_is_taken_whole`).
+   On the user's base no issuer files the aggregate (0 facts), so the case is
+   theoretical today. Left as found; a clause would be needed either way.
 
 ## Runs
 
@@ -518,6 +638,49 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     file is byte-identical to `38b3802` now, and the B4 commit does not touch
     it. Consequence for the night shift: never run that module in the background
     of a tree that is about to be committed, or run it in a throwaway worktree.
+33. B5 red-before: linked worktree `/tmp/rusterm-b5-before` at the parent commit
+    `b377704`, only `tests/test_task91_b5_roic_average.py` copied in —
+    **`12 failed`**, 0 passed (sample failure: `assert '0.12972972972972974' is
+    None`, the old code dividing by one date and refusing nothing). The temp file
+    was deleted and the worktree verified clean afterwards.
+34. B5 green-after (teeth): the same file, 12 passed. Neighbours in one run —
+    `test_task91_b4_input_doors`, `test_task91_b2_refusal_reasons`,
+    `test_task91_b3_currency_unit`, `test_c2_six_measures`,
+    `test_k4_k6_valuation` — 47 passed, 0 F/E.
+35. The anchor tooth was proved twice: green with the two-line anchor, then the
+    anchor line was reverted in place and `test_a_period_after_as_of_does_not_move_the_staleness_anchor`
+    failed with `TypeError: float() argument … not 'NoneType'` (the measure
+    refused), then `/tmp/snapshot-fixed.py` was copied back and `grep` confirmed
+    the fixed two-line form is what the tree carries.
+36. B5 base sweep, P7: `~/EquityLab/data` byte-copied to `/tmp/b5-measure/base_before`,
+    `base_after` and (for the re-run after the anchor fix) `base_after2`; each
+    side rebuilt all 44 papers with `PYTHONHASHSEED=0` and only its own copy; the
+    original was only ever read. `dump.py` ×2 + `diff_ab.py` → the four movers in
+    the section above; the re-run after the anchor fix printed the same diff byte
+    for byte. Two independent dumps of the same code (`after5.json`,
+    `after5b.json`) were identical.
+37. Void measurement, recorded so nobody re-uses it: the first B5 diff ran
+    `/tmp/b5-measure/diff5.py`, whose paths are still hard-coded to
+    `/tmp/b4-measure/after1.json` — a mid-B4 artifact — and printed 16 impossible
+    `missing_data: invested_capital → stale_data: …` relabels. `diff_ab.py`
+    (paths from `argv`) replaced it; nothing from `diff5.py` is quoted here.
+38. Full suite, background (`PYTHONHASHSEED=0 python3 -m pytest -q tests`,
+    started 12:49:27, `/tmp/b5-suite3.log`): EXIT=0, 1071 result characters —
+    1065 `.`, 6 `x`, 6 `s`, no `F`/`E`. **This run does not verify the final
+    tree**: `tests/test_task91_b5_roic_average.py` was written at 12:50:20 (after
+    collection had already imported the test module, so the anchor tooth never
+    entered it) and `rusterm/core/snapshot.py` — the anchor fix itself — at
+    12:56:27, seven minutes into the run, which therefore executed the pre-fix
+    module it had imported at start. Its verdict is "the tree before the anchor
+    fix is green", nothing more. The complete run on the committed tree is
+    acceptance check 3, which the pre-commit hook performs on the staged tree:
+    this commit exists only because that check passed.
+39. Guard files: mid-run `git status --short` showed `M  agent/p6_rule.sh`
+    staged by the i5 tooth (the hazard recorded in item 32). The tooth restored
+    the file itself when the nested run finished — nothing was restored by hand.
+    Verified before staging with `git diff HEAD --stat -- agent/p1_rule.sh
+    agent/p6_rule.sh agent/selfcheck.sh agent/acceptance.sh githooks/` — empty,
+    i.e. the B5 commit touches no guard file, and the commit subject names none.
 
 ## HANDOFF
 

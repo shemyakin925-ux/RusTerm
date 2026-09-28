@@ -53,16 +53,16 @@ def _issuer(conn, repos, instrument_id, issuer_id, currency="USD"):
 
 
 def _fact(conn, issuer_id, concept, value, currency="USD",
-          end="2024-12-31"):
+          end="2024-12-31", start="2024-01-01"):
     conn.execute(
         """INSERT INTO fact(fact_id, issuer_id, concept, period_start,
            period_end, period_type, value, unit, currency, basis,
            origin, source_ref, locator, parser_version, status,
            ingested_at, canonical_concept, source_kind)
-           VALUES ('f-' || ?, ?, ?, '2024-01-01', ?, 'duration', ?,
+           VALUES ('f-' || ?, ?, ?, ?, ?, 'duration', ?,
            ?, ?, 'as_reported', 'extracted', 's', '{}',
            'companyfacts.v1', 'ok', 0, ?, 'provider')""",
-        (f"{issuer_id}-{concept}-{end}", issuer_id, concept, end,
+        (f"{issuer_id}-{concept}-{end}", issuer_id, concept, start, end,
          str(value), currency, currency, concept))
 
 
@@ -116,6 +116,11 @@ def test_valuation_measures_compute_from_price_and_facts(env):
     _fact(conn, "i1", "st_investments", 1.0)
     _fact(conn, "i1", "minority_interest", 0.0)
     _fact(conn, "i1", "invested_capital", 40.0)
+    # ТЗ-91 B5: капитал на НАЧАЛО окна потока — вторая граница
+    # знаменателя roic. Число оставлено тем же, чтобы среднее совпало с
+    # одиночным 40; зуб на среднем — в test_task91_b5_roic_average.py.
+    _fact(conn, "i1", "invested_capital", 40.0, end="2023-12-31",
+          start="2023-01-01")
     _fact(conn, "i1", "operating_income", 6.0)
     _fact(conn, "i1", "d_and_a", 1.0)
     _fact(conn, "i1", "revenue", 100.0)

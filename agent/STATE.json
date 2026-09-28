@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-97.md",
  "report": "agent/REPORT-103.md",
- "item": "ТЗ-91 B4 в коммите: две двери прохода оценки (as_of, давность от anchor), годовой коридор 350..380 один для ядра и хранилища, stale_data в отказах и в цепочках (включая roic поверх invested_capital)",
- "step": "B4 сдана: tests/test_task91_b4_input_doors.py (13, красным 10/13), замена двух золотых булавок в test_task96_r3_replay (VZ 17→13, dei-тест = 4 значения + точная строка stale_data), фикстура B2 пересобрана под коридор 350..380; копия базы: 0 изменённых чисел, 41 значение→отказ, 51 переименован в stale_data, 2 пустые подписи. Дальше B5: roic = среднее капитала на начало и конец окна NOPAT, нет начала → missing_prior_period.",
+ "item": "ТЗ-91 B5 в коммите: roic делит на среднее капитала на границу окна NOPAT и на его конец; нет границы → missing_prior_period; якорь давности границы — только периоды, закрытые к as_of",
+ "step": "B5 сдана себе: tests/test_task91_b5_roic_average.py (12, красным 12/12 на b377704), соседи 47 зелёным; копия базы (P7, PYTHONHASHSEED=0): 44 бумаги, тронуты 4 — ADSK 0.6403→0.4646, SCCO 0.3671→0.3692, SNPS и WDAY → missing_prior_period; мер с числом 542→540, подписей 0. AAPL золотая 0.8811804325229182→1.0403025256182445. Дальше B6: cvm 3.08 → tax_expense = −raw для всякой строки (ныне флип только отрицательных), raw_value не трогать, пин в test_task58_c4 заменяется сильным.",
  "status": "working",
- "last_commit": "38b3802",
+ "last_commit": "b377704",
  "requests": 41,
  "net_requests": 41,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-28T03:04:58Z"
+ "updated_at": "2026-09-28T06:21:17Z"
 }
