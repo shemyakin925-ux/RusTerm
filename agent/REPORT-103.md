@@ -352,10 +352,69 @@ Measured, B5:
   (the pre-B5 ratio used the same 12 129 400 000), and B5 keeps both denominator
   dates on one rule; recorded in Disputed 6 instead of being silently unified.
 
+### ТЗ-97 Q5 / ТЗ-91 B6 — the CVM tax line is negated, not absolute-valued
+
+Rule implemented:
+
+- `normalize_sign_cvm` flipped **only negative** 3.08 rows. The DRE files the
+  deduction as a negative number, so a **positive** 3.08 is a tax benefit — and
+  it stayed a positive `tax_expense`, i.e. the map invented an expense out of a
+  gain. Canonical `tax_expense` is now −filed for **every** 3.08 row.
+- `locator.raw_value` is untouched (it still carries the value exactly as filed),
+  and no other line of the map changes sign: 3.01, 3.04 and an unparseable value
+  keep the behaviour the C4 tests pinned.
+- Zero is `0.0`, not `−0.0`: a string `"-0.0"` would put a sign on a quantity
+  that has none. Judgment call, recorded here; nothing in the user's base reaches
+  that branch (measured below).
+- Map version stays `cvm-dfp.v2`. The version denotes *what* normalized the sign
+  — the map, at that version — and the map's stated intent ("привести знак к
+  конвенции словаря мер") did not change; only its implementation was partial.
+  Bumping to v3 would silently rewrite the meaning of rows already stamped v2.
+
+Measured, B6:
+
+- Teeth: `tests/test_task58_c4.py`, 5 tests. **Red before the fix: `2 failed,
+  3 passed`** on the pre-B6 tree (linked worktree `/tmp/rusterm-b6-before` at
+  `99fc5b8`, only this test file copied in), `AssertionError: assert
+  '4640375000.0' == '-4640375000.0'` in both the map pin and the rate chain.
+  Green after: `5 passed in 4.65s`.
+- The Done-when's replaced pin:
+  `test_map_leaves_positive_tax_and_other_lines_untouched` →
+  `test_map_negates_every_tax_line_and_leaves_other_lines_untouched`. One assert
+  line removed (the positive-tax pin itself — the behaviour the task calls a
+  bug), ten added; the 3.01 / 3.04 / junk asserts are kept verbatim. Declared
+  with `ЗАМЕНА-БУЛАВКИ:` / `ПОЧЕМУ СИЛЬНЕЕ:` in the commit message.
+- New chain tooth, `test_tax_benefit_refuses_instead_of_reading_as_a_paid_rate`:
+  a benefit (positive 3.08) with positive `pretax_income` produced 0.2381 —
+  "paid 23.8%" where the issuer received a deduction — and now produces
+  `jurisdiction_rate: rate=-0.2381`. It is the mirror image of C4's
+  `test_tax_rate_outside_band_refuses_instead_of_clipping`.
+- AMBEV golden unchanged, as the Done-when requires: its filed 3.08 is negative,
+  so −filed equals the old absolute value. `test_ambev_true_rate_replaces_invented_zero`
+  still reads `0.23812270405274155`, and the fact row still reads
+  `4640375000.0` / `cvm-dfp.v2`. Every 3.08 row of the recorded DRE slice is
+  negative (AMBEV −4 640 375 and −75 481, PETROBRAS −17 721 000 and −52 315 000,
+  VALE −3 793 000 and −15 000 000), which is why the end-to-end census files are
+  green without edits: `tests/test_task56_z2.py:227` already asserted
+  `row["value"] == repr(-float(raw_value))` for every 3.08 row — the pipeline was
+  long since demanded to negate always; only the unit pin contradicted it.
+  17 passed across `test_task58_c4.py`, `test_task56_z2.py`,
+  `test_task57_br_census.py` together.
+- User's base, P7 — before → after is "nothing", and that was measured, not
+  assumed: on the copy, `SELECT parser_version, count(*) FROM fact GROUP BY 1`
+  returns exactly one row, `('companyfacts.v1', 616822)`, and
+  `count(*) … WHERE concept LIKE 'cvm-dfp%'` is **0**. The 16 rows whose concept
+  or locator contains the substring `3.08` are us-gaap EPS values
+  (`EarningsPerShareDiluted = '3.08'`), not CVM lines. No rebuilt paper can
+  change, because the changed branch is reachable only from a `cvm-dfp:3.08`
+  concept, so no A/B rebuild was run for B6. `tax_expense` as such is unaffected
+  in both taxonomies that do exist there (us-gaap 3975 rows, ifrs-full 54): B6
+  touches the CVM map only.
+
 ## Blocked
 
 Nothing blocked. Budget held: network 0, LLM 0 — no fetch, no provider call, no
-model request in B2, B3, B4 or B5.
+model request in B2, B3, B4, B5 or B6.
 
 ## What not to trust
 
@@ -664,23 +723,60 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     `/tmp/b4-measure/after1.json` — a mid-B4 artifact — and printed 16 impossible
     `missing_data: invested_capital → stale_data: …` relabels. `diff_ab.py`
     (paths from `argv`) replaced it; nothing from `diff5.py` is quoted here.
-38. Full suite, background (`PYTHONHASHSEED=0 python3 -m pytest -q tests`,
-    started 12:49:27, `/tmp/b5-suite3.log`): EXIT=0, 1071 result characters —
-    1065 `.`, 6 `x`, 6 `s`, no `F`/`E`. **This run does not verify the final
-    tree**: `tests/test_task91_b5_roic_average.py` was written at 12:50:20 (after
-    collection had already imported the test module, so the anchor tooth never
-    entered it) and `rusterm/core/snapshot.py` — the anchor fix itself — at
-    12:56:27, seven minutes into the run, which therefore executed the pre-fix
-    module it had imported at start. Its verdict is "the tree before the anchor
-    fix is green", nothing more. The complete run on the committed tree is
-    acceptance check 3, which the pre-commit hook performs on the staged tree:
-    this commit exists only because that check passed.
+38. Full suite, background (`PYTHONHASHSEED=0 python3 -m pytest -q
+    -p no:cacheprovider tests`, started 12:49:27, `/tmp/b5-suite3.log`): EXIT=0,
+    1615 results — 1603 `.`, 6 `x`, 6 `s`, no `F`/`E`. The tree of the B5 commit
+    collects exactly 1615 tests (`--collect-only -q` summed per file on today's
+    tree gives 1616, the single extra being B6's new chain tooth), so the anchor
+    tooth was in this run. Two files were written after the run had started —
+    `tests/test_task91_b5_roic_average.py` at 12:50:20 (one row of the module
+    docstring's table) and `rusterm/core/snapshot.py` at 12:56:27 (the garbled
+    comment rewritten and one 81-character line wrapped) — both non-semantic by
+    inspection; the anchor filter and the tooth were in place before the run was
+    launched and had already been proved green (`12 passed`) and red-by-revert.
+    The verdict that covers the committed tree exactly is acceptance check 3
+    inside this commit's pre-commit hook, quoted in item 40.
 39. Guard files: mid-run `git status --short` showed `M  agent/p6_rule.sh`
     staged by the i5 tooth (the hazard recorded in item 32). The tooth restored
     the file itself when the nested run finished — nothing was restored by hand.
     Verified before staging with `git diff HEAD --stat -- agent/p1_rule.sh
     agent/p6_rule.sh agent/selfcheck.sh agent/acceptance.sh githooks/` — empty,
     i.e. the B5 commit touches no guard file, and the commit subject names none.
+40. B5 landed as `99fc5b8` (7 files, 806 insertions, 80 deletions), pushed
+    `b377704..99fc5b8`. Tail of the hook (`git commit -F /tmp/commit-b5.txt`,
+    `/tmp/b5-commit2.log`):
+    `P1: OK (staged)` … `Итог: пройдено 13, провалено 0` / `Принято.` /
+    `SELFCHECK OK`. The full suite of check 3 ran on the staged tree, which was
+    byte-identical to the working tree at that moment (`git status --short`
+    listed only staged entries).
+41. First commit attempt was rejected, and the reason is a workflow fact worth
+    repeating: `agent/p1_rule.sh` builds its message from `git log -1 --format=%B`
+    **plus** `$(git rev-parse --git-path COMMIT_EDITMSG)` (lines 34-40), and
+    `git commit -F FILE` writes COMMIT_EDITMSG only *after* the hook passes — so
+    the declaration in the new message was invisible and P1 read the previous
+    commit's message instead:
+    `P1 (staged): необъявленная замена булавок: tests/test_c2_six_measures.py
+    (нет объявления ЗАМЕНА-БУЛАВКИ/ПОЧЕМУ СИЛЬНЕЕ)`. Fix, without touching any
+    guard: `cp <message> "$(git rev-parse --git-path COMMIT_EDITMSG)"` before
+    `git commit -F <message>`; `bash agent/p1_rule.sh` then reports `P1: OK
+    (staged)` in advance. Cannot go into PROTOCOL.md (off-limits this task) —
+    recording it here for the coordinator to place.
+42. B6 red-before, verbatim (`PYTHONHASHSEED=0 python3 -m pytest
+    -p no:cacheprovider tests/test_task58_c4.py` in the pre-B6 worktree
+    `/tmp/rusterm-b6-before` at `99fc5b8`, only the test file copied in):
+    `2 failed, 3 passed in 2.13s`, both on `AssertionError: assert
+    '4640375000.0' == '-4640375000.0'`. Same command on the fixed tree:
+    `5 passed in 4.65s`. Neighbours: `pytest tests/test_task58_c4.py
+    tests/test_task56_z2.py tests/test_task57_br_census.py` → 17 passed, no
+    failures.
+43. B6 base census, read-only on the copy (`sqlite3
+    "file:/tmp/b5-measure/base_before/rusterm.db?mode=ro&immutable=1"`, the
+    original base untouched): `SELECT parser_version, count(*) FROM fact GROUP BY 1`
+    → `[('companyfacts.v1', 616822)]`; `count(*) WHERE concept LIKE 'cvm-dfp%'`
+    → 0; rows with `3.08` in concept or locator → 16, all of them us-gaap EPS
+    values. No A/B rebuild was run for B6 and none is needed: the changed branch
+    is reachable only from a `cvm-dfp:3.08` concept, and there is no such fact in
+    the user's base.
 
 ## HANDOFF
 
