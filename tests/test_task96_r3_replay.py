@@ -185,15 +185,19 @@ def _counters(root):
 # `stale_data: ...: last <дата>` — 17 мер со значением → 13. Ровно те
 # четыре, и ни одна не потеряла число без объяснения: замеры в
 # test_dei_input_survives_the_trim и в Run отчёта.
+# `valued` — числа после ТЗ-97 Q7: валовая прибыль стала мерой, и у AAPL,
+# ADBE и MSFT она со значением (все три подают us-gaap:GrossProfit —
+# проверено по фикстурам). Замер этого прогона: 23→24, 22→23, 23→24; у
+# KSPI, VALE и VZ — без изменений.
 EXPECTED = {
     "US-AAPL": {"facts": 230, "fact_years": 20, "prices": 1000,
-                "price_years": 5, "valued": 23},
+                "price_years": 5, "valued": 24},
     "US-ADBE": {"facts": 191, "fact_years": 19, "prices": 1000,
-                "price_years": 5, "valued": 22},
+                "price_years": 5, "valued": 23},
     "US-KSPI": {"facts": 3, "fact_years": 3, "prices": 672,
                 "price_years": 3, "valued": 2},
     "US-MSFT": {"facts": 217, "fact_years": 18, "prices": 1000,
-                "price_years": 5, "valued": 23},
+                "price_years": 5, "valued": 24},
     "US-VALE": {"facts": 5, "fact_years": 2, "prices": 1000,
                 "price_years": 5, "valued": 0},
     "US-VZ": {"facts": 181, "fact_years": 20, "prices": 1000,

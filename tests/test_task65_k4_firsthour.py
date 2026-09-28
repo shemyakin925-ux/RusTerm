@@ -122,7 +122,9 @@ def test_first_hour_scenario(tmp_path, capsys):
               f"{t_win:.1f} с; export {t_exp:.1f} с; запросов {used}; "
               f"мер со значением {len(valued)} из {len(measures)}; "
               f"с происхождением {len(with_prov)} из {len(valued)}")
-    assert len(measures) == 28
+    # ТЗ-97 Q7: gross_profit стал формулой словаря — мер в снапшоте
+    # на одну больше (28 → 29, замер прогона).
+    assert len(measures) == 29
     assert used >= 1
     assert t_init < 20 and t_add < 60 and t_ing < 300
     assert t_snap < 60 and t_win < 60 and t_exp < 20

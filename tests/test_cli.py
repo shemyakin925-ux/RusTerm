@@ -39,7 +39,9 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
                      "--instrument", "US-CLI-DEMO"]) == 0
         out = capsys.readouterr().out
         assert "снапшот v1" in out
-        assert "со значением 4, пусто 24" in out
+        # ТЗ-97 Q7: формула gross_profit добавила снапшоту строку —
+        # 29 мер, из них 4 с числом (замер прогона).
+        assert "со значением 4, пусто 25" in out
 
         # export json: значения из снапшота
         assert main(["--root", root, "export", "--instrument", "US-CLI-DEMO",
@@ -960,7 +962,8 @@ def test_cli_doctor_reports_schema_drift_40(capsys):
 
 def test_export_of_thin_source_says_words(capsys):
     """ТЗ-72 S5: источник почти ничего не даёт — CLI говорит это
-    словами до таблицы; демо-база тонкая (4 значения из 28 мер)."""
+    словами до таблицы; демо-база тонкая (4 значения из 29 мер, счёт
+    мер поднял ТЗ-97 Q7)."""
     root = tempfile.mkdtemp()
     try:
         assert main(["--root", root, "init"]) == 0
@@ -978,7 +981,7 @@ def test_export_of_thin_source_says_words(capsys):
                      "--format", "csv"]) == 0
         captured = capsys.readouterr()
         assert "почти ничего не даёт" in captured.err
-        assert "4 из 28" in captured.err
+        assert "4 из 29" in captured.err
         assert "missing_data" in captured.err
         # таблица не пострадала: машина читает как раньше
         assert "net_margin" in captured.out or "concept" in captured.out

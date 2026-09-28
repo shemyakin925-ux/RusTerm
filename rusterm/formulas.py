@@ -103,6 +103,7 @@ class Measure:
 # count — штуки. Валюта подставляется из единицы входных фактов.
 MEASURE_UNIT_KINDS: dict[str, str] = {
     "ebitda": "money",
+    "gross_profit": "money",
     "gross_margin": "ratio",
     "operating_margin": "ratio",
     "net_margin": "ratio",
@@ -579,7 +580,7 @@ def calculate_measure(
     """Вычисляет меру по концепту.
 
     Поддерживаемые концепты по data-dictionary.md §2:
-    - EBITDA, gross_margin, operating_margin, net_margin
+    - EBITDA, gross_profit, gross_margin, operating_margin, net_margin
     - invested_capital, roic, roe
     - asset_turnover
     - nopat
@@ -618,6 +619,25 @@ def calculate_measure(
                     ("operating_income", operating_income),
                     ("opex", opex), ("revenue", revenue)) if v is None)
             null_reason = "missing_data: " + ", ".join(missing)
+
+    elif concept == "gross_profit":
+        # ТЗ-97 Q7: gross_profit = revenue − cogs — расчёт из поданных
+        # слагаемых для тех, кто валовую прибыль не раскрывает (софт,
+        # телеком). Раскрытая величина приоритетнее: словарь §2 определяет
+        # концепт как «= revenue − cogs, если не раскрыт», и на копии базы
+        # пользователя вычитание без этого правила дало бы банку
+        # отрицательную валовую прибыль против поданной положительной.
+        filed = kwargs.get("gross_profit")
+        revenue = kwargs.get("revenue")
+        cogs = kwargs.get("cogs")
+        if filed is not None:
+            value = filed
+        elif revenue is None or cogs is None:
+            missing = sorted(name for name, v in (
+                ("cogs", cogs), ("revenue", revenue)) if v is None)
+            null_reason = "missing_data: " + ", ".join(missing)
+        else:
+            value = revenue - cogs
 
     elif concept == "gross_margin":
         value, null_reason = gross_margin(

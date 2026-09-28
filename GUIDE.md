@@ -164,7 +164,7 @@ US-CLI-DEMO: заданий закрыто: 2; фактов: 6; дублей sha
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide snapshot --instrument US-CLI-DEMO
 US-CLI-DEMO: снапшот v1: 5c202d7f-12c0-42f4-92b9-8ebb516a783a
-US-CLI-DEMO: мер: 28 — со значением 4, пусто 24; перцентилей: 0
+US-CLI-DEMO: мер: 29 — со значением 4, пусто 25; перцентилей: 0
 ```
 
 Пустая мера — не ошибка: у неё есть причина, и она видна.
@@ -184,13 +184,13 @@ concept_map_version: us-gaap.v4
 | net_margin | 0.1 | ratio | 2023-01-01 | 2023-12-31 |
 | nopat | 166.66666666666669 | USD | 2023-01-01 | 2023-12-31 |
 | operating_margin | 0.2 | ratio | 2023-01-01 | 2023-12-31 |
-| ... (всего 27 мер; ниже — причины пустых) ...
+| ... (всего 29 мер; ниже — причины пустых) ...
 Причины пустых значений:
 - [1] asset_turnover: missing_data: total_assets
 - ... 
 - [9] gross_margin: missing_data: gross_profit
 - ...
-- [21] roe: missing_data: total_equity
+- [22] roe: missing_data: total_equity
 - ...
 ```
 

@@ -29,6 +29,9 @@ _MEASURE_FORMULAS: dict[str, dict[str, str]] = {
                          "revenue": "revenue"},
     "effective_tax": {"tax_expense": "tax_expense",
                       "pretax_income": "pretax_income"},
+    # ТЗ-97 Q7: валовая прибыль — расчёт из поданных слагаемых там, где
+    # своего тега нет (софт и телеком); см. _DISCLOSED_AGGREGATE.
+    "gross_profit": {"revenue": "revenue", "cogs": "cogs"},
     "gross_margin": {"gross_profit": "gross_profit", "revenue": "revenue"},
     "ebitda": {"operating_income": "operating_income",
                "d_and_a": "d_and_a"},
@@ -52,6 +55,14 @@ _CHAIN_MEASURES: dict[str, dict[str, str]] = {
     "nopat": {"operating_income": "operating_income",
               "tax_rate": "effective_tax"},
 }
+
+# ТЗ-97 Q7: меры, чья величина бывает раскрыта и готовым тегом. Словарь
+# §2 определяет `gross_profit` как «= revenue − cogs, если не раскрыт»:
+# раскрытый факт — вход приоритетнее, вычитание только когда своего тега
+# нет. Иначе на копии базы пользователя у Wells Fargo валовая прибыль
+# выезжала −1 457 000 000 против раскрытых +244 000 000, потому что в
+# canonical-концепт `cogs` у банка попадает процентный расход.
+_DISCLOSED_AGGREGATE: frozenset[str] = frozenset({"gross_profit"})
 
 # Формулы §3, чьи входы вне карты V0: строка видна с постоянной
 # причиной concept_not_mapped, не выбрасывается.
@@ -830,6 +841,12 @@ class SnapshotBuilder:
 
         # ── Однопериодные формулы ──
         for concept, inputs_map in _MEASURE_FORMULAS.items():
+            if concept in _DISCLOSED_AGGREGATE and concept in by_concept:
+                # ТЗ-97 Q7: величина раскрыта — её собственный факт и
+                # есть вход; расчёт из слагаемых только когда тега нет.
+                # Двери те же: by_concept уже отфильтрован as_of и
+                # давностью, протухший тег не задаёт значение.
+                inputs_map = {concept: concept}
             needed = sorted(set(inputs_map.values()))
             absent = [a for a in needed if a not in by_concept]
             if absent:

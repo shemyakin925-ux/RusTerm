@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-97.md",
  "report": "agent/REPORT-103.md",
- "item": "ТЗ-91 B6 в коммите: canonical tax_expense = −поданное для ВСЕЯКОЙ строки cvm-dfp 3.08 (флип был только у отрицательных), raw_value не тронут, версия карты прежняя, ноль остаётся «0.0»",
- "step": "B5 сдана в 99fc5b8 (приёмка 13/0 через pre-commit hook, push b377704..99fc5b8). B6: красным 2 failed/3 passed на worktree /tmp/rusterm-b6-before@99fc5b8, зелёным 5 passed; соседи c4+z2+br_census — 17; AMBEV золотая 0.23812270405274155 не шелохнулась (все шесть 3.08 в слайсе DRE отрицательны); копия базы read-only: 0 фактов cvm-dfp из 616822, A/B сборки для B6 не делалась и не нужна. Дальше ТЗ-97 Q7: gross_profit = revenue − cost_of_revenue формулой словаря, тот же период, иначе period_mismatch.",
+ "item": "ТЗ-97 Q7 в коммите: gross_profit = revenue − cogs формулой словаря (первый проход, все двери), раскрытый тег приоритетнее вычитания через _DISCLOSED_AGGREGATE; gross_margin не тронута",
+ "step": "Q7: копия базы пользователя read-only, as_of 2026-09-24, PYTHONHASHSEED=0, 44 бумаги — строк мер 1232→1276, со значением 570→588 (13 по поданному тегу, 5 по вычитанию, 0 смешанно); альтернатива «вычитать всегда» = 586, расходятся только LOGI и TECK; других мер не двинулось (0 строк), хотя cogs вошёл в base_concepts. 8 новых зубов красные на worktree e896f1e → зелёные; пины 28→29 замерены прогонами (replay, r4, k4 -m firsthour, CLI демо 28/24→29/25, GUIDE [21]→[22] roe), formulas_baseline перепинен 7be44306→9bb9a56d тем же коммитом. Дальше ТЗ-97 Q6: фабрика сборщика снапшота, обязана передавать peer_inputs во всех вызовах, зуб e2e через refresh.",
  "status": "working",
- "last_commit": "99fc5b8",
+ "last_commit": "e896f1e",
  "requests": 41,
  "net_requests": 41,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-28T06:48:09Z"
+ "updated_at": "2026-09-28T08:05:17Z"
 }

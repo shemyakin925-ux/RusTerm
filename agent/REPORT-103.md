@@ -411,10 +411,101 @@ Measured, B6:
   in both taxonomies that do exist there (us-gaap 3975 rows, ifrs-full 54): B6
   touches the CVM map only.
 
+### ТЗ-97 Q7 — `gross_profit` becomes a formula of the measure dictionary
+
+Rule.
+
+- `core/snapshot.py`: `_MEASURE_FORMULAS["gross_profit"] = {"revenue":
+  "revenue", "cogs": "cogs"}`, and `formulas.py` gets
+  `MEASURE_UNIT_KINDS["gross_profit"] = "money"` plus a `calculate_measure`
+  branch that subtracts and, on a missing component, names it
+  (`missing_data: cogs`) instead of answering bare `missing_data` (B2).
+- Because the measure is declared in the pass-1 map, it inherits every door the
+  other single-period formulas already walk: Q10's one-window rule (both
+  components must come from the same TTM window, same basis, same currency —
+  otherwise the common-annual route or `period_mismatch`), the `as_of` door, the
+  Y2 staleness door, the concept-map priority rank choosing the tag, one lineage
+  row per component carrying that component's own `fact_id`, and `unit` = the
+  currency of the components. `cogs` entered `base_concepts` with it (it was not
+  there before); collateral measured: 0 other measures moved (Run 46).
+- **A disclosed aggregate wins.** `_DISCLOSED_AGGREGATE = frozenset({"gross_profit"})`:
+  when the issuer's own `gross_profit` fact survives the two doors, it *is* the
+  input and no subtraction happens. This is data-dictionary §2's own definition
+  of the concept («= revenue − cogs, если не раскрыт»), and the choice is
+  measured, not stylistic — Run 47 compares it with the alternative (always
+  subtract) on the copy, and Disputed 7 records the other reading of Q7's
+  «а не подстановка».
+
+Measured (P7: copies of `~/EquityLab/data`, both trees `as_of` 2026-09-24, 44
+papers, `PYTHONHASHSEED=0`; the original base was only ever read):
+
+| tree | measure rows | rows with a value |
+|---|---|---|
+| before (`e896f1e`, no such measure) | 1232 | 570 |
+| after (Q7, disclosed wins) | 1276 | **588** |
+| alternative (always subtract) | 1276 | 586 |
+
+- 18 of 44 papers now carry a `gross_profit` value: 13 through their own
+  `GrossProfit` tag (AAPL, ADBE, ADSK, CRM, DELL, HPQ, LOGI, MSFT, NOW, SMCI,
+  SNPS, TECK, WDC), 5 through the subtraction (CLF −860 000 000, FCX
+  6 568 000 000, LUMN 4 693 000 000, SCCO 8 060 800 000, STX 5 558 000 000 —
+  each with both components from one same-dated period and the Q10
+  `annual_fallback` note naming the missing quarter).
+- The 26 refusals name their cause: 12 × `missing_data: cogs`, 4 ×
+  `missing_data: cogs, revenue` (BHP, KSPI, TFC, VOD), 8 × `stale_data: cogs:
+  last <date>` (a tag filed and abandoned — ORCL 2011-05-31, WDAY 2013-10-31,
+  VZ 2018-03-31, C 2020-12-31 …), 1 × `period_mismatch` (T — both components
+  exist, never in one window).
+- Q7's premise, checked: software does gain (ADSK, CRM, NOW, SNPS, ADBE, MSFT,
+  …). Telecom mostly cannot, and not because of the formula — VZ, CHTR, CMCSA
+  and T do not carry a usable cost-of-revenue disclosure (VZ abandoned the tag
+  in 2018, CHTR/CMCSA never filed it); LUMN is the one telecom that computes.
+- What the «disclosed wins» rule buys today: 2 papers. LOGI files
+  `GrossProfit` but abandoned the cogs tag on 2017-03-31, and TECK never files
+  cogs — under always-subtract both refuse (`stale_data` / `missing_data: cogs`)
+  and the base loses those two numbers (588 → 586). Wherever both routes were
+  possible the two agree, so nothing was traded away for the sign guarantee: an
+  issuer whose canonical `cogs` swallows interest expense (the Wells Fargo
+  shape, revenue − cogs = −1 457 000 000 against a disclosed +244 000 000) can
+  never print a gross profit that contradicts its own filing.
+- `gross_margin` was not touched (Q7 does not ask): it still reads the filed
+  concept — 13 papers valued, 21 refuse `missing_data: gross_profit`. Of those
+  21, exactly the 5 subtraction-route papers now show a `gross_profit` number
+  while `gross_margin` next to them stays refused; that gap is Disputed 8, with
+  the existing `nopat ← effective_tax` chain as the precedent.
+
+Teeth — `tests/test_task97_q7_gross_profit.py`, 8 of them, all red at
+`e896f1e` before the code (Run 45): dictionary (`measure_inputs` =
+`("cogs", "revenue")`, `measure_unit` money: `USD`/`BRL` pass through);
+engine (`revenue − cogs`, both one-sided refusals named); build without the tag
+(value, unit, period, `formula_id`, both `fact_id`s in lineage, and the pinned
+`gross_margin: missing_data: gross_profit` that Q7 deliberately leaves alone);
+components in different years → `period_mismatch` with an empty lineage;
+revenue-only → `missing_data: cogs`; disclosed tag wins over a subtraction that
+would go negative; disclosed tag with no cogs at all still gives the measure;
+quarterly components feed one TTM window (480 over 2025-07-01…2026-06-30, six
+component rows).
+
+Pins that moved because a measure row now exists (behaviour, not weakening —
+three of them are `assert`-line edits, so all three are declared in the commit
+as `ЗАМЕНА-БУЛАВКИ` + `ПОЧЕМУ СИЛЬНЕЕ`, which the P1 guard requires):
+`test_task96_r3_replay.py` EXPECTED valued AAPL 23→24, ADBE 22→23, MSFT 23→24
+(KSPI, VALE, VZ unchanged); `test_desktop_task96_r4_firsthour.py`
+`MEASURE_ROWS` 28→29, `VALUED_NOW` 10→11; `test_task65_k4_firsthour.py`
+`len(measures)` 28→29 (that module is `-m firsthour`, so it was measured by
+running it explicitly, not by the default suite); `test_cli.py` demo-base
+counts `со значением 4, пусто 24` → `25` and `4 из 28` → `4 из 29`; `GUIDE.md`
+§3 snapshot line and §4 refusal numbering (`roe` `[21]` → `[22]`, plus the
+unverified «всего 27 мер» elision corrected to the measured 29). Not a test
+pin but pinned by one: `tests/data/formulas_baseline.sha256` 7be44306… →
+9bb9a56d…, re-set in this same commit per the era rule that `formulas.py` and
+its hash move together (`test_ifrs_map.py::test_formulas_py_matches_era_baseline`).
+
 ## Blocked
 
 Nothing blocked. Budget held: network 0, LLM 0 — no fetch, no provider call, no
-model request in B2, B3, B4, B5 or B6.
+model request in B2, B3, B4, B5, B6 or Q7 (the A/B ran on local copies, no
+re-ingestion, no price call).
 
 ## What not to trust
 
@@ -563,6 +654,35 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
    components (pinned in `test_reported_capital_at_the_border_is_taken_whole`).
    On the user's base no issuer files the aggregate (0 facts), so the case is
    theoretical today. Left as found; a clause would be needed either way.
+
+7. **Q7 / two readings of «расчёт из поданных фактов, а не подстановка».** The
+   clause can be read as «always compute from revenue and cogs», which is the
+   literal shape of the formula it quotes, or as «derive it from filed facts
+   instead of leaving the measure empty», which is how the measure dictionary
+   defines the concept (§2 `gross_profit`: «= revenue − cogs, **если не раскрыт**»).
+   I implemented the second: a disclosed `GrossProfit` fact that survives the
+   `as_of` and staleness doors is the input; the subtraction runs only when the
+   issuer does not disclose it. Both readings pass every Done-when test of Q7
+   verbatim («без тега GrossProfit, с Revenues и CostOfRevenue — мера считается;
+   с разными периодами — period_mismatch»); they differ on 2 papers of 44 today
+   (LOGI, TECK — Run 47 measured 588 vs 586 valued rows) and on the sign
+   guarantee (the Wells Fargo shape). If the ruling is «always subtract», the
+   change is one line (`_DISCLOSED_AGGREGATE = frozenset()`), the teeth
+   `test_filed_aggregate_wins_over_the_subtraction` and
+   `test_filed_aggregate_without_cogs_still_gives_the_measure` must be rewritten
+   by name, and LOGI/TECK lose their number again — so this is a ruling, not a
+   refactor.
+8. **Q7 / `gross_margin` still refuses where the computed `gross_profit`
+   exists.** Q7 asks for the `gross_profit` measure and nothing about the ratio,
+   so the ratio was left reading the filed concept, as before. Measured on the
+   copy after Q7: 5 papers (CLF, FCX, LUMN, SCCO, STX) now print a
+   `gross_profit` number while `gross_margin` beside them says
+   `missing_data: gross_profit` / `stale_data: gross_profit: last 2019-12-31`.
+   The machinery for closing that gap already exists and is proven on
+   `nopat ← effective_tax` (`_CHAIN_MEASURES`), and the chain is probably what
+   the user actually sees as «нет валовой маржи»; it is a separate decision,
+   because it changes `gross_margin` numbers on papers that today refuse, and
+   TASK-97 does not authorise that. Queue it, do not fold it into Q7.
 
 ## Runs
 
@@ -777,6 +897,90 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     values. No A/B rebuild was run for B6 and none is needed: the changed branch
     is reachable only from a `cvm-dfp:3.08` concept, and there is no such fact in
     the user's base.
+
+44. B6 landed: commit `e896f1e` («ТЗ-97 Q5 / ТЗ-91 B6: карта CVM даёт
+    tax_expense = −поданное для всякой строки 3.08»), 4 files, +170/−36, hook
+    tail verbatim `P1: OK (staged)` → `OK нет неотслеживаемых файлов и следов
+    правки` → `Итог: пройдено 13, провалено 0` → `Принято.` → `SELFCHECK OK`
+    (`/tmp/b6-commit.log`). Push range `99fc5b8..e896f1e`;
+    `git log --oneline -1 origin/agent/night-11` returns `e896f1e`.
+45. Q7 red-before in a linked worktree at `e896f1e`
+    (`/tmp/rusterm-q7-before`, only the new test file copied in, removed after
+    the run so `git status --short` there is empty):
+    `PYTHONHASHSEED=0 python3 -m pytest tests/test_task97_q7_gross_profit.py -q`
+    → all 8 FAILED, `--tb=line` verbatim: `105: AssertionError: assert
+    () == ('cogs', 'revenue')` (the dictionary tooth), `115: AssertionError:
+    assert (None, 'concept_not_mapped') == (380.0, None)` (the engine tooth),
+    and six `KeyError: 'gross_profit'` on the build teeth — the row does not
+    exist yet. Same command on the fixed tree: 8 passed.
+46. Q7 A/B on two fresh copies of `~/EquityLab/data`
+    (`/tmp/q7-ab/base_before`, `/tmp/q7-ab/base_after`, 596 MB each; the
+    original opened never for writing — the copies only, P7). Same script, same
+    `as_of` 2026-09-24, `PYTHONHASHSEED=0`, both exit 0: before tree
+    `/tmp/rusterm-q7-before` (`e896f1e`) → `instruments: 44`; after tree
+    `/tmp/rusterm-night11` → `instruments: 44`. Diff: rows 1232 → 1276 (44
+    papers × the new row), valued 570 → 588, 18 papers gained a value, and
+    **0** rows of any other concept changed value or reason — the worry that
+    bringing `cogs` into `base_concepts` would move the Y2 anchor and change
+    unrelated refusals did not materialise on this base.
+47. Alternative design measured (Disputed 7): `/tmp/rusterm-q7-alt` is a copy of
+    the working tree with one line changed
+    (`_DISCLOSED_AGGREGATE = frozenset()`, always subtract) run against a third
+    copy `/tmp/q7-ab/base_alt`, same `as_of`, exit 0 → 1276 rows, 586 valued.
+    The two trees disagree on exactly 2 papers: LOGI (disclosed 2 091 337 000
+    vs `stale_data: cogs: last 2017-03-31`) and TECK (disclosed 2 657 000 000
+    CAD vs `missing_data: cogs`). Route census of the 18 valued rows in the
+    shipped design: 13 from the disclosed tag, 5 from the subtraction, 0 mixed
+    (joined `measure_lineage` → `fact.canonical_concept`, read-only on the copy).
+48. Pins measured, not guessed. Replay catalog probe (scratch script in
+    `/tmp/q7-probe`, importing `tests/test_task96_r3_replay.py` helpers, offline
+    fixtures only): AAPL `195201000000.0`, ADBE `21218000000.0`, MSFT
+    `225465000000.0` valued; KSPI and VALE `missing_data: cogs, revenue`; VZ
+    `stale_data: cogs: last 2017-12-31` — which is why VZ stayed at 13 valued
+    while the other three moved +1. `-m firsthour` was run explicitly to read
+    its own number: `мер со значением 11 из 29` (the module is deselected by the
+    default `addopts`, so the default suite would not have shown it).
+49. Full suite on the Q7 tree *before* the collateral pins were re-pinned —
+    `PYTHONHASHSEED=0 python3 -m pytest -q` in `/tmp/rusterm-night11`, exit 1,
+    five red, all of them count pins of the extra measure row:
+
+    ```
+    FAILED tests/test_cli.py::test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor
+    FAILED tests/test_cli.py::test_export_of_thin_source_says_words - AssertionEr...
+    FAILED tests/test_guide_truth.py::test_guide_blocks_run_and_match - Assertion...
+    FAILED tests/test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green
+    FAILED tests/test_ifrs_map.py::test_formulas_py_matches_era_baseline - Assert...
+    ```
+
+    The first two printed their own replacements (`'со значением 4, пусто 24'`
+    vs the actual `мер: 29 — со значением 4, пусто 25`; `'4 из 28'` vs `4 из
+    29`), GUIDE quoted the two lines that moved (`мер: 28 …` and `- [21] roe:
+    missing_data: total_equity`), the era baseline named both hashes
+    (`7be44306…` expected, `9bb9a56d…` actual).
+49b. `test_i5_staged_and_authorised_widening_is_green` was not a Q7 behaviour
+    change: it runs `bash agent/selfcheck.sh` against the working tree, and the
+    tree still had the new test module untracked —
+    `SELFCHECK FAIL (P3/P4): untracked files present`. `git add` of
+    `tests/test_task97_q7_gross_profit.py` is the fix; nothing was relaxed.
+50. Demo-base counts, measured on both trees instead of inferred: same CLI
+    scenario (`init` → `demo` → `ingest` → `snapshot` → `export --format md`)
+    in the `e896f1e` worktree and in the Q7 tree. Snapshot line `28 — со
+    значением 4, пусто 24` → `29 … пусто 25`; markdown table rows (counted with
+    `grep -c '^| [a-z_]* |'`, which includes the header) 29 → 30, i.e. 28 → 29
+    measures. New row refuses `missing_data: cogs` and shifts the refusal
+    numbering after it, so `roe` goes `[21]` → `[22]`. The GUIDE elision line
+    said «всего 27 мер» while the table already printed 28 rows — the guard
+    skips `...` lines, so that number was outside any check; set to the
+    measured 29.
+51. Re-run of the affected modules after the re-pins (GUIDE §3/§4, two
+    `test_cli.py` counts, `tests/data/formulas_baseline.sha256` 7be44306… →
+    9bb9a56d…): `PYTHONHASHSEED=0 python3 -m pytest -q tests/test_cli.py
+    tests/test_guide_truth.py tests/test_ifrs_map.py
+    tests/test_task97_q7_gross_profit.py` → exit 0, `.......... [100%]` with
+    three `x` (pre-existing xfails), no `F`, no `E`. The fifth red from run 49
+    (`test_i5_guard_source.py`) needs a clean index to go green — it shells out
+    to `agent/selfcheck.sh` — so it is not in this list; the commit's own
+    pre-commit hook (acceptance 3 and 11) runs the whole suite including it.
 
 ## HANDOFF
 
