@@ -169,6 +169,86 @@ Measured, B3:
   total_debt`, cash USD present, fixture has no price row). Every value the same;
   no golden file moved (`tests/data/` clean in `git status`).
 
+### ТЗ-97 Q5 / ТЗ-91 B4 — the valuation pass gets the same two doors as pass 1
+
+Rule implemented:
+
+- `_latest_canonical` (the balance/price inputs of the second pass) had **no
+  doors at all**: a build dated 2025-06-30 valued a paper with a 2026 balance,
+  and a debt tag abandoned nine years ago entered today's `ev`. It now applies
+  the doors pass 1 already applies — a period closing after `as_of` is not an
+  input (ТЗ-22 J3), and an input lagging the issuer's anchor by more than
+  `_STALE_LOOKBACK_DAYS` was filed and stopped coming (TASK-12 Y2) — and returns
+  `(inputs, {concept: last known period})` so a refusal names `stale_data:
+  <concept>: last <date>` instead of calling an abandoned tag missing (ТЗ-55 Y1
+  form, B2's ban on the wrong name).
+- `shares_outstanding` is exempt from the anchor door only. Its own rule (М1:
+  550 days measured **from `as_of`**, token `stale_input`) is strictly earlier —
+  the anchor is never later than `as_of` and 1100 > 550 — so nothing is lost by
+  the exemption and the accepted М1 behaviour and its teeth stand unchanged. The
+  `as_of` door still applies to a share count.
+- One definition of a year: `latest_annual_fact` had `min_days=300` and **no
+  upper bound**, so a 730-day cumulative was an acceptable "annual" denominator
+  while `_annual_common_period` demanded 350..380. The store now takes the same
+  corridor (defaults 350/380) plus an optional `as_of` door in SQL; the kernel
+  reads the corridor through `is_annual_window`. The store must not import
+  `core`, so the equality is pinned by a test over the boundary lengths rather
+  than by an import.
+- `as_of` reaches every annual call site of the pass: the `net_income` /
+  `revenue` fallback denominators and both `_annual_common_period` calls.
+- A chain repeats a `stale_data` refusal by its own token (`upstream`), now
+  including `roic` over a refused `invested_capital` — before this commit `roic`
+  announced `missing_data: invested_capital` about a row that exists and refuses.
+
+Measured, B4:
+
+- Teeth: `tests/test_task91_b4_input_doors.py`, 13 tests — a balance closing
+  after `as_of` is not an input; a share count from an open period is not a
+  multiplier; a closed balance is left alone; a fallback denominator cannot come
+  from the future; the common annual period of a chain respects `as_of`; an
+  abandoned debt tag refuses with `stale_data` (and B2's negative guard: the
+  concept is never named missing); every reason stays in the dictionary; a stale
+  tag does not refuse measures that do not need it; the chain repeats the stale
+  refusal instead of calling `net_debt`/`invested_capital` missing (now also for
+  `roic`); the door measures the issuer's anchor, not the calendar; a 730-day
+  cumulative is not annual; the store corridor agrees with the kernel on
+  334/349/350/364/380/381/410/730/1095 days; the store door hides an open period.
+- Red before the fix: 10 of the 13 failed on the working tree before the code
+  changed (`10 failed, 3 passed`), the three green ones being the controls that
+  assert unchanged behaviour.
+- Corridor change 300→350 moved one fixture of an accepted B2 test
+  (`test_pe_on_the_annual_fallback_says_the_same`, a 320-day "annual" net_income
+  no longer annual). Its **fixture** was reshaped to a genuinely annual fact and
+  the same fallback path is now reached through the staleness door; no assert was
+  deleted or weakened — see the docstring of that test.
+- Offline reference `tests/test_task96_r3_replay.py`: two goldens moved, both
+  declared as replacements, neither weakened. `US-VZ` valued measures 17 → 13 —
+  the four lost cells are `net_debt`, `net_debt_ebitda`, `ev`, `ev_ebitda`, all
+  four built on `total_debt` last filed 2013-12-31 and `st_investments` on
+  2015-12-31 while VZ's other facts reach 2026-06-30 (measured offline,
+  `/tmp/b4-measure/vz.py`, both code versions, 0 requests). In
+  `test_dei_input_survives_the_trim` the six-concept "has a value" loop became a
+  four-concept loop **plus** an exact-reason check on the two debt measures —
+  more pinned than before, `ЗАМЕНА-БУЛАВКИ` / `ПОЧЕМУ СИЛЬНЕЕ` in the docstring.
+- User's base copy, P7: `~/EquityLab/data/rusterm.db` byte-copied twice
+  (md5 of source and copy equal, `4440dce6…`), the original never opened for
+  writing; rebuild of all 44 instruments per side, newest snapshot dumped per
+  paper (`/tmp/b4-measure/dump.py`, `diff.py`). `as_of` 2026-09-28.
+  **18 of 44 papers moved, 94 reason cells changed, 0 values changed, 0 refused
+  cells became numbers.** 41 cells went from a value to a refusal (ev ×7,
+  invested_capital ×7, net_debt ×7, net_debt_ebitda ×7, ev_ebitda ×6, roic ×6,
+  pb ×1 — CRM, DELL, HPQ, NTAP, SMCI, TMUS, VZ, WDC), 51 refusals were relabelled
+  `missing_data → stale_data` with the last known period named, 2 unit labels
+  emptied (`US-COF`, `US-JPM` `net_debt`: after B4 no balance input survives, so
+  the refusal has nothing to be signed with — B3's rule). Nothing gained a value.
+- The first sweep of that measurement printed a 45th change, `US-AMX net_margin
+  0.0263 → 0.0318`. It is **not** a B4 effect and it is a real defect, recorded
+  in Disputed 5: the same code in six separate processes gives two different
+  values for that cell. With `PYTHONHASHSEED=0` pinned for both sides the two
+  dumps are byte-reproducible (`before1.json` == `before2.json`,
+  `after1.json` == `after2.json`) and the value change disappears; the numbers
+  above are the pinned-seed sweep.
+
 ## Blocked
 
 Nothing blocked. Budget held: network 0, LLM 0 — no fetch, no provider call, no
@@ -240,6 +320,13 @@ model request in either item.
   the opposite order AMX and TECK would have switched to `currency_mismatch`.
   Both orders are one-line changes; the tooth
   `test_a_missing_input_outweighs_a_currency_dispute` pins the chosen one.
+- One tool result during B4 was false in a new way: an edit of a file that does
+  not exist (`/tmp/b4-measure/vz_fixture.py`) reported «updated successfully»,
+  and the very next call on the real path failed with «File does not exist».
+  Nothing in the repository depends on it — the scratch scripts under
+  `/tmp/b4-measure` were re-read from disk (`ls`, `grep`) before and after every
+  edit, and the numbers in this report come from printed command output, not
+  from a tool's summary of itself.
 
 ## Disputed
 
@@ -271,6 +358,32 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
    the check to those three (then a follow-up clause, with its own «было →
    стало»), or record that ratio sides are only compared where the dictionary
    names a price input directly.
+4. **Q5 / scope of the queue.** The round instruction in chat reads «resume
+   TASK-97: Q5 (rest of TASK-91 **B2–B5**, B1 is replaced by Q10)», while
+   `TASK-97.md` Q5 covers TASK-91 B2–B6 (B6 = the CVM tax sign). Worked to the
+   task file: B4, B5 and B6 are all in this round's queue. If the intent was to
+   stop at B5, B6's commit is the one to drop — it is self-contained.
+5. **A measure can change value between two runs of the same code (found while
+   measuring B4, not caused by it).** `US-AMX net_margin` came out
+   0.026347771119971546 in one process and 0.031758615865317356 in another, with
+   the same code, the same database copy and the same `as_of`; the pre-B4 commit
+   `38b3802` shows the same spread (3 of 4 runs one value, 1 of 4 the other).
+   Cause: AMX files the *same* 2024 period twice, in MXN (`net_income`
+   22 902 025 000 / `revenue` 869 220 584 000) and in USD (1 362 000 000 /
+   42 886 000 000). `_issuer_inputs` builds `common` as a **set** of
+   `(unit, start, end)` triples and then chooses with
+   `max(annual, key=lambda k: (k[2], k[1]))` — the key ignores `unit`, so the two
+   triples tie and `max` returns whichever set iteration yields first, which
+   depends on the per-process hash seed. Repro (each line is one process, on a
+   copy of the base under `/tmp`): six runs of the same builder for `US-AMX`
+   printed 0.0263 four times and 0.0318 twice; `PYTHONHASHSEED=0` makes both
+   sides byte-reproducible. This is outside B4's rule (doors on inputs, not a
+   tie-break among presentations), so nothing was fixed here. It bites every
+   golden count the replay reference pins, and it makes a «было → стало» sweep
+   unreliable unless the seed is pinned. Suggested clause for the coordinator:
+   pick the presentation deterministically where a period exists in two units —
+   e.g. prefer the issuer's reporting currency, else the lexicographically
+   smallest unit — and pin it with a tooth. Not started on my own initiative.
 
 ## Runs
 
@@ -354,6 +467,57 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     identical, 2 units `(blank) → USD` on refused rows, 0 values moved.
 25. B3 commit: message and acceptance result recorded here when the hook
     finishes.
+
+26. B4 red-before: `python3 -m pytest tests/test_task91_b4_input_doors.py -q`
+    on the tree before the kernel/store edits — **10 failed, 3 passed** in 0.79s.
+    The three green were the controls (dictionary-reason sweep, the
+    not-needed-it measure, the store-door hiding an open period on the old
+    signature).
+27. B4 after the fix: same file **13 passed**; together with the two accepted
+    ТЗ-91 modules (`test_task91_b2_refusal_reasons.py`,
+    `test_task91_b3_currency_unit.py`) — **35 passed, 0 F/E**.
+28. B4 base sweep, P7-safe: `cp` of `~/EquityLab/data/rusterm.db` to
+    `/tmp/b4-measure/{before,after}` (md5 `4440dce66775e042ff7bca24f17beaf9`
+    equal on source and copy), pre-B4 code in a **linked worktree**
+    `/tmp/rusterm-b4-before` at `38b3802` (the working tree was never stashed or
+    moved), `PYTHONHASHSEED=0` on all four runs, each side dumped twice:
+    `before1.json` == `before2.json` (md5 `b3ce1cb3…`), `after1.json` ==
+    `after2.json` (md5 `d7eed658…`). `diff.py`: 0 value changes, 41
+    value→refusal, 51 relabelled to `stale_data`, 2 units emptied.
+    `~/EquityLab` was opened for reading by `cp` only, never for writing.
+29. B4 determinism probe (Disputed 5): six separate processes building `US-AMX`
+    on one copy — `0.026347771119971546`, `0.0263…`, `0.031758615865317356`,
+    `0.0263…`, `0.0317…`, `0.0317…`; the same probe with the pre-B4 worktree —
+    `0.0317`, `0.0317`, `0.0263`, `0.0317`. Facts behind it read from the copy
+    with `sqlite3 file:…?mode=ro&immutable=1`.
+30. B4 offline reference: `python3 /tmp/b4-measure/vz.py` (init + add + fixtures
+    + `rusterm snapshot` for the six replay tickers on a `/tmp` root,
+    `RUSTERM_ENV_FILE=/nonexistent`, 0 requests) — pre-B4 `US-VZ` 17 measures
+    with a value, post-B4 13; the four lost cells and their exact `stale_data`
+    strings printed by `json` diff of the two dumps.
+
+31. Full suite after the B4 edits (`tail` of `python3 -m pytest -q --tb=line`):
+    the only red is `test_i5_staged_and_authorised_widening_is_green`, and its
+    message is `SELFCHECK FAIL (P3/P4): untracked files present` naming the new
+    B4 test file — the run began before `git add`. The same three tests on a
+    clean linked worktree at `38b3802` printed `........` (8 dots, 0 F/E), which
+    is what puts all three reds inside this commit rather than in the branch.
+    The i5 tooth itself was not re-run to green afterwards: standalone it takes
+    > 7 minutes (it drives `selfcheck.sh` and `acceptance.sh` as subprocesses),
+    and `bash agent/selfcheck.sh` on the staged tree printed
+    `I5: … / O0: updated_at … расходится на +0.0 мин / P1: OK (staged)` before
+    the run was cut short — see the next item for why it was stopped.
+32. Hazard found while re-running that tooth, worth a clause:
+    `test_i5_staged_and_authorised_widening_is_green` **writes into the working
+    tree and the index of the clone it runs in** — its green case appends
+    `# i5 green case: staged widening` to `agent/p6_rule.sh` and stages it, and
+    it relies on the process finishing to clean up. Killing the run left
+    `agent/p6_rule.sh` modified-and-staged in `/tmp/rusterm-night11`. Restored
+    with `git restore --staged --worktree agent/p6_rule.sh` (the delta was those
+    two lines and nothing else, checked with `git diff HEAD` first); the guard
+    file is byte-identical to `38b3802` now, and the B4 commit does not touch
+    it. Consequence for the night shift: never run that module in the background
+    of a tree that is about to be committed, or run it in a throwaway worktree.
 
 ## HANDOFF
 

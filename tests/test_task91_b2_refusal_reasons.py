@@ -26,7 +26,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from rusterm.core.snapshot import SnapshotBuilder
+from rusterm.core.snapshot import (
+    _STALE_LOOKBACK_DAYS, SnapshotBuilder)
 from rusterm.formulas import calculate_measure, effective_tax_rate
 from rusterm.reasons import is_known_reason
 from rusterm.store.db import apply_migrations
@@ -166,17 +167,27 @@ def test_pe_on_the_annual_fallback_says_the_same(env):
     отличает контрольный прогон: то же окно с положительным числом
     обязано дать пометку `pe` — иначе строка читалась бы из окна TTM, а
     не с `_latest_annual_input`, и тест проверял бы не ту ветку.
+
+    Фикстура переписана ТЗ-91 B4: раньше ветку отличал 320-дневный период
+    (для окна TTM не годовой, для `_latest_annual_input` — да с порогом
+    300 дней). После B4 «годовой» — один коридор 350..380 на оба места, и
+    такой период не год ни туда, ни туда: мера отказала бы по
+    `missing_data`, а не по знаменателю. Годный способ оставить ту же
+    ветку — годовой вход, вычищенный из входов правилом давности: окна
+    меры нет, а `_latest_annual_input` его берёт (так же, как это держит
+    тест ТЗ-97 Q10 `test_pe_on_a_stale_annual_is_marked_annual_fallback`).
     """
     conn, repos = env
     _paper(repos, conn)
     _base(conn)
-    # 320-дневный период: для окна TTM не годовой (350..380), для
-    # `_latest_annual_input` — да (порог 300 дней)
-    conn.execute("UPDATE fact SET period_start=? WHERE issuer_id='i1'"
-                 " AND canonical_concept='net_income'",
-                 ((date.fromisoformat(FY_END)
-                   - timedelta(days=320)).isoformat(),))
-    _set(conn, "i1", "net_income", 50.0)
+    # единственный net_income — годовой 2022-го: от anchor эмитента
+    # (2025-12-31) он отстаёт больше чем на _STALE_LOOKBACK_DAYS, поэтому
+    # окна TTM у меры нет, а запасным годовым входом она его берёт
+    stale_end = (date.fromisoformat(FY_END)
+                 - timedelta(days=_STALE_LOOKBACK_DAYS + 20)).isoformat()
+    conn.execute("DELETE FROM fact WHERE issuer_id='i1'"
+                 " AND canonical_concept='net_income'")
+    _flow(conn, "i1", "net_income", 50.0, end=stale_end)
     _rows, control = _build(repos)
     assert "pe" in {c for c, _why in control.annual_fallbacks}, \
         f"ветка не та: {control.annual_fallbacks}"

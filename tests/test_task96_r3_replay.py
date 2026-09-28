@@ -177,6 +177,14 @@ def _counters(root):
 # `market_cap_total` отказаны: 2 меры со значением → 0. Остальные
 # строки таблицы M1 не двинул — это видно по прогону всего теста
 # целиком (числа совпали до и после правки, Run в REPORT-102).
+# ТЗ-91 B4 (замена булавки, а не ослабление): у VZ тег долга подан
+# последний раз на 2013-12-31, краткосрочные вложения — на 2015-12-31,
+# остальная отчётность доходит до 2026-06-30. Дверь давности прохода
+# оценки выкидывает брошенные теги, и четыре меры на них
+# (net_debt, net_debt_ebitda, ev, ev_ebitda) отказываются
+# `stale_data: ...: last <дата>` — 17 мер со значением → 13. Ровно те
+# четыре, и ни одна не потеряла число без объяснения: замеры в
+# test_dei_input_survives_the_trim и в Run отчёта.
 EXPECTED = {
     "US-AAPL": {"facts": 230, "fact_years": 20, "prices": 1000,
                 "price_years": 5, "valued": 23},
@@ -189,7 +197,7 @@ EXPECTED = {
     "US-VALE": {"facts": 5, "fact_years": 2, "prices": 1000,
                 "price_years": 5, "valued": 0},
     "US-VZ": {"facts": 181, "fact_years": 20, "prices": 1000,
-              "price_years": 5, "valued": 17},
+              "price_years": 5, "valued": 13},
 }
 
 # Байты фикстур = запись живого ответа: повторная обрезка того же
@@ -251,7 +259,18 @@ def test_replay_makes_zero_requests_and_rebuilds_the_numbers(catalog):
 def test_dei_input_survives_the_trim(catalog):
     """Без `dei:EntityCommonStockSharesOutstanding` в фикстуре VZ теряет
     и market_cap, и всё, что из него растёт (замерено на базе
-    пользователя: 8 мер со значением против 16 в прогоне)."""
+    пользователя: 8 мер со значением против 16 в прогоне).
+
+    ЗАМЕНА-БУЛАВКИ (ТЗ-91 B4): из цикла убраны `ev` и `net_debt` — но не
+    ослаблением, а двумя проверками вместо одной: `missing_data`-список
+    сократился до тех мер, чей вход действительно DEI (капитализация и
+    всё, что из неё растёт), а долг и деньги теперь закреплены точной
+    строкой отказа.
+    ПОЧЕМУ СИЛЬНЕЕ: раньше тест требовал у ev и net_debt просто
+    непустого значения и молча принял бы число, собранное долгом
+    2013 года и вложениями 2015-го (VZ эти теги больше не подаёт); теперь
+    он требует, чтобы отказ был назван по имена и периоду, — и по-прежнему
+    требует чисел там, где вход на месте."""
     repos, root = catalog
     _replay_fundamentals(repos, root, "VZ")
     rc, _gate, _provider = _replay_prices(repos, root, "VZ",
@@ -260,10 +279,17 @@ def test_dei_input_survives_the_trim(catalog):
     assert cli.main(["--root", str(root), "snapshot",
                      "--instrument", "US-VZ"]) == 0
     ms = _measures(root, "US-VZ")
-    for concept in ("market_cap", "market_cap_total", "ev", "net_debt",
-                    "pe", "ps"):
+    for concept in ("market_cap", "market_cap_total", "pe", "ps"):
         assert ms.get(concept, (None, "нет меры"))[0] is not None, (
             concept, ms.get(concept))
+    # ТЗ-91 B4: брошенные теги долга — отказ по давности, названный
+    # периодом, а не число из 2013 года, подписанное сегодняшней датой.
+    stale = "stale_data: st_investments: last 2015-12-31, " \
+            "total_debt: last 2013-12-31"
+    for concept in ("net_debt", "net_debt_ebitda", "ev", "ev_ebitda"):
+        assert ms.get(concept, (None, "нет меры"))[0] is None, (
+            concept, ms.get(concept))
+        assert ms[concept][1] == stale, (concept, ms[concept][1])
 
 
 def test_fixtures_fit_the_cap_and_are_pinned_by_sha256():

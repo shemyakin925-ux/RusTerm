@@ -576,11 +576,20 @@ class SnapshotRepo:
         return [dict(zip(keys, r)) for r in rows]
 
     def latest_annual_fact(self, issuer_id: str, canonical: str,
-                           min_days: int = 300) -> Optional[tuple]:
-        """ТЗ-69 P1: свежайший годовой (окно >= min_days дней) факт по
-        каноническим тегам входа, любой честный basis (as_reported или
-        restated). Знаменатель поток-меры: квартальный поток в годовой
-        мере — выдумка. SQL в слое хранилища."""
+                           min_days: int = 350, max_days: int = 380,
+                           as_of: Optional[str] = None) -> Optional[tuple]:
+        """ТЗ-69 P1: свежайший годовой факт по каноническим тегам входа,
+        любой честный basis (as_reported или restated). Знаменатель
+        поток-меры: квартальный поток в годовой мере — выдумка. SQL в слое
+        хранилища.
+
+        ТЗ-91 B4: «годовой» — коридор 350..380 дней, тот же, что у общего
+        годового периода (`_annual_common_period`, ТЗ-31 C2) и у
+        `rusterm.core.ttm.is_annual_window`, — а не «любое окно >= 300»:
+        двухлетний кумулятив давал знаменатель из двух лет при числителе
+        за один. Дверь `as_of`: период, кончившийся позже даты сборки, ещё
+        не закрыт (ТЗ-22 J3); без as_of фильтр не ставится — то же
+        соглашение, что у первого прохода."""
         import datetime as _dt
         # каноническое имя входа живёт в canonical_concept (карта
         # концептов применяется при разборе), а не в сыром теге
@@ -588,8 +597,9 @@ class SnapshotRepo:
             """SELECT value, period_end, currency, fact_id, period_start
                FROM fact WHERE issuer_id=? AND canonical_concept=?
                AND status='ok' AND value IS NOT NULL
+               AND (? IS NULL OR period_end <= ?)
                ORDER BY period_end DESC LIMIT 200""",
-            (issuer_id, canonical)).fetchall()
+            (issuer_id, canonical, as_of, as_of)).fetchall()
         best = None
         for value, end, currency, fact_id, start in rows:
             if not start or not end:
@@ -600,7 +610,9 @@ class SnapshotRepo:
                           - _dt.date.fromisoformat(start)).days
             except (TypeError, ValueError):
                 continue
-            if length >= min_days and (best is None or end > best[1]):
+            if not min_days <= length <= max_days:
+                continue
+            if best is None or end > best[1]:
                 best = (numeric, end, currency, fact_id, start, length)
         return best
 

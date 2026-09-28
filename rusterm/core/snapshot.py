@@ -1091,38 +1091,86 @@ class SnapshotBuilder:
     def _next_version(self, instrument_id: str) -> int:
         return self._snapshots.max_version(instrument_id) + 1
 
-    def _latest_canonical(self, issuer_id: str) -> dict:
+    def _latest_canonical(self, issuer_id: str,
+                          as_of: Optional[str] = None) -> tuple:
         """Свежайшее значение по каждому каноническому входу оценочных
         мер: concept -> (value, period_end, currency, fact_id).
-        Валюта и fact_id нужны K6 (проверка валют) и lineage."""
-        out: dict = {}
+        Валюта и fact_id нужны K6 (проверка валют) и lineage.
+
+        ТЗ-91 B4: у входов прохода оценки те же двери, что у первого
+        прохода, — раньше их не было вовсе, и сборка на 2025-06-30
+        оценивала бумагу балансом 2026 года, а брошенный девять лет назад
+        тег долга входил в сегодняшний EV.
+
+        (входы, {концепт: последний известный период}). Дверь as_of
+        (ТЗ-22 J3): период, кончившийся позже даты сборки, ещё не закрыт —
+        такой вход отсутствует на эту дату. Дверь давности (TASK-12 Y2):
+        вход, отстающий от anchor эмитента (самого свежего закрытого
+        периода) больше чем на _STALE_LOOKBACK_DAYS, подавался и
+        перестал — он уходит во второй список, чтобы отказ называл
+        `stale_data`, а не `missing_data` (ТЗ-55 Y1, B2).
+
+        Для shares_outstanding дверь давности не ставится: у него своё,
+        более строгое правило ТЗ-102 M1 (`_share_count_refusal`, 550 дней
+        ОТ AS_OF, токен `stale_input` — отказ меры, а не входов). Якорь
+        сборки не позже as_of, а порог 1100 дней больше 550, поэтому M1
+        всегда срабатывает раньше общей двери и ничего не теряется; дверь
+        as_of для акций стоит на месте (число из ещё не закрытого периода
+        множителем быть не может)."""
         rows = self._snapshots.as_reported_facts(
             issuer_id, _VALUATION_INPUT_CONCEPTS)
+        closed: dict[str, list] = {}
+        newest: dict[str, str] = {}
         for concept, value, fact_id, _unit, _start, end, canonical in rows:
             key = canonical or concept
-            if key not in _VALUATION_INPUT_CONCEPTS:
+            if key not in _VALUATION_INPUT_CONCEPTS or not end:
                 continue
             try:
                 numeric = float(value)
             except (TypeError, ValueError):
                 continue
-            prev = out.get(key)
-            if prev is None or end > prev[1]:
-                currency = self._fact_currency_by_id(fact_id)
-                out[key] = (numeric, end, currency, fact_id)
-        return out
+            if as_of and end > as_of:
+                continue        # период ещё не закрыт на дату сборки
+            closed.setdefault(key, []).append((numeric, end, fact_id))
+            if key not in newest or end > newest[key]:
+                newest[key] = end
+        anchor = max(newest.values(), default=None)
+        try:
+            anchor_date = date.fromisoformat(anchor) if anchor else None
+        except (TypeError, ValueError):
+            anchor_date = None
+        out: dict = {}
+        stale: dict = {}
+        for key, items in closed.items():
+            best = None
+            for numeric, end, fact_id in items:
+                if (anchor_date is not None
+                        and key != "shares_outstanding"
+                        and not _eligible_input(end, anchor_date)):
+                    continue
+                if best is None or end > best[1]:
+                    best = (numeric, end,
+                            self._fact_currency_by_id(fact_id), fact_id)
+            if best is not None:
+                out[key] = best
+            else:
+                stale[key] = max(end for _numeric, end, _fact in items)
+        return out, stale
 
     def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:
         return self._snapshots.fact_currency(fact_id)
 
     def _latest_annual_input(self, issuer_id: str, canonical: str,
-                             min_days: int = 300) -> tuple | None:
-        """ТЗ-69 P1: свежайший ГОДОВОЙ (окно >= min_days дней) факт по
-        каноническому входу — знаменатель поток-меры. Квартальный поток
-        в знаменателе годовой меры — выдумка, а не значение. Теги
-        входа берутся из карты концептов (в фактах — сырые теги)."""
+                             as_of: Optional[str] = None) -> tuple | None:
+        """ТЗ-69 P1: свежайший ГОДОВОЙ (коридор 350..380 дней — тот же,
+        что у `_annual_common_period`) факт по каноническому входу —
+        знаменатель поток-меры на запасном годовом пути. Квартальный поток
+        в знаменателе годовой меры — выдумка, а двухлетний — удвоение
+        (ТЗ-91 B4). Теги входа берутся из карты концептов (в фактах —
+        сырые теги). Дверь as_of — здесь же: год, кончившийся позже даты
+        сборки, знаменателем быть не может."""
         return self._snapshots.latest_annual_fact(issuer_id, canonical,
-                                                  min_days=min_days)
+                                                  as_of=as_of)
 
     # ── ТЗ-31 C2: входы оценочных мер из реальных данных ────────────────
 
@@ -1138,17 +1186,22 @@ class SnapshotBuilder:
 
     def _annual_common_period(self, issuer_id: str,
                               concepts: tuple,
-                              note: str = "") -> Optional[dict]:
+                              note: str = "",
+                              as_of: Optional[str] = None) -> Optional[dict]:
         """Последний общий ГОДОВОЙ период (350..380 дней) по концептам:
         {concept: (value, fact_id)} с приоритетом карты, иначе None.
         Для ev_ebitda и roic (ТЗ-31 C2): квартальный знаменатель давал
         бы кратную ошибку. ТЗ-97 Q10: это НЕ «честный TTM-эквивалент» —
         это годовой вместо трейлинга, и он помечен `annual_fallback` с
         окном и названной причиной в каждой строке lineage. `note` —
-        почему общего окна меры нет."""
+        почему общего окна меры нет. ТЗ-91 B4: год ищется только среди
+        периодов, закрытых на дату сборки (дверь as_of, ТЗ-22 J3), а
+        ядро и слой хранилища."""
         rows = self._snapshots.as_reported_facts(issuer_id, concepts)
         by_concept: dict[str, list] = {}
         for concept, value, fact_id, _unit, start, end, canonical in rows:
+            if as_of and end > as_of:
+                continue
             key = canonical or concept
             if key not in concepts:
                 continue
@@ -1167,9 +1220,7 @@ class SnapshotBuilder:
         key_sets = [{(r["start"], r["end"]) for r in by_concept[c]}
                     for c in concepts]
         common = set.intersection(*key_sets)
-        annual = [k for k in common
-                  if 350 <= (date.fromisoformat(k[1])
-                             - date.fromisoformat(k[0])).days <= 380]
+        annual = [k for k in common if is_annual_window(k[0], k[1])]
         if not annual:
             return None
         start, end = max(annual, key=lambda k: (k[1], k[0]))
@@ -1335,7 +1386,7 @@ class SnapshotBuilder:
             price_value = price["close"]
             price_currency = price["currency"]
 
-        inputs = self._latest_canonical(issuer_id)
+        inputs, stale_inputs = self._latest_canonical(issuer_id, as_of)
 
         def write(concept: str, value, reason, unit: str,
                   lineage: list) -> str:
@@ -1380,12 +1431,30 @@ class SnapshotBuilder:
                 return "", mismatch(sorted(curs))
             return (curs.pop() if curs else ""), None
 
+        def absent_reason(names) -> str:
+            """ТЗ-91 B4: годного входа нет — `missing_data` по именам; вход
+            подавался, но его съела дверь давности — `stale_data` с
+            последним известным периодом (форма ТЗ-55 Y1), имена в том же
+            согласованном порядке. Назвать брошенный годы назад тег
+            отсутствующим запрещает B2."""
+            stale_parts = [f"{n}: last {stale_inputs[n]}"
+                           for n in sorted(names) if n in stale_inputs]
+            missing_parts = [n for n in sorted(names)
+                             if n not in stale_inputs]
+            parts = []
+            if stale_parts:
+                parts.append("stale_data: " + ", ".join(stale_parts))
+            if missing_parts:
+                parts.append("missing_data: " + ", ".join(missing_parts))
+            return "; ".join(parts)
+
         def upstream(reason, name: str) -> str:
             """ТЗ-91 B3: отказ входа-меры передаётся наружу своим
             токеном: `missing_data: <name>` на месте назвало бы
             отсутствующим то, что пришло и отклонено по валюте, — та же
-            ложь, которую запретил B2."""
-            if (reason or "").startswith("currency_mismatch"):
+            ложь, которую запретил B2. ТЗ-91 B4: так же передаётся и
+            `stale_data` входа, вычищенного дверью давности."""
+            if (reason or "").startswith(("currency_mismatch", "stale_data")):
                 return reason
             return f"missing_data: {name}"
 
@@ -1434,7 +1503,7 @@ class SnapshotBuilder:
                 ("total_debt", debt), ("cash", cash),
                 ("st_investments", stinv)) if v is None)
         if nd_missing:
-            nd_reason = "missing_data: " + ", ".join(nd_missing)
+            nd_reason = absent_reason(nd_missing)
         elif nd_conflict:
             nd_reason = nd_conflict
         else:
@@ -1479,7 +1548,7 @@ class SnapshotBuilder:
                 ("total_equity", equity), ("total_debt", debt),
                 ("cash", cash), ("st_investments", stinv)) if v is None)
         if ic_missing:
-            ic_reason = "missing_data: " + ", ".join(ic_missing)
+            ic_reason = absent_reason(ic_missing)
         elif ic_conflict:
             ic_reason = ic_conflict
         else:
@@ -1542,7 +1611,7 @@ class SnapshotBuilder:
         if total_value is None:
             pb_reason = "missing_data: market_cap_total"
         elif equity is None:
-            pb_reason = "missing_data: total_equity"
+            pb_reason = absent_reason(("total_equity",))
         elif equity_cur and price_currency \
                 and equity_cur != price_currency:
             pb_reason = mismatch([equity_cur, price_currency])
@@ -1573,7 +1642,7 @@ class SnapshotBuilder:
                     ("st_investments", stinv),
                     ("minority_interest", minority)) if v is None)
             if missing:
-                ev_reason = "missing_data: " + ", ".join(missing)
+                ev_reason = absent_reason(missing)
             elif ev_conflict:
                 ev_reason = ev_conflict
             else:
@@ -1615,7 +1684,7 @@ class SnapshotBuilder:
                 pe_lineage = window_lineage(ni_win, why)
                 mark_fallback("pe", why)
         else:
-            annual = self._latest_annual_input(issuer_id, "net_income")
+            annual = self._latest_annual_input(issuer_id, "net_income", as_of)
             if annual is None:
                 pe_reason = "missing_data: net_income_ttm"
             else:
@@ -1658,7 +1727,8 @@ class SnapshotBuilder:
                 ps_lineage = window_lineage(rev_win, why)
                 mark_fallback("ps", why)
         else:
-            annual_rev = self._latest_annual_input(issuer_id, "revenue")
+            annual_rev = self._latest_annual_input(issuer_id, "revenue",
+                                                   as_of)
             if total_value is None:
                 ps_reason = "missing_data: market_cap_total"
             elif annual_rev is None:
@@ -1734,7 +1804,7 @@ class SnapshotBuilder:
             ebitda_flows = ("operating_income", "d_and_a")
             why = annual_route_note(windows, ebitda_flows)
             annual_ebitda = self._annual_common_period(
-                issuer_id, ebitda_flows, why)
+                issuer_id, ebitda_flows, why, as_of)
             if annual_ebitda is not None:
                 m = calculate_measure(
                     "ev_ebitda", ev=ev_value,
@@ -1831,9 +1901,14 @@ class SnapshotBuilder:
             # период, и помечается он как запасной выход, а не как TTM.
             roi_note = annual_route_note(windows, list(roi_flows))
             annual_nopat = self._annual_common_period(issuer_id,
-                                                      roi_flows, roi_note)
+                                                      roi_flows, roi_note,
+                                                      as_of)
         if ic is None:
-            write("roic", None, "missing_data: invested_capital",
+            # ТЗ-91 B4: отказ знаменателя передаётся тем же `upstream`,
+            # что и у net_debt_ebitda: `missing_data: invested_capital`
+            # на месте строки, которая отклонена по давности, назвал бы
+            # брошенным то, что подавалось.
+            write("roic", None, upstream(ic_reason, "invested_capital"),
                   "ratio", [])
         elif roic_conflict is not None:
             write("roic", None, roic_conflict, "ratio", [])

@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-97.md",
  "report": "agent/REPORT-103.md",
- "item": "ТЗ-103 закрыт (N1 131f6ba, N2 69cda54) — очередь того же круга: ТЗ-97 Q5 = ТЗ-91 B2–B6 кроме B1; B2 сдан (13b41d6), B3 в коммите, дальше B4",
- "step": "B3 готова к приёмке: unit денежной меры — валюта её фактов (net_debt, invested_capital, ev), спор валют ⇒ `currency_mismatch: A, B` после проверки на отсутствующий вход, отказ входа-меры передаётся токеном (`upstream`), roic сравнивает стороны (числитель — с строки nopat). Teeth tests/test_task91_b3_currency_unit.py (10, red-before 8/10 в worktree /tmp/b3/pre), соседи 254 dots 0 F/E, база-копия 572 ячейки ⇒ 12 сдвигов и 0 изменённых чисел, AAPL-фикстура 26/28 идентичны. Дальше B4: as_of и правило давности для входов оценки (`stale_data: <concept>: last <date>`, годовой = 350..380) — три зуба по ТЗ-91.",
+ "item": "ТЗ-91 B4 в коммите: две двери прохода оценки (as_of, давность от anchor), годовой коридор 350..380 один для ядра и хранилища, stale_data в отказах и в цепочках (включая roic поверх invested_capital)",
+ "step": "B4 сдана: tests/test_task91_b4_input_doors.py (13, красным 10/13), замена двух золотых булавок в test_task96_r3_replay (VZ 17→13, dei-тест = 4 значения + точная строка stale_data), фикстура B2 пересобрана под коридор 350..380; копия базы: 0 изменённых чисел, 41 значение→отказ, 51 переименован в stale_data, 2 пустые подписи. Дальше B5: roic = среднее капитала на начало и конец окна NOPAT, нет начала → missing_prior_period.",
  "status": "working",
- "last_commit": "13b41d6",
+ "last_commit": "38b3802",
  "requests": 41,
  "net_requests": 41,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-27T15:53:24Z"
+ "updated_at": "2026-09-28T03:04:58Z"
 }
