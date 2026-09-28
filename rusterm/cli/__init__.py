@@ -21,7 +21,8 @@ from rusterm.providers import get_provider
 from rusterm.core.industry.aggregate import (build_sector_aggregates,
                                              period_note, shortfall_note)
 from rusterm.core.snapshot import snapshot_measures_identical
-from rusterm.core.snapshot import SnapshotBuilder, stale_exclusions
+from rusterm.core.snapshot import (make_snapshot_builder,
+                               stale_exclusions)
 from rusterm.markets import MARKET_CODES
 from rusterm.normalize.concepts import CONCEPT_MAP_VERSION_IFRS
 from rusterm.core.refresh import refresh_watchlist
@@ -878,26 +879,9 @@ def cmd_refresh(args) -> int:
                    " участников нет")
         print(message, file=sys.stderr if args.json else sys.stdout)
 
-    from rusterm.core.industry.inputs import industry_metrics_for
-    from rusterm.core.governance import (governance_inputs_from_records,
-                                         insider_net_inputs_from_store,
-                                         produce_assessments)
-    builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
-                              coverage_repo=repos.coverage,
-                              price_repo=repos.price,
-                              corp_action_repo=repos.corp_action,
-                              industry=lambda iid, _issuer:
-                                  industry_metrics_for(repos, iid),
-                              governance=lambda iid, issuer:
-                                  produce_assessments(
-                                      repos.governance, iid,
-                                      args_as_of_default(),
-                                      {**governance_inputs_from_records(
-                                          repos.manual_extraction,
-                                          issuer),
-                                       **insider_net_inputs_from_store(
-                                           repos, iid, issuer,
-                                           args_as_of_default())}))
+    # ТЗ-97 Q6 (ТЗ-94 E1): wiring построителя — в одном месте, иначе
+    # пути разъезжаются, и диагностика пишет снапшот беднее сборки.
+    builder = make_snapshot_builder(repos, args_as_of_default())
     gate = RequestGate()
 
     def provider_factory(cik: int):
@@ -971,36 +955,15 @@ def cmd_snapshot(args) -> int:
     if targets is None:
         conn.close()
         return 1
-    from rusterm.core.industry.inputs import industry_metrics_for
-    from rusterm.core.governance import (governance_inputs_from_records,
-                                         insider_net_inputs_from_store,
-                                         produce_assessments)
-    builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
-                              coverage_repo=repos.coverage,
-                              price_repo=repos.price,
-                              corp_action_repo=repos.corp_action,
-                              industry=lambda iid, _issuer:
-                                  industry_metrics_for(repos, iid),
-                              governance=lambda iid, issuer:
-                                  produce_assessments(
-                                      repos.governance, iid,
-                                      args_as_of_default(),
-                                      {**governance_inputs_from_records(
-                                          repos.manual_extraction,
-                                          issuer),
-                                       **insider_net_inputs_from_store(
-                                           repos, iid, issuer,
-                                           args_as_of_default())}))
+    # ТЗ-97 Q6 (ТЗ-94 E1): wiring построителя — в одном месте, иначе
+    # пути разъезжаются, и диагностика пишет снапшот беднее сборки.
+    builder = make_snapshot_builder(repos, args_as_of_default())
     as_of = args.as_of or args_as_of_default()
-    from rusterm.core.peer_sets import peer_inputs
     for instrument_id, issuer_id in targets:
-        # ТЗ-94 E2: набор аналогов и величины участников — во второй
-        # проход; без этого перцентили считались только в тестах
-        peer_version, peer_measures = peer_inputs(repos, instrument_id,
-                                                  as_of)
-        result = builder.build(instrument_id, issuer_id, as_of,
-                               peer_set_version=peer_version,
-                               peer_measures=peer_measures)
+        # ТЗ-94 E2, ТЗ-97 Q6: набор аналогов разрешает сам
+        # строитель на as_of сборки — команде не нужно об этом
+        # помнить, иначе перцентили живут только тут.
+        result = builder.build(instrument_id, issuer_id, as_of)
         print(f"{instrument_id}: снапшот v{result.version}: "
               f"{result.snapshot_id}")
         # ТЗ-64 J5: вторая сборка на тех же входах честно говорит
@@ -1147,26 +1110,9 @@ def cmd_verify(args) -> int:
         return 1
     # исправленное число обязано доехать до производных мер (U2):
     # пересборка снапшотов инструментов, чей lineage ссылался на факт
-    from rusterm.core.industry.inputs import industry_metrics_for
-    from rusterm.core.governance import (governance_inputs_from_records,
-                                         insider_net_inputs_from_store,
-                                         produce_assessments)
-    builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
-                              coverage_repo=repos.coverage,
-                              price_repo=repos.price,
-                              corp_action_repo=repos.corp_action,
-                              industry=lambda iid, _issuer:
-                                  industry_metrics_for(repos, iid),
-                              governance=lambda iid, issuer:
-                                  produce_assessments(
-                                      repos.governance, iid,
-                                      args_as_of_default(),
-                                      {**governance_inputs_from_records(
-                                          repos.manual_extraction,
-                                          issuer),
-                                       **insider_net_inputs_from_store(
-                                           repos, iid, issuer,
-                                           args_as_of_default())}))
+    # ТЗ-97 Q6 (ТЗ-94 E1): wiring построителя — в одном месте, иначе
+    # пути разъезжаются, и диагностика пишет снапшот беднее сборки.
+    builder = make_snapshot_builder(repos, args_as_of_default())
     rebuilds = service.recompute(args.fact, builder)
     rebuilt = "; ".join(f"{r.snapshot_id} v{r.version}" for r in rebuilds) \
         or "нет мер с lineage на этот факт"
@@ -1728,8 +1674,6 @@ def cmd_census(args) -> int:
     из rusterm/reasons.py с продолжением, называющим конкретный
     отсутствующий концепт или период. Никакого ремонта: только
     измерение; вход для решений о покрытии."""
-    from rusterm.core.snapshot import SnapshotBuilder
-
     # ТЗ-58 C3 (расхождение A3): перепись читает меры; пересборка
     # (--rebuild или нет снапшота) пишется в СУЩЕСТВУЮЩИЙ каталог —
     # отсутствующий называется по имени, а не создаётся
@@ -1749,8 +1693,7 @@ def cmd_census(args) -> int:
     as_of = args.as_of or args_as_of_default()
     if args.rebuild or repos.snapshot.latest_snapshot_id(
             instrument.instrument_id) is None:
-        builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
-                                  coverage_repo=repos.coverage)
+        builder = make_snapshot_builder(repos, as_of)
         builder.build(instrument.instrument_id, instrument.issuer_id, as_of)
     sid = repos.snapshot.latest_snapshot_id(instrument.instrument_id)
     rows = [{"measure": m[3], "value": m[4], "reason": m[10]}

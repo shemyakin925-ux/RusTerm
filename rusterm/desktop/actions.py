@@ -94,26 +94,10 @@ def _synthetic_providers() -> dict:
 
 
 def _snapshot_builder(repos):
-    """Тот же строитель, что у cmd_snapshot: те же крючки отраслевых
-    метрик и governance, те же репозитории."""
-    from rusterm.core.governance import (governance_inputs_from_records,
-                                         insider_net_inputs_from_store,
-                                         produce_assessments)
-    from rusterm.core.industry.inputs import industry_metrics_for
-    from rusterm.core.snapshot import SnapshotBuilder
-    as_of = _today()
-    return SnapshotBuilder(
-        repos.snapshot, repos.peer_set,
-        coverage_repo=repos.coverage,
-        price_repo=repos.price,
-        corp_action_repo=repos.corp_action,
-        industry=lambda iid, _issuer: industry_metrics_for(repos, iid),
-        governance=lambda iid, issuer: produce_assessments(
-            repos.governance, iid, as_of,
-            {**governance_inputs_from_records(repos.manual_extraction,
-                                              issuer),
-             **insider_net_inputs_from_store(repos, iid, issuer,
-                                             as_of)}))
+    """Тот же строитель, что у cmd_snapshot: одна фабрика ядра (ТЗ-97
+    Q6, ТЗ-94 `E1`), а не копия её аргументов."""
+    from rusterm.core.snapshot import make_snapshot_builder
+    return make_snapshot_builder(repos, _today())
 
 
 def collect_synthetic(root, instrument_id: str,

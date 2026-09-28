@@ -328,7 +328,7 @@ class SnapshotBuilder:
 
     def __init__(self, snapshot_repo, peer_set_repo, coverage_repo,
                  price_repo=None, industry=None, governance=None,
-                 corp_action_repo=None):
+                 corp_action_repo=None, peer_for=None):
         self._snapshots = snapshot_repo
         self._peers = peer_set_repo
         # ТЗ-23 K4: репозиторий цен; None — цены недоступны, меры
@@ -349,6 +349,12 @@ class SnapshotBuilder:
         # делает блоки молча отсутствующими — забытый аргумент должен
         # падать громко, а не молчать.
         self._coverage = coverage_repo
+        # ТЗ-97 Q6 (ТЗ-94 E2): резолвер второго прохода
+        # (instrument_id, as_of) -> (peer_set_version, peer_measures).
+        # Пока его задаёт только фабрика: вызывающая команда не обязана
+        # помнить про peer_inputs, иначе перцентили живут лишь в том
+        # пути, кто о них не забыл.
+        self._peer_for = peer_for
 
     def build(self, instrument_id: str, issuer_id: str, as_of: str,
               peer_set_version: str | None = None,
@@ -370,6 +376,13 @@ class SnapshotBuilder:
         снапшота в базе не остаётся, читатели (latest_snapshot_id,
         previous_snapshot) и так видят только `ready`.
         """
+        if (self._peer_for is not None and peer_set_version is None
+                and peer_measures is None):
+            # ТЗ-97 Q6: набор аналогов разрешается на as_of самой сборки,
+            # а не на дату, которую запомнил вызывающий (verify пересобирает
+            # на _today(), census — на свою --as-of).
+            peer_set_version, peer_measures = self._peer_for(
+                instrument_id, as_of)
         version = self._next_version(instrument_id)
         snapshot_id = str(uuid4())
         self._snapshots.create_snapshot(snapshot_id, instrument_id, version,
@@ -2167,3 +2180,41 @@ def snapshot_measures_identical(rows_a: list, rows_b: list) -> bool:
         return sorted((m[3], str(m[4]), m[5], m[6], m[7],
                        (m[10] or "")) for m in rows)
     return key(rows_a) == key(rows_b)
+
+
+def make_snapshot_builder(repos, as_of: str) -> SnapshotBuilder:
+    """ТЗ-97 Q6 (ТЗ-94 `E1`): единственный конструктор построителя вне
+    тестов.
+
+    До него пять мест (refresh, snapshot, verify, census, окно) собирали
+    `SnapshotBuilder` руками, и наборы аргументов разъезжались: census
+    звал конструктор только с coverage, поэтому `rusterm census
+    --instrument X --rebuild` перезаписывал последнюю версию снапшота без
+    репозитория цен, корпоративных действий, отрасли и governance —
+    `market_cap` в ней отказывал `missing_data: price_close` на базе, где
+    цены есть. Диагностика не имеет права писать снапшот беднее обычной
+    сборки, поэтому wiring теперь в одном месте.
+
+    Фабрика обязана передать и второй проход (`E2` с поправкой `Q6`):
+    `peer_inputs` до неё звала только команда `rusterm snapshot`, и в
+    refresh, verify, census и окне перцентили ADR-0002 не считались
+    никогда. Дата набора берётся не отсюда, а из as_of самой сборки —
+    см. `SnapshotBuilder.build`.
+    """
+    from rusterm.core.governance import (governance_inputs_from_records,
+                                         insider_net_inputs_from_store,
+                                         produce_assessments)
+    from rusterm.core.industry.inputs import industry_metrics_for
+    from rusterm.core.peer_sets import peer_inputs
+    return SnapshotBuilder(
+        repos.snapshot, repos.peer_set,
+        coverage_repo=repos.coverage,
+        price_repo=repos.price,
+        corp_action_repo=repos.corp_action,
+        industry=lambda iid, _issuer: industry_metrics_for(repos, iid),
+        governance=lambda iid, issuer: produce_assessments(
+            repos.governance, iid, as_of,
+            {**governance_inputs_from_records(repos.manual_extraction,
+                                              issuer),
+             **insider_net_inputs_from_store(repos, iid, issuer, as_of)}),
+        peer_for=lambda iid, date: peer_inputs(repos, iid, date))

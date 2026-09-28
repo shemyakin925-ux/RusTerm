@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-97.md",
  "report": "agent/REPORT-103.md",
- "item": "ТЗ-97 Q7 в коммите: gross_profit = revenue − cogs формулой словаря (первый проход, все двери), раскрытый тег приоритетнее вычитания через _DISCLOSED_AGGREGATE; gross_margin не тронута",
- "step": "Q7: копия базы пользователя read-only, as_of 2026-09-24, PYTHONHASHSEED=0, 44 бумаги — строк мер 1232→1276, со значением 570→588 (13 по поданному тегу, 5 по вычитанию, 0 смешанно); альтернатива «вычитать всегда» = 586, расходятся только LOGI и TECK; других мер не двинулось (0 строк), хотя cogs вошёл в base_concepts. 8 новых зубов красные на worktree e896f1e → зелёные; пины 28→29 замерены прогонами (replay, r4, k4 -m firsthour, CLI демо 28/24→29/25, GUIDE [21]→[22] roe), formulas_baseline перепинен 7be44306→9bb9a56d тем же коммитом. Дальше ТЗ-97 Q6: фабрика сборщика снапшота, обязана передавать peer_inputs во всех вызовах, зуб e2e через refresh.",
+ "item": "ТЗ-97 Q6 in the commit: make_snapshot_builder(repos, as_of) is the only place outside tests/ that names SnapshotBuilder; five hand-built sites deleted (cli refresh/snapshot/verify, census, desktop actions). SnapshotBuilder gained peer_for, so build() resolves (peer_set_version, peer_measures) through core.peer_sets on the build's own as_of when the caller passed neither - E2 now reaches every path, not just `rusterm snapshot`.",
+ "step": "Q6 measured on stub transport, offline, 0 network: census --rebuild at HEAD took 5 valued measures away and rewrote 10 reasons to missing_data: price_close, after it 0 and 0 (tooth compares all 29 measures); refresh over a confirmed peer set 0 percentile rows -> 11 valued percentiles plus peer_set_version on all six snapshot rows; hand-built SnapshotBuilder( in rusterm/ 5 -> 1. 6 teeth red at 43b56d4 (Run 52), green after; neighbours 39 green (Run 53); full suite three passes (Run 56), last red was P1 wanting the declaration in COMMIT_EDITMSG - copied, then p1_rule OK and the i5 module 4 green, nested selfcheck passing against the staged tree. Disputed 9 (census now writes, docstring says it only measures), 10 (peer_for fires only when both peer args are absent), 11 (pre-existing: -m firsthour cannot be green while the Q11 HOME guard sees PyInstaller's ~/Library cache, reproduced identically at 43b56d4, Run 54). Next in TASK-97 order: Q1 (ТЗ-73 T1 - no tab empty without an executable hint).",
  "status": "working",
- "last_commit": "e896f1e",
+ "last_commit": "43b56d4",
  "requests": 41,
  "net_requests": 41,
  "llm_calls": 0,
  "model": "Qoder executor (model id not exposed)",
- "updated_at": "2026-09-28T08:05:17Z"
+ "updated_at": "2026-09-28T09:30:18Z"
 }

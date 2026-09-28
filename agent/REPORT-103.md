@@ -501,6 +501,64 @@ pin but pinned by one: `tests/data/formulas_baseline.sha256` 7be44306… →
 9bb9a56d…, re-set in this same commit per the era rule that `formulas.py` and
 its hash move together (`test_ifrs_map.py::test_formulas_py_matches_era_baseline`).
 
+### ТЗ-97 Q6 — `E1`: one snapshot-builder factory, and `E2` wiring in every path
+
+Rule.
+
+- `make_snapshot_builder(repos, as_of)` added in `rusterm/core/snapshot.py`
+  is now the only place outside `tests/` that names the constructor. It
+  carries the whole wiring the richest old call site had: `coverage`, `price`,
+  `corp_action` repos, the industry resolver and the governance producer, plus
+  a new `peer_for` resolver.
+- All five hand-built sites are gone: `cli/__init__.py` refresh, snapshot,
+  verify (the three identical 20-line blocks) and census (which had only
+  `coverage_repo`), and `desktop/actions.py:_snapshot_builder`.
+- `SnapshotBuilder.__init__` gained `peer_for`; `build()` resolves
+  `(peer_set_version, peer_measures)` itself when the caller passed neither,
+  **on the build's own `as_of`** — `verify` recomputes at `_today()` and
+  `census` at its `--as-of`, so the date cannot be captured at construction.
+  Explicit peer arguments still win, which is how the existing E2/A3 tests keep
+  feeding hand-made peer sets.
+- `cmd_snapshot` no longer calls `peer_inputs` — the factory path covers it.
+  The command's printed `перцентилей: N` is unchanged for that command.
+- The factory's `as_of` argument feeds the governance producer (the date it
+  stamps assessments with), not the measure doors: at the three CLI sites it
+  stays `args_as_of_default()` exactly as the deleted lambdas had it, at
+  desktop it stays `_today()`, at census it is the census `--as-of`. Measure
+  doors and the peer set still resolve on the `as_of` passed to `build()`.
+  Consequence: `census --rebuild` now produces industry metrics and
+  governance assessments at all, while `cmd_census`'s docstring promises
+  «Никакого ремонта: только измерение». `--rebuild` already wrote a new
+  snapshot before; the factory only made the two paths agree. The gap is
+  recorded as Disputed 9 rather than fixed, because the fix is either a
+  docstring or a behaviour change and the item does not say which.
+
+Measured before → after (all offline, `tests/data/edgar/companyfacts_m3_AAPL.json`
+through the stub transport of `tests/test_refresh.py`, 6 papers, one
+confirmed peer set, `as_of` 2026-09-09, 12 transport requests, 0 network;
+probes in `/tmp/q6-probe`, run once per tree):
+
+| path | before (`43b56d4`) | after |
+|---|---|---|
+| `census --rebuild` on a base with a price (one paper, `rusterm snapshot` run first) | snapshot had 5 measures with a value, census left **1**: `market_cap`, `market_cap_total`, `pe`, `ps` lost their numbers, and 10 rows had their refusal rewritten to `missing_data: price_close` (`div_yield` had said `missing_data: dps_ttm`, `ev` had named its balance-sheet inputs, `ev_ebitda` `missing_data: ev`, plus `fcf_yield`, `pb`, `roic`) — the diagnostic replaced an honest reason with a reason about an input it had stopped reading | 5 → 5 valued, rows whose (value, reason) pair moved: **0**; the tooth compares all 29 measures |
+| `refresh` over a confirmed peer set, with the richest hand-built builder | 0 percentile rows for all six papers, `peer_set_version = NULL` | 11 valued percentiles on the last-built paper, `peer_set_version = 'psv-q6'` on all six snapshot rows |
+| hand-built `SnapshotBuilder(` in `rusterm/` | 5 (refresh, snapshot, verify, census, окно) | 1 — inside the factory |
+
+Five of the six papers still have 0 percentile rows in the refresh pass, and
+that is correct, not a gap: `percentile_share` needs 5 peers
+(`core/peers.py:PERCENTILE_MIN_PEERS`), and the first-built member has no
+peers' snapshots yet; only the last one sees five.
+
+
+Teeth — `tests/test_task97_q6_builder_factory.py`, 6 of them, all red at
+`43b56d4` (Run 52): census keeps the price; census writes exactly the same
+measure rows as `snapshot`; the source scan finds `SnapshotBuilder(` only
+inside `make_snapshot_builder` (at HEAD it listed the five call sites, first
+extra `rusterm/cli/__init__.py::cmd_snapshot`); the factory is actually
+*called* (≥4 sites in the CLI, ≥1 in desktop actions); `build()` without peer
+kwargs yields a valued percentile and records the version; e2e through
+`refresh_watchlist` yields a valued percentile.
+
 ## Blocked
 
 Nothing blocked. Budget held: network 0, LLM 0 — no fetch, no provider call, no
@@ -683,6 +741,48 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
    the user actually sees as «нет валовой маржи»; it is a separate decision,
    because it changes `gross_margin` numbers on papers that today refuse, and
    TASK-97 does not authorise that. Queue it, do not fold it into Q7.
+9. **Q6 / `census --rebuild` now writes to the store, it only measured
+   before.** `cmd_census` promises «Никакого ремонта: только измерение», but the
+   factory wiring brings census the industry resolver and the governance
+   producer (which writes `governance_assessment` rows) along with the peer
+   set. Before Q6 census wrote a poorer snapshot than every other path — that
+   was the `E1` bug — and there are two ways to fix that: make all paths build
+   the same snapshot (done; the price is that a diagnostic command now writes
+   extra rows), or keep census a reader and move the rebuild into an explicit
+   command. The task does not choose, so the smaller of the two was taken: the
+   path where the diagnostic no longer lies about missing data. Run numbers: at
+   HEAD `census --rebuild` took 4 values away and rewrote 10 reasons; after, 0
+   and 0.
+10. **Q6 / `peer_for` fires only when NEITHER peer argument was passed.**
+    The condition is `peer_set_version is None and peer_measures is None`, not
+    just the measures: a caller that passes a version but no measures gets an
+    empty peer comparison instead of a resolved set. Otherwise an explicit
+    empty input — «check that with no peers there are no percentiles», which is
+    what the A3/E2 teeth do with hand-made sets — would be silently overwritten
+    by the factory, and those tests would stop testing anything. If the
+    coordinator wants resolution whenever the instrument is merely named, that
+    is one line, but it erases the difference between «did not ask» and «asked
+    and got nothing».
+11. **Pre-existing, not a Q6 regression: `-m firsthour` cannot be green while
+    the Q11 HOME guard is in force.** Reproduced identically on the `43b56d4`
+    worktree (Run 54) and on the Q6 tree: the run ends
+    `ERROR tests/test_task65_k4_firsthour.py::test_first_hour_scenario -
+    AssertionError: прогон набора создал в подменённом HOME лишнее: ['Library']`
+    from the session fixture teardown (`tests/conftest.py:118`), even though
+    every test itself passed. `tests/test_desktop_f2_double_click.py` carries
+    `pytestmark = pytest.mark.firsthour` and builds the real `.app`
+    (`_build_app`, line 55); `--distpath`/`--workpath` go to the test's tmp
+    dir, but PyInstaller keeps a *user-level* binary cache, and under the
+    substituted HOME it lands in `~/Library/Application Support/pyinstaller/
+    bincache00py31464bit/…`. Acceptance does not see this: check 3 runs bare
+    `pytest -q`, and `addopts` deselects `firsthour`. Two ways out, and they
+    are not mine to pick: give the build subprocess `PYINSTALLER_CONFIG_DIR`
+    (verified override at `PyInstaller/configure.py:55-56`, keeps `HOME_ALLOWED`
+    as tight as Q11 left it), or add `Library` to `HOME_ALLOWED`
+    (`tests/p7_home_isolation.py:24`), which lets any other macOS per-user
+    write through the P7 door too. Q12 row 7 is unaffected: its timing run
+    selects `tests/test_task65_k4_firsthour.py` by path, so the f2 build never
+    joins the session.
 
 ## Runs
 
@@ -981,6 +1081,56 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     (`test_i5_guard_source.py`) needs a clean index to go green — it shells out
     to `agent/selfcheck.sh` — so it is not in this list; the commit's own
     pre-commit hook (acceptance 3 and 11) runs the whole suite including it.
+52. Q6 red-check of the six new teeth, run in the `43b56d4` worktree
+    (`/tmp/rusterm-q6-before`) with only the new file copied in: all six FAILED
+    (`/tmp/q6-red2.log` for the two re-run singly). The source-scan tooth
+    printed the five hand-built sites —
+    `At index 0 diff: 'rusterm/cli/__init__.py::cmd_refresh' != 'rusterm/core/snapshot.py::make_snapshot_builder'`,
+    `Left contains 4 more items, first extra item: 'rusterm/cli/__init__.py::cmd_snapshot'`;
+    the census tooth printed the id it caught:
+    `census --rebuild записал d3e7c607-c9ec-41dc-a15b-8019525c9b0b без цены:
+    missing_data: price_close`. The copied file was deleted afterwards; the
+    worktree is clean again.
+53. Q6 neighbours after the `test_desktop_actions.py` re-pin, one command
+    (`tests/test_desktop_actions.py tests/test_task97_q6_builder_factory.py
+    tests/test_peer_inputs_e2.py tests/test_task49_census.py
+    tests/test_refresh.py tests/test_verification.py`) → exit 0, 39 dots, no
+    `F`, no `E`.
+54. `-m firsthour` on the `43b56d4` baseline (`/tmp/fh-baseline.log`): exit 1,
+    one `ERROR` and no `FAILED` — the session fixture teardown guard of Q11,
+    `прогон набора создал в подменённом HOME лишнее: ['Library']`. Same on the
+    Q6 tree (run 55), so it is not E1: see Disputed 11. Nothing was relaxed.
+55. `-m firsthour` on the Q6 tree (`/tmp/q6-suite2.log`, second command):
+    same single session-teardown `ERROR`, tests themselves green, and the
+    timing line still prints the Q7 dictionary:
+    `firsthour: init 0.2 с; add 0.3 с; ingest edgar 0.1 с; ingest twelvedata
+    7.6 с; snapshot 0.2 с; окно 2.0 с; export 0.2 с; запросов 6; мер со
+    значением 11 из 29; с происхождением 11 из 11` — the 29-row count from Q7
+    survived the Q6 rewiring, which is the cheap cross-check that the factory
+    wired the same doors as `cmd_snapshot` had.
+56. Full suite on the Q6 tree three times. First pass before the re-pin
+    (`/tmp/q6-suite.log`, run with `--ignore=tests/test_i5_guard_source.py`):
+    exit 1, two reds — `test_desktop_actions.py::test_pipeline_door_is_the_core_one_not_a_copy`,
+    the pin the rewiring moves, and
+    `test_i5z_demonstration_ran.py::test_i5_demonstration_ran_or_legitimately_nested`,
+    which only looks for the marker the ignored module writes; not a behaviour
+    change, and it is absent from the later passes. Second pass
+    (`/tmp/q6-suite2.log`, first command): one red,
+    `test_report_sections.py::test_disputed_lines_live_only_in_disputed_section`
+    — my Q6 write-up had wrapped a sentence so that a continuation line began
+    with «Disputed 9», which is exactly what that guard forbids outside
+    `## Disputed`; the sentence was reflowed, not the guard. Third pass with
+    the Q6 files staged and nothing ignored (`/tmp/q6-suite3.log`): one red,
+    `test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green`,
+    because that test shells out to `agent/selfcheck.sh` and P1 read the staged
+    diff while the declaration still lived only in `/tmp/commit-q6.txt`:
+    `P1 (staged): необъявленная замена булавок: tests/test_desktop_actions.py
+    (нет объявления ЗАМЕНА-БУЛАВКИ/ПОЧЕМУ СИЛЬНЕЕ)`. Copying the message to
+    `$(git rev-parse --git-path COMMIT_EDITMSG)` — the file the guard also
+    reads, per its line 37 — made `bash agent/p1_rule.sh` print `P1: OK
+    (staged)` and the module re-run green (4 passed, exit 0), which is also the
+    whole nested selfcheck passing against the staged tree. Nothing was
+    relaxed or skipped.
 
 ## HANDOFF
 
