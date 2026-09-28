@@ -263,9 +263,9 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     coverage_label.setWordWrap(True)
     quality_layout.addWidget(coverage_label)
     governance_table = QTableWidget(objectName="governance_table")
-    governance_table.setColumnCount(3)
+    governance_table.setColumnCount(4)
     governance_table.setHorizontalHeaderLabels(
-        ["показатель", "цвет", "расшифровка"])
+        ["показатель", "цвет", "расшифровка", "чем закрывается"])
     governance_table.horizontalHeader().setSectionResizeMode(
         QHeaderView.ResizeMode.Stretch)
     governance_table.setEditTriggers(QTableWidget.EditTrigger
@@ -674,10 +674,11 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         governance = data.governance_view(state["card"])
         governance_table.setRowCount(len(governance["rows"]))
         for row, g in enumerate(governance["rows"]):
-            note = g["note"] or (f"причина: {g['reason']}"
-                                 if g["reason"] else "")
+            # ТЗ-97 Q2: слово причины и дверь считает ядро; окно печатает
+            # как есть. Пустой «расшифровки» тут быть не может — у
+            # строки без цвета всегда есть причина, а у неё слова.
             for column, text in enumerate((g["indicator"], g["color"],
-                                           note)):
+                                           g["note"], g["closing"])):
                 governance_table.setItem(
                     row, column, QTableWidgetItem(text))
         # ТЗ-97 Q1 (ТЗ-73 T1, P8): не-серого цвета нет — раздел не

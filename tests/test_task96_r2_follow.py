@@ -30,6 +30,7 @@ import rusterm.cli as cli
 from rusterm.cli import _build_parser
 from rusterm.providers.edgar import EdgarProvider
 from rusterm.providers.twelvedata import TwelveDataProvider
+from tests.edgar_fixtures import ownership_body
 
 REPO = Path(__file__).resolve().parents[1]
 TICKERS = REPO / "tests/data/edgar/company_tickers.json"
@@ -47,6 +48,12 @@ def _edgar_transport(url, headers):
     if "submissions" in url:
         return 200, (REPO / "tests/data/edgar/submissions_aapl.json"
                      ).read_bytes(), {}
+    if "/Archives/edgar/data/" in url:
+        # ТЗ-97 Q2: стадия 4/6 тянет тела Forms 3/4/5 — записаны на
+        # диске; нет записи = честный 404 (tests/edgar_fixtures.py).
+        body = ownership_body(url)
+        return (200, body, {}) if body is not None \
+            else (404, b'{"ok": false}', {})
     return 404, b'{"ok": false}', {}
 
 
@@ -113,14 +120,14 @@ def test_follow_walks_the_path_from_an_empty_catalog(tmp_path,
     assert _run(root, ticker="AAPL") == 0
     out = capsys.readouterr().out
 
-    stages = [l for l in out.splitlines() if "/5 " in l and " — " in l]
+    stages = [l for l in out.splitlines() if "/6 " in l and " — " in l]
     names = [l.split(": ", 1)[1].split(" — ")[0] for l in stages]
-    assert names == ["1/5 каталог", "2/5 поиск в SEC", "3/5 отчётность",
-                     "4/5 цены", "5/5 снапшот"], out
+    assert names == ["1/6 каталог", "2/6 поиск в SEC", "3/6 отчётность",
+                     "4/6 формы владения", "5/6 цены", "6/6 снапшот"], out
     for line in stages:
         assert re.search(r"\(запросов \d+\)$", line), line
     assert "US-AAPL: путь пройден" in out
-    assert "отрасль и governance в этот путь не входят" in out
+    assert "отрасль" in out and "не входит" in out
 
     measures = _measures(root)
     assert measures, "снапшота нет"

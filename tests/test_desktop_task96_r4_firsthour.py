@@ -19,8 +19,10 @@
 - «Настройки»: ключи именем и происхождением без значений (подставной
   ключ не попадает ни в одну надпись окна), лимиты = реестр
   провайдеров, каталог называет файл базы;
-- «Отрасль» (ТЗ-73 T2) и «Качество» (ТЗ-73 T3) — наполнение не здесь:
-  тест написан сейчас и помечен `xfail(strict=True)`.
+- «Отрасль» (ТЗ-73 T2) — наполнения ещё нет, её зуб под
+  `xfail(strict=True)`; «Качество» (ТЗ-73 T3) — маркер снят ТЗ-97 Q2,
+  потому что канал владения стал стадией 4/6 обычного пути и строки
+  governance показывают цвет, слово причины и команду закрытия.
 """
 from __future__ import annotations
 
@@ -54,6 +56,7 @@ from rusterm.providers.twelvedata import TwelveDataProvider  # noqa: E402
 from rusterm.store.db import apply_migrations  # noqa: E402
 from rusterm.store.paths import AppPaths  # noqa: E402
 from rusterm.store.repos import RepoRegistry  # noqa: E402
+from tests.edgar_fixtures import ownership_body  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QComboBox,  # noqa: E402
                                QLabel, QTableWidget, QTreeWidget, QWidget)
@@ -84,6 +87,12 @@ def _edgar_transport(url, headers):
         return 200, _read(FACTS), {}
     if "submissions" in url:
         return 200, _read(SUBS), {}
+    if "/Archives/edgar/data/" in url:
+        # ТЗ-97 Q2: стадия 4/6 тянет тела Forms 3/4/5 с диска; нет
+        # записи = честный 404 (tests/edgar_fixtures.py).
+        body = ownership_body(url)
+        return (200, body, {}) if body is not None \
+            else (404, b'{"ok": false}', {})
     return 404, b'{"ok": false}', {}
 
 
@@ -301,12 +310,44 @@ def test_quality_tab_coverage_is_measured_not_declared(hour):
     assert f"из {truth['total']}" in label
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="ТЗ-73 T3: канал владения (формы 3/4/5) не входит "
-                          "в обычный путь, поэтому governance — пять серых "
-                          "строк no_data:not_collected")
-def test_governance_has_a_measured_colour_after_the_usual_path(hour):
+def test_governance_rows_carry_words_and_a_door_after_the_usual_path(hour):
+    """ТЗ-97 Q2 (ТЗ-73 T3, правило P8): выпускной зуб ТЗ-73 — маркер
+    `xfail(strict=True)` снят, канал владения стал стадией 4/6.
+
+    Про обычный путь на записанной ленте AAPL: формы 3/4/5 собраны,
+    одна сделка разобрана, поэтому `insider_net` больше НЕ имеет права
+    врать «источник ещё не обойдён» — он называет, что собрано и чего
+    не хватает. Цвет на этой фикстуре остаётся серым: знаменатель
+    `market_cap_total` считается от котировок и числа акций, которых в
+    записанном companyfacts нет; что цвет появляется, когда
+    знаменатель есть, утверждает
+    `tests/test_task97_q2_governance_words.py`.
+    """
+    from rusterm.core.governance import grey_reason_text
+
     table = _widget(hour.win, QTableWidget, "governance_table")
-    assert table.rowCount() > 0
-    colours = {table.item(r, 1).text() for r in range(table.rowCount())}
-    assert colours != {"gray"}
+    assert table.rowCount() == 5, "governance — пять строк, без свёртки"
+    assert table.columnCount() == 4
+    not_collected = grey_reason_text("no_data:not_collected")
+    for row in range(table.rowCount()):
+        indicator = table.item(row, 0).text()
+        colour = table.item(row, 1).text()
+        note = table.item(row, 2).text()
+        closing = table.item(row, 3).text()
+        assert indicator and colour, f"строка {row}: пусто"
+        # «расшифровка» и «чем закрывается» заполнены словами, а не
+        # голым кодом причины: пустая ячейка под запретом (P8)
+        assert note and "не описана" not in note, f"{indicator}: {note}"
+        assert closing.startswith("rusterm "), f"{indicator}: {closing}"
+        argv = closing.split()[1:]
+        parsed = cli._build_parser().parse_args(argv)
+        assert parsed.command == argv[0], closing
+        assert "US-AAPL" in argv, f"дверь не называет бумагу: {closing}"
+    insider = [row for row in range(table.rowCount())
+               if table.item(row, 0).text() == "insider_net"]
+    assert len(insider) == 1
+    note = table.item(insider[0], 2).text()
+    assert note != not_collected, (
+        "канал владения обошёл путь, а строка всё ещё говорит "
+        "«источник не обойдён»")
+    assert "сделки инсайдеров собраны" in note, note

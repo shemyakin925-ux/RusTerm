@@ -160,6 +160,9 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "parser_degraded": "coverage reason: degraded parse (core/verification.py)",
     # слой конфигурации: отказ правки лимита при битом config.toml
     "config_broken": "config layer refusal (store/config.py)",
+    # governance: префикс серых строк карточки (ядро пишет
+    # «no_data:<токен>»), это reason оценки, а не null_reason меры
+    "no_data": "governance gray reason prefix (core/governance.py)",
 }
 
 

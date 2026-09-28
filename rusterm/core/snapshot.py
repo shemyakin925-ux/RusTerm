@@ -338,8 +338,9 @@ class SnapshotBuilder:
         # окно 365 дней по ex_date); None — вход недоступен, div_yield
         # получает честную причину missing_data: dps_ttm
         self._corp_actions = corp_action_repo
-        # ТЗ-25 P1: резолвер governance (instrument_id, issuer_id) ->
-        # список Assessment (продюсер сам пишет через GovernanceRepo)
+        # ТЗ-25 P1: резолвер governance (instrument_id, issuer_id,
+        # snapshot_id) -> список Assessment (продюсер сам пишет через
+        # GovernanceRepo); snapshot_id — версия, идущая в этом же build
         self._governance = governance
         # ТЗ-24 N2: резолвер отрасли (instrument_id, issuer_id) ->
         # {"sector", "reason", "metrics", "unmapped"}; None — блок
@@ -559,8 +560,12 @@ class SnapshotBuilder:
                     snapshot_id, "industry_metrics", status, reason)
 
         # ── ТЗ-25 P1: governance-оценки — пять строк на записи ──
+        # ТЗ-97 Q2: сборке передаётся и id снапшота, который строится:
+        # его строка ещё `building`, читателю она не видна (ТЗ-90 A3), и
+        # без этого знака знаменатель `insider_net` терялся на первом
+        # же пути — цвет отставал на прогон.
         if self._governance is not None:
-            self._governance(instrument_id, issuer_id)
+            self._governance(instrument_id, issuer_id, snapshot_id)
 
         # ── Проход 2: перцентили по посчитанным величинам пиров ──
         if peer_set_version and peer_measures:
@@ -2212,9 +2217,10 @@ def make_snapshot_builder(repos, as_of: str) -> SnapshotBuilder:
         price_repo=repos.price,
         corp_action_repo=repos.corp_action,
         industry=lambda iid, _issuer: industry_metrics_for(repos, iid),
-        governance=lambda iid, issuer: produce_assessments(
+        governance=lambda iid, issuer, sid: produce_assessments(
             repos.governance, iid, as_of,
             {**governance_inputs_from_records(repos.manual_extraction,
                                               issuer),
-             **insider_net_inputs_from_store(repos, iid, issuer, as_of)}),
+             **insider_net_inputs_from_store(repos, iid, issuer, as_of,
+                                            sid)}),
         peer_for=lambda iid, date: peer_inputs(repos, iid, date))

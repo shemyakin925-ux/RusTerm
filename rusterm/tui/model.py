@@ -159,7 +159,10 @@ def card_rows(repos, instrument_id: str) -> dict:
                                "lineage_ref": latest["lineage_ref"],
                                "method_version": latest["method_version"]})
         else:
+            # ТЗ-97 Q2 (P8): строки без оценки — не молчание: причина
+            # словом и команда, которой она закрывается.
             governance.append({"indicator": indicator, "color": "gray",
+                               "reason": "no_data:not_collected",
                                "method_version": None})
     return {
         "instrument_id": instrument_id,
@@ -399,7 +402,16 @@ def render_card(card: dict) -> list[str]:
         lines.append(f"  {block['block']}: {block['status']}{reason}")
     lines.append("Governance (пять цветов, не сворачиваются):")
     for g in card["governance"]:
-        lines.append(f"  {g['indicator']}: {g['color']}")
+        line = f"  {g['indicator']}: {g['color']}"
+        # ТЗ-97 Q2 (ТЗ-73 T3, P8): у серого цвета — слово причины и
+        # команда, которой строка закрывается; ядро их уже посчитало.
+        if g["color"] == "gray" and g.get("reason"):
+            from rusterm.core.governance import (grey_closing,
+                                                 grey_reason_text)
+            words = grey_reason_text(g["reason"])
+            door = grey_closing(g["indicator"], card["instrument_id"])
+            line += f" — {words} [{door}]"
+        lines.append(line)
     return lines
 
 

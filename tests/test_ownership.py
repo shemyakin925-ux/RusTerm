@@ -279,9 +279,12 @@ def test_insider_resolver_arithmetic_and_honest_empty(tmp_path):
                              price=300.0, security="Common Stock",
                              tenb5_one=True),
     ])
-    # сделки есть, знаменателя нет — входа нет (0/None не выдумывается)
-    assert insider_net_inputs_from_store(repos, "US-OWN", "i-o",
-                                         "2026-09-13") == {}
+    # сделки есть, знаменателя нет — входа нет, но и «не собирали»
+    # уже не соврёт: ТЗ-97 Q2 требует именованную причину (P8)
+    spec = insider_net_inputs_from_store(repos, "US-OWN", "i-o",
+                                         "2026-09-13")
+    assert spec["insider_net"]["gray"] == "ownership_without_market_cap"
+    assert "transactions=2" in spec["insider_net"]["lineage_ref"]
     repos.snapshot.create_snapshot("s-own", "US-OWN", 1, "2026-09-13",
                                    None, "none", "ready")
     repos.snapshot.add_block("s-own", "fundamentals", "ready", None)

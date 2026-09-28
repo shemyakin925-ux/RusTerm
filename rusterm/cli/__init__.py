@@ -785,9 +785,25 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
         return 1
     provider.cik = int(issuer.registry_id)
 
+    # ТЗ-97 Q2: расход гейта пишется двумя замерами. Один замер до
+    # списка давал стадии «запросов 1» там, где транспорт сделал четыре:
+    # тела Forms тянутся после списка, а `_requests_used` суммирует
+    # пробы, поэтому второй проба считает уже дельту, а не накопленное
+    # число (страж `test_the_printed_total_is_the_number_of_calls_made`).
+    def _flush_spend(since: int) -> None:
+        if ownership_gate is None:
+            return
+        delta = ownership_gate.calls_made - since
+        if delta > 0:
+            import time as _time
+            repos.metrics.record_sample(
+                _time.time(), "provider_requests_used", "edgar",
+                float(delta))
+
     listed = provider.list_ownership(instrument_id,
                                      limit_per_form=limit_per_form)
     _record_gate_usage(repos, "edgar", ownership_gate)
+    listed_calls = (ownership_gate.calls_made if ownership_gate else 0)
     if isinstance(listed, _PE):
         print(f"edgar: {listed.reason}", file=sys.stderr)
         repos.coverage.upsert(instrument_id, "ownership", "missing",
@@ -816,6 +832,7 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
         else:
             fetched = provider.fetch_document(url)
             if isinstance(fetched, _PE):
+                _flush_spend(listed_calls)
                 print(f"edgar: {fetched.reason}", file=sys.stderr)
                 return 1
             raw = fetched.content
@@ -830,6 +847,7 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
         try:
             filing = parse_form4(raw)
         except (_ET.ParseError, ValueError) as e:
+            _flush_spend(listed_calls)
             print(f"edgar: {filename}: неразобрано: {e}",
                   file=sys.stderr)
             return 1
@@ -838,6 +856,7 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
         repos.ownership.replace_for_document(sha, issuer.issuer_id,
                                              filing.transactions)
         transactions += len(filing.transactions)
+    _flush_spend(listed_calls)
     repos.coverage.upsert(instrument_id, "ownership", "ready")
     print(f"{instrument_id}: форм владения в ленте "
           f"{len(listed.documents)}; собрано документов {collected} "
@@ -1756,9 +1775,12 @@ def cmd_follow(args) -> int:
     держит вовсе — счётчик запросов читается коротким открытием до и
     после стадии (ТЗ-84 K2).
 
-    Отрасль и governance в путь не входят — их собирает не эта
-    команда; слова об этом печатаются в конце, а не оставляются
-    пустотой.
+    Отрасль в путь не входит — её собирает не эта команда; слова об
+    этом печатаются в конце, а не оставляются пустотой. Владение —
+    входит (ТЗ-97 Q2): без стадий 4/6 governance на вкладке «Качество»
+    остаётся пятью серыми строками, потому что единственный индикатор,
+    который ядро умеет считать из собранного, — `insider_net`, и он
+    кормится именно формами 3/4/5.
     """
     from rusterm.markets import get_market
 
@@ -1775,14 +1797,20 @@ def cmd_follow(args) -> int:
                 "snapshot": cmd_snapshot}
 
     stages = [
-        ("1/5 каталог", ["init"]),
-        ("2/5 поиск в SEC", ["add", "--ticker", ticker,
+        ("1/6 каталог", ["init"]),
+        ("2/6 поиск в SEC", ["add", "--ticker", ticker,
                              "--market", args.market]),
-        ("3/5 отчётность", ["ingest", "--source", "edgar",
+        ("3/6 отчётность", ["ingest", "--source", "edgar",
                             "--instrument", instrument_id]),
-        ("4/5 цены", ["ingest", "--source", "twelvedata",
+        # ТЗ-97 Q2 (ТЗ-73 T3): формы 3/4/5 входят в обычный путь — до
+        # цен и снапшота, чтобы `insider_net` посчитался в этом же
+        # прогоне, а не отстал на один вызов. Идемпотентно: тело
+        # документа, уже лежащее в сыром хранилище, не качается снова.
+        ("4/6 формы владения", ["ingest", "--source", "ownership",
+                                "--instrument", instrument_id]),
+        ("5/6 цены", ["ingest", "--source", "twelvedata",
                       "--instrument", instrument_id]),
-        ("5/5 снапшот", ["snapshot", "--instrument", instrument_id]),
+        ("6/6 снапшот", ["snapshot", "--instrument", instrument_id]),
     ]
 
     parser = _build_parser()
@@ -1815,9 +1843,13 @@ def cmd_follow(args) -> int:
             return rc
 
     print(f"{instrument_id}: путь пройден; всего запросов: {spent_total}")
-    print(f"{instrument_id}: отрасль и governance в этот путь не входят "
-          f"— их собирает не эта команда (см. rusterm industry, "
-          f"rusterm coverage)")
+    # ТЗ-97 Q2: governance больше не целиком вне пути — формы 3/4/5 на
+    # стадии 4/6 кормят `insider_net`. Остальные четыре показателя живут
+    # из прокси-отчёта, его обходит ручной импорт (ТЗ-20 L6).
+    print(f"{instrument_id}: отрасль в этот путь не входит (см. rusterm "
+          f"industry); из governance здесь `insider_net` — формы 3/4/5 "
+          f"на 4/6, остальные четыре показателя закрывает ручной импорт "
+          f"прокси: rusterm import <файл> --issuer {instrument_id}")
     return 0
 
 

@@ -185,9 +185,11 @@ def auditor(instrument_id: str, changes_in_5y, qualified_opinion,
     elif tenure_years >= 5:
         color, reason = "green", "same_auditor_5y_clean_opinion"
     else:
-        # окно раскрытия меньше 5 лет — «одна фирма 5 лет» не доказано
+        # окно раскрытия меньше 5 лет — «одна фирма 5 лет» не доказано.
+        # ТЗ-97 Q2: токен именованный, число стажа — деталь за ним,
+        # поэтому слова словаря находятся по первому сегменту.
         return _gray(instrument_id, "auditor", as_of, lineage_ref,
-                     f"disclosure_window_only_{tenure_years}y")
+                     f"disclosure_window_short:{tenure_years}y")
     return _assess(instrument_id, "auditor", as_of, lineage_ref,
                    color, reason)
 
@@ -196,6 +198,12 @@ def auditor(instrument_id: str, changes_in_5y, qualified_opinion,
 
 # P2: серый перестаёт быть одним цветом на все причины. Каждая причина
 # называет, что пользователь может сделать.
+#
+# ТЗ-97 Q2 (ТЗ-73 T3): словарь обязан покрывать ВСЕ токены, которые ядро
+# само и выдаёт, — иначе вкладка показывает читателю непереведённый код.
+# Ниже каждый токена назван ровно так, как его печатает `_gray` или
+# `produce_assessments`; страж `tests/test_task97_q2_governance_words.py`
+# перебирает продюсеров и не даёт токену появиться без слов.
 GREY_REASONS: dict[str, str] = {
     "not_collected": "источник ещё не обойдён — запустите refresh или "
                      "импорт прокси",
@@ -206,7 +214,91 @@ GREY_REASONS: dict[str, str] = {
     "manual_unverified": "извлечение не прошло проверку цитаты — "
                          "проверьте вручную через verify",
     "stale": "оценка старше порога — нужен свежий документ",
+    # что само ядро размечает серостью по каждому индикатору
+    "board_independence_not_disclosed":
+        "доля независимых директоров не раскрыта — закрывается ручным "
+        "импортом прокси-статемента (DEF 14A)",
+    "board_leadership_not_disclosed":
+        "роли председателя и CEO не раскрыты — закрывается ручным "
+        "импортом прокси-статемента",
+    "combined_but_lead_status_not_disclosed":
+        "посты совмещены, есть ли lead independent — не раскрыто; "
+        "закрывается ручным импортом прокси-статемента",
+    "related_party_section_absent":
+        "раздел о сделках со связанными сторонами не найден — "
+        "закрывается ручным импортом годовой отчётности",
+    "insider_deals_not_disclosed":
+        "чистые операции инсайдеров не посчитаны — формы 3/4/5 не "
+        "собраны или их нет в окне",
+    "auditor_not_disclosed":
+        "аудитор не раскрыт — закрывается ручным импортом годовой "
+        "отчётности",
+    "disclosure_window_short":
+        "окно раскрытия короче пяти лет — про «одна фирма пять лет» "
+        "судить нечем, нужен более длинный раскрытый стаж",
+    # ТЗ-97 Q2: два случая, которые раньше прятались за not_collected,
+    # хотя канал уже был обойдён
+    "no_deals_in_window":
+        "формы владения собраны, но за скользящие 12 месяцев сделок в "
+        "них нет — цвета не будет, пока сделка не появится",
+    "ownership_without_market_cap":
+        "сделки инсайдеров собраны, знаменателя нет: нужна капитализация "
+        "`market_cap_total` из снапшота (котировки)",
 }
+
+
+def grey_reason_key(reason: str) -> str:
+    """Токен оценки -> ключ словаря причин.
+
+    Ядро пишет причины с префиксом (`no_data:not_collected`,
+    `stale:assessed:2025-01-15`, `no_data:disclosure_window_short:3y`),
+    а словарь живёт голыми именами. Без этого разбора вкладка «Качество»
+    на базе пользователя показывала код вместо слов: все пять строк были
+    `no_data:not_collected`, и `GREY_REASONS.get(reason)` не находил
+    ничего (ТЗ-97 Q2).
+    """
+    parts = (reason or "").split(":")
+    if parts[0] == "no_data" and len(parts) > 1:
+        return parts[1]
+    return parts[0]
+
+
+def grey_reason_text(reason: str) -> str:
+    """Слова причины для серый строки. Пустой cell запрещён (P8): если
+    токена в словаре нет — так и сказано, а не молчание."""
+    key = grey_reason_key(reason)
+    if key in GREY_REASONS:
+        return GREY_REASONS[key]
+    return (f"причина «{reason or 'пусто'}» в словаре не описана — "
+            f"известны только: {', '.join(sorted(GREY_REASONS))}")
+
+
+# ТЗ-97 Q2 (ТЗ-73 T3, правило P8): у серой строки мало причины — нужен
+# ещё и способ закрыть её одной командой. Двери названы по индикатору,
+# потому что каналы разные: владение приходит из ленты SEC, остальное —
+# из документов, которые обходит ручной импорт. Placeholder файла
+# намеренно в угловых скобках: строка печатается в таблице, а не
+# выполняется, и читатель подставляет свой файл.
+_GREY_DOORS: dict[str, str] = {
+    "insider_net": "rusterm ingest --source ownership --instrument {iid}",
+    "independent_directors": "rusterm import <DEF-14A.pdf> --issuer {iid}",
+    "ceo_chair": "rusterm import <DEF-14A.pdf> --issuer {iid}",
+    "related_party": "rusterm import <10-K.pdf> --issuer {iid}",
+    "auditor": "rusterm import <10-K.pdf> --issuer {iid}",
+}
+
+
+def grey_closing(indicator: str, instrument_id: str) -> str:
+    """Чем закрывается показатель: команда целиком, как её принимает
+    парсер CLI (страж `tests/test_task97_q2_governance_words.py` разбора
+    требует). Незнакомого индикатора здесь быть не может — продюсер
+    перебирает `INDICATORS`, — но пустая ячейка хуже исключения, поэтому
+    возвращается общая команда просмотра покрытия."""
+    door = _GREY_DOORS.get(indicator)
+    if door is None:
+        return f"rusterm coverage --instrument {instrument_id}"
+    return door.format(iid=instrument_id)
+
 
 # P9: порог устаревания. Число утверждено координатором (BACKLOG 10,
 # ТЗ-33 E4): годовой прокси плюс люфт на позднюю подачу — 450 дней;
@@ -284,14 +376,51 @@ def governance_inputs_from_records(manual_repo, issuer_id: str) -> dict:
     return out
 
 
+def _insider_gray_from_coverage(repos, instrument_id: str) -> dict:
+    """ТЗ-97 Q2 (ТЗ-73 T3): почему insider_net сер, если сделок нет.
+
+    Раньше здесь молча возвращался `{}`, и продюсер рисовал
+    `not_collected` — «источник ещё не обойдён» — на бумаге, где канал
+    владения уже обошёл ленту и ничего не нашёл. Покрытие блока
+    `ownership` знает настоящий ответ: `missing`/`error` — обошли и не
+    нашли (или нашли и не смогли), `ready` — формы есть, но все они
+    старше окна. Слово берётся из словаря причин.
+    """
+    for row in repos.coverage.for_instrument(instrument_id):
+        if row["block"] != "ownership":
+            continue
+        if row["status"] in ("ready", "stale"):
+            token = "no_deals_in_window"
+        elif grey_reason_key(row["reason"] or "") in GREY_REASONS:
+            token = grey_reason_key(row["reason"])
+        else:
+            # покрытие записано status=missing, а причину словари не
+            # знают: честнее сказать «обходили и не нашли», чем
+            # «не собирали» — legacy-причина `no_data:ownership` именно
+            # это и значила (её писал тот же сборщик до переименования)
+            token = "source_has_no_disclosure"
+        return {"insider_net": {
+            "gray": token,
+            "lineage_ref": (f"coverage:ownership={row['status']},"
+                            f"reason={row['reason'] or '—'}")}}
+    return {}
+
+
 def insider_net_inputs_from_store(repos, instrument_id: str,
-                                  issuer_id: str, as_of: str) -> dict:
+                                  issuer_id: str, as_of: str,
+                                  snapshot_id: str | None = None) -> dict:
     """E1: входы insider_net из СОХРАНЁННЫХ сделок Forms 3/4/5
     (миграция 44): окно 365 дней по дате сделки; числитель —
-    куплено минус продано; знаменатель — market_cap_total последнего
-    снапшота инструмента. Доля 10b5-1 передаётся отдельным входом
-    (BACKLOG 11). Нет сделок или нет знаменателя — {}: серость с
-    честной причиной остаётся, число не выдумывается."""
+    куплено минус продано; знаменатель — market_cap_total снапшота.
+    `snapshot_id` — сборка, внутри которой резолвер вызывается
+    (ТЗ-97 Q2): строка версии в этот момент ещё `building`, а
+    `latest_snapshot_id` показывает читателю только `ready` (ТЗ-90 A3),
+    поэтому первый же путь `rusterm follow AAPL` на пустом каталоге
+    терял знаменатель и красил ряд в серый — цвет отставал на прогон.
+    Вне сборки `snapshot_id` не передаётся, и знаменатель берётся у
+    последнего готового снапшота, как раньше. Доля 10b5-1 передаётся
+    отдельным входом (BACKLOG 11). Нет сделок или нет знаменателя —
+    серость с честной причиной, число не выдумывается."""
     try:
         low = (date.fromisoformat(as_of)
                - timedelta(days=365)).isoformat()
@@ -299,7 +428,7 @@ def insider_net_inputs_from_store(repos, instrument_id: str,
         return {}
     rows = repos.ownership.for_issuer(issuer_id, since=low, until=as_of)
     if not rows:
-        return {}
+        return _insider_gray_from_coverage(repos, instrument_id)
     # накопление в цикле: сторож «никакой свёртки индикаторов»
     # смотрит текст исходника и запрещает агрегатные вызовы
     buys = 0.0
@@ -315,7 +444,7 @@ def insider_net_inputs_from_store(repos, instrument_id: str,
             tenb5_net += shares if r["direction"] == "acquired" \
                 else -shares
     net = buys - sells
-    sid = repos.snapshot.latest_snapshot_id(instrument_id)
+    sid = (snapshot_id or repos.snapshot.latest_snapshot_id(instrument_id))
     mcap = None
     if sid:
         for m in repos.snapshot.get_measures(sid):
@@ -323,7 +452,12 @@ def insider_net_inputs_from_store(repos, instrument_id: str,
                 mcap = float(m[4])
                 break
     if not mcap:
-        return {}
+        # ТЗ-97 Q2: сделки собраны, делить не на что — это не
+        # «не собирали». Причина именованная, число сделок в lineage.
+        return {"insider_net": {
+            "gray": "ownership_without_market_cap",
+            "lineage_ref": (f"ownership:transactions={len(rows)},"
+                            f"window=365d,market_cap_total=нет")}}
     documents = len({r["document_sha256"] for r in rows})
     return {"insider_net": {
         "inputs": {"net_ratio": net / mcap, "tenb5_net": tenb5_net,
@@ -350,6 +484,16 @@ def produce_assessments(governance_repo, instrument_id: str, as_of: str,
         if spec is None:
             a = _gray(instrument_id, indicator, as_of,
                       "not-collected", "not_collected")
+            produced.append(a)
+            governance_repo.record(a)
+            continue
+        # ТЗ-97 Q2: вход может быть найден и всё равно не давать числа —
+        # тогда сборщик сам называет причину (своим токеном и своим
+        # lineage), а продюсер её записывает, не выдумывая цвет.
+        if spec.get("gray"):
+            a = _gray(instrument_id, indicator, as_of,
+                      spec.get("lineage_ref") or "no-lineage",
+                      spec["gray"])
             produced.append(a)
             governance_repo.record(a)
             continue

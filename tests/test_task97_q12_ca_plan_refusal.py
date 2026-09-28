@@ -34,6 +34,7 @@ import rusterm.cli as cli
 from rusterm.cli import _build_parser
 from rusterm.providers.edgar import EdgarProvider
 from rusterm.providers.twelvedata import TwelveDataProvider
+from tests.edgar_fixtures import ownership_body
 
 REPO = Path(__file__).resolve().parents[1]
 TICKERS = REPO / "tests/data/edgar/company_tickers.json"
@@ -57,6 +58,12 @@ def _edgar_transport(url, headers):
         return 200, FACTS.read_bytes(), {}
     if "submissions" in url:
         return 200, SUBS.read_bytes(), {}
+    if "/Archives/edgar/data/" in url:
+        # ТЗ-97 Q2: стадии 4/6 нужны тела Forms 3/4/5 — этот файл
+        # проверяет отказ по котировкам, а не по владению.
+        body = ownership_body(url)
+        return (200, body, {}) if body is not None \
+            else (404, b'{"ok": false}', {})
     return 404, b'{"ok": false}', {}
 
 
@@ -293,7 +300,7 @@ def test_follow_finishes_the_path_and_builds_the_snapshot(tmp_path,
     rc = cli.cmd_follow(args)
     captured = capsys.readouterr()
     assert rc == 0, f"путь оборвался: rc={rc}\n{captured.out}"
-    assert "5/5 снапшот — готово" in captured.out, captured.out
+    assert "6/6 снапшот — готово" in captured.out, captured.out
     assert "путь пройден" in captured.out
     assert NOTE in captured.out
     assert "совет:" not in captured.out + captured.err, \

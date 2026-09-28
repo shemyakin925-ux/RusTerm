@@ -1106,13 +1106,23 @@ def staleness_mark(period_end: str, as_of: str | None = None) -> str:
 def governance_view(card: dict) -> dict:
     """C8.3: governance — пять отдельных показателей, каждый со своим
     цветом без свёртки; цвет и расшифровка серых причин берутся из
-    ядра (GREY_REASONS), окно цвет не вычисляет."""
-    from rusterm.core.governance import GREY_REASONS
+    ядра (GREY_REASONS), окно цвет не вычисляет.
+
+    ТЗ-97 Q2 (ТЗ-73 T3, правило P8): к слову причины добавлена дверь —
+    команда, которой строка закрывается. Слова берёт `grey_reason_text`,
+    а не `GREY_REASONS.get`: ядро печатает причины с префиксами
+    (`no_data:`, `stale:`), и прямой `.get` на базе пользователя давал
+    пустую ячейку рядом со словом gray — ровно то, что P8 запрещает.
+    """
+    from rusterm.core.governance import grey_closing, grey_reason_text
     rows = []
+    instrument_id = card.get("instrument_id") or ""
     for g in card.get("governance", []):
+        reason = g.get("reason") or ""
         rows.append({"indicator": g["indicator"], "color": g["color"],
-                     "reason": g.get("reason") or "",
-                     "note": GREY_REASONS.get(g.get("reason") or "", ""),
+                     "reason": reason,
+                     "note": grey_reason_text(reason) if reason else "",
+                     "closing": grey_closing(g["indicator"], instrument_id),
                      "lineage_ref": g.get("lineage_ref") or ""})
     return {"rows": rows}
 
