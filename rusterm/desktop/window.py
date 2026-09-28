@@ -728,7 +728,9 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     def on_switch_root() -> None:
         """C9.3: смена каталога. Молчаливого создания нет: каталога
         данных нет — вопрос, и только подтверждение запускает новое
-        окно поверх выбранного корня."""
+        окно поверх выбранного корня. ТЗ-97 Q3 (ТЗ-73 T4): файл есть,
+        но базой не является — вопроса «создать?» нет и нового окна
+        нет, а есть отказ словами и командой, которой он закрывается."""
         chosen = QFileDialog.getExistingDirectory(
             window, "каталог данных", paths.root)
         if not chosen:
@@ -743,6 +745,10 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
                 status.setText("смена каталога отменена — "
                                "ничего не создано")
                 return
+        elif not decision["usable"]:
+            status.setText(f"каталог не сменён: {decision['reason']}; "
+                           f"закрывается командой: {decision['closing']}")
+            return
         import sys as _sys
         _sys.argv = [_sys.argv[0], "--root", chosen]
         window.close()

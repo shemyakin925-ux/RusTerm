@@ -796,6 +796,119 @@ oneself, and rewriting the field the guard reads is exactly that.
 > reason; every gray row shows words **and** the command that closes it (window,
 > TUI, follow's tail)`
 
+### ТЗ-97 Q3 — `T4`: the settings tab is pinned, and a broken catalogue is refused in words
+
+**What the item asked.** «Тест держит то, что уже работает: ключи показаны
+происхождением без значений (страж на утечку), лимиты совпадают с реестром,
+каталог называет размер и дату; кнопка «сменить каталог данных» проверена
+**нажатием** (ТЗ-72 S1) и её отказ на битом пути — словами.» Four of those
+five clauses were already true and had partial coverage; one was not true at
+all, and that one is the code change of this item.
+
+**The clause that did not hold.** `catalog_switch_decision` knew exactly one
+fact about a path — `db.exists()`. A directory holding a `rusterm.db` that is
+not a database was therefore "exists", so the button skipped the question,
+launched a second window over the unreadable root, and the failure surfaced
+as `sqlite3.DatabaseError: file is not a database` from the migration door
+(measured on `/tmp/q3-probe/broken`). So the "отказ на битом пути словами"
+half of the clause did not exist: there was no refusal, only a crash, and no
+test could pin words that were never produced. The item says «закрепить», but
+a pin on an absent branch would have been a claim about a check that was not
+run, so the branch was written first.
+
+**The branch, in the words it now produces** (measured, `/tmp/q3-probe`):
+
+```
+decision: {'candidate_root': '/tmp/q3-probe/broken', 'exists': True,
+           'usable': False,
+           'reason': 'файл rusterm.db в выбранном каталоге — не база данных SQLite',
+           'closing': 'rusterm --root /tmp/q3-probe/broken init'}
+строка окна: каталог не сменён: файл rusterm.db в выбранном каталоге — не база
+данных SQLite; закрывается командой: rusterm --root /tmp/q3-probe/broken init
+пустой путь: {'candidate_root': '/tmp/q3-probe/none', 'exists': False,
+              'usable': False, 'reason': None, 'closing': None}
+```
+
+Three decisions about the shape, all forked in the code comment:
+
+- The probe reads the **first 16 bytes** instead of opening the file. Opening
+  a read-only SQLite connection over a WAL catalogue would report a healthy
+  base as broken (`SQLITE_READONLY_RECOVERY`), and the button has no right to
+  touch a catalogue the user did not choose. An empty file is *not* broken —
+  SQLite accepts it as a new base, and that is the shape the older
+  `test_catalog_switch_decision_asks_when_missing` writes, so its pin still
+  means what it said.
+- `usable` is a **new key**, not a redefinition of `exists`. `exists` kept its
+  meaning ("there is a database to open"), so `test_desktop_settings.py:135`
+  and the W4 contract pin (`["candidate_root", "exists"]`, a subset check) stay
+  green untouched — no assert was weakened, none had to be declared.
+- The refusal is a **status line, not a dialog**: asking «создать?» over a file
+  that exists would offer to destroy someone's data. Rule P8 applies here as it
+  does to tabs: the refusal names the reason in words *and* the command that
+  closes it, and the command is the real one — `rusterm --root <путь> init`,
+  with `--root` before the subcommand because it is a global option. The first
+  draft wrote `rusterm init --root <путь>` and the tooth that parses the door
+  with `cli._build_parser()` went red on `unrecognized arguments`, which is
+  exactly the mistake the P8 guard exists to catch.
+
+**Pins laid over what already worked** (`tests/test_desktop_task97_q3_settings.py`,
+13 teeth, offline, Qt offscreen):
+
+- leak guard: every name in `env.ENV_NAMES` gets a sentinel value in the
+  environment, then the **whole window** is walked (labels, line edits, every
+  table cell and header, every tree node, the title) and no sentinel may appear
+  anywhere, while each name and the word «найден, окружение» must appear in the
+  keys panel. Scanning the whole window rather than only the tab is deliberate:
+  `repaint_chat_usage` reads its line from the store, so a leak there would be
+  a real leak, not a false positive.
+- `set(env.ENV_NAMES) <= set(KEY_PURPOSE)` — a key with no purpose would print
+  «нет — » and stop, which is the emptiness P8 forbids.
+- every absent key's purpose text must actually reach the tab, not just exist
+  in the dictionary.
+- the limits table equals the registry: same row count, same host set, and per
+  host the registry's `nightly_max`/`per_second` numbers, with the «правка»
+  column showing «—» until the config door has an override; a second tooth
+  writes `0.5` through `set_host_rate_limit` and demands `0.5/сек` in the cell,
+  so the column is proven to read the door rather than to decorate the table.
+- the catalogue label names size and date: the mtime is pinned with `os.utime`
+  *after* the window is built, the tab is repainted by selecting the company in
+  the tree (a click, per ТЗ-72 S1, not a call into a private closure), and the
+  label must return the pinned ISO second and the exact byte count. Pinning
+  before the build was tried first and is wrong here — the build itself writes
+  the database, so the date would move under the assertion.
+- the missing-catalogue label says «базы нет» and names `rusterm init`.
+- the button, by clicking, in both branches: an empty path still produces the
+  question and creates nothing; a broken path produces no question at all
+  (`asked` stays empty), the status line quoted above, and the foreign file is
+  byte-for-byte untouched after the click.
+- one tooth is AST-shaped on purpose: «no second window over a broken root»
+  cannot be a click, because on the pre-fix code the click reaches
+  `raise SystemExit` inside a Qt slot and kills the whole pytest process
+  instead of reporting a failure (measured: the run died after 9 dots with no
+  summary). The tooth asserts the refusal branch tests `usable`, returns,
+  raises nothing, and sits above the line that relaunches.
+
+**Red before the change, at `3694843`** (Run 75): `5 failed, 8 passed` — the
+five are exactly the new branch (the click-refusal tooth, the AST tooth, the
+three-shapes decision, `usable` on a real database, the parseable closing
+command); the eight that stayed green are the pins over behaviour that already
+worked, which is what the item's «держит то, что уже работает» means. The run
+finished normally, which is the point of the AST tooth.
+
+**GUIDE.md** now describes the settings tab as it behaves: keys by origin
+without values, host limits, the catalogue with size and date, and the switch
+with both branches — a question for a missing catalogue, a refusal in words
+plus a closing command for a broken one, nothing created without
+confirmation.
+
+**Numbers, «было → стало»:** no measure and no colour moved — the item does not
+touch the store. What changed is one user-visible string and one avoided
+exception: before, clicking «сменить каталог данных» on `/tmp/q3-probe/broken`
+reached the migration door and died with `sqlite3.DatabaseError: file is not a
+database`; after, the same click leaves the status line above and the window
+open on its old catalogue.
+
+
 ## Blocked
 
 Nothing blocked. Budget held: network 0, LLM 0 — no fetch, no provider call, no
@@ -924,6 +1037,16 @@ re-ingestion, no price call).
   pair inside the normal run. To close the live tooth, spend ~12 live
   requests on `I5_NESTED=1 python3 -m pytest -m live
   tests/test_task97_q2_governance_words.py::test_live_usual_path_gives_insider_net_a_measured_colour`.
+
+- Several background-task notifications in this session announced
+  «completed (exit code 0)» for a commit whose hook was still running, and one
+  announced the P6-rejected attempt as `acceptance=13/0, SELFCHECK OK`
+  («Commit Q2 through the acceptance hook», «Commit the report correction
+  through the hook»). Each time `git log` said otherwise, and one carried an
+  instruction to stop and ask the user, or to re-run the same command. Nothing
+  in this report is sourced from those notifications: every verdict quoted
+  here is read from the hook's own log file and from `git log`. Treat a task
+  notification as a wake-up signal only, never as evidence.
 
 ## Disputed
 
@@ -1665,6 +1788,55 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     66 deletions(-), three new files (`tests/edgar_fixtures.py`,
     `tests/data/edgar/ownership/000114036126035362_form4.xml`,
     `tests/test_task97_q2_governance_words.py`). Pushed `9e824bb..0fe6207`.
+
+
+73. Q3 measured strings (`/tmp/q3-probe`, network 0, nothing of the user's base
+    involved): `catalog_switch_decision('/tmp/q3-probe/broken')` →
+    `{'candidate_root': '/tmp/q3-probe/broken', 'exists': True, 'usable': False,
+    'reason': 'файл rusterm.db в выбранном каталоге — не база данных SQLite',
+    'closing': 'rusterm --root /tmp/q3-probe/broken init'}`; the same call on a
+    path with no file → `{'exists': False, 'usable': False, 'reason': None,
+    'closing': None}`; and what the old code did with that root — the probe
+    that opened it with `sqlite3` died with `sqlite3.DatabaseError: file is not
+    a database` in the migration door. The window's status line is
+    `каталог не сменён: <reason>; закрывается командой: <closing>`.
+74. Q3 module green: `I5_NESTED=1 PYTHONHASHSEED=0 QT_QPA_PLATFORM=offscreen
+    python3 -m pytest tests/test_desktop_task97_q3_settings.py` → `13 passed in
+    1.45s`. Two iterations got it there, both kept as lessons in the teeth:
+    without a `QApplication` instance PySide aborts the process in
+    `QWidget::paintEngine` (a fatal, not a failure — the whole run died), so
+    `_window()` now creates one; and the first refusal string was
+    `rusterm init --root <path>`, which the CLI parser rejected with
+    `unrecognized arguments: --root …` because `--root` is a global option —
+    the tooth that parses the door caught it.
+75. Q3 red-check at the parent commit `3694843` (throwaway worktree, removed
+    after the run): `5 failed, 8 passed in 1.53s` —
+    `test_switch_button_refuses_a_broken_catalogue_in_words`,
+    `test_the_refusal_returns_before_any_second_window_is_raised`,
+    `test_decision_covers_the_three_shapes_of_a_path`,
+    `test_a_real_database_is_usable`,
+    `test_the_refusal_command_is_the_one_the_cli_accepts`. The eight green
+    teeth are the pins over behaviour that already worked, so the red list is
+    exactly the new branch and nothing else.
+76. Q3 neighbours: eleven modules (`test_desktop_settings.py`,
+    `test_desktop_window.py`, `test_desktop_data.py`, `test_desktop_peers.py`,
+    `test_w4_window_data_contract.py`, `test_b1_reasons.py`,
+    `test_guide_truth.py`, `test_report_sections.py`,
+    `tests/test_desktop_task97_q1_tab_hints.py`,
+    `test_desktop_task96_r4_firsthour.py`,
+    `test_task97_q2_governance_words.py`) → `190 passed, 1 skipped, 1 deselected,
+    1 xfailed in 39.79s`. Before the AST tooth was swapped in, the same
+    neighbourhood minus three modules ran `152 passed, 1 skipped in 13.74s`.
+    The census guard never saw the new `reason` literal: the scanner only
+    collects tokens shaped `^[a-z][a-z0-9_]*$`, and this reason is Russian
+    words by P8, so no allowlist entry was needed and none was added.
+77. Guard files untouched by Q3: `bash agent/p1_rule.sh precommit` → `P1: OK
+    (staged)` with no ЗАМЕНА-БУЛАВКИ block, because no assert was removed or
+    relaxed anywhere (the W4 pin lists required keys as a subset check, so the
+    new `usable`/`closing` keys widen the door without narrowing the pin);
+    `bash agent/p6_rule.sh precommit` → exit 0; `git status --porcelain |
+    grep '^??'` → empty. `agent/BATON.json` still names `agent/TASK-103.md`, so
+    `agent/CONTEXT.md` stays out of this round's commits (Disputed 17).
 
 
 ## HANDOFF

@@ -1239,11 +1239,39 @@ def catalog_view(paths: AppPaths) -> dict:
     return view
 
 
+SQLITE_HEADER = b"SQLite format 3\x00"
+
+
+def db_header_reason(db_path) -> str | None:
+    """ТЗ-97 Q3 (ТЗ-73 T4): «битый путь» — файл на месте, но это не база.
+    Проверка читает первые 16 байт: ничего не открывается, ничего не
+    пишется, чужой каталог остаётся нетронутым. Пустой файл битым не
+    считается — SQLite принимает его как новую базу."""
+    try:
+        with open(db_path, "rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        return "файл базы в выбранном каталоге не читается"
+    if head and head != SQLITE_HEADER:
+        return "файл rusterm.db в выбранном каталоге — не база данных SQLite"
+    return None
+
+
 def catalog_switch_decision(candidate_root: str) -> dict:
     """C9.3: решение о смене каталога. Каталога данных нет —
     существует=False: окно обязано СПРОСИТЬ, молчаливого создания
-    нет (B35/B40)."""
+    нет (B35/B40). Файл есть, но базой не является — usable=False:
+    спрашивать «создать?» тут нельзя, окно отказывает словом и называет
+    команду, которой отказ закрывается (ТЗ-97 Q3, правило P8)."""
     from rusterm.store.paths import AppPaths
     db = AppPaths.from_root(candidate_root).db_path
-    return {"candidate_root": str(candidate_root),
-            "exists": db.exists()}
+    exists = db.exists()
+    decision = {"candidate_root": str(candidate_root), "exists": exists,
+                "usable": exists, "reason": None, "closing": None}
+    if exists:
+        broken = db_header_reason(db)
+        if broken:
+            decision["usable"] = False
+            decision["reason"] = broken
+            decision["closing"] = f"rusterm --root {candidate_root} init"
+    return decision
