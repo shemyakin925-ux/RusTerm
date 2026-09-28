@@ -132,6 +132,9 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "unexpected_error": "desktop action refusal prefix (desktop/actions.py)",
     "index_unavailable": "desktop collect refusal (desktop/actions.py)",
     "fetch_failed": "desktop collect refusal (desktop/actions.py)",
+    # ТЗ-97 Q12 (строка 2): «Собрать» на живой бумаге = rusterm follow;
+    # отказ стадии — не null_reason меры, а слово окна + строка совета
+    "follow_failed": "desktop follow refusal (desktop/actions.py)",
     # расширенная перепись (сканер возвратов-пар и f-строк)
     "asx_bad_url": "provider channel refusal (providers/asx.py)",
     "dart_bad_url": "provider channel refusal (providers/dart.py)",

@@ -1759,11 +1759,18 @@ def _requests_used(root: str) -> int:
         conn.close()
 
 
-def cmd_follow(args) -> int:
+# ТЗ-97 Q12 (строка 2): «Собрать» в окне идёт этим же путем в рабочем
+# потоке и отличается от терминала одной возможностью — отменой. Код
+# 130 принят в CLI как ответ на SIGINT, поэтому он же означает «путь
+# прерван по воле вызывателя», а не «стадия отказалась».
+FOLLOW_CANCELLED = 130
+
+
+def cmd_follow(args, emit=None, cancel=None) -> int:
     """ТЗ-96 R2: один вызов проводит бумагу путь «пустой каталог →
     снапшот»: поиск в SEC, отчётность, цены, снапшот.
 
-    Тела стадий не копируются: каждая стадия — тот же аргмент-вектор,
+    Тела стадий не копируются: каждая стадия — тот же аргумент-вектор,
     что человек набрал бы сам, разобранный настоящим парсером и
     переданный настоящей команде (`add`/`ingest`/`snapshot`). Отсюда
     два обещания сразу: повтор стадии даёт ровно тот же вывод, что и
@@ -1781,15 +1788,29 @@ def cmd_follow(args) -> int:
     остаётся пятью серыми строками, потому что единственный индикатор,
     который ядро умеет считать из собранного, — `insider_net`, и он
     кормится именно формами 3/4/5.
+
+    ТЗ-97 Q12 (строка 2) добавил два необязательных аргумента, и порядок
+    вывода не изменился ни на строку (`tests/test_guide_truth.py`
+    исполняет блок GUIDE §1.1 буквально): `emit` принимает строки стадий
+    вместо stdout/stderr — этим пользуется окно, чтобы путь был виден во
+    время его; `cancel` — флаг, который читается на границе стадий, а не
+    посередине запроса, и даёт `FOLLOW_CANCELLED`. Оба по умолчанию None:
+    терминальный вызов ведёт себя ровно как вёл.
     """
     from rusterm.markets import get_market
+
+    def out(line: str, err: bool = False) -> None:
+        if emit is None:
+            print(line, file=sys.stderr if err else sys.stdout)
+        else:
+            emit(line)
 
     market_row = get_market(args.market)
     if market_row is None:
         from rusterm.markets import known_codes
-        print(f"неизвестный рынок {args.market!r}; известные коды: "
-              f"{known_codes()}", file=sys.stderr)
-        print("совет: rusterm markets", file=sys.stderr)
+        out(f"неизвестный рынок {args.market!r}; известные коды: "
+            f"{known_codes()}", err=True)
+        out("совет: rusterm markets", err=True)
         return 1
     ticker = args.ticker.upper()
     instrument_id = f"{args.market}-{ticker}"
@@ -1816,40 +1837,42 @@ def cmd_follow(args) -> int:
     parser = _build_parser()
     spent_total = 0
     for name, argv in stages:
+        if cancel is not None and cancel:
+            out(f"{instrument_id}: отменено перед {name}")
+            return FOLLOW_CANCELLED
         if name.startswith("2/") and \
                 _instrument_exists(args.root, instrument_id):
-            print(f"{instrument_id}: {name} — инструмент уже есть, "
-                  f"поиск пропущен (запросов 0)")
+            out(f"{instrument_id}: {name} — инструмент уже есть, "
+                f"поиск пропущен (запросов 0)")
             continue
         before = _requests_used(args.root)
         child = parser.parse_args(["--root", str(args.root), *argv])
         rc = commands[child.command](child)
         spent = _requests_used(args.root) - before
         spent_total += spent
-        print(f"{instrument_id}: {name} — "
-              f"{'готово' if rc == 0 else 'отказ'} (запросов {spent})")
+        out(f"{instrument_id}: {name} — "
+            f"{'готово' if rc == 0 else 'отказ'} (запросов {spent})")
         if rc != 0:
             # Совет — та же стадия, одним вызовом: он обязан разбираться
             # парсером CLI, поэтому это строка команды, а не описание
             # проблемы. Причина отказа и что чинить — в выводе самой
             # стадии выше.
-            print(f"{instrument_id}: стадия не прошла (код {rc}); "
-                  f"починив, повторяют только её", file=sys.stderr)
+            out(f"{instrument_id}: стадия не прошла (код {rc}); "
+                f"починив, повторяют только её", err=True)
             if name.startswith("2/"):
-                print(f"без контакта SEC нужны оба значения вручную: "
-                      f"--cik и --name (см. rusterm markets)",
-                      file=sys.stderr)
-            print(f"совет: rusterm {' '.join(argv)}", file=sys.stderr)
+                out(f"без контакта SEC нужны оба значения вручную: "
+                    f"--cik и --name (см. rusterm markets)", err=True)
+            out(f"совет: rusterm {' '.join(argv)}", err=True)
             return rc
 
-    print(f"{instrument_id}: путь пройден; всего запросов: {spent_total}")
+    out(f"{instrument_id}: путь пройден; всего запросов: {spent_total}")
     # ТЗ-97 Q2: governance больше не целиком вне пути — формы 3/4/5 на
     # стадии 4/6 кормят `insider_net`. Остальные четыре показателя живут
     # из прокси-отчёта, его обходит ручной импорт (ТЗ-20 L6).
-    print(f"{instrument_id}: отрасль в этот путь не входит (см. rusterm "
-          f"industry); из governance здесь `insider_net` — формы 3/4/5 "
-          f"на 4/6, остальные четыре показателя закрывает ручной импорт "
-          f"прокси: rusterm import <файл> --issuer {instrument_id}")
+    out(f"{instrument_id}: отрасль в этот путь не входит (см. rusterm "
+        f"industry); из governance здесь `insider_net` — формы 3/4/5 "
+        f"на 4/6, остальные четыре показателя закрывает ручной импорт "
+        f"прокси: rusterm import <файл> --issuer {instrument_id}")
     return 0
 
 

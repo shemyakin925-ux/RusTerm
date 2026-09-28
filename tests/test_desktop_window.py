@@ -463,7 +463,25 @@ def test_header_and_cli_print_the_same_line(qapp, env, monkeypatch,
     assert _widget(window, QLabel, "root_rule").text() == printed[0]
 
 
-def test_collect_refuses_non_demo_with_cli_words(qapp, env):
+def test_collect_on_non_demo_starts_follow_in_the_worker_thread(qapp, env,
+                                                                monkeypatch):
+    """ТЗ-97 Q12 (строка 2) заменил прежнюю булавку «кнопка на не-demo
+    бумаге отказывается и называет команды CLI»: теперь кнопка идёт тем же
+    путём, что терминал, — в рабочем потоке и со стадиями в окне.
+
+    Булавка переписана под новое поведение, а не снята: тело стадии окно
+    по-прежнему не копирует, и это здесь видно по аргумент-вектору, который
+    разобрал настоящий парсер CLI.
+    """
+    import rusterm.cli as cli
+    calls = []
+
+    def spy(args, emit=None, cancel=None):
+        calls.append((args, emit, cancel))
+        emit("US-AAA: 3/6 отчётность — готово (запросов 1)")
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_follow", spy)
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")
     tree = _widget(window, QTreeWidget, "tree")
@@ -472,9 +490,18 @@ def test_collect_refuses_non_demo_with_cli_words(qapp, env):
     assert button.isEnabled()
     button.click()
     status_line = _widget(window, QLabel, "collect_status")
-    assert "rusterm ingest --source edgar" in status_line.text()
     cancel = _widget(window, desktop_window.QPushButton, "cancel_button")
-    assert not cancel.isEnabled(), "отмена не могла быть запущена"
+    assert cancel.isEnabled(), "путь обязан идти в фоне: отмена доступна"
+    text = _wait_for_collect(window, status_line)
+
+    assert len(calls) == 1, calls
+    args, emit, flag = calls[0]
+    assert args.command == "follow"
+    assert args.ticker == "AAA" and args.market == "US", vars(args)
+    assert Path(str(args.root)) == paths.root
+    assert callable(emit) and flag is not None
+    assert text.startswith("готово:"), text
+    assert not cancel.isEnabled(), "по завершении отмена погашена"
 
 
 def test_collect_runs_pipeline_and_refreshes_window(qapp, env):

@@ -1,11 +1,14 @@
 """Окно десктопа EquityLab на PySide6 (TASK-C1, макет пользователя).
 
-Только чтение (ADR-0009): всё содержимое собирает rusterm/desktop/
-data.py через модель экранов TUI; здесь — раскладка и реакции.
-Ни одной кнопки, которая собирает, обновляет, пишет в базу или зовёт
-сеть по своей воле: единственный сетевой путь — вопрос модели в
-строке снизу, той же дверью, что `rusterm chat` (make_chat_client +
-ChatSession). Модуль импортируется и без PySide6 (приёмка №1).
+Только чтение — про содержание: всё, что окно показывает, собирает ядро
+через `rusterm/desktop/data.py` (модель экранов TUI); здесь — раскладка и
+реакции. Писать база получает ровно тремя словами пользователя (ADR-0004
+§3, ТЗ-97 Q12 строка 2): «Собрать» на демо-бумаге — синтетический конвейер,
+«Собрать» на живой — `rusterm follow` тем же телом, что у терминала, и
+вопрос модели в строке снизу — той же дверью, что `rusterm chat`
+(make_chat_client + ChatSession). Сети у окна своей воли нет: живой путь
+идёт через CLI-ядро и останавливается на той же стадии, что и команда в
+терминале. Модуль импортируется и без PySide6 (приёмка №1).
 """
 from __future__ import annotations
 
@@ -77,6 +80,23 @@ if QT_AVAILABLE:  # без PySide6 имя не существует, окно ч
 
         def run(self) -> None:
             outcome = desktop_actions.collect_synthetic(
+                self._root, self._instrument_id,
+                cancel=self.cancel_flag,
+                on_stage=self.stage.emit)
+            self.finished_run.emit(outcome)
+
+    class _FollowWorker(_CollectWorker):
+        """ТЗ-97 Q12 (строка 2): тот же рабочий поток, но путь — настоящий:
+        `rusterm follow` дверью `desktop_actions.follow_instrument`.
+
+        От `_CollectWorker` отличается только телом: `run` зовёт ядро, а
+        не синтетический конвейер. Флаг отмены, сигналы стадий и итога,
+        а вместе с ними и гарантия `closeEvent` (поток дожидается воркера)
+        наследуются — окно для демо и для живой бумаги одно.
+        """
+
+        def run(self) -> None:
+            outcome = desktop_actions.follow_instrument(
                 self._root, self._instrument_id,
                 cancel=self.cancel_flag,
                 on_stage=self.stage.emit)
@@ -892,24 +912,21 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         question_line.clear()
 
     def on_collect() -> None:
-        """Кнопка «Собрать»: демо-конвейер в рабочем потоке; для
-        остальных инструментов — слова с командой CLI, без копии тела
-        cmd_ingest (C2.1)."""
+        """Кнопка «Собрать» (ТЗ-97 Q12 строка 2): демо-бумага — тот же
+        синтетический конвейер в рабочем потоке, любая живая бумага —
+        `rusterm follow` в рабочем же потоке, со строками стадий в полосе
+        состояния. Ни там, ни там тело стадии не копируется."""
         if state["worker"] is not None or repos is None:
             return
         company = state["selected"]
         if company is None:
             return
         instrument_id = company["instrument_id"]
-        if instrument_id != desktop_actions.demo_instrument_id():
-            # отказ синтетического сбора возвращается до всякого ввода-
-            # вывода — безопасно позвать прямо в UI-потоке
-            outcome = desktop_actions.collect_synthetic(
-                paths.root, instrument_id)
-            collect_status.setText(f"сбор не удался: {outcome.detail}")
-            return
-        worker = _CollectWorker(paths.root, instrument_id,
-                                parent=window)
+        worker_cls = (_CollectWorker
+                      if instrument_id == desktop_actions.demo_instrument_id()
+                      else _FollowWorker)
+        worker = worker_cls(paths.root, instrument_id,
+                            parent=window)
         window.set_worker(worker)
         state["worker"] = worker
         collect_button.setEnabled(False)

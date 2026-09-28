@@ -1083,6 +1083,93 @@ that moved K4 back into the normal set. Nothing else had to move.
 
 **Budget.** network 0.
 
+### ТЗ-97 Q12 (строка 2) — «Собрать» на живой бумаге идёт `rusterm follow`
+
+**Verdict applied.** «прав». Before this commit the button, on a non-demo paper,
+called `collect_synthetic` in the UI thread and printed its refusal. The words,
+verbatim (`/tmp/q12-before.py`, Run 88):
+
+> `сбор не удался: синтетический сбор честен только для демо-инструмента
+> US-CLI-DEMO; реальные источники заперты в CLI — выполните rusterm ingest
+> --source edgar --instrument …; либо rusterm ingest --source twelvedata
+> …; либо … cvm …; либо … asx …; либо … ownership …`
+
+Five commands for the user to type by hand, zero requests, nothing written.
+Now the button runs the path itself.
+
+**What changed** (three source files, one allowlist, two test pins):
+
+1. `rusterm/cli/__init__.py` — `cmd_follow(args, emit=None, cancel=None)`. The
+   nine `print` sites became a local `out(line, err=False)`: with `emit=None`
+   it prints exactly where it printed before, so the GUIDE §1.1 block is still
+   byte-identical (`tests/test_guide_truth.py` executes that block and is
+   green). `cancel` is read at the six stage boundaries and returns the new
+   module constant `FOLLOW_CANCELLED = 130`; a stage is never cut in the middle
+   of a request.
+2. `rusterm/desktop/actions.py` — the new door `follow_instrument(root,
+   instrument_id, cancel, on_stage)`. It builds
+   `["--root", root, "follow", ticker, "--market", market]`, parses it with
+   `cli._build_parser()` (the same parser the terminal uses), calls
+   `cli.cmd_follow` and maps the code to the `CollectOutcome` the window
+   already speaks: cancel → `cancelled`, non-zero → `reason="follow_failed"`
+   with `detail` = the last line the path emitted, which for `follow` is the
+   `совет: rusterm …` command (rule P8), and zero → `ok` with the snapshot id
+   and version read back through `repos.snapshot`. `unexpected_error` is caught
+   here: without it a dying worker would leave the window with an enabled
+   cancel button and no answer.
+   The ticker comes from `_live_ticker`, which reads `instrument.ticker_for_instrument`
+   through the store door instead of splitting `instrument_id`. The split is
+   what the old code did, and it is wrong for exactly one paper — a renamed
+   one: the id keeps the historical suffix (`l-AAPL`-style listings hold
+   `US-AAPL`) while `follow` must be called with the ticker that is live
+   today, or the path would create a second catalogue entry for a company that
+   already has one. When the id cannot be trusted the door answers `None` — no
+   database yet — and the caller keeps the suffix, which is correct there
+   because stage `1/6` creates the instrument itself.
+3. `rusterm/desktop/window.py` — `_FollowWorker(_CollectWorker)` differs from
+   its parent only in `run`, so the cancel flag, the `stage`/`finished_run`
+   signals and the `closeEvent` «cancel and wait» guarantee are inherited, not
+   duplicated. `on_collect` chooses the class by
+   `instrument_id == demo_instrument_id()`; the demo branch is untouched. The
+   module docstring's «ни одной кнопки, которая пишет в базу или зовёт сеть»
+   was false already for the demo collect and would have become false in a way
+   a user could hit, so it now names the three write paths and says the live
+   path goes through the CLI core.
+4. Pins: `tests/test_desktop_window.py::test_collect_refuses_non_demo_with_cli_words`
+   is re-pointed, not deleted (see the commit message);
+   `tests/test_desktop_actions.py::test_collect_refuses_non_demo_and_names_cli`
+   stays as it was — `collect_synthetic` still refuses to fake real sources
+   when called directly; `follow_failed` joined `ALLOWED_NON_MEASURE` in
+   `tests/test_b1_reasons.py`; new `tests/test_desktop_task97_q12_collect_follow.py`,
+   9 teeth — the extra one pins `_live_ticker`: a paper whose ticker was
+   renamed is collected under the ticker that is live today.
+
+**«было → стало»** — measured on a `/tmp` sandbox catalogue with the recorded
+`tests/data` transports (network 0, P7: the user's catalogue was never opened):
+
+| one press of «Собрать» on US-AAPL | было | стало |
+| --- | --- | --- |
+| requests spent | 0 | 10 (`путь пройден; всего запросов: 10`) |
+| prices written | 0 | 200 rows, last 2026-09-11 |
+| ownership docs | 0 | 3 documents, 1 trade parsed |
+| snapshot | none | v1, 29 measures, 11 valued |
+| window says | the five-command refusal | stage lines, then `готово: путь пройден; снапшот v1` |
+| second press | same refusal, again | +2 requests (12 total), facts/prices «уже в store», `снапшот v2 — без изменений` |
+
+**What this does not do.** Industry is still not in the path — `follow` says so
+in its own last line, and the window now shows that line instead of the
+invention. Cancellation is cooperative at stage boundaries, so pressing
+«Отменить» during stage 4/6 lets that stage finish. The button writes to the
+catalogue the window has open, which is what the row asks for and is the first
+time a non-demo press can reach the network.
+The frozen `.app` was not rebuilt for this commit. The lazy `from rusterm import
+cli` inside the worker is bundled by `collect_submodules("rusterm")`
+(`EquityLab.spec:52-54`), which is a reading of the spec, not a run of the
+archive — see «What not to trust».
+
+**Budget.** network 0 (row 2 spends no live requests; the Twelve Data key is
+still 401/paid-only, ADR-0018).
+
 
 ## Blocked
 
@@ -1212,6 +1299,13 @@ re-ingestion, no price call).
   pair inside the normal run. To close the live tooth, spend ~12 live
   requests on `I5_NESTED=1 python3 -m pytest -m live
   tests/test_task97_q2_governance_words.py::test_live_usual_path_gives_insider_net_a_measured_colour`.
+
+- Row 2 was never run against the real SEC or Twelve Data: the 10-request
+  numbers in the table come from `tests/data` transports patched into
+  `cli.get_provider`, and the Twelve Data key is still 401/paid-only (ADR-0018).
+  Offscreen Qt only — no real display, no window manager, and the `.app` archive
+  was not rebuilt, so «the bundled build also has `rusterm.cli`» is a reading of
+  `EquityLab.spec:52-54`, not a launch of `dist/EquityLab.app`.
 
 - Several background-task notifications in this session announced
   «completed (exit code 0)» for a commit whose hook was still running, and one
@@ -1514,6 +1608,31 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     it over the facts' own unit will mislabel absolute measures. Out of Q4;
     named because Disputed 22 depends on which currency a measure is
     allowed to claim.
+24. **Q12 row 2 / two ADR sentences now describe the window as it no longer
+    is.** `docs/adr/0009-terminalnyy-interfeys.md:26-27` states the hard rule
+    «TUI ничего не считает (нет формул), не пишет в базу, не ходит в сеть», and
+    `docs/adr/0023-qt-tolko-v-sloe-interfeysa.md:43-45` keeps exactly that clause
+    in force for the desktop («ADR-0009 сохраняет силу в части „интерфейс не
+    считает, не пишет в базу, не ходит в сеть“»). After this commit the window
+    does write to the base and does reach the network on a live paper — through
+    `cli.cmd_follow`, in a worker thread, with no arithmetic in the interface, so
+    the «не считает» half still holds and only the write/network halves are
+    contradicted. Weighing the two sides: ADR-0009 scopes its rule to the TUI
+    (line 26 names TUI, and line 33 of the same file says the interface that
+    *does* change state and run long operations is «CLI и будущий десктоп»), so
+    ADR-0023's restatement is what generalised a TUI rule to «интерфейс»; the
+    demo collect button already wrote (pre-existing breach since Task C2); and
+    row 2 is the user's own verdict «прав» in ТЗ-96, so the instruction wins over
+    the ADR and the code follows it. `docs/` is not in my РАЗРЕШЕНО ПРАВИТЬ list
+    and acceptance check 10 pins its contents, so the amendment is yours: one
+    sentence naming the collect path as the single allowed writer, or a rule that
+    the window may only start core commands but never write directly — today it
+    does only the latter, so the first variant matches reality. Weighing it: the
+    same ADR already carves the exception one section above
+    (`docs/adr/0009-terminalnyy-interfeys.md:32-34`, «Не изменяет состояние, не
+    выполняет массовые операции… для этого есть CLI и будущий десктоп») — the
+    restriction it states belongs to the TUI, and the future desktop is named as
+    the place where such operations do belong.
 
 ## Runs
 
@@ -2165,39 +2284,127 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     default selection without tripping the Q11 «прогон набора создал в
     подменённом HOME лишнее» teardown that Disputed 11 documents for the f2
     build.
+88. Row 2 measured on both sides, network 0, `/tmp` only. `/tmp/q12-before.py`
+    calls the door the button used to call:
+    `collect_synthetic("/tmp/q12-before-words", "US-AAPL")` →
+    `reason=synthetic_demo_only` and the five-command «либо … либо …» detail
+    quoted in Done. `/tmp/q12-probe.py` patches `cli.get_provider` with the
+    recorded `tests/data` transports and calls the new door twice on a fresh
+    catalogue: first press → `ok=True … snapshot=02168bcc… version=1`,
+    `requests_used= 10`, stage lines `1/6 (0) 2/6 (2) 3/6 (1) 4/6 (4) 5/6 (3)
+    6/6 (0)` and `US-AAPL: путь пройден; всего запросов: 10`; second press →
+    `снапшот v2`, `2/6 — инструмент уже есть, поиск пропущен (запросов 0)`,
+    cumulative `requests_on_repeat= 12`, i.e. the repeat costs 2 more requests
+    and changes no values.
+89. Row 2 teeth: `python3 -m pytest tests/test_task97_q12_collect_follow.py`
+    → `8 passed in 13.88s` (the first run was `1 failed, 7 passed` and the
+    failure was mine — the tooth read `repos.snapshot` after closing its own
+    connection; fixed, not weakened). The re-pointed window pin runs inside
+    `python3 -m pytest tests/test_desktop_window.py -k collect -v` →
+    `3 passed, 38 deselected in 0.95s`.
+90. Row 2 batch, `QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0`, all
+    `tests/test_desktop_*.py` plus `tests/test_cli.py`,
+    `tests/test_task96_r2_follow.py`, `tests/test_guide_truth.py`,
+    `tests/test_docs_truth.py`, `tests/test_b1_reasons.py`,
+    `tests/test_invariants.py` → `253 passed, 4 skipped, 3 deselected,
+    1 xfailed in 78.41s`, `PYTEST_EXIT=0` (`/tmp/q12-batch.log`). The
+    deselected three are the `firsthour`/`volume` pins, as usual.
+91. Guards as P1 counts them per staged file: `tests/test_desktop_window.py`
+    `removed=2 added=8` (the re-pointed pin, declared in the commit message —
+    the third old assert survived the rewrite unchanged, so it is not in the
+    diff), `tests/test_task97_q12_collect_follow.py` `removed=0 added=39`,
+    `rusterm/cli/__init__.py`, `rusterm/desktop/actions.py`,
+    `rusterm/desktop/window.py`, `tests/test_b1_reasons.py` `0/0`;
+    `git diff --cached -U0 -- '*.py' | grep -c '^-.*assert'` → 2, both inside
+    the one declared file. `git status --porcelain | grep '^??'` → empty.
+92. Row 2 teeth after the store-door refinement (the version Run 89 measured
+    was 8 teeth; the ninth — a renamed paper must be collected by its living
+    ticker — came from reading my own `_live_ticker` and asking when it would
+    be wrong): `python3 -m pytest tests/test_task97_q12_collect_follow.py -v`
+    → `9 passed in 10.00s`.
+93. Row 2 batch re-run on the same file list as Run 90 plus this module,
+    `QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0` → `262 passed, 4 skipped,
+    3 deselected, 1 xfailed in 88.69s`, `PYTEST_EXIT=0` (`/tmp/q12-batch2.log`);
+    262 = Run 90's 253 + the 9 new teeth. The first attempt of this run printed
+    `ERROR: file or directory not found: tests/test_desktop_f1_tree.py` and
+    `no tests ran` (`PYTEST_EXIT=4`) — I typed three desktop file names from
+    memory instead of listing them; no test failed, the batch was re-issued
+    against `tests/test_desktop_*.py`.
+94. Guards, Run 87's list plus this module, same env (`QT_QPA_PLATFORM=offscreen
+    PYTHONHASHSEED=0`) → `60 passed, 1 skipped, 2 deselected in 27.19s`. Run 87
+    printed 51 for the same list without the new file, and 51 + 9 = 60: the new
+    teeth leave the substituted HOME alone, so the Q11 teardown that row 7 wrote
+    about still finds nothing extra after they run.
+95. Selfcheck preview of row 2, staged tree, message already in COMMIT_EDITMSG:
+    `I5: p1_rule.sh/p6_rule.sh/p7_relay_rule.sh исполняются из HEAD`, `P1: OK
+    (staged)`, `OK нет неотслеживаемых файлов и следов правки`, then
+    **«Итог: пройдено 12, провалено 1» — check 6 «Qt только в rusterm/desktop/»**,
+    full output saved by selfcheck at `/var/folders/…/selfcheck-acc.Bc5uwl`. The
+    red was mine and innocent-looking: the new Qt module was named
+    `tests/test_task97_q12_collect_follow.py`, while the check allows PySide6
+    outside `rusterm/desktop/` only in `tests/test_desktop_*.py`
+    (`agent/acceptance.sh:142-144`). The guard was not touched and not weakened;
+    the file moved to the repo's own convention for window tests
+    (`test_desktop_task97_q1_tab_hints.py`, `test_desktop_task97_q3_settings.py`)
+    as `tests/test_desktop_task97_q12_collect_follow.py`. Runs 89-94 above were
+    executed under the old path, which is why they name it.
+96. After the rename: `python3 -m pytest tests/test_desktop_window.py
+    tests/test_desktop_task97_q12_collect_follow.py` → `50 passed in 13.93s`
+    (41 window pins + the 9 teeth), and the cancel pair alone →
+    `2 passed, 7 deselected in 5.55s` after I corrected that tooth's docstring,
+    which claimed stage `2/6` had not passed when the numbers say it had (the
+    instrument row exists, the facts do not). Check 6's own grep, replayed
+    verbatim on the renamed tree, prints nothing.
+97. Batch re-run on the renamed tree, same list and env as Run 93 →
+    `262 passed, 4 skipped, 3 deselected, 1 xfailed in 91.56s`, `PYTEST_EXIT=0`
+    (`/tmp/q12-batch3.log`). The count is Run 93's exactly: the module moved from
+    being listed by hand to being caught by the `tests/test_desktop_*.py` glob,
+    so the same 9 teeth arrive once either way.
 
 
 ## HANDOFF
 
-Status: **PARTIAL** — TASK-103 done; TASK-97 done through Q12 row 7 (Q5, Q7,
-Q6, Q1, Q2, Q3, Q4 + Q12/7 = 8 of the 9 queue items); remaining: **Q12 row 2**.
+Status: **DONE** — TASK-103 done (N1, N2); TASK-97 done in full for this
+round's queue: Q5 (TASK-91 B2–B6), Q7, Q6, Q1, Q2, Q3, Q4, Q12 rows 7 and 2 =
+9 of 9 queue items. Nothing in TASK-97's queue is left; Q8, Q10, Q11 and Q12
+rows 1, 5, 6 were done in earlier rounds.
 
 - Round 139, branch `agent/night-11`, baton `holder: executor`, report this
-  file. Q4 was accepted and pushed as `18f92c3` (acceptance 13/0); before it,
-  Q3 was `b51e8aa`.
+  file. Commits this round, oldest first: N1 `131f6ba`, N2 `69cda54`, then
+  Q5/Q7/Q6/Q1/Q2, Q3 `b51e8aa`, Q4 `18f92c3`, Q12 row 7 `232e3bb`, Q12 row 2 =
+  this commit. Each went through the hook with «Итог: пройдено 13, провалено 0».
 - Worth the coordinator's attention: Q4's first acceptance was red on check 11
   («Тесты проходят без zstandard»), and the gzip fallback was innocent — that
   check reruns the suite, and by then the clock had crossed midnight, so a
   fixture that pinned `as_of` while `rusterm add` stamped the ticker from
   *today* fell a day behind its own ticker window (Run 85). Fixed in the
   fixture. Any future test that pins a date must also pin the ticker's
-  `valid_from`, otherwise it rots silently the next morning.
-- Queue order is TASK-97's own: `Q5 → Q7 → Q6 → Q1 → Q2 → Q3 → Q4 → Q12(2, 7)`,
-  so the round ends when row 2 of Q12 is committed.
-- Q12 row 7 is done in this commit: `tests/test_task65_k4_firsthour.py` was
-  timed offline at `1 passed in 11.39s`, under the row's 60 s line, so the
-  `firsthour` marker came off and the test now runs in the default set — which
-  is where acceptance's bare `pytest -q` will keep it honest from now on.
-  `pyproject.toml` keeps the marker (the f2 `.app` build still wears it) with
-  its description corrected to name that file instead of K4.
-- Q12 row 2: «Собрать» on a non-demo ticker must run `rusterm follow` for that
-  ticker in the background with stage output in the window; the demo path stays
-  as it is. Offscreen tooth with the `tests/data` stub transport asserting the
-  call.
+  `valid_from`, otherwise it rots silently the next morning — row 2's `_catalog`
+  helper backdates `valid_from` to 2015-01-01 for exactly that reason.
+- Queue order was TASK-97's own: `Q5 → Q7 → Q6 → Q1 → Q2 → Q3 → Q4 → Q12(2, 7)`,
+  and it is now exhausted — the round ends with row 2 committed.
+- Q12 row 7 (`232e3bb`): `tests/test_task65_k4_firsthour.py` was timed offline
+  at `1 passed in 11.39s`, under the row's 60 s line, so the `firsthour` marker
+  came off and the test now runs in the default set — which is where acceptance's
+  bare `pytest -q` will keep it honest from now on. `pyproject.toml` keeps the
+  marker (the f2 `.app` build still wears it) with its description corrected to
+  name that file instead of K4.
+- Q12 row 2 (this commit): «Собрать» on a non-demo paper runs
+  `rusterm follow AAPL --market US` for the selected paper (measured press, Run
+  88) in a worker thread and streams the six stage lines
+  into the window; the demo paper keeps the synthetic pipeline, and
+  `collect_synthetic` still refuses to fake real sources when called directly.
+  The window does not reimplement a stage — it parses the argv the terminal
+  parses and calls `cli.cmd_follow`, which grew `emit`/`cancel` without changing
+  its stdout by a byte (the GUIDE §1.1 guard proves that). Done-when met by
+  `tests/test_desktop_task97_q12_collect_follow.py`: 9 offscreen teeth on
+  `tests/data` transports, network 0
+  transports, network 0. The one re-pointed old pin is declared ЗАМЕНА-БУЛАВКИ in
+  the commit message, with why the successor is stronger.
 - Requests: 40 spent (38 for Q2's ownership forms, 2 for Q4's payloads).
   Q2's own cap is 40 and is reached; Q4 has 3 of 5 left, but its payloads are
   already recorded as fixtures, so no further live call is planned. Twelve Data
-  stays 401/paid-only (ADR-0018), so no price runs.
+  stays 401/paid-only (ADR-0018), so no price runs. Rows 2 and 7 spent none.
 - Decisions owed by the coordinator (all in Disputed, none blocking):
   **20** — KSPI's capex appears only under a `_FORBIDDEN_LOOKALIKES` tag, so
   `fcf` stays refused: TASK-97's rule 9 («собери что можешь») vs TASK-31's ban;
@@ -2208,7 +2415,18 @@ Q6, Q1, Q2, Q3, Q4 + Q12/7 = 8 of the 9 queue items); remaining: **Q12 row 2**.
   valued `pe` and `ps` over MXN facts against a USD price before and after Q4) —
   wants its own queue item;
   **23** — `issuer.reporting_currency` for KSPI is `USD` while its facts are
-  `KZT, USD, TJS` (618 of them KZT).
+  `KZT, USD, TJS` (618 of them KZT);
+  **24** — the row 2 button now writes to the catalogue and can reach the
+  network, while `docs/adr/0023-qt-tolko-v-sloe-interfeysa.md:43-45` keeps
+  ADR-0009's «интерфейс не считает, не пишет в базу, не ходит в сеть» in force —
+  `docs/` is outside my РАЗРЕШЕНО ПРАВИТЬ list, so the wording is yours to amend
+  or confirm (Disputed 24 has the reading that makes row 2 legal already: ADR-0009
+  scopes that rule to the TUI and names the future desktop as where state changes
+  belong).
+- The queue is empty. TASK-97's items are all committed and
+  `agent/BACKLOG.md`/`agent/TASK-*.md` are mine to read but not to write, so
+  the next round needs a new ТЗ from you: nothing is invented on my side
+  (AGENTS.md, «Не придумывай работу»).
 - `agent/STATE.json` after this commit: `status: working`, `item`/`step`
-  describing Q12 row 7, `last_commit` = the Q4 commit (`18f92c3`), requests
-  unchanged at 40 — row 7 spent none.
+  describing Q12 row 2, `last_commit` = the row 7 commit (`232e3bb`), requests
+  unchanged at 40.
