@@ -554,13 +554,71 @@ def chat_unavailable_reason(client) -> Optional[str]:
 
 # ── Peer set и отрасль (TASK-C3) ────────────────────────────────────────
 
+# ТЗ-97 Q1 (ТЗ-73 `T1`, правило P8): подсказка обязана быть целой
+# командой, которую разбирает парсер CLI. Сектор — единственное, чем его
+# подставить нечем: отрасль бумаге в базе не назначена (своего источника
+# сектора нет до ТЗ-73 `T2`), а выдуманное имя сектора и было бы той
+# догадкой, которую отчётность ядра запрещает. Рынок и тикеры — из базы.
+PEER_SET_SECTOR_SLOT = "<сектор>"
+
+# Сколько тикеров подсказка успевает назвать: строка должна читаться с
+# одной строки вкладки, полный состав набирает тот, кто её исполняет.
+PEER_SET_HINT_TICKERS = 5
+
+
+def _peers_set_command(sector: str, tickers: list[str], market: str,
+                       approve: bool) -> str:
+    """Команда `rusterm peers set` целой строкой: происхождение manual,
+    `--approve` только там, где подтверждать уже есть что."""
+    return (f"rusterm peers set {sector} "
+            f"--tickers {','.join(tickers)} --market {market} "
+            "--origin manual" + (" --approve" if approve else ""))
+
+
+def _market_prefix(instrument_id: str) -> str:
+    """Код рынка из id инструмента: id устроен как «РЫНОК-ТИКЕР»."""
+    return (instrument_id or "").split("-", 1)[0]
+
+
+def peer_set_hint(repos, instrument_id: str,
+                  as_of: Optional[str] = None) -> str:
+    """Что набрать, чтобы «Отрасль» наполнилась у бумаги без набора:
+    своя бумага и соседи по рынку из базы."""
+    from rusterm.markets import get_market
+    own = repos.instrument.ticker_for_instrument(
+        instrument_id, as_of or _today())
+    own_ticker = own["ticker"] if own else None
+    own_market = own["market"] if own else None
+    # строка репозитория отдаёт площадку ("unknown", когда листинг не
+    # измерен); команде нужен код рынка из реестра, иначе — префикс id
+    market = (own_market if get_market(own_market or "")
+              else _market_prefix(instrument_id))
+    tickers = [own_ticker] if own_ticker else []
+    for row in all_instruments(repos):
+        if len(tickers) >= PEER_SET_HINT_TICKERS:
+            break
+        if row["instrument_id"] == instrument_id \
+                or _market_prefix(row["instrument_id"]) != market:
+            continue
+        if row.get("ticker") and row["ticker"] not in tickers:
+            tickers.append(row["ticker"])
+    if not tickers:
+        tickers = [instrument_id]
+    return ("что делать: наберите аналогов и подтвердите сами — "
+            + _peers_set_command(PEER_SET_SECTOR_SLOT, tickers, market,
+                                 False))
+
+
 def peer_screen(repos, instrument_id: str,
                 as_of: Optional[str] = None) -> dict:
     """Peer set выбранной компании с правилом отбора словами (C3.1).
 
     Слова правила собираются из констант и evaluate() ядра
     (rusterm/core/peers.py) — пороги импортируются, не копируются.
-    Компании без набора — слова об этом, не пустота.
+    Компании без набора — слова об этом, не пустота, и целая команда,
+    которой набор заводится (ТЗ-97 Q1): `hint` несёт её в обеих
+    развилках — без набора (подтверждать нечего) и на неподтверждённом
+    наборе (то же действие с `--approve`).
     """
     from rusterm.core import peers as peers_core
     peer = repos.peer_set.peer_set_for_instrument(instrument_id)
@@ -568,7 +626,8 @@ def peer_screen(repos, instrument_id: str,
         return {"has_peer_set": False,
                 "message": ("у компании нет peer set — сравнение с "
                             "конкурентами недоступно; наборы появляются "
-                            "вручную или классификатором (ADR-0002)")}
+                            "вручную или классификатором (ADR-0002)"),
+                "hint": peer_set_hint(repos, instrument_id, as_of)}
     composition = repos.peer_set.composition(peer["peer_set_version_id"])
     status = peers_core.evaluate(peer["origin"], peer["approved"],
                                  [], composition["members"])
@@ -593,7 +652,17 @@ def peer_screen(repos, instrument_id: str,
             "currencies": composition["currencies"],
             "rule": rule,
             "members": members,
-            "verified": status.verified}
+            "verified": status.verified,
+            # ТЗ-97 Q1: на неподтверждённом наборе нет ни перцентилей,
+            # ни агрегата, и вкладка обязана назвать то единственное
+            # действие, которое его подтверждает.
+            "hint": None if status.verified else (
+                "что делать: подтвердите набор одним действием — "
+                + _peers_set_command(
+                    peer["peer_set_id"],
+                    [m["ticker"] for m in members] or [instrument_id],
+                    (composition["markets"]
+                     or [_market_prefix(instrument_id)])[0], True))}
 
 
 def industry_table_rows(screen: dict) -> list[dict]:
@@ -1046,6 +1115,21 @@ def governance_view(card: dict) -> dict:
                      "note": GREY_REASONS.get(g.get("reason") or "", ""),
                      "lineage_ref": g.get("lineage_ref") or ""})
     return {"rows": rows}
+
+
+def governance_hint(instrument_id: str) -> str:
+    """ТЗ-97 Q1 (P8): чем закрывается серый governance — целая команда
+    канала владения Forms 3/4/5. `ingest --source ownership` в CLI уже
+    есть (`cmd_ingest`), поэтому строка исполнима, а не нарисована."""
+    return ("что делать: владение (Forms 3/4/5) — rusterm ingest "
+            f"--source ownership --instrument {instrument_id}")
+
+
+def governance_needs_hint(view: dict) -> bool:
+    """Подсказка нужна, когда наполнения нет: строк governance нет вовсе
+    или все они серые. Хоть один не-серый цвет — вкладка наполнена, и
+    подсказка была бы шумом."""
+    return all(row["color"] == "gray" for row in view.get("rows") or [])
 
 
 # ── Настройки (TASK-C9): ключи без значений, лимиты, каталог ────────────

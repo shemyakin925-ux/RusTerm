@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sqlite3
 from pathlib import Path
 
@@ -156,6 +157,23 @@ def _check_str(value):
     assert isinstance(value, str) and value, value
 
 
+def _check_hint(value):
+    """ТЗ-97 Q1 (правило P8): подсказка окна — не «сочувственное слово»,
+    а команда, которую разбирает парсер CLI. Строка не исполняется —
+    проверяется только её разборность (тот же критерий, что B26/J3)."""
+    _check_str(value)
+    assert "rusterm " in value, value
+    argv = shlex.split(value[value.index("rusterm"):])
+    assert argv[0] == "rusterm", argv
+    try:
+        cli._build_parser().parse_args(
+            ["--root", "/tmp/rusterm-w4-pin-hint"] + argv[1:])
+    except SystemExit as exc:
+        raise AssertionError(
+            f"подсказка не разбирается парсером CLI (exit {exc.code}): "
+            f"{value}") from None
+
+
 def _check_company_rows(rows):
     assert rows, "на настоящей базе строки боковой панели пустые"
     for row in rows:
@@ -224,6 +242,11 @@ CONTRACTS: dict[str, list] = {
     "export_table_md": (
         lambda c: data.export_table_md(c["repos"], c["instrument_id"]),
         "text_or_none"),
+    "governance_hint": (
+        lambda c: data.governance_hint(c["instrument_id"]), "hint"),
+    "governance_needs_hint": (
+        lambda c: data.governance_needs_hint(
+            data.governance_view(_table(c)["card"])), "bool"),
     "governance_view": (
         lambda c: data.governance_view(_table(c)["card"]), ["rows"]),
     "header_info": (lambda c: data.header_info(c["repos"]),
@@ -308,9 +331,15 @@ def _assert_shape(kind, value):
                 assert key in choice, key
     elif kind == "peer":
         assert "has_peer_set" in value, value
+        # ТЗ-97 Q1 (P8): дверь несёт подсказку в обеих развилках — без
+        # набора и на неподтверждённом; на подтверждённом её нет, и это
+        # отсутствие тоже часть контракта, а не молчанка.
+        assert "hint" in value, sorted(value)
+        if value["hint"] is not None:
+            _check_hint(value["hint"])
         if value["has_peer_set"]:
             for key in ("peer_set_id", "version", "scope", "markets",
-                        "rule", "members"):
+                        "rule", "members", "verified"):
                 assert key in value, key
             for member in value["members"]:
                 assert "ticker" in member and "is_self" in member, member
@@ -360,6 +389,10 @@ def _assert_shape(kind, value):
         assert value is None or isinstance(value, str), value
     elif kind == "text_or_none":
         assert value is None or isinstance(value, str), value
+    elif kind == "hint":
+        _check_hint(value)
+    elif kind == "bool":
+        assert isinstance(value, bool), value
     elif isinstance(kind, list):
         assert isinstance(value, dict), (kind, value)
         for key in kind:

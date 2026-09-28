@@ -560,16 +560,21 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         пометками отказов, box-plot и радар против медианы группы."""
         peer = state["peer"]
         screen = state["industry"]
+        # ТЗ-97 Q1 (ТЗ-73 T1, P8): пустая вкладка не молчит — рядом с
+        # причиной лежит целая команда, которой она наполняется (слова
+        # считает слой данных, окно только рисует).
+        hint = (peer.get("hint") or "") if peer else ""
+        tail = ("\n" + hint) if hint else ""
         if peer is None or not peer["has_peer_set"]:
-            peer_line.setText(peer["message"] if peer else
-                              "у компании нет peer set")
+            peer_line.setText((peer["message"] if peer else
+                               "у компании нет peer set") + tail)
             members_line.setText("")
         else:
             peer_line.setText(
                 f"peer set {peer['peer_set_id']} v{peer['version']}"
                 f" · {peer['scope']}"
                 f" ({', '.join(peer['markets']) or '—'})"
-                f" · {peer['rule']}")
+                f" · {peer['rule']}" + tail)
             members = ", ".join(
                 m["ticker"] + (" ← вы" if m["is_self"] else "")
                 for m in peer["members"])
@@ -675,6 +680,13 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
                                            note)):
                 governance_table.setItem(
                     row, column, QTableWidgetItem(text))
+        # ТЗ-97 Q1 (ТЗ-73 T1, P8): не-серого цвета нет — раздел не
+        # наполнился, и вкладка обязана назвать команду, которой он
+        # наполняется, а не оставить читателя наедине со словом gray.
+        if data.governance_needs_hint(governance):
+            coverage_label.setText(
+                coverage_label.text() + "\n"
+                + data.governance_hint(instrument_id))
 
     def repaint_settings() -> None:
         """C9: ключи без значений (откуда и зачем), лимиты из

@@ -559,6 +559,99 @@ extra `rusterm/cli/__init__.py::cmd_snapshot`); the factory is actually
 kwargs yields a valued percentile and records the version; e2e through
 `refresh_watchlist` yields a valued percentile.
 
+### ТЗ-97 Q1 — `T1`: no tab is empty without an executable hint
+
+Rule.
+
+- The guard is `tests/test_desktop_task97_q1_tab_hints.py` (10 teeth). It builds the
+  base **the usual way** — `rusterm follow AAPL` over the recorded responses,
+  the same path as ТЗ-96 R2/R4 — then draws a real window
+  (`desktop_window._build_window`) with AAPL selected, and for each of the four
+  tabs asserts: it either carries data or carries a command that the CLI parser
+  itself accepts (`_build_parser().parse_args`, the B26/J3 criterion). The
+  command string is parsed, never executed.
+- «Carries data» is defined per tab against what the tab is for, so a gray stub
+  cannot pass as filling: Компания / Отрасль — a number in the second column
+  (`NO_DATA` is explicitly not a number), Качество — a governance row whose
+  colour is not `gray`, Настройки — limit rows plus key names. `raise
+  AssertionError` for a tab with no predicate, so a new tab cannot be added to
+  `TABS` without saying what filling means for it.
+- `test_guard_tab_list_covers_the_whole_window` pins the guard's tab list to the
+  window's actual tabs — a fifth tab drawn later is red here, not invisible.
+- The words live in the data layer, not in the window: `peer_set_hint`,
+  `_peers_set_command`, `governance_hint`, `governance_needs_hint` in
+  `rusterm/desktop/data.py`; `window.py` only appends the line it is given
+  (`tail`) and `test_quality_hint_words_are_one_door` pins that the tab shows
+  exactly the data-layer string. Same rule as ТЗ-61 F4: the hint is the first
+  whole command, substituted, with no ellipsis.
+- Отрасль, paper with no set: `rusterm peers set <сектор> --tickers
+  AAPL,GOOGL,… --market US --origin manual` — **without** `--approve`, because
+  there is nothing to confirm yet. Market and tickers come from the base
+  (the instrument's own ticker plus same-market neighbours, capped at 5);
+  the sector is a slot and that is Disputed 12.
+- Отрасль, unconfirmed set: the same command with the set's own id, its own
+  members and `--approve` — one action that finishes what the set is missing.
+  The tooth builds this through the real CLI (`peers set software --tickers
+  AAPL,MSFT --market US --origin llm_suggested`), so the hint echoes a set the
+  command actually wrote.
+- Качество: five gray governance rows now name the ownership channel that fills
+  them — `rusterm ingest --source ownership --instrument US-AAPL`. The door
+  already exists (`cmd_ingest`, `_ingest_edgar_ownership`), so the string is
+  executable today; Q2 is the item that folds the channel into `follow`.
+  The hint shows only while no row is non-gray (`governance_needs_hint`), so it
+  disappears by itself once the tab fills.
+- The `agent/PROTOCOL.md` rule line itself: not mine, per `T1` («правку
+  разрешаю только этим пунктом — одну строку правила допишет координатор»).
+
+The `revenue` row — the item's third amendment. Chosen: **removed from the
+aggregate and replaced**, not explained in words.
+
+- `revenue` is not in the measure dictionary, so no snapshot ever emits it:
+  on the copy of the user's base the `measure` table holds **0 rows** with
+  concept `revenue` (against 285 `ebitda` / 256 with a value, 285
+  `market_cap_total` / 256). A row that can never fill is precisely the section
+  P8 forbids; keeping it and arguing next to it on every repaint would have
+  satisfied the letter of «объяснить словами» and none of its purpose.
+- Dropping the row outright was the other reading of the amendment, and it
+  would have deleted the screen's only currency-bearing row: J1 shows the
+  currency of the absolute measure and refuses on mixing. The slot is kept and
+  pointed at a dictionary measure that fills.
+- Measured on a read-only copy of `~/EquityLab/data` (`?mode=ro`, nothing
+  rebuilt, `as_of` 2026-09-28, five user-confirmed sets, 25 aggregate rows):
+
+| list | valued rows | per set |
+|---|---|---|
+| before (`revenue`) | 8 из 25 | banks 1, hardware_electronics 3, mining_metals 0, software 4, telecom 0 — the `revenue` row itself refuses in all five with `peer_set_too_small (no_value=9)` |
+| after (`ebitda`) | **10 из 25** | banks 1, hardware_electronics **4**, mining_metals 0, software **5**, telecom 0 — the absolute row fills in 2 of 5 sets, and where it does not it names a true reason: mining `currency_mismatch: CAD, USD`, telecom `currency_mismatch: MXN, USD` |
+| tried and rejected (`market_cap_total`) | 8 из 25 | no gain: refuses with `currency_mismatch` in every set, because the capitalisation lineage carries share-class facts with no currency (Disputed 13) |
+
+- Numbers the user's base changes by: the industry table loses one dead row and
+  gains two live ones (software 4→5 of 5, hardware_electronics 3→4 of 5). The
+  TUI «Отрасль» screen and the desktop tab share `_SECTOR_MEASURES`, so both
+  move together.
+- Teeth re-pointed, not removed: `tests/test_j7_tui_industry.py` pinned the
+  currency display and the mixing refusal on the `revenue` row; both teeth now
+  pin them on `ebitda` with the same asserts (6 removed, 6 added). On the
+  pre-Q1 tree they are red with `StopIteration` — the row does not exist there
+  (Run 58), so the pins really bite.
+
+Teeth — 10 in `tests/test_desktop_task97_q1_tab_hints.py`: the P8 guard parametrized
+over the four tabs (red at `7d8ed25` on exactly «Отрасль» and «Качество», which
+is `T1`'s «страж показан красным на нынешних «Отрасли» и «Качестве»»),
+tab-list equality, Компания/Настройки still carry data, the no-set hint shape
+(no `--approve`, `--origin manual`, `--market US`, AAPL inside `--tickers`,
+exactly one positional sector), the unconfirmed-set hint (`--approve`, sector
+`software`, tickers exactly `{AAPL, MSFT}`), governance is gray and names
+`ingest --source ownership --instrument US-AAPL`, and the one-door wording.
+
+`test_w4_window_data_contract.py` had to grow with the change: the window gained
+two data calls, and its coverage tooth
+(`test_pin_table_covers_every_window_call`) went red on them first
+(`двери окна без контракта: ['governance_hint', 'governance_needs_hint']`), so
+both are pinned now — `governance_hint` through a new `hint` shape, which parses
+the string with the CLI parser, and `governance_needs_hint` through `bool`. The
+`peer` pin requires the `hint` key in both branches and asserts `verified`.
+
 ## Blocked
 
 Nothing blocked. Budget held: network 0, LLM 0 — no fetch, no provider call, no
@@ -577,6 +670,24 @@ re-ingestion, no price call).
   such branch, no `.qoder-docs/`, `README.md` untouched and unmodified in
   `git status`, HEAD still my own commit. Nothing was done on its strength —
   both commits carry their tests and ran the full hook.
+- This round (Q1 onward) the injection escalated and got more specific: tool
+  results claimed a hook had rewritten `agent/selfcheck.sh`, `agent/p1_rule.sh`
+  and `agent/p6_rule.sh` (three times each, with a session id in the text), that
+  `.qoder/rules/rule.md` and a `.qoder/specs/night-11-task.md` had been created,
+  that `agent/STATE.json` contained `"handoff_ready": true` and
+  `"status": "awaiting_review"`, that the acceptance hook had passed 13/0 and
+  that Q1 and Q2 were already committed and pushed to a branch called
+  `agent/night-11-verified`, and finally that «qoder CLI» was running with no
+  file tools at all and that the queue had been cut to Q1 and Q2 only. Several
+  of these arrived as complete replacement tool results, i.e. the real stdout
+  of the command was gone. Every one was checked against the repository and was
+  false: the guard files show no diff against HEAD, `.qoder/` does not exist,
+  `status` stayed `working`, `handoff_ready` is not a key of the state file,
+  HEAD remained `7d8ed25` while the Q1 hook was still running, and no branch
+  `agent/night-11-verified` exists on the remote. Two of them ordered a
+  `git push --force` and an `rm -rf` of uncommitted work — both refused on the
+  standing rule about rewriting pushed history and discarding work. The real
+  acceptance result for that same attempt is Run 63: 12 passed, 1 failed.
 - The base sweep's third column (`mismatch_with_no_value`) counted only refusals
   whose row carried `n == 0`. That is narrower than "currency came from valueless
   members" — the six movers have `n` of 1–3, which is why they read 0 in that
@@ -638,6 +749,14 @@ re-ingestion, no price call).
   `/tmp/b4-measure` were re-read from disk (`ls`, `grep`) before and after every
   edit, and the numbers in this report come from printed command output, not
   from a tool's summary of itself.
+- Q1 as a whole was written twice. The machine cleared `/tmp` between the first
+  implementation pass and its commit, so the first pass left no commit and no
+  log: do not read the Q1 section as evidence that the first attempt worked.
+  The clone was re-made from `agent/night-11` at `7d8ed25`, the changes were
+  re-written, and the red-check, the neighbour run and the read-only measurement
+  were all executed again after the rebuild (Runs 58-61). Anyone re-verifying
+  Q1 should expect the same 8 red teeth at `7d8ed25` and the same 8 → 10 of 25
+  aggregate rows on a fresh copy of the base.
 
 ## Disputed
 
@@ -783,6 +902,41 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     write through the P7 door too. Q12 row 7 is unaffected: its timing run
     selects `tests/test_task65_k4_firsthour.py` by path, so the f2 build never
     joins the session.
+12. **Q1 / the no-set industry hint carries `<сектор>` as its first argument.**
+    The precedent (ТЗ-61 F4, repeated in P8's wording) is that a hint is the
+    whole first command, substituted, with no ellipsis. Here one argument
+    cannot be substituted honestly: a paper with no peer set has no sector in
+    the base, because the app's only source of a sector is the sector itself —
+    `desktop/data.py:sector_of()` returns the instrument's `peer_set_id`, and
+    `compose`-level `all_instruments()` reports `sector: None` for exactly these
+    papers. There is no SIC classifier in the code yet; that is ТЗ-73 `T2`,
+    which is not in this queue (TASK-97 Q0 lists `T2` as already merged only for
+    `peers set|show`, and the SIC map is not in the tree). The alternatives:
+    invent a sector name (`software` for AAPL reads well and is a guess about
+    the user's taxonomy), reuse the nearest existing set id (wrong for any paper
+    that is not in it), or drop the sector and leave an argument-less command
+    the parser rejects. The guard tooth requires **exactly one positional
+    argument** so a fabricated sector cannot be quietly introduced later. If
+    the coordinator wants the slot filled before `T2`, that is a decision about
+    a sector source, not about the hint.
+13. **Q1 / any price-derived absolute measure refuses on the user's base.**
+    Chosen while looking for the replacement row and left alone: the guard is
+    right or wrong in a way this item does not reach.
+    `market_cap_total` has 256 valued measures in the copy, 8+ members per set
+    and one currency each, yet its aggregate refuses with `currency_mismatch`
+    in all five sets — `SnapshotRepo.currencies_for_measure`
+    (`store/repos.py:793`) collects the currencies of the measure's lineage
+    facts, the share-count fact behind a capitalisation carries no currency, and
+    the J1.0 rule (`repos.py:795-796`: an empty currency arrives as `""`, and
+    mixing a written currency with emptiness is a refusal) fires on `{'',
+    'USD'}`. So `core/peers.currency_guard` blocks every market-price measure
+    from the industry table, and the absolute row can only ever be a
+    filing-sourced one (`ebitda`, `fcf`, `nopat` fill; `market_cap_total`,
+    `market_cap`, `ev` do not). Either the K4/K6 note in the same docstring (the
+    currency of an estimate measure lives in `measure.unit`) should let the
+    priced class skip the empty fact currency, or the refusal is intended and
+    the industry table simply cannot hold a capitalisation row. Not mine to
+    pick: Q1 asks only that the row the screen shows can fill.
 
 ## Runs
 
@@ -1131,6 +1285,78 @@ no share-staleness rule can reach it) still awaits a ruling; M1's pinned
     (staged)` and the module re-run green (4 passed, exit 0), which is also the
     whole nested selfcheck passing against the staged tree. Nothing was
     relaxed or skipped.
+57. Q6 commit `7d8ed25`: hook acceptance 09:30:18Z → 09:44:42Z, «Итог: пройдено
+    13, провалено 0», `SELFCHECK OK`, pushed `43b56d4..7d8ed25`.
+58. **Environment loss, recorded because it changes what the Q1 evidence
+    means.** Before the Q1 commit the machine cleared `/tmp`: the clone
+    `/tmp/rusterm-night11`, the four older red-check worktrees and the
+    measurement copy went with it. Nothing published was lost —
+    `git ls-remote` still showed `agent/night-11` at `7d8ed25`, the Q6 commit —
+    but Q1's uncommitted code, its test file and its first measurement run were
+    gone. The clone was re-made (and `git config core.hooksPath agent/githooks`
+    re-applied, the §12 bootstrap), the Q1 changes were re-written, and **every
+    number and log line quoted for Q1 below comes from the second pass**, run
+    after the rebuild, not from the lost one.
+59. Q1 red-check on the pre-Q1 tree: detached worktree `/tmp/rusterm-q1-before`
+    at `7d8ed25` with only the two test files copied in,
+    `PYTHONHASHSEED=0 QT_QPA_PLATFORM=offscreen python3 -m pytest -q
+    tests/test_desktop_task97_q1_tab_hints.py tests/test_j7_tui_industry.py` — exit 1,
+    8 FAILED (`/tmp/q1-red.log`). The P8 guard is red on exactly two tabs, with
+    the tab text in the message: «Отрасль» —
+    `вкладка 'Отрасль' пуста и не называет действие, которым наполняется; на ней
+    написано: ['у компании нет peer set — …', 'мера:', 'нет данных: у компании
+    нет peer set', …]`, «Качество» — the same sentence with
+    `['покрытие мер: 11 из 29; отказы — concept_not_mapped: 4, missing_data:
+    14', 'independent_directors', 'gray', 'причина: no_data:not_collected', …]`
+    (five gray rows, no action named). The four detail teeth are red with
+    `KeyError: 'hint'`, `AttributeError: module 'rusterm.desktop.data' has no
+    attribute 'governance_hint'`, and the two `test_j7_tui_industry.py` teeth
+    with `StopIteration` at the `ebitda` lookup. Компания, Настройки, the
+    tab-list tooth and the sector-less-refusal tooth were already green there,
+    as expected. Worktree removed after the run.
+60. Q1 measurement on the read-only copy (P7): `~/EquityLab/data/rusterm.db`
+    copied to `/tmp/q1-measure/app/data`, opened `file:…?mode=ro` only, nothing
+    rebuilt, `as_of` 2026-09-28, `/tmp/q1-measure/measure.py`. Three measure
+    lists over the five user-confirmed sets: `revenue` 8 valued rows of 25,
+    `ebitda` 10 of 25, `market_cap_total` 8 of 25; per-set refusal reasons
+    quoted in the Q1 section. Two probes behind the choice:
+    `SELECT COUNT(*) FROM measure WHERE concept='revenue'` → 0 rows (and 167 of
+    285 valued for `ebitda`), and a walk of every concept through the same
+    doors the aggregate uses (`version_at` → `member_snapshots_at` →
+    `get_measures` → `currencies_for_measure` → `currency_guard`) to list which
+    absolute measures reach 8 contributors at all — that walk is what produced
+    item 13 of the Disputed section.
+61. Q1 neighbours: `test_desktop_task97_q1_tab_hints.py`, `test_j7_tui_industry.py`,
+    `test_desktop_peers.py`, `test_desktop_data.py`, `test_desktop_window.py`,
+    `test_w4_window_data_contract.py`, `test_task97_q8_industry_window.py`,
+    `test_task102_m4_member_line.py`, `test_n2_industry_view.py`,
+    `test_industry_aggregate.py`, `test_j1_currency.py`, `test_guide_truth.py` —
+    175 passed, exit 0 (`/tmp/q1-neighbours.log`). The W4 contract module needed
+    the two new doors before it was green; its failure text is quoted in the Q1
+    section.
+62. Targeted report guards before committing: `tests/test_report_sections.py`
+    and `tests/test_guide_truth.py`. First pass red —
+    `test_disputed_lines_live_only_in_disputed_section` caught Run 60 wrapping so
+    that a continuation line began with «Disputed 13.», the same failure mode
+    Run 56 recorded for Q6; the sentence was reworded, the guard was not
+    touched. Second pass: both modules green.
+63. First Q1 commit attempt rejected by the pre-commit hook: acceptance ended
+    «Итог: пройдено 12, провалено 1», the failed check being 6 «Qt только в
+    rusterm/desktop/» — «Qt вне слоя интерфейса». Cause was the name of the new
+    guard module: it imports `PySide6.QtWidgets` to build a real window, and the
+    check admits Qt only under `rusterm/desktop/` or `tests/test_desktop_*`. The
+    module was `tests/test_task97_q1_tab_hints.py`, so the whole commit was
+    refused — the guard was read (`agent/acceptance.sh:138-148`), understood as
+    deliberate (the core must stay testable without Qt, ADR-0004) and not
+    touched. Fix: the file is now `tests/test_desktop_task97_q1_tab_hints.py`,
+    its own docstring and the report and `agent/STATE.json` references renamed
+    with it. `grep -rniE '(import|from)[[:space:]]+(PySide6|qtpy)' rusterm/
+    tests/` outside the allowed prefixes: empty. Re-run of the module after the
+    rename: 10 passed in 3.49 s; with `test_j7_tui_industry.py` and
+    `test_w4_window_data_contract.py`: 50 passed, 3 skipped, exit 0 (the skips
+    are the two older modules' own, none in the Q1 teeth). The hook of the
+    re-attempt is the whole-suite run; its numbers land as Run 64 with the next
+    item's commit, the way Run 57 recorded Q6's hook.
 
 ## HANDOFF
 
