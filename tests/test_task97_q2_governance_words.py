@@ -82,7 +82,12 @@ def _stored_deals(repos):
 
 def _snapshot_with_market_cap(repos):
     """Снапшот, у которого `market_cap_total` посчитан — знаменатель
-    формулы словаря. Значение — строка-запись, как его пишет снапшот."""
+    формулы словаря. Значение — строка-запись, как его пишет снапшот.
+
+    ТЗ-104 P6: рядом кладутся и котировки на даты обеих сделок. С
+    денежным числителем знаменатель больше не единственный вход: без
+    close за дату сделки ряд право становится серым, а этим тестам нужен
+    посчитанный цвет."""
     repos.snapshot.create_snapshot("s-q2", "US-Q2", 1, "2026-09-13",
                                    None, "none", "ready")
     repos.snapshot.add_block("s-q2", "fundamentals", "ready", None)
@@ -90,6 +95,12 @@ def _snapshot_with_market_cap(repos):
         "m-mcap-q2", "s-q2", "issuer", "i-q2", "market_cap_total",
         "1000000.0", "USD", "2026-09-13", "2026-09-13",
         "market_cap_total", "v1", None, None)
+    repos.price.put_rows("US-Q2", "twelvedata", [
+        {"date": "2026-09-01", "close": 100.0, "adjusted": 100.0,
+         "currency": "USD"},
+        {"date": "2026-08-20", "close": 200.0, "adjusted": 200.0,
+         "currency": "USD"},
+    ])
 
 
 def _tokens_the_core_emits() -> set[str]:
@@ -278,9 +289,13 @@ def test_insider_net_gets_a_measured_colour_once_the_denominator_exists(
     produced = produce_assessments(repos.governance, "US-Q2", "2026-09-13",
                                    inputs)
     insider = [a for a in produced if a.indicator == "insider_net"][0]
-    assert insider.color == "yellow", (insider.color, insider.reason)
+    # ТЗ-104 P6: те же сделки, посчитанные в деньгах (200×100 против
+    # 500×200 при капитализации 1 000 000) — это продажа 8%
+    # капитализации, то есть красный. Жёлтым ряд делало именно
+    # безразмерное отношение акций к долларам (-300/1e6).
+    assert insider.color == "red", (insider.color, insider.reason)
     assert insider.color != "gray"
-    assert "buys=200,sells=500,net=-300sh" in insider.lineage_ref
+    assert "buys=20000,sells=100000,net=-80000" in insider.lineage_ref
     colours = {a.indicator: a.color for a in produced}
     # свёртки нет: посчитанный ряд не перекрашивает остальные
     assert colours["insider_net"] != "gray"
@@ -288,7 +303,8 @@ def test_insider_net_gets_a_measured_colour_once_the_denominator_exists(
                ("independent_directors", "ceo_chair", "related_party",
                 "auditor")), colours
     stored = repos.governance.latest("US-Q2", "insider_net")
-    assert stored["color"] == "yellow", dict(stored)
+    assert stored["color"] == "red", dict(stored)
+    assert stored["method_version"] == "governance.v2", dict(stored)
     conn.close()
 
 
@@ -310,7 +326,9 @@ def test_grey_rows_carry_words_and_measured_rows_carry_a_door(tmp_path):
                            for a in produced]}
     by_indicator = {r["indicator"]: r
                     for r in desktop_data.governance_view(card)["rows"]}
-    assert by_indicator["insider_net"]["color"] == "yellow"
+    # ТЗ-104 P6: ряд посчитан в деньгах — при этих котировках это
+    # красный; для теста важно, что цвет измеримый, а не серый
+    assert by_indicator["insider_net"]["color"] == "red"
     assert by_indicator["insider_net"]["closing"] == (
         "rusterm ingest --source ownership --instrument US-Q2")
     for indicator, row in by_indicator.items():
@@ -426,6 +444,14 @@ def test_the_denominator_comes_from_the_snapshot_being_built(tmp_path):
         "market_cap_total", "v1", None, None)
     assert repos.snapshot.latest_snapshot_id("US-Q2") is None, (
         "готового снапшота нет — то самое состояние первого прогона")
+    # ТЗ-104 P6: денежному числителю нужны котировки на даты сделок —
+    # тот же вход, что резолвер видит внутри сборки
+    repos.price.put_rows("US-Q2", "twelvedata", [
+        {"date": "2026-09-01", "close": 100.0, "adjusted": 100.0,
+         "currency": "USD"},
+        {"date": "2026-08-20", "close": 200.0, "adjusted": 200.0,
+         "currency": "USD"},
+    ])
 
     lagging = insider_net_inputs_from_store(repos, "US-Q2", "i-q2",
                                            "2026-09-13")
@@ -434,8 +460,8 @@ def test_the_denominator_comes_from_the_snapshot_being_built(tmp_path):
     inside = insider_net_inputs_from_store(repos, "US-Q2", "i-q2",
                                           "2026-09-13", "s-building")
     inputs = inside["insider_net"]["inputs"]
-    assert inputs["net_shares"] == -300.0
-    assert inputs["net_ratio"] == -300.0 / 1_000_000.0
+    assert inputs["net_value"] == -80_000.0
+    assert inputs["net_ratio"] == -80_000.0 / 1_000_000.0
     assert "gray" not in inside["insider_net"], inside
     conn.close()
 

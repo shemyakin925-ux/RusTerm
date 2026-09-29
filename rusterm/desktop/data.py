@@ -1122,7 +1122,8 @@ def governance_view(card: dict) -> dict:
         rows.append({"indicator": g["indicator"], "color": g["color"],
                      "reason": reason,
                      "note": grey_reason_text(reason) if reason else "",
-                     "closing": grey_closing(g["indicator"], instrument_id),
+                     "closing": grey_closing(g["indicator"], instrument_id,
+                                             reason),
                      "lineage_ref": g.get("lineage_ref") or ""})
     return {"rows": rows}
 

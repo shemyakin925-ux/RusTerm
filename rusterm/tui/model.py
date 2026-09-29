@@ -411,7 +411,8 @@ def render_card(card: dict) -> list[str]:
             from rusterm.core.governance import (grey_closing,
                                                  grey_reason_text)
             words = grey_reason_text(g["reason"])
-            door = grey_closing(g["indicator"], card["instrument_id"])
+            door = grey_closing(g["indicator"], card["instrument_id"],
+                                g["reason"])
             line += f" — {words} [{door}]"
         lines.append(line)
     return lines
