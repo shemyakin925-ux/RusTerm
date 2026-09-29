@@ -1776,27 +1776,40 @@ class SnapshotBuilder:
         write("net_debt_ebitda", nde_value, nde_reason, "ratio",
               nde_lineage)
 
-        # ТЗ-71 R2: invested_capital = total_equity + total_debt
-        # - cash - st_investments (словарь; minority = 0 для AAPL
-        # подтверждён ТЗ-68 N3, отсутствие названо в lineage)
+        # ТЗ-71 R2, ТЗ-104 P3: invested_capital = total_equity
+        # + minority_interest + total_debt - cash - st_investments — ровно
+        # та формула словаря, которой roic считает знаменатель
+        # (`formulas.invested_capital`, вызывается и здесь, и в _capital_at
+        # на обеих границах окна). До P3 строка пропускала NCI, и у
+        # эмитента с живым меньшинством (форма SCCO) одна сборка несла два
+        # разных ответа на один и тот же вход: 37 в строке и 41 в частном.
+        # minority = 0 для AAPL подтверждён ТЗ-68 N3, отсутствие названо в
+        # lineage ролью nci_absent_in_equity_block (ТЗ-32 D7).
         ic_value = None
         ic_reason = None
         ic_unit, ic_conflict = money_currency(
-            ("total_equity", "total_debt", "cash", "st_investments"))
+            ("total_equity", "minority_interest", "total_debt", "cash",
+             "st_investments"))
         ic_missing = sorted(
             name for name, v in (
                 ("total_equity", equity), ("total_debt", debt),
-                ("cash", cash), ("st_investments", stinv)) if v is None)
+                ("cash", cash), ("st_investments", stinv),
+                ("minority_interest", minority)) if v is None)
         if ic_missing:
             ic_reason = absent_reason(ic_missing)
         elif ic_conflict:
             ic_reason = ic_conflict
         else:
-            ic_value = (equity[0] + debt[0] - cash[0] - stinv[0])
+            ic_value = invested_capital(equity[0], minority[0], debt[0],
+                                        cash[0], stinv[0])
         ic_lineage = []
-        for c in ("total_equity", "total_debt", "cash", "st_investments"):
+        for c in ("total_equity", "minority_interest", "total_debt", "cash",
+                  "st_investments"):
             if inputs.get(c):
                 ic_lineage += self._fact_lineage(inputs[c][3])
+        # производный ноль меньшинства — не факт, а решение: свою роль в
+        # lineage он получает от ветки, которая его вывела, как и в ev
+        ic_lineage += nci_lineage
         write("invested_capital", ic_value, ic_reason,
               measure_unit("invested_capital", ic_unit), ic_lineage)
 

@@ -182,6 +182,121 @@ per build: before 1 of 1320 rows moved between seeds; after, three builds
 Было → стало: `US-AMX net_margin` `seed-зависимый (0.0263… / 0.0317…)` →
 `0.026347771119971546`.
 
+### P3 — `invested_capital` carries the minority interest (TASK-104)
+
+Before: the row summed `total_equity + total_debt − cash − st_investments`
+inline (`core/snapshot.py:1795`) and never looked at `minority_interest`,
+while `roic`'s denominator (`_capital_at` → `formulas.invested_capital`,
+which does take NCI) already carried it. One build therefore held two
+answers to one input. On the user's copy: SCCO `invested_capital`
+`12 053 000 000` while its `roic` `0.3691530064459498` averages a
+denominator that ends at `12 129 400 000` — the row was the reported NCI
+(`76 400 000` at 2026-06-30) short of its own sibling.
+
+Now, in `_valuation_pass`:
+
+* the row is computed by `formulas.invested_capital(equity, minority, debt,
+  cash, stinv)` — literally the call `_capital_at` makes on both borders,
+  so «row = the number inside roic» is structural, not two sums that happen
+  to agree;
+* `minority_interest` joined the row's `money_currency(...)` list: a GBP
+  minority under a USD balance sheet now refuses with
+  `currency_mismatch: GBP, USD` instead of being dropped silently;
+* it joined `ic_missing` too, so refusals name it — `missing_data:
+  minority_interest, st_investments, total_debt` (AMX), `stale_data:
+  minority_interest: last 2010-07-31, …` (CRM). `roic` had already refused
+  for those same inputs; after the change the two rows give one answer;
+* lineage: the NCI fact id is signed in next to the other four inputs, and
+  `nci_lineage` is appended, so D7's derived zero shows up as the role
+  `nci_absent_in_equity_block` — a decision, not an input. Same treatment
+  the `ev` block and `_capital_at` give it.
+* D7 keeps its meaning: an issuer that never reported a minority line (no
+  `minority_interest`, no `total_equity_incl_nci`) still gets 0.0 and the
+  old number. An issuer that discloses the total *including* NCI but no
+  minority line refuses with the named input — subtracting the minority out
+  of equity is not this row's call, and quietly ignoring it is the bug.
+
+Nothing else moved: `roic`, `ev`, `roe_incl_nci` and
+`_DISCLOSED_AGGREGATE` were already NCI-aware and were not touched.
+
+Tests: `tests/test_task104_p3_invested_capital_nci.py` — 10 teeth, offline,
+real `SnapshotBuilder`, SCCO-shaped fixture (end border 35 + 4 + 5 − 2 − 1,
+begin border 25 + 6 + 8 − 3 − 1, `nopat` 4.8).
+
+| tooth | red at `7bb410b` | now |
+|---|---|---|
+| row includes the reported NCI | `37.0` vs `41.0 ± 4.1e-05` | 41.0, no null_reason |
+| **row = the number inside `roic`** (Done-when) | stored `roic 0.12631578947368424` vs `4.8/((35+37)/2) = 0.1333…` | recomputed from the row equals stored `roic` |
+| row is the dictionary formula, not an inline sum | `37.0` vs `invested_capital(35, 4, 5, 2, 1)` | equal |
+| NCI fact signed into the row lineage | lineage = {cash, st_inv, debt, equity} | + `f-i1-minority_interest-2024-12-31` |
+| never-reported issuer keeps the old number **and** the role | `{'input'}`, role absent | 37.0 + `nci_absent_in_equity_block` |
+| NCI only inside `total_equity_incl_nci` → refuses | computed `37.0` | `missing_data: minority_interest` |
+| NCI in another currency → refuses | computed `37.0` | `currency_mismatch: GBP, USD` |
+| negative NCI is added, not absorbed | `37.0` vs `32.0 ± 3.2e-05` | 32.0 |
+| `roic` does not start counting NCI twice | green already (guard tooth) | `4.8/((35+41)/2)` |
+| row still computes without a price (ТЗ-91 B2) | `37.0` vs `41.0` | 41.0, unit `USD` |
+
+Red before, captured: `9 failed, 1 passed in 1.75 s` on a detached
+`7bb410b` worktree (`/tmp/p3-red-before.log`); the tenth tooth is the
+no-double-count guard and is meant to be green on both sides. After:
+`10 passed`.
+
+No existing pin moved, so P3 needs no ЗАМЕНА-БУЛАВКИ: the 11 files that
+reference `invested_capital` / `roic` / the census and schema-44 goldens
+run unchanged — `107 passed in 8.10 s` (`test_b1_honesty`,
+`test_b1_zero_vs_missing`, `test_invariants`, `test_k4_k6_valuation`,
+`test_task91_b2/b3/b4/b5`, `test_v4_formulas`, `test_upgrade_path`,
+`test_task49_census`). Their `invested_capital` golden rows pin
+`null_reason: concept_not_mapped` (schema44:74-77) — a path that never
+reaches `_valuation_pass`, so the item cannot move them. Wider NCI-related
+set, `69 passed, 1 xfailed in 27.66 s` (`test_c2_six_measures`,
+`test_concept_map`, `test_formulas`, `test_golden_formulas`,
+`test_task56_z2`, the P3 file, `test_m3_snapshot`, `test_pipeline`). The
+task's «golden values that move are replaced under a declared pin» clause is
+therefore satisfied vacuously — nothing moved.
+
+Copy (P7 — `/tmp` only, offline, `HOME=/tmp/rt-sandbox-home`,
+`RUSTERM_ENV_FILE=/nonexistent/rusterm.env`, `bash /tmp/p3-copy-measure.sh`):
+the pristine copy `/tmp/rt-104/data` (616 822 facts, 285 snapshots) is
+restored before each tree, then all 44 instruments are built with
+`snapshot --as-of 2026-09-29` — tree B = detached `7bb410b` worktree
+(`/tmp/rt-head`), tree A = the working tree — and every measure row of each
+instrument's latest snapshot is dumped `mode=ro` (1630 rows per tree; A's run
+left 329 snapshots = 285 + 44, so the builds really wrote).
+`B_FAILED=0`, `A_FAILED=0`, `P3COPY_RC=0`, 06:20:11 → 06:20:46Z, network 0.
+
+22 rows differ: 16 `invested_capital`, 6 `roic`.
+
+| kind | rows | what changed |
+|---|---|---|
+| value → value | 4 | see below |
+| refusal name only | 18 | `minority_interest` added to `missing_data` (AMX, BHP, JPM, KSPI, RIO, STX, TECK, VOD) or to `stale_data: … last <date>` (CRM, HPQ, LUMN, NTAP); 6 of them are the matching `roic` rows, so the pair now agrees |
+| value → refusal | **0** | no instrument lost a number it had |
+
+| instrument | `invested_capital` before → after | |
+|---|---|---|
+| US-NEM | 31 317 000 000 → 31 488 000 000 | + 171 000 000 |
+| **US-SCCO** | **12 053 000 000 → 12 129 400 000** | + 76 400 000 = the NCI row at the 2026-06-30 border |
+| US-SNPS | 37 582 230 000 → 37 581 070 000 | − 1 160 000: minority with a deficit, sign kept |
+| US-VALE | 98 430 000 000 → 100 065 000 000 | + 1 635 000 000 |
+
+SCCO is the Done-when shape, checked against the copy's own facts: at the
+border `12 632 200 000 (total_equity) + 76 400 000 (minority_interest)
++ 6 750 700 000 (total_debt) − 5 665 000 000 (cash) − 1 664 900 000
+(st_investments) = 12 129 400 000` — the after-row; without the NCI term the
+same five facts give 12 053 000 000, the before-row. `roic` for SCCO is
+`0.3691530064459498` in **both** trees, which is the other half of the same
+statement: `roic` was always dividing by the NCI-inclusive number, and the
+row now says it too. (The begin border implied by `nopat 4 452 446 698.996212
+/ roic` is `11 993 100 000`, so the average is `12 061 250 000` — derived
+from stored measures, not dumped separately.)
+
+Reconnaissance for the same file on the copy, because it decides whether P3
+could have created refusals: 24 issuers report `minority_interest`; 4 report
+`total_equity_incl_nci` with no minority line (AMX, RIO, TECK, JPM) and all
+4 already refused `invested_capital` for another missing input before the
+change, so naming one more input costs nothing.
+
 ## Blocked
 
 ## What not to trust
@@ -200,6 +315,23 @@ per build: before 1 of 1320 rows moved between seeds; after, three builds
   in tests, but it changes no screen until something shows the registry
   currency. Not a reason to skip the item (the task asks for the column),
   but a reason not to expect a before→after row in any table.
+- P3, copy measurement: tree A was the *uncommitted* working tree, so a
+  reproducer must apply the P3 diff (or check the commit out) before the
+  `after` build; the `before` build needs a detached worktree of `7bb410b`.
+- P3, copy measurement: 44 builds per tree took 18 s and 17 s, about 0.4 s
+  an instrument — far less than a `follow`. That is what this item needs
+  (the facts are already in the copy, only measures are recomputed, no
+  network), but it means the run exercised the build/valuation path, not the
+  ingestion path, and it is not evidence about collection speed.
+- P3, SCCO begin border: `11 993 100 000` is inferred from the stored
+  `nopat / roic`, not read out of a `_capital_at` call. The end-border
+  reconstruction (five facts → 12 129 400 000) is the measured part; the
+  equality of the row with the number inside `roic` is proved in the test
+  tooth, where both borders are fixture constants.
+- P3, «no pin moved»: the 107-test subset is a file list chosen by
+  `grep -l invested_capital tests/`, not a coverage claim. The authoritative
+  whole-suite verdict is the hook's (checks 3 and 11) in the P3 commit row
+  below.
 
 ## Disputed
 
@@ -239,6 +371,14 @@ per build: before 1 of 1320 rows moved between seeds; after, three builds
 | P2 subsets | `pytest tests/test_task97_q12_reparse_facts.py tests/test_reparse_basis.py tests/test_repos.py tests/test_concurrency.py tests/test_m3_snapshot.py tests/test_pipeline.py` | 55 passed |
 | P2 full suite, convenience run | `I5_NESTED=1 QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0 python3 -m pytest -q -p no:cacheprovider > /tmp/p2-fullsuite.log` (detached) | reached `[100%]`, `grep -c "FAILED\|ERROR\|failed\|error"` on the log = **0**, 05:02→05:21Z — but the run was started without capturing its exit code and the terminal's final count line never landed in the log, so this row is not the verdict. The authoritative full-suite runs are the hook's (checks 3 and 11), quoted in the P2 commit row below. |
 | P2 commit, first attempt | `git commit -F /tmp/commit-p2.txt` (hook runs acceptance), detached, log `/tmp/p2-commit.log` | **rejected**, `P2COMMIT_RC=1`, 05:25:41→05:45:49Z: `Итог: пройдено 11, провалено 2` — both pytest checks failed `tests/test_report_sections.py::test_disputed_lines_live_only_in_disputed_section`, because the new P2 prose had a continuation line starting with «Disputed 26 below.» outside `## Disputed`. Nothing was committed (HEAD stayed `7ec196a`); the sentence was reworded, no test was touched. |
+| P2 commit, second attempt + push | same message plus a paragraph recording the rejection, `git commit -F /tmp/commit-p2.txt`, log `/tmp/p2-commit2.log`, then `git push` | `7bb410b`, `Итог: пройдено 13, провалено 0` → `Принято.` / `SELFCHECK OK`, `P2COMMIT2_RC=0`, 6 files / 662 insertions, 05:53:00→06:13:55Z (20 m 55 s); `origin/agent/night-11` = `7bb410b` (`7ec196a..7bb410b`) |
+| P3 teeth red before | `pytest tests/test_task104_p3_invested_capital_nci.py` on the detached `7bb410b` worktree `/tmp/rt-head` (the new file copied there; no API stub needed — P3 uses only existing functions), log `/tmp/p3-red-before.log` | **9 failed, 1 passed in 1.75 s**; failures are `37.0` vs `41.0 ± 4.1e-05`, `assert 0.12631578947368424 == 0.1333333333` (the Done-when tooth), `assert '37.0' is None` ×2, `assert 37.0 == 32.0 ± 3.2e-05`, `assert 'nci_absent_in_equity_block' in {'input'}`, NCI fact absent from lineage. The 1 pass is `test_roic_does_not_start_counting_nci_twice`, green by design |
+| P3 teeth after | same file, working tree | 10 passed |
+| P3 existing pins | `pytest` over the 11 files that name `invested_capital` / `roic` / the census and schema-44 goldens | **107 passed in 8.10 s**, no file edited → no ЗАМЕНА-БУЛАВКИ for this item |
+| P3 wider NCI set | `pytest tests/test_c2_six_measures.py tests/test_concept_map.py tests/test_formulas.py tests/test_golden_formulas.py tests/test_task56_z2.py tests/test_task104_p3_….py tests/test_m3_snapshot.py tests/test_pipeline.py` | 69 passed, 1 xfailed in 27.66 s (`/tmp/p3-subset.log`) |
+| report-shape guard after the P3 section | `pytest tests/test_report_sections.py` | 32 passed, 1 skipped in 0.96 s |
+| copy build, both trees | `bash /tmp/p3-copy-measure.sh`: pristine copy restored before each tree, 44 × `snapshot --as-of 2026-09-29` with `/tmp/rt-head` (B) then the working tree (A), `HOME=/tmp/rt-sandbox-home`, `RUSTERM_ENV_FILE=/nonexistent/rusterm.env`, dumps via `/tmp/p3-dump.py` `mode=ro` | `B_FAILED=0`, `A_FAILED=0`, `P3COPY_RC=0`, 06:20:11→06:20:46Z; 1630 rows per dump, **22 moved** (16 `invested_capital`, 6 `roic`): 18 reason-only, 4 values (NEM, SCCO, SNPS, VALE), 0 value→refusal; A's DB holds 329 snapshots (285 + 44) |
+| copy SCCO cross-check | `canonical_concept` rows of `cik-1001838` read `mode=ro` from `/tmp/rt-p3/work/data/rusterm.db` | border 2026-06-30: 12 632 200 000 + 76 400 000 + 6 750 700 000 − 5 665 000 000 − 1 664 900 000 = 12 129 400 000 (after row); without the NCI term 12 053 000 000 (before row); `roic 0.3691530064459498` identical in both dumps |
 
 Why some numbers here look huge: a bare `pytest -q` without `I5_NESTED=1`
 lets an i5 case spawn `selfcheck.sh` → `acceptance.sh` → another whole suite
@@ -247,4 +387,32 @@ lets an i5 case spawn `selfcheck.sh` → `acceptance.sh` → another whole suite
 (today it also carried `PYTHONHASHSEED=0`).
 
 ## HANDOFF
-Status: NOT STARTED
+Status: PARTIAL — round 141 is still running; this section is rewritten at
+each fold, so read it together with the commit rows of `## Runs`.
+
+Delivered and pushed: P1 (`7ec196a`), P2 (`7bb410b`), P3 (its commit sha and
+the hook verdict are recorded in `## Runs` as soon as it lands).
+
+Remaining in TASK-104:
+- P4 — `gross_margin` through the finished `gross_profit` measure. Expected
+  to need a declared pin replacement: several tests and goldens pin the
+  refusal `missing_data: gross_profit` today.
+- P5 — priced measures take their currency from the measure unit, so a
+  share-count fact without a currency stops poisoning `market_cap_total`.
+- P6 — `insider_net` in money (shares times the close on the deal date) and
+  a `METHOD_VERSION` bump.
+- P7 — `snapshot --as-of` must hand the same date to the factory and to
+  `build()`; today the governance rows of an explicit `--as-of` build are
+  dated by the machine clock.
+
+Then TASK-105 R1–R6, reported in this file.
+
+Questions for the coordinator:
+- items 25 and 26 of `## Disputed` (the registry write that undoes P2's
+  computed column; four KSPI rows carrying `TJS`);
+- for P4: when the margin comes from revenue minus cost of goods sold rather
+  than a disclosed gross profit row, should the screen mark it as derived,
+  or is the number enough?
+
+Budget: TASK-104 items run with network 0 and LLM calls 0 — the counters in
+`agent/STATE.json` are the record; the copy work reads only `/tmp` copies.
