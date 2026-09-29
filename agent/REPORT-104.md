@@ -297,6 +297,113 @@ could have created refusals: 24 issuers report `minority_interest`; 4 report
 4 already refused `invested_capital` for another missing input before the
 change, so naming one more input costs nothing.
 
+### P4 — `gross_margin` divides the computed profit, not the tag (TASK-104)
+
+Before: `gross_margin` was a pass-1 formula (`_MEASURE_FORMULAS`) whose
+numerator was the *fact* `gross_profit`. TASK-97 Q7 had already made
+`gross_profit` a measure that computes itself as `revenue − cogs` — the margin
+never read it. So an issuer filing revenue + COGS and no `GrossProfit` tag got
+a profit row with a number and, one line below, an empty margin. On the user's
+copy 31 of 44 instruments had no margin; in the m3 fixture, 13 of 20.
+
+Now, in `_CHAIN_MEASURES` — the same mechanism as `nopat ← effective_tax`:
+
+```python
+"gross_margin": {"gross_profit": "gross_profit", "revenue": "revenue"},
+```
+
+* the numerator arrives through the chain substitution in `build()`, so the
+  profit row and the margin row cannot disagree about one input — that is the
+  item's wording («wire through `_CHAIN_MEASURES` like `nopat`»);
+* denominator: if `revenue` has a window covering the numerator's period the
+  margin takes that window (one basis, one pair of borders; the
+  `annual_fallback` note stays in the lineage role), otherwise the revenue row
+  whose `end` equals the numerator's `end`. No such row → `period_mismatch`;
+  a TTM numerator is never divided by some other year's revenue (ТЗ-97 Q10);
+* a dead link is named by the link (`missing_data: gross_profit`,
+  `missing_data: gross_profit, revenue`), as ТЗ-58 C4 requires;
+* a K6 door had to be *added*: numerator unit ≠ denominator unit →
+  `currency_mismatch: <A>, <B>`. Before the item this pair could not form at
+  all — `flow_window` requires one currency across the inputs (`:906`) and the
+  annual path keys on `(unit, start, end)` (`:946`) — chaining removed that
+  door, so the guard replaces it rather than the reverse;
+* `base_concepts` now unions `set(_DISCLOSED_AGGREGATE)`. This is the trap
+  inside the item: deleting the pass-1 row dropped `gross_profit` from the
+  fetch list, and the disclosed-first ruling (rulings table, row 7) would have
+  degraded into «always compute» without any test failing on the way;
+* the chain-lineage site was hard-coded to `"effective_tax" in …` (`:521`); it
+  now iterates `sorted(_CHAIN_MEASURES[concept].values())`, so the margin's
+  lineage carries the profit row's `peer_measure_id` and `nopat` behaves
+  exactly as before (guard tooth).
+
+Tests: `tests/test_task104_p4_gross_margin_chain.py` — 11 teeth, offline, real
+`SnapshotBuilder`.
+
+| tooth | red at `a2ffeee` | now |
+|---|---|---|
+| the row is a chain member now | `assert 'gross_margin' not in {'net_margin': …}` | not in `_MEASURE_FORMULAS`, in `_CHAIN_MEASURES`, `measure_inputs == ("gross_profit", "revenue")` |
+| **no GrossProfit fact, revenue + cogs → margin has a value** (Done-when) | `float(None)` | `0.38`, unit `ratio`, period = the FY |
+| margin lineage links the profit measure | `[]` | profit row's `measure_id` + revenue fact id |
+| margin shares the window of its numerator | `float(None)` | `480/1200 = 0.4` over TTM 2025-07-01…2026-06-30 |
+| disclosed profit in another currency refuses the margin | `period_mismatch` | `currency_mismatch: GBP, USD` |
+| the disclosed tag is still a fetch target | green (`base_concepts` still had it) | `"gross_profit" in base_concepts` — now pinned, it is kept by the union |
+| dictionary formula and unit unchanged | green | `measure_inputs`/`measure_unit` as Q7 declared |
+| disclosed aggregate still drives the margin | green | `244 000 000 / 803 000 000`, subtraction not used |
+| absent component named by the link | green | `missing_data: gross_profit` |
+| components of different years → no margin | green | `period_mismatch` |
+| `nopat` chain link untouched | green | one link, to `effective_tax`, not to `gross_profit` |
+
+Red before, captured: **8 failures** across the four files on a detached
+`a2ffeee` worktree (`/tmp/p4-red-before.log`) — the 5 teeth above plus the
+three pins below (`gross_margin: 7/20 ниже порога 15`,
+`float(None)` in Q7's file, `Extra items in the right set: 'gross_margin'` in
+Q4's). After: `11 passed` for the new file, `32 passed` for the four files,
+`130 passed` for the seven files that name `gross_margin`
+(`/tmp/p4-wider2.log`), `36 passed` for the m3/census/formula set
+(`/tmp/p4-m3-after.log`).
+
+Pins that moved — three, all declared in the commit:
+
+| file / tooth | было | стало |
+|---|---|---|
+| `tests/test_m3_snapshot.py` | floor `gross_margin: 7`; `gm_values == 7`; `len(gm_null) == 13`; reason set of two strings (`missing_data`, `stale_data … 2009-12-31`) | floor 15; `gm_values == 15`; `set(gm_null) == {BRKB, DIS, JPM, V, XOM}`; single reason `missing_data: gross_profit` — the composition replaces the count |
+| `tests/test_task97_q7_gross_profit.py::test_measure_without_the_tag_computes_and_carries_both_sources` | margin `None` with `missing_data: gross_profit`, standing next to a computed profit | margin `= GROSS / REVENUE`, `null_reason is None` |
+| `tests/test_task97_q4_ifrs_ingest.py` (constant, not an assert line) | `KSPI_VALUED` — 8 measures; `gross_margin` absent from `FACT_ONLY_MEASURES` | 9 measures (+ `gross_margin`); `gross_margin` added to `FACT_ONLY_MEASURES`, so the «without the ifrs-full section» side must refuse it too — one assert line *added* in that loop |
+
+Copy (P7 — `/tmp` only, offline, `HOME=/tmp/rt-sandbox-home`,
+`RUSTERM_ENV_FILE=/nonexistent/rusterm.env`, `bash /tmp/p4-copy-measure.sh`):
+pristine `/tmp/rt-104/data` restored before each tree, all 44 instruments built
+with `snapshot --as-of 2026-09-29`; tree B = detached `a2ffeee` (`/tmp/rt-head`),
+tree A = the working tree; every measure row of each instrument's latest
+snapshot dumped `mode=ro` (1630 / 1631 rows). `B_FAILED=0`, `A_FAILED=0`,
+07:17:13 → 07:17:45Z, network 0.
+
+`gross_margin` valued **13 → 18** of 44 (nulls 31 → 26); `gross_profit`
+untouched, 18 valued in both trees; **6 rows differ, 0 went value → refusal**.
+
+| instrument | before | after | check |
+|---|---|---|---|
+| US-CLF | `stale_data: gross_profit: last 2019-12-31` | `−0.046211714132187` | FY2025 `Revenues` 18 610 000 000, `CostOfGoodsAndServicesSold` 19 470 000 000 → profit −860 000 000; negative and honest |
+| US-FCX | `missing_data: gross_profit` | `0.26077979830064324` | 6 568 000 000 / 25 186 000 000, FY2025 |
+| US-LUMN | `missing_data: gross_profit` | `0.4141735063101227` | 4 693 000 000 / 11 331 000 000, FY2025 |
+| US-SCCO | `stale_data: gross_profit: last 2019-12-31` | `0.600655737704918` | 13 420 000 000 − 5 359 200 000 = 8 060 800 000 / 13 420 000 000 |
+| US-STX | `missing_data: gross_profit` | `0.45576055760557604` | TTM 2025-06-28…2026-07-03, 5 558 000 000 / 12 195 000 000 |
+| US-STX `percentile` | row absent | `0.6666666666666666` | the peer aggregate a newly valued measure unlocks |
+
+The task named KSPI in this Done-when; on the copy it does **not** move:
+`missing_data: gross_profit, revenue` before and after, because KSPI's rows in
+the user's base were ingested before the ifrs-full mapping (Q4's «было» — three
+facts, no revenue line at all). Repairing that needs a collect, and TASK-104's
+budget is network 0, so the refusal stands; the recorded KSPI payload does
+produce the margin, which is what the Q4 tooth now pins. Same class: BHP, TFC,
+VOD (`missing_data: gross_profit, revenue`).
+
+The `stale_data: gross_profit: last …` refusals that did not move were checked
+against the copy's facts rather than assumed: NEM has no `cogs` row at all,
+ORCL's newest `CostOfRevenue` is FY2011, WFC files neither `GrossProfit` nor
+`cogs`, NTAP's block is a missing annual window, not the tag. P4 cannot
+subtract what was never filed.
+
 ## Blocked
 
 ## What not to trust
@@ -332,6 +439,25 @@ change, so naming one more input costs nothing.
   `grep -l invested_capital tests/`, not a coverage claim. The authoritative
   whole-suite verdict is the hook's (checks 3 and 11) in the P3 commit row
   below.
+- P4, copy measurement: tree A was the *uncommitted* working tree, so a
+  reproducer has to check the P4 commit out (or apply its diff) before the
+  `after` build; `before` needs a detached worktree of `a2ffeee`.
+- P4, KSPI is in the item's Done-when and did **not** move on the copy
+  (`missing_data: gross_profit, revenue` on both sides). Its margin is proved
+  only by the recorded 20-F payload (`test_task97_q4_ifrs_ingest.py`); making
+  the user's base agree requires a collect, and TASK-104's budget is network 0.
+- P4, the two counts measure different populations: `15/20` is the m3 fixture
+  (20 recorded companyfacts payloads), `13 → 18 / 44` is the user's copy.
+  Neither says anything about coverage of the market, and the floor moved
+  because the fixture, not the world, did.
+- P4, `US-STX percentile`: the row appears in the after-dump because a newly
+  valued measure made a peer aggregate computable. I checked its presence and
+  value, not its arithmetic — that row belongs to the peer-set item, and P5/P6
+  may move it again.
+- P4, the new K6 door is pinned by a synthetic tooth only: no instrument on
+  the copy reaches `currency_mismatch` for `gross_margin`, because a
+  foreign-currency disclosed `GrossProfit` over a USD revenue pair is not in
+  this base. The door is real in code, unexercised by data.
 
 ## Disputed
 
@@ -379,6 +505,14 @@ change, so naming one more input costs nothing.
 | report-shape guard after the P3 section | `pytest tests/test_report_sections.py` | 32 passed, 1 skipped in 0.96 s |
 | copy build, both trees | `bash /tmp/p3-copy-measure.sh`: pristine copy restored before each tree, 44 × `snapshot --as-of 2026-09-29` with `/tmp/rt-head` (B) then the working tree (A), `HOME=/tmp/rt-sandbox-home`, `RUSTERM_ENV_FILE=/nonexistent/rusterm.env`, dumps via `/tmp/p3-dump.py` `mode=ro` | `B_FAILED=0`, `A_FAILED=0`, `P3COPY_RC=0`, 06:20:11→06:20:46Z; 1630 rows per dump, **22 moved** (16 `invested_capital`, 6 `roic`): 18 reason-only, 4 values (NEM, SCCO, SNPS, VALE), 0 value→refusal; A's DB holds 329 snapshots (285 + 44) |
 | copy SCCO cross-check | `canonical_concept` rows of `cik-1001838` read `mode=ro` from `/tmp/rt-p3/work/data/rusterm.db` | border 2026-06-30: 12 632 200 000 + 76 400 000 + 6 750 700 000 − 5 665 000 000 − 1 664 900 000 = 12 129 400 000 (after row); without the NCI term 12 053 000 000 (before row); `roic 0.3691530064459498` identical in both dumps |
+| P3 commit + push | `bash /tmp/p3-commit.sh` (message `/tmp/commit-p3.txt`, also copied into `$(git rev-parse --git-path COMMIT_EDITMSG)` for p1_rule; hook runs selfcheck + acceptance), detached, log `/tmp/p3-commit.log` | `a2ffeee`, `P1: OK (staged)` → `Итог: пройдено 13, провалено 0` → `Принято.` / `SELFCHECK OK`, `P3COMMIT_RC=0`, 4 files / 487 insertions / 12 deletions, 06:40:41→07:00:27Z (19 m 46 s); `git push` `P3PUSH_RC=0`, `origin/agent/night-11` = `a2ffeee` (`7bb410b..a2ffeee`) |
+| P4 teeth red before | the new file plus the three pinned files copied onto the detached `a2ffeee` worktree `/tmp/rt-head`, `pytest <4 files> -q`, log `/tmp/p4-red-before.log` | **8 failed, 25 passed** — `assert 'gross_margin' not in {…}`, `float(None)` ×2, empty lineage, `assert 'period_mismatch' == 'currency_mismatch: GBP, USD'`, `gross_margin: 7/20 ниже порога 15`, `Extra items in the right set: 'gross_margin'`; the copies were then `git restore`d, `/tmp/rt-head` clean |
+| P4 teeth after | `pytest tests/test_task104_p4_gross_margin_chain.py` | 11 passed |
+| P4 four files | `pytest` over the new file, `test_m3_snapshot`, `test_task97_q7_gross_profit`, `test_task97_q4_ifrs_ingest` | 32 passed |
+| P4 gross_margin set | `pytest` over the 7 files that name `gross_margin` (`/tmp/p4-wider2.log`) | **130 passed** — the same run before the pin edits was 1 failed (`/tmp/p4-wider.log`: KSPI `valued` had gained `gross_margin`) |
+| P4 census/formula set | `pytest tests/test_m3_snapshot.py tests/test_task104_p4_….py tests/test_task97_q7_….py tests/test_task49_census.py tests/test_task57_br_census.py tests/test_v4_formulas.py` (`/tmp/p4-m3-after.log`) | 36 passed, `RC=0` |
+| copy build, both trees | `bash /tmp/p4-copy-measure.sh` — pristine restored per tree, 44 × `snapshot --as-of 2026-09-29`, `/tmp/rt-head` (B = `a2ffeee`) then the working tree (A), `HOME=/tmp/rt-sandbox-home`, `RUSTERM_ENV_FILE=/nonexistent/rusterm.env`, dumps `mode=ro` | `B_FAILED=0`, `A_FAILED=0`, 07:17:13→07:17:45Z; `gross_margin` valued 13 → 18 of 44, nulls 31 → 26, `gross_profit` 18 → 18; **6 rows differ** (CLF, FCX, LUMN, SCCO, STX refusals → values, +1 `percentile` row for STX), 0 value→refusal |
+| copy arithmetic cross-check | the five new margins re-derived from the copy's own `us-gaap` rows `mode=ro` (`/tmp/rt-p4/work/data/rusterm.db`) | CLF −860 000 000 / 18 610 000 000, FCX 6 568 000 000 / 25 186 000 000, LUMN 4 693 000 000 / 11 331 000 000, SCCO 8 060 800 000 / 13 420 000 000, STX 5 558 000 000 / 12 195 000 000 — each equals the stored ratio on a shared period, lineage holds the revenue fact plus the profit row's `peer_measure_id` |
 
 Why some numbers here look huge: a bare `pytest -q` without `I5_NESTED=1`
 lets an i5 case spawn `selfcheck.sh` → `acceptance.sh` → another whole suite
@@ -390,13 +524,11 @@ lets an i5 case spawn `selfcheck.sh` → `acceptance.sh` → another whole suite
 Status: PARTIAL — round 141 is still running; this section is rewritten at
 each fold, so read it together with the commit rows of `## Runs`.
 
-Delivered and pushed: P1 (`7ec196a`), P2 (`7bb410b`), P3 (its commit sha and
-the hook verdict are recorded in `## Runs` as soon as it lands).
+Delivered and pushed: P1 (`7ec196a`), P2 (`7bb410b`), P3 (`a2ffeee`).
+P4 (this commit) — `gross_margin` chained to `gross_profit`; its hook verdict
+is recorded in `## Runs` by the next commit, as with the previous items.
 
 Remaining in TASK-104:
-- P4 — `gross_margin` through the finished `gross_profit` measure. Expected
-  to need a declared pin replacement: several tests and goldens pin the
-  refusal `missing_data: gross_profit` today.
 - P5 — priced measures take their currency from the measure unit, so a
   share-count fact without a currency stops poisoning `market_cap_total`.
 - P6 — `insider_net` in money (shares times the close on the deal date) and

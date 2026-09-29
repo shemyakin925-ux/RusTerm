@@ -33,8 +33,8 @@ shares_outstanding, ТЗ-78 Y2). Регенерация даёт те же ба�
 - на одном концепте us-gaap берёт верх над ifrs-full при равных датах
   (end-to-end: снапшот из синтетического payload с обоими разделами);
 - KSPI: 76 фактов (us-gaap 4 / ifrs-full 69 / dei 3), 4 неотображённых,
-  29 мер, из них 10 со значением — ровно названные; «было» той же
-  фикстурой без раздела ifrs-full: ни одной из этих десяти;
+  29 мер, из них девять со значением — ровно названные; «было» той же
+  фикстурой без раздела ifrs-full: ни одна из названных мер;
 - каждый отказ назван словом из словаря `rusterm.reasons`, а не пустой
   клеткой (Done when Q4);
 - trim-инструмент держит оба раздела и форму 20-F, иначе фикстуру
@@ -80,19 +80,23 @@ VALE_FIXTURE = REPO / "tests" / "data" / "edgar" / "companyfacts_r3_VALE.json"
 # окно давности (ТЗ-55 Y1) иначе превратит valued-строки в stale_data.
 AS_OF = "2026-09-28"
 
-# Восемь мер, которые KSPI получил из раздела ifrs-full. До правки — ни
+# Девять мер, которые KSPI получил из раздела ifrs-full. До правки — ни
 # одной: фактов отчётности у эмитента не было. pe и ps в этом списке
 # были до ТЗ-104 P1: они считались через валютный шов (цена USD, отчётность
 # KZT) — теперь отказываются, и дыра закрыта (см.
-# test_pe_and_ps_on_kspi_refuse_the_off_rate_quotient).
+# test_pe_and_ps_on_kspi_refuse_the_off_rate_quotient). gross_margin —
+# ТЗ-104 P4: мера читает посчитанную gross_profit, поэтому KSPI, который
+# GrossProfit не подаёт, получил и маржу.
 KSPI_VALUED = {
-    "asset_turnover", "effective_tax", "gross_profit", "market_cap",
-    "market_cap_total", "net_margin", "roe", "roe_incl_nci",
+    "asset_turnover", "effective_tax", "gross_margin", "gross_profit",
+    "market_cap", "market_cap_total", "net_margin", "roe", "roe_incl_nci",
 }
 # Меры, чьи входы — только факты отчётности: на «стороне было» (payload
 # без раздела ifrs-full) они обязаны отказаться все до единой.
-FACT_ONLY_MEASURES = ("asset_turnover", "effective_tax", "gross_profit",
-                      "net_margin", "roe", "roe_incl_nci")
+# gross_margin стоит здесь и после ТЗ-104 P4: цепочка ведёт к gross_profit,
+# а тот без раздела IFRS не считается.
+FACT_ONLY_MEASURES = ("asset_turnover", "effective_tax", "gross_margin",
+                      "gross_profit", "net_margin", "roe", "roe_incl_nci")
 
 
 def _forbidden_transport(url, headers):
@@ -391,7 +395,7 @@ def test_rank_offsets_keep_taxonomy_order_documented():
 
 
 def test_kspi_measure_counts_and_named_refusals(kspi_sandbox):
-    """29 мер, 8 со значением — ровно названные (Done when Q4: счёт
+    """29 мер, 9 со значением — ровно названные (Done when Q4: счёт
     «было → стало» закреплён тестом, а не только отчётом)."""
     measures = kspi_sandbox["measures"]
     assert len(measures) == 29

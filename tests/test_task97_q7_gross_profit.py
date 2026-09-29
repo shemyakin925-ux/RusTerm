@@ -9,7 +9,7 @@ GrossProfit, но подают выручку и себестоимость» �
 | где | было | стало |
 |---|---|---|
 | словарь мер | `gross_profit` — только вход `gross_margin`; строки меры не было ни у кого | формула первого прохода `{revenue, cogs}`, unit kind `money` (валюта входов) |
-| эмитент без тега GrossProfit, с Revenues и CostOfRevenue | `gross_margin: missing_data: gross_profit`, валовой прибыли в выводе нет | мера посчитана, в lineage оба слагаемых своими fact_id |
+| эмитент без тега GrossProfit, с Revenues и CostOfRevenue | `gross_margin: missing_data: gross_profit`, валовой прибыли в выводе нет | мера посчитана, в lineage оба слагаемых своими fact_id. ТЗ-104 P4: рядом стоит и `gross_margin` — он читает посчитанную меру |
 | слагаемые из разных периодов | — | `period_mismatch` (одно окно на всю меру, ТЗ-97 Q10) |
 | тег GrossProfit подан | меры нет | значение = поданная величина: словарь §2 определяет концепт как «= revenue − cogs, **если не раскрыт**», раскрытое приоритетнее вычитания |
 | GrossProfit без себестоимости | меры нет (факт лежал невостребованным) | мера со значением, в lineage один факт |
@@ -148,11 +148,14 @@ def test_measure_without_the_tag_computes_and_carries_both_sources(env):
                                        "f-i1-revenue-2025-01-01-2025-12-31"}
     assert all(r[1].startswith("input:") for r in lineage)
 
-    # gross_margin остался на подаваемом теге: Q7 просит меру валовой
-    # прибыли, а не перестройки цепочки (вопрос — в Disputed отчёта)
+    # ТЗ-104 P4 дописывает сюжет: ряд маржи стоит на ПОСЧИТАННОЙ мере, а
+    # не на поданном теге. Булавка Q7 «gross_margin остался на подаваемом
+    # теге» здесь заменена более сильной: тот же вход без тега даёт и
+    # валовую прибыль, и маржу (вопрос был в Disputed отчёта TASK-97,
+    # решение координатора — строка «8, 21 | chain gross_margin | P4»).
     margin = rows["gross_margin"]
-    assert margin[4] is None
-    assert margin[10] == "missing_data: gross_profit"
+    assert float(margin[4]) == pytest.approx(GROSS / REVENUE), margin
+    assert margin[10] is None, margin[10]
 
 
 def test_components_from_different_periods_refuse(env):

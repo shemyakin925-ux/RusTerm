@@ -144,10 +144,12 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
         assert len(snapshots) == 20
 
         # Пороги W4 по каждой мере (из 20), заданы координатором.
-        # TASK-12 Y3, решение §0.2.2: operating_margin 14 и gross_margin
-        # 7 — измеренная правда (JPM — банк, PFE/CVX/XOM не тегают
-        # OperatingIncomeLoss стабильно; GrossProfit раскрывают 7 из 20),
-        # пороги в проходном тесте — чтобы регрессия ловилась здесь.
+        # TASK-12 Y3, решение §0.2.2: operating_margin 14 — измеренная
+        # правда (JPM — банк, PFE/CVX/XOM не тегают OperatingIncomeLoss
+        # стабильно), порог в проходном тесте — чтобы регрессия ловилась
+        # здесь. gross_margin сдвинут с 7 на 15 по ТЗ-104 P4: мера
+        # считается из поданных выручки и себестоимости, а тег
+        # GrossProfit раскрывают только семеро из двадцати.
         floors = {
             "net_margin": 20,
             "effective_tax": 14,  # ТЗ-58 C4: DIS больше не «0.0» —
@@ -159,7 +161,7 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
             "roe": 12,
             "asset_turnover": 12,
             "operating_margin": 14,
-            "gross_margin": 7,
+            "gross_margin": 15,
         }
         fixed_reasons = {
             "missing_data", "period_mismatch", "missing_prior_period",
@@ -226,10 +228,9 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
         # точным составом пробелов. Замер M3-прогона 2026-09-09:
         # operating_margin пуст ровно у шести, все — без тега
         # OperatingIncomeLoss (JPM — банк; PFE/CVX/XOM не тегают;
-        # BRKB/JNJ — та же история тегов); gross_margin со значением
-        # ровно у семи. Новый эмитент, потерявший operating_income,
-        # красит тест; эмитент, его ОБРЕТШИЙ, тоже — это и есть
-        # сигнал для обзора, ради которого существовал xfail.
+        # BRKB/JNJ — та же история тегов). Новый эмитент, потерявший
+        # operating_income, красит тест; эмитент, его ОБРЕТШИЙ, тоже —
+        # это и есть сигнал для обзора, ради которого существовал xfail.
         om_null: dict[str, str] = {}
         gm_null: dict[str, str] = {}
         gm_values = 0
@@ -252,14 +253,19 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
             "stale_data: operating_income: last 2012-12-31",
             "stale_data: operating_income: last 2014-12-28",
         }
-        assert gm_values == 7, f"gross_margin со значением: {gm_values}"
-        assert len(gm_null) == 13
-        # ТЗ-55 Y1: часть эмитентов подавала gross_profit давно —
-        # отказ stale_data с последним периодом (AMZN — 2009-12-31)
-        assert set(gm_null.values()) == {
-            "missing_data: gross_profit",
-            "stale_data: gross_profit: last 2009-12-31",
-        }
+        # ТЗ-104 P4: маржа читает посчитанную gross_profit, а не тег
+        # GrossProfit. Со значением стало 15 из 20, а пробел зажат не
+        # числом пустых, а их составом: пусто ровно у пятерых, и у всех
+        # пятерых нет ни валовой прибыли, ни себестоимости, из которой
+        # она считается (JPM, V, BRKB — финансы; DIS и XOM себестоимость
+        # не тегают). Прежние булавки ТЗ-55 Y1 («семь со значением»,
+        # «тринадцать пустых», отказ stale_data у AMZN) сняты: тег больше
+        # не нужен — где поданы выручка с себестоимостью, валовая прибыль
+        # и маржа считаются, и AMZN из их числа.
+        assert set(gm_null) == {"BRKB", "DIS", "JPM", "V", "XOM"}, \
+            f"состав пробела gross_margin уехал: {sorted(gm_null)}"
+        assert set(gm_null.values()) == {"missing_data: gross_profit"}
+        assert gm_values == 15, f"gross_margin со значением: {gm_values}"
 
         # W3: неотображённых фактов нет — тег Including… закрыт картой
         null_canonical = conn.execute(

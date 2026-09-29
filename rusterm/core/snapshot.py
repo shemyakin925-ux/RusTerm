@@ -32,7 +32,8 @@ _MEASURE_FORMULAS: dict[str, dict[str, str]] = {
     # ТЗ-97 Q7: валовая прибыль — расчёт из поданных слагаемых там, где
     # своего тега нет (софт и телеком); см. _DISCLOSED_AGGREGATE.
     "gross_profit": {"revenue": "revenue", "cogs": "cogs"},
-    "gross_margin": {"gross_profit": "gross_profit", "revenue": "revenue"},
+    # ТЗ-104 P4: маржа уехала в _CHAIN_MEASURES — её числитель теперь
+    # посчитанная мера того же прохода, а не тег GrossProfit.
     "ebitda": {"operating_income": "operating_income",
                "d_and_a": "d_and_a"},
     "fcf": {"ocf": "ocf", "capex": "capex"},
@@ -51,9 +52,16 @@ _TWO_PERIOD_MEASURES: dict[str, tuple[str, str]] = {
 
 # Цепочка: nopat = operating_income * (1 - effective_tax); ставка берётся
 # из уже посчитанной меры effective_tax того же периода.
+# ТЗ-104 P4: gross_margin = gross_profit / revenue — тот же механизм:
+# числитель берётся из посчитанной меры валовой прибыли, которая умеет
+# считать себя из слагаемых (ТЗ-97 Q7). До пункта ряд требовал ФАКТ
+# GrossProfit и у эмитента «выручка + себестоимость без тега» отказывал,
+# хотя числитель стоял в том же снапшоте строкой выше.
 _CHAIN_MEASURES: dict[str, dict[str, str]] = {
     "nopat": {"operating_income": "operating_income",
               "tax_rate": "effective_tax"},
+    "gross_margin": {"gross_profit": "gross_profit",
+                     "revenue": "revenue"},
 }
 
 # ТЗ-97 Q7: меры, чья величина бывает раскрыта и готовым тегом. Словарь
@@ -96,11 +104,17 @@ _PRICE_STALE_DAYS = 7
 _BASE_MEASURES = _MEASURE_FORMULAS  # совместимость с существующими тестами
 
 # Все канонические входы формул — то, что as_reported_facts запрашивает.
+# ТЗ-104 P4: концепты раскрытых агрегатов добавляются отдельно. У
+# `gross_margin` больше нет входа-факта `gross_profit`, но сам тег
+# обязана продолжать приходить в выборку: ТЗ-97 Q7 делает раскрытую
+# величину приоритетным входом меры, а на пустом by_concept этот
+# приоритет превратился бы в молчаливое «всегда считаем».
 base_concepts: tuple[str, ...] = tuple(sorted(
     {c for inputs_map in _MEASURE_FORMULAS.values()
      for c in inputs_map.values()}
     | {flow for flow, _stock in _TWO_PERIOD_MEASURES.values()}
     | {stock for _flow, stock in _TWO_PERIOD_MEASURES.values()}
+    | set(_DISCLOSED_AGGREGATE)
     | {"operating_income"}
 ))
 
@@ -506,12 +520,16 @@ class SnapshotBuilder:
                     period_start, period_end = as_of, as_of
                 measure_id = str(uuid4())
                 lineage_rows = lineage_by_concept.get(concept, [])
-                if concept in _CHAIN_MEASURES and "effective_tax" in \
-                        measure_row_ids:
-                    lineage_rows = lineage_rows + [
-                        {"fact_id": None,
-                         "peer_measure_id": measure_row_ids["effective_tax"],
-                         "role": "input"}]
+                # ТЗ-104 P4: ссылка на меру-числитель живёт не в имени
+                # `effective_tax`, а в самом словаре цепочки: у ряда
+                # звено `gross_profit`, у `nopat` — ставка. Порядок
+                # сортированный, чтобы lineage не зависел от обхода dict.
+                for source in sorted(_CHAIN_MEASURES.get(concept, {}).values()):
+                    if source in measure_row_ids:
+                        lineage_rows = lineage_rows + [
+                            {"fact_id": None,
+                             "peer_measure_id": measure_row_ids[source],
+                             "role": "input"}]
                 self._snapshots.insert_measure_with_lineage(
                     dict(measure_id=measure_id, snapshot_id=snapshot_id,
                          scope="issuer", scope_ref=issuer_id,
@@ -1156,6 +1174,67 @@ class SnapshotBuilder:
                         {"fact_id": oi_row["fact_id"],
                          "peer_measure_id": None, "role": "input"},
                     ]
+
+        # ── Цепочка: gross_margin = gross_profit / revenue (ТЗ-104 P4) ──
+        # Числитель — посчитанная мера валовой прибыли того же прохода
+        # (она умеет считать себя из revenue − cogs, ТЗ-97 Q7),
+        # знаменатель — выручка на её период. Порядок групп в build()
+        # гарантирует, что к моменту ряда gross_profit уже в computed.
+        gp_period = periods.get("gross_profit")
+        rev_rows = by_concept.get("revenue", [])
+        absent_margin = []
+        if gp_period is None:
+            absent_margin.append("gross_profit")
+        if not rev_rows:
+            absent_margin.append("revenue")
+        rev_value = None
+        rev_unit = None
+        if absent_margin:
+            # звено не посчитано (нет слагаемых, разные годы, протухший
+            # тег): ряд зовёт отвалившееся ЗВЕНО по имени, как nopat
+            # зовёт ставку (ТЗ-58 C4), а не голое missing_data
+            reasons["gross_margin"] = absent_reason(sorted(absent_margin))
+        else:
+            gp_unit = input_units.get("gross_profit")
+            rev_window = windows.get("revenue")
+            if rev_window is not None and \
+                    (rev_window.start, rev_window.end) == gp_period:
+                # то же окно, что у числителя: база и границы одной меры
+                # не расходятся (ТЗ-97 Q10)
+                why = (fallback_note(windows, ["revenue"])
+                       if rev_window.basis == ANNUAL_FALLBACK else "")
+                if why:
+                    fallbacks["gross_margin"] = why
+                rev_value = rev_window.value
+                rev_unit = window_units["revenue"]
+                lineage["gross_margin"] = window_lineage(rev_window, why)
+            else:
+                rev_candidates = [r for r in rev_rows
+                                  if r["end"] == gp_period[1]]
+                if not rev_candidates:
+                    reasons["gross_margin"] = "period_mismatch"
+                else:
+                    rev_row = min(rev_candidates, key=lambda r: r["rank"])
+                    rev_value = rev_row["value"]
+                    rev_unit = rev_row["unit"]
+                    lineage["gross_margin"] = [
+                        {"fact_id": rev_row["fact_id"],
+                         "peer_measure_id": None, "role": "input"},
+                    ]
+            if rev_value is not None:
+                if gp_unit and rev_unit and gp_unit != rev_unit:
+                    # ТЗ-23 K6: раскрытая прибыль в GBP под выручкой в
+                    # USD — не частное, а две валюты. До пункта такая
+                    # пара не сходилась вовсе: окно требует у всех входов
+                    # одну валюту, а годовой ключ включает unit. У
+                    # цепочки общего ключа больше нет — дверь ставим тут.
+                    reasons["gross_margin"] = (
+                        "currency_mismatch: "
+                        + ", ".join(sorted({gp_unit, rev_unit})))
+                else:
+                    inputs["gross_margin"] = {"revenue": rev_value}
+                    periods["gross_margin"] = gp_period
+                    input_units["gross_margin"] = rev_unit
 
         return IssuerInputs(inputs=inputs, lineage=lineage,
                             reasons=reasons, periods=periods,
