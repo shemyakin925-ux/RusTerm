@@ -230,6 +230,9 @@ class IssuerInputs:
     periods: dict = field(default_factory=dict)
     units: dict = field(default_factory=dict)
     windows: dict = field(default_factory=dict)
+    # ТЗ-104 P1: валюта каждого собранного окна — без неё стороне
+    # частного нечем сказать, в какой она валюте.
+    window_units: dict = field(default_factory=dict)
     fallbacks: dict = field(default_factory=dict)
 
 
@@ -521,7 +524,8 @@ class SnapshotBuilder:
         self._valuation_pass(snapshot_id, issuer_id, instrument_id,
                              as_of, computed, written_measures,
                              measure_row_ids, result, issuer.windows,
-                             issuer.periods)
+                             issuer.periods, issuer.units,
+                             issuer.window_units)
 
         # ── ТЗ-24 N2: блок industry_metrics из секторного модуля ──
         industry_entry = None
@@ -1122,6 +1126,7 @@ class SnapshotBuilder:
         return IssuerInputs(inputs=inputs, lineage=lineage,
                             reasons=reasons, periods=periods,
                             units=input_units, windows=windows,
+                            window_units=window_units,
                             fallbacks=fallbacks)
 
     def _next_version(self, instrument_id: str) -> int:
@@ -1532,7 +1537,9 @@ class SnapshotBuilder:
                         computed: dict, written_measures: set,
                         measure_row_ids: dict, result,
                         windows: Optional[dict] = None,
-                        periods: Optional[dict] = None) -> None:
+                        periods: Optional[dict] = None,
+                        units: Optional[dict] = None,
+                        window_units: Optional[dict] = None) -> None:
         """ТЗ-23 K4: шесть мер §3 получают входы.
 
         Цена — последняя закрытая строка таблицы price не позже as_of
@@ -1543,6 +1550,10 @@ class SnapshotBuilder:
         по ним находится граница начала знаменателя roic (ТЗ-91 B5).
         K6: у ratio-мер числитель и знаменатель обязаны быть в одной
         валюте — иначе currency_mismatch, а не частное.
+        ТЗ-104 P1: то же правило распространено на `pe`, `ps` и
+        `fcf_yield` — валюта стороны отчётности приходит снаружи:
+        `window_units` у собранного TTM-окна, `units` у меры первого
+        прохода, а на запасном годовом пути — у самого годового факта.
         """
         # Окна TTM считаются один раз в _issuer_inputs и приходят сюда;
         # None — только у вызывающей стороны вне сборки снапшота (тесты
@@ -1550,6 +1561,8 @@ class SnapshotBuilder:
         # `periods` — те же окна в виде пар дат; у roic по ним находится
         # граница начала, когда числитель пришёл из первого прохода (B5).
         windows = windows or {}
+        units = units or {}
+        window_units = window_units or {}
         price_concepts = ("market_cap", "market_cap_total", "ev", "pb",
                           "ev_ebitda", "div_yield", "roic",
                           "pe", "ps", "fcf_yield")
@@ -1594,6 +1607,15 @@ class SnapshotBuilder:
             стороны у pb — частный случай того же формата."""
             return ("currency_mismatch: "
                     + ", ".join(sorted({c for c in currencies if c})))
+
+        def sides_clash(*currencies) -> Optional[str]:
+            """ТЗ-104 P1: тот же K6-страж, что у pb, только для пар сторон
+            ratio-меры. Сторона без записанной валюты (строка факта,
+            разобранная до J1.0, или мера без размерности) в спор не
+            вступает — правило B3: иначе отказ вытеснил бы прежнюю подпись
+            там, где валюта просто не записана."""
+            known = {c for c in currencies if c}
+            return mismatch(sorted(known)) if len(known) > 1 else None
 
         def fact_currencies(*names: str) -> set:
             return {inputs[n][2] for n in names
@@ -1858,6 +1880,12 @@ class SnapshotBuilder:
         if ni_win is not None:
             if total_value is None:
                 pe_reason = "missing_data: market_cap_total"
+            elif (clash := sides_clash(price_currency,
+                                       window_units.get("net_income"))):
+                # ТЗ-104 P1: USD-капитализация над GBP-прибылью — это не
+                # частное, а две валюты; знак знаменателя при них не
+                # решает, потому что частного не существует ни при каком.
+                pe_reason = clash
             elif ni_win.value <= 0:
                 # ТЗ-91 B2: у net_income ЕСТЬ число, нет только частного
                 pe_reason = _denominator_refusal(ni_win.value)
@@ -1872,9 +1900,13 @@ class SnapshotBuilder:
             if annual is None:
                 pe_reason = "missing_data: net_income_ttm"
             else:
-                ni_value, ni_end, _unit, ni_fact, ni_start, _len = annual
+                ni_value, ni_end, ni_cur, ni_fact, ni_start, _len = annual
                 if total_value is None:
                     pe_reason = "missing_data: market_cap_total"
+                elif (clash := sides_clash(price_currency, ni_cur)):
+                    # ТЗ-104 P1: запасной годовой путь — та же проверка,
+                    # валюта берётся у самого годового факта.
+                    pe_reason = clash
                 elif ni_value <= 0:
                     pe_reason = _denominator_refusal(ni_value)
                 else:
@@ -1899,6 +1931,11 @@ class SnapshotBuilder:
         if rev_win is not None:
             if total_value is None:
                 ps_reason = "missing_data: market_cap_total"
+            elif (clash := sides_clash(price_currency,
+                                       window_units.get("revenue"))):
+                # ТЗ-104 P1: то же, что у pe: стороны в разных валютах —
+                # частного нет, и нулевой знаменатель тут не при чём.
+                ps_reason = clash
             elif rev_win.value == 0:
                 # ТЗ-90 A3: нулевая выручка (pre-revenue эмитент) —
                 # отказ по словарю §1.4, а не ZeroDivisionError
@@ -1917,6 +1954,9 @@ class SnapshotBuilder:
                 ps_reason = "missing_data: market_cap_total"
             elif annual_rev is None:
                 ps_reason = "missing_data: revenue_ttm"
+            elif (clash := sides_clash(price_currency, annual_rev[2])):
+                # ТЗ-104 P1: валюта годового входа — у самого входа.
+                ps_reason = clash
             elif annual_rev[0] == 0:
                 # ТЗ-90 A3: нулевая годовая выручка (pre-revenue эмитент) —
                 # отказ по словарю §1.4, а не ZeroDivisionError на всю
@@ -1946,6 +1986,11 @@ class SnapshotBuilder:
             fcfy_reason = "missing_data: market_cap"
         elif fcf_value is None:
             fcfy_reason = "missing_data: fcf"
+        elif (clash := sides_clash(units.get("fcf"), price_currency)):
+            # ТЗ-104 P1: числитель — мера первого прохода, её валюта уже
+            # подписана на строке fcf (unit фактов потока); знаменатель —
+            # капитализация класса, то есть валюта цены.
+            fcfy_reason = clash
         else:
             fcfy_value = fcf_value / mcap_value
         fcf_mid = measure_row_ids.get("fcf")

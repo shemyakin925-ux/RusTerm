@@ -80,11 +80,14 @@ VALE_FIXTURE = REPO / "tests" / "data" / "edgar" / "companyfacts_r3_VALE.json"
 # окно давности (ТЗ-55 Y1) иначе превратит valued-строки в stale_data.
 AS_OF = "2026-09-28"
 
-# Десять мер, которые KSPI получил из раздела ifrs-full. До правки — ни
-# одной: фактов отчётности у эмитента не было.
+# Восемь мер, которые KSPI получил из раздела ifrs-full. До правки — ни
+# одной: фактов отчётности у эмитента не было. pe и ps в этом списке
+# были до ТЗ-104 P1: они считались через валютный шов (цена USD, отчётность
+# KZT) — теперь отказываются, и дыра закрыта (см.
+# test_pe_and_ps_on_kspi_refuse_the_off_rate_quotient).
 KSPI_VALUED = {
     "asset_turnover", "effective_tax", "gross_profit", "market_cap",
-    "market_cap_total", "net_margin", "pe", "ps", "roe", "roe_incl_nci",
+    "market_cap_total", "net_margin", "roe", "roe_incl_nci",
 }
 # Меры, чьи входы — только факты отчётности: на «стороне было» (payload
 # без раздела ifrs-full) они обязаны отказаться все до единой.
@@ -388,7 +391,7 @@ def test_rank_offsets_keep_taxonomy_order_documented():
 
 
 def test_kspi_measure_counts_and_named_refusals(kspi_sandbox):
-    """29 мер, 10 со значением — ровно названные (Done when Q4: счёт
+    """29 мер, 8 со значением — ровно названные (Done when Q4: счёт
     «было → стало» закреплён тестом, а не только отчётом)."""
     measures = kspi_sandbox["measures"]
     assert len(measures) == 29
@@ -430,15 +433,16 @@ def test_every_refusal_is_a_word_from_the_dictionary(kspi_sandbox):
                                        "total_debt")
 
 
-def test_pe_and_ps_on_kspi_straddle_currencies(kspi_sandbox):
-    """Замер дыры, не принятое поведение.
+def test_pe_and_ps_on_kspi_refuse_the_off_rate_quotient(kspi_sandbox):
+    """ТЗ-104 P1: дыра, которую этот файл держал как замер, закрыта.
 
-    pe/ps посчитались, хотя цена в USD, а отчётность в KZT: частное
-    off-rate в ~5 раз. K6 проверяет валюту у pb/div_yield/roic, а у pe/ps
-    такой проверки нет — дыра существовала до правки (на копии базы
+    pe/ps считались, хотя цена в USD, а отчётность в KZT: частное
+    off-rate в ~5 раз. K6 проверял валюту у pb/div_yield/roic, а у pe/ps
+    такой проверки не было — дыра существовала до правки (на копии базы
     пользователя US-AMX: факты MXN, цена USD, pe и ps со значением) и
-    Q4 её расширяет на KSPI. Записана в Disputed ТЗ-97 Q4; тест держит
-    строку, чтобы починивший её увидел изменение.
+    Q4 расширила её на KSPI. Замер был записан в Disputed ТЗ-97 Q4 и
+    разрешился правкой: обе меры отказывают, отказ называет обе валюты,
+    а не одну из них.
     """
     db = sqlite3.connect(f"file:{kspi_sandbox['root'] / 'rusterm.db'}"
                          "?mode=ro", uri=True)
@@ -449,7 +453,10 @@ def test_pe_and_ps_on_kspi_straddle_currencies(kspi_sandbox):
         "SELECT DISTINCT currency FROM price")}
     db.close()
     assert fact_cur == {"KZT"} and price_cur == {"USD"}
-    assert kspi_sandbox["measures"]["pe"][0] is not None
+    for concept in ("pe", "ps"):
+        value, reason = kspi_sandbox["measures"][concept]
+        assert value is None, f"{concept} всё ещё делит USD на KZT"
+        assert reason == "currency_mismatch: KZT, USD", (concept, reason)
 
 
 def test_trim_tool_keeps_both_sections_and_the_20f_form():
