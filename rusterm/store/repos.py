@@ -803,13 +803,27 @@ class SnapshotRepo:
         решает страж (смешение записанной валюты с пустотой — отказ).
         ТЗ-23 K4/K6: у оценочных мер (market_cap_total, ev) цена не
         факт, валюта живёт в unit меры — трёхбуквенный unit добавляется
-        к набору тем же правилом currency_of_unit."""
+        к набору тем же правилом currency_of_unit.
+        ТЗ-104 P5: пустоту в набор несёт только тот вход, у которого
+        валюта бывает по единице (unit — три буквы), то есть денежный
+        факт, потерявший `currency`. Факт числа акций (`shares`), доля
+        (`pure`), котировка на акцию (`USD/shares`) валюты не имеют
+        вовсе — их пустая `currency` не сторона валютного спора. До
+        этого строка меры с ценой отказывала на собственных акциях:
+        `currency_mismatch: USD, (blank)`."""
         rows = self.conn.execute(
-            """SELECT DISTINCT f.currency FROM measure_lineage l
+            """SELECT DISTINCT f.currency, f.unit FROM measure_lineage l
                JOIN fact f ON f.fact_id = l.fact_id
                WHERE l.measure_id = ?""", (measure_id,)).fetchall()
-        out = {(r[0] or "") for r in rows}
         from rusterm.core.fact import currency_of_unit
+        out: set[str] = set()
+        for currency, fact_unit in rows:
+            if currency:
+                out.add(currency)
+            elif currency_of_unit(fact_unit):
+                # денежный вход без записанной валюты — пустая сторона
+                # смешения (ТЗ-22 J1.0), а не «вход без отношения»
+                out.add("")
         unit = self.conn.execute(
             "SELECT unit FROM measure WHERE measure_id=?",
             (measure_id,)).fetchone()

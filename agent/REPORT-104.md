@@ -404,6 +404,79 @@ ORCL's newest `CostOfRevenue` is FY2011, WFC files neither `GrossProfit` nor
 `cogs`, NTAP's block is a missing annual window, not the tag. P4 cannot
 subtract what was never filed.
 
+### P5 — a priced measure's currency is its own row, not its share count (TASK-104)
+
+Item: «For estimate (priced) measures the currency is `measure.unit`; a
+currency-less share-count fact does not count as `""`». This is the ruling on
+REPORT-103 Disputed item 13, which named the exact mechanism
+(`currencies_for_measure` collected the `NULL` currency of the
+`shares_outstanding` fact behind every capitalisation, `currency_guard` read
+«written currency + blank» as a clash, and `market_cap_total` was then deleted
+from the industry table by name in `rusterm/tui/model.py`).
+
+**Before.** `SnapshotRepo.currencies_for_measure` returned
+`{(r[0] or "") for r in rows}` — *every* lineage fact spoke in the currency
+argument, and a fact with no currency spoke as `""`. For a priced measure the
+set was therefore `{USD, ""}` → `currency_mismatch: USD, (blank)`, while the
+measure itself (`market_cap_total`) carried its currency honestly in `unit`.
+The industry table refused the row on all five user sets.
+
+**Now** (`rusterm/store/repos.py:800-830`): a fact joins the argument only if
+it has a written currency, or if it *could* have one — `currency_of_unit(f.unit)`,
+i.e. its unit is a 3-letter code. A money fact that lost its currency still
+contributes `""` (J1.0 unchanged); `shares`, `pure`, `USD/shares`, `segment`
+contribute nothing. `measure.unit` keeps adding the priced currency, as of
+TASK-23 K4/K6. `rusterm/tui/model.py:39-41` puts `market_cap_total` back into
+`_SECTOR_MEASURES` (both the TUI screen and the Qt tab read that one tuple).
+
+| tooth (`tests/test_task104_p5_priced_measure_currency.py`, 7) | red at `b6c506a` | green now |
+|---|---|---|
+| `test_a_share_count_fact_claims_no_currency` | `assert {'', 'USD'} == {'USD'}` | — |
+| `test_a_non_currency_unit_on_the_measure_claims_nothing` | `assert {''} == set()` | — |
+| `test_the_capital_measure_is_in_the_industry_table` | `('asset_turnover', …, 'roe')` | `market_cap_total` in the tuple |
+| `test_nine_usd_capitals_make_an_aggregate` (**Done when**) | `currency_mismatch: (blank), USD` | `n=9`, `currency=USD`, `(p25, median, p75) = 1.2e9 / 1.4e9 / 1.6e9` |
+| `test_a_second_currency_among_capitals_still_refuses` | `currency_mismatch: (blank), GBP, USD` | `currency_mismatch: GBP, USD` — the list no longer lies about a blank |
+| `test_refused_capitals_do_not_start_a_currency_argument` | `currency_mismatch: (blank), USD` | `peer_set_too_small`, `members_seen=9, with_value=4` (ТЗ-103 N2 survives) |
+| `test_a_money_fact_that_lost_its_currency_still_claims_a_blank` | **already green** | J1.0 pin: the set stays `{'', 'USD'}` — the tooth that must not move |
+
+Red-before: `6 failed, 1 passed` (`/tmp/p5-red-before.log`, same output in the
+working tree at `b6c506a` before the source edit). Neighbours: 141 passed, exit
+0 (`/tmp/p5-neighbours.log`) — `test_j1_currency.py`,
+`test_currency_firewall.py`, `test_k4_k6_valuation.py`,
+`test_industry_aggregate.py`, `test_task103_n2_valued_currency.py`,
+`test_task97_q8_industry_window.py`, `test_task102_m4_member_line.py`,
+`test_n2_industry_view.py`, `test_j7_tui_industry.py`,
+`test_measure_periods.py`, `test_ownership.py`,
+`test_task97_q2_governance_words.py`, `test_w4_window_data_contract.py`,
+`test_desktop_quality.py`. No pin was weakened: no assert line was removed
+anywhere in this item.
+
+**Copy (P7: read-only `file:/tmp/rt-104/data/rusterm.db?mode=ro`, nothing
+written, `as_of` 2026-09-29).** The five sets' `market_cap_total` row:
+
+| set | before | after | members |
+|---|---|---|---|
+| banks | `currency_mismatch: (blank), USD` (n=8) | `p25 90 679 973 751.33 · median 175 546 010 919.31 · p75 283 647 636 323.80`, `currency=USD`, n=8 | 8 valued of 8 |
+| hardware_electronics | `currency_mismatch: (blank), USD` (n=9) | `29 001 597 563.04 · 82 740 879 675.07 · 209 387 802 133.03`, `USD`, n=9 | 9 of 9 |
+| software | `currency_mismatch: (blank), USD` (n=9) | `76 643 282 127.64 · 99 319 080 000.00 · 195 528 340 000.00`, `USD`, n=9 | 9 of 9 |
+| mining_metals | `currency_mismatch: (blank), USD` (n=7) | `peer_set_too_small` + «участников 9, значение меры есть у 7» | 7 of 9 — below `AGGREGATE_MIN_PEERS`, and now says so |
+| telecom | `currency_mismatch: (blank), USD` (n=7) | `peer_set_too_small` + «участников 8, значение меры есть у 7» | 7 of 8 |
+
+Three sets compute, two refuse for the real reason instead of a fabricated
+currency conflict. Quantiles re-derived independently with
+`statistics.quantiles(…, method="inclusive")` over the same 8/9 member values
+(`banks` = BAC 391.6B, C 230.8B, COF 120.3B, JPM 897.2B, PNC 89.4B, TFC 57.4B,
+USB 91.1B, WFC 247.7B → 90.68/175.55/283.65 B) — identical to the stored
+strings. `industry_rows(repos, "software", …)` now returns
+`market_cap_total n=9 currency=USD median=99319080000.0` as a sixth row.
+
+**Nothing else moved.** Same probe over all six concepts × five sets in both
+trees (30 rows, `/tmp/p5-before-other.txt` vs `/tmp/p5-after-other.txt`): the
+diff is exactly the five `market_cap_total` rows. `mining_metals · ebitda`
+still refuses `currency_mismatch: CAD, USD` and `telecom · ebitda` still
+`currency_mismatch: MXN, USD` — a real two-currency mix on the user's data is
+still stopped, which is the stop-crane proof for this item.
+
 ## Blocked
 
 ## What not to trust
@@ -458,6 +531,31 @@ subtract what was never filed.
   the copy reaches `currency_mismatch` for `gross_margin`, because a
   foreign-currency disclosed `GrossProfit` over a USD revenue pair is not in
   this base. The door is real in code, unexercised by data.
+- P5, copy measurement: the `after` probe ran against the *uncommitted*
+  working tree; a reproducer has to check the P5 commit out first. The
+  `before` tree was `a2ffeee` (`/tmp/rt-head`), not `b6c506a` — P4 does not
+  touch currency plumbing, so both give the same «before», and the red-before
+  evidence itself was taken in the working tree at `b6c506a` before the edit.
+- P5, two of the five sets still show no numbers. The Done-when asks for the
+  five rows before → after; after, `mining_metals` (7 valued of 9) and
+  `telecom` (7 of 8) refuse `peer_set_too_small`. The `AGGREGATE_MIN_PEERS`
+  floor was not moved and is not this item's to move — three sets gained a
+  row, two gained a truthful reason.
+- P5, the rule is wider than «priced measures»: `currencies_for_measure` is
+  one function, so a non-ISO-unit fact with an empty currency (`pure`,
+  `USD/shares`, `segment`) now contributes nothing to *any* measure's
+  currency set, not only to `market_cap_total`. On the copy this is invisible
+  (25 of 30 aggregate rows byte-identical; money facts there always carry
+  `currency == unit`), and the money case stays pinned by
+  `tests/test_j1_currency.py`. What is NOT pinned by any test: a genuinely
+  monetary fact stored with a non-ISO unit and a missing currency — the guard
+  is now silent about that row. Deemed acceptable because no such row exists
+  in the schema's producers; if the coordinator wants it covered, the door is
+  a unit-catalog question, not a guard question.
+- P5, `members_seen`/`with_value` asymmetry is pre-existing and shows in the
+  copy table: `sector_aggregate` fills the M4 counters only on the
+  `peer_set_too_small` branch, so a computed row reads `n=8, members=0`. Not
+  introduced here, not fixed here.
 
 ## Disputed
 
@@ -513,6 +611,15 @@ subtract what was never filed.
 | P4 census/formula set | `pytest tests/test_m3_snapshot.py tests/test_task104_p4_….py tests/test_task97_q7_….py tests/test_task49_census.py tests/test_task57_br_census.py tests/test_v4_formulas.py` (`/tmp/p4-m3-after.log`) | 36 passed, `RC=0` |
 | copy build, both trees | `bash /tmp/p4-copy-measure.sh` — pristine restored per tree, 44 × `snapshot --as-of 2026-09-29`, `/tmp/rt-head` (B = `a2ffeee`) then the working tree (A), `HOME=/tmp/rt-sandbox-home`, `RUSTERM_ENV_FILE=/nonexistent/rusterm.env`, dumps `mode=ro` | `B_FAILED=0`, `A_FAILED=0`, 07:17:13→07:17:45Z; `gross_margin` valued 13 → 18 of 44, nulls 31 → 26, `gross_profit` 18 → 18; **6 rows differ** (CLF, FCX, LUMN, SCCO, STX refusals → values, +1 `percentile` row for STX), 0 value→refusal |
 | copy arithmetic cross-check | the five new margins re-derived from the copy's own `us-gaap` rows `mode=ro` (`/tmp/rt-p4/work/data/rusterm.db`) | CLF −860 000 000 / 18 610 000 000, FCX 6 568 000 000 / 25 186 000 000, LUMN 4 693 000 000 / 11 331 000 000, SCCO 8 060 800 000 / 13 420 000 000, STX 5 558 000 000 / 12 195 000 000 — each equals the stored ratio on a shared period, lineage holds the revenue fact plus the profit row's `peer_measure_id` |
+| P4 commit + push | `bash /tmp/p4-commit.sh` (message `/tmp/commit-p4.txt`, also copied into `$(git rev-parse --git-path COMMIT_EDITMSG)` for p1_rule; hook runs selfcheck + acceptance), detached, log `/tmp/p4-commit.log` | `b6c506a`, `P1RULE_PRECHECK_RC=0` → `Итог: пройдено 13, провалено 0` → `Принято.` / `SELFCHECK OK`, `P4COMMIT_RC=0`, 7 files / 551 insertions / 47 deletions, 07:28:47→07:49:46Z (20 m 59 s); `git push` `P4PUSH_RC=0`, `origin/agent/night-11` = `b6c506a` (`a2ffeee..b6c506a`) |
+| P5 teeth red before | the new file copied onto the detached `a2ffeee` worktree `/tmp/rt-head` and re-run in the working tree at `b6c506a` before the source edit, log `/tmp/p5-red-before.log` | **6 failed, 1 passed** — `assert {'', 'USD'} == {'USD'}`, `assert {''} == set()`, `('asset_turnover', 'net_margin', 'operating_margin', 'ebitda', 'roe')`, `currency_mismatch: (blank), USD` ×2, `currency_mismatch: (blank), GBP, USD`. The 1 pass is the J1.0 tooth, green by design |
+| P5 teeth after | `pytest tests/test_task104_p5_priced_measure_currency.py` | 7 passed |
+| P5 neighbours | `pytest` over the 14 files that read the currency set or the industry screen (`/tmp/p5-neighbours.log`) | **141 passed**, exit 0, no file edited → no ЗАМЕНА-БУЛАВКИ for this item |
+| P5 copy probe | `python3 /tmp/p5-probe.py` under `/tmp/rt-head` (before) and the working tree (after): `file:/tmp/rt-104/data/rusterm.db?mode=ro`, no rebuild, `as_of` 2026-09-29, logs `/tmp/p5-before.txt` / `/tmp/p5-after.txt` | five `market_cap_total` rows: `currency_mismatch: (blank), USD` → banks 90.68/175.55/283.65 B n=8, hardware 29.00/82.74/209.39 B n=9, software 76.64/99.32/195.53 B n=9 (all `currency=USD`); mining_metals → `peer_set_too_small` «участников 9, значение меры есть у 7», telecom → «участников 8, … у 7» |
+| P5 «nothing else moved» diff | same probe over 6 concepts × 5 sets in both trees (`/tmp/p5-before-other.txt` vs `/tmp/p5-after-other.txt`) | 30 rows compared, **exactly 5 differ** (the `market_cap_total` rows); `mining_metals · ebitda` still `currency_mismatch: CAD, USD`, `telecom · ebitda` still `MXN, USD` — a real two-currency mix still stops |
+| P5 quantile cross-check | the 8/9 member values read `mode=ro` and re-quantiled with `statistics.quantiles(…, method="inclusive")` | banks BAC 391.6 / C 230.8 / COF 120.3 / JPM 897.2 / PNC 89.4 / TFC 57.4 / USB 91.1 / WFC 247.7 B → 90 679 973 751.32658 · 175 546 010 919.31415 · 283 647 636 323.80005, byte-equal to the stored strings; software median 99 319 080 000.0 = ADBE |
+| report-shape + guide guards after the P5 section | `pytest tests/test_report_sections.py tests/test_guide_truth.py` (`/tmp/p5-guards.log`) | 35 passed, 1 skipped, `RC=0` |
+| STATE.json counter correction | `agent/STATE.json` rewritten with this commit | `"requests"`/`"net_requests"` set to 0 for TASK-104: PROTOCOL.md:171 defines the field as «requests used of the budget, per host», and this task's budget is network 0 — P1–P5 issued no HTTP request, every number above comes from `/tmp` copies and in-process tests. The `40` that stood there (and was shown in the P2/P3/P4 rows) was carried over from the TASK-97 round's live runs; TASK-105 R3 will legitimately add 1 |
 
 Why some numbers here look huge: a bare `pytest -q` without `I5_NESTED=1`
 lets an i5 case spawn `selfcheck.sh` → `acceptance.sh` → another whole suite
@@ -524,13 +631,12 @@ lets an i5 case spawn `selfcheck.sh` → `acceptance.sh` → another whole suite
 Status: PARTIAL — round 141 is still running; this section is rewritten at
 each fold, so read it together with the commit rows of `## Runs`.
 
-Delivered and pushed: P1 (`7ec196a`), P2 (`7bb410b`), P3 (`a2ffeee`).
-P4 (this commit) — `gross_margin` chained to `gross_profit`; its hook verdict
+Delivered and pushed: P1 (`7ec196a`), P2 (`7bb410b`), P3 (`a2ffeee`),
+P4 (`b6c506a`). P5 (this commit) — a priced measure's currency comes from its
+own row, so `market_cap_total` is back in the industry table; its hook verdict
 is recorded in `## Runs` by the next commit, as with the previous items.
 
 Remaining in TASK-104:
-- P5 — priced measures take their currency from the measure unit, so a
-  share-count fact without a currency stops poisoning `market_cap_total`.
 - P6 — `insider_net` in money (shares times the close on the deal date) and
   a `METHOD_VERSION` bump.
 - P7 — `snapshot --as-of` must hand the same date to the factory and to
