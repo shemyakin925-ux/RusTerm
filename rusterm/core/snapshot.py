@@ -236,6 +236,34 @@ class IssuerInputs:
     fallbacks: dict = field(default_factory=dict)
 
 
+def choose_presentation(candidates, dominant_unit: Optional[str]):
+    """ТЗ-104 P2: одна подача на период, и выбор не зависит от того, в
+    каком порядке множество отдало свои элементы (Disputed 5/23).
+
+    candidates — тройки `(unit, start, end)`. Свежий период выбирается как
+    раньше (наибольший конец, при равных концах — наибольшее начало); из
+    подач этого периода берётся доминирующая валюта эмитента, а если её
+    среди подач нет — наименьшая unit по алфавиту. Пока выборка шла
+    `max(..., key=(end, start))`, две подачи одного периода давали ровно
+    равные ключи, и `max` отдавал ту, которая первой попалась при обходе
+    множества: результат зависел от seed хеширования процесса, и один и
+    тот же код на той же базе печатал два разных числа.
+    None на пустой выборке — прежний отказ вызывающей ветки.
+    """
+    listed = list(candidates)
+    if not listed:
+        return None
+    end = max(k[2] for k in listed)
+    same_end = [k for k in listed if k[2] == end]
+    start = max(k[1] for k in same_end)
+    same = [k for k in same_end if k[1] == start]
+    if dominant_unit is not None:
+        for k in same:
+            if k[0] == dominant_unit:
+                return k
+    return min(same, key=lambda k: k[0])
+
+
 def window_lineage(window: TtmWindow, why: str = "") -> list:
     """Строки lineage слагаемых окна (ТЗ-97 Q10): роль называет слагаемое
     и его период, база периода едет в той же строке — приближение
@@ -712,7 +740,10 @@ class SnapshotBuilder:
         IssuerInputs.windows / .fallbacks, чтобы их увидел проход оценки.
 
         Однопериодные: пересечение периодов входов (unit, start, end),
-        приоритет тега карты выбирает источник. Двухпериодные (roe,
+        приоритет тега карты выбирает источник. ТЗ-104 P2: из равных
+        подач одного периода берётся доминирующая валюта подачи эмитента
+        (`choose_presentation`), а не та, что первой попалась при обходе
+        множества. Двухпериодные (roe,
         asset_turnover): сток берётся на НАЧАЛО и на КОНЕЦ окна потока,
         иначе missing_prior_period. Цепочка nopat берёт
         ставку из посчитанной effective_tax. Отсутствующий вход назван
@@ -724,6 +755,10 @@ class SnapshotBuilder:
         """
         rows = self._snapshots.as_reported_facts(
             issuer_id, tuple(sorted(base_concepts)))
+        # ТЗ-104 P2: доминирующая валюта подачи эмитента — она разрезает
+        # равенство там, где один и тот же период подан в двух unit.
+        presentation_unit = self._snapshots.dominant_filing_currency(
+            issuer_id)
         by_concept: dict[str, list] = {}
         for _concept, value, fact_id, unit, start, end, canonical in rows:
             # ТЗ-22 J3: на дату as_of период, кончившийся позже, ещё не
@@ -907,9 +942,9 @@ class SnapshotBuilder:
             note = annual_route_note(windows, needed) if basis else ""
             if basis:
                 fallbacks[concept] = note
-                chosen = max(annual, key=lambda k: (k[2], k[1]))
+                chosen = choose_presentation(annual, presentation_unit)
             else:
-                chosen = max(common, key=lambda k: (k[2], k[1]))
+                chosen = choose_presentation(common, presentation_unit)
             values: dict[str, float] = {}
             lin: list = []
             units: list[str] = []
@@ -1040,11 +1075,10 @@ class SnapshotBuilder:
                      "period_basis": window.basis}
                     for row in (window_end, window_begin)]
                 continue
-            chosen = max((k for k in
-                          {(r["unit"], r["start"], r["end"])
-                           for r in flow_rows}
-                          if k[2] in stock_ends),
-                         key=lambda k: (k[2], k[1]), default=None)
+            chosen = choose_presentation(
+                [k for k in {(r["unit"], r["start"], r["end"])
+                             for r in flow_rows} if k[2] in stock_ends],
+                presentation_unit)
             if chosen is None:
                 reasons[concept] = "period_mismatch"
                 continue

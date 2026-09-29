@@ -45,17 +45,20 @@ class ReparseResult:
 
 def rebuild_companyfacts(repos) -> ReparseResult:
     """Пройти все сохранённые companyfacts нынешним CompanyFactsParser:
-    чего в базе нет — дописать, что есть — выровнять по basis.
+    чего в базе нет — дописать, что есть — выровнять по basis, у каждого
+    пройденного эмитента перевыбрать `reporting_currency` (ТЗ-104 P2).
     Идемпотентно: второй прогон не добавляет ни строки и ничего не
-    меняет."""
+    меняет — в том числе и валюту подачи, потому что она то же число."""
     import uuid as _uuid
 
     from rusterm.parsers import CompanyFactsParser
     from rusterm.pipeline import apply_concept_map
-    from rusterm.store.repos import persist_ingestion_results
+    from rusterm.store.repos import (persist_ingestion_results,
+                                     refresh_reporting_currency)
 
     result = ReparseResult()
     parser = CompanyFactsParser()
+    walked = []
     for row in repos.fact.companyfacts_objects():
         sha, instrument_id = row[0], row[1]
         instrument = (repos.instrument.get_instrument(instrument_id)
@@ -106,4 +109,11 @@ def rebuild_companyfacts(repos) -> ReparseResult:
             result.added += len(fresh)
         result.changed += repos.fact.update_basis(changes)
         result.objects += 1
+        if issuer_id not in walked:
+            walked.append(issuer_id)
+    # Валюта подачи пересчитывается для каждого пройденного эмитента, а
+    # не только там, где дописали факты: на базе, разобранной прежним
+    # разборщиком, fresh пуст и persist бы не вызвался.
+    for issuer_id in walked:
+        refresh_reporting_currency(repos.conn, issuer_id)
     return result

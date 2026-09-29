@@ -737,6 +737,13 @@ class SnapshotRepo:
                 ORDER BY period_end DESC, ingested_at DESC""",
             (issuer_id, *concepts)).fetchall()
 
+    def dominant_filing_currency(self, issuer_id: str) -> Optional[str]:
+        """ТЗ-104 P2: доминирующая валюта подачи эмитента — той же
+        выборкой пользуется и presentation мер, и
+        `issuer.reporting_currency` (см. модульную
+        `dominant_filing_currency`)."""
+        return dominant_filing_currency(self.conn, issuer_id)
+
     def restated_stock_facts(self, issuer_id: str, concepts: tuple) -> list:
         """Мгновенные факты сток-концептов в базисе restated — вместе с
         подачей, из которой они прочитаны (ТЗ-102 M3).
@@ -1516,6 +1523,61 @@ class JobRepo:
         return {"status": row[0], "reason": row[1]}
 
 
+def dominant_filing_currency(conn: sqlite3.Connection,
+                             issuer_id: str) -> Optional[str]:
+    """ТЗ-104 P2: валюта подачи эмитента — unit с наибольшим числом
+    денежных фактов; при равенстве — наименьшая по алфавиту (Disputed
+    5/23).
+
+    Денежным считается факт с unit из трёх заглавных букв — то же
+    правило, что у `core.fact.currency_of_unit` (`^[A-Z]{3}$`), поэтому
+    `shares`, `pure` и `USD/shares` в голосе не участвуют. По колонке
+    `currency` не считаем: у строк, разобранных до J1.0, он пуст, а
+    подавались они в своей валюте. Базис не фильтруется: повтор периода
+    сравнительной колонкой — тоже подача в той же валюте, а починка
+    basis (пересборка) валюту строки не меняет, и доминирующая валюта не
+    обязана подпрыгивать от того, что пересборка передвинула строку
+    между базами.
+    """
+    row = conn.execute(
+        """SELECT unit FROM fact
+           WHERE issuer_id=? AND status='ok'
+             AND unit GLOB '[A-Z][A-Z][A-Z]'
+           GROUP BY unit ORDER BY COUNT(*) DESC, unit ASC LIMIT 1""",
+        (issuer_id,)).fetchone()
+    return row[0] if row else None
+
+
+def _apply_reporting_currency(c, issuer_id: str) -> None:
+    """Записать эмитенту доминирующую валюту подачи. Курсор, а не
+    соединение: функция вызывается изнутри уже открытой транзакции, а
+    `writer_transaction` вложенным не бывает."""
+    dominant = dominant_filing_currency(c, issuer_id)
+    if dominant is None:
+        # Денежных фактов нет — выдуманную валюту не пишем: остаётся то,
+        # чем эмитента завели в реестре.
+        return
+    c.execute("""UPDATE issuer SET reporting_currency=?
+                 WHERE issuer_id=? AND reporting_currency<>?""",
+              (dominant, issuer_id, dominant))
+
+
+def refresh_reporting_currency(conn: sqlite3.Connection,
+                               issuer_id: str) -> None:
+    """ТЗ-104 P2: перевыбрать `issuer.reporting_currency` для эмитента,
+    которого прогон не трогал.
+
+    `persist_ingestion_results` обновляет колонку вместе с фактами, то
+    есть только когда факты есть. На базе, где всё разобрано прежним
+    разборщиком, пересборка не дописывает ни строки — и колонка
+    навсегда остаётся той, чем эмитента завели в реестре (Disputed 23:
+    KSPI с 568 KZT-фактами на копии — USD). Прогон идемпотентен: второй
+    раз `UPDATE` не находит что менять.
+    """
+    with writer_transaction(conn) as c:
+        _apply_reporting_currency(c, issuer_id)
+
+
 def persist_ingestion_results(conn: sqlite3.Connection,
                               fact_dicts: list[dict],
                               coverage_rows: list[tuple]) -> None:
@@ -1525,6 +1587,11 @@ def persist_ingestion_results(conn: sqlite3.Connection,
 
     fact_dicts — словари факта по data-model.md §3 (как их отдаёт парсер,
     с добавленным fact_id). coverage_rows — (instrument_id, block, status, reason).
+
+    ТЗ-104 P2: здесь же обновляется `issuer.reporting_currency` — тем же
+    правилом, которым снапшот выбирает presentation мер (Disputed 23:
+    KSPI на копии — 568 KZT-фактов при USD в реестре, потому что колонку
+    писал запуск `watch add` и больше её никто не пересчитывал).
     """
     with writer_transaction(conn) as c:
         for f in fact_dicts:
@@ -1551,6 +1618,9 @@ def persist_ingestion_results(conn: sqlite3.Connection,
                      status=excluded.status, last_update=excluded.last_update,
                      reason=excluded.reason""",
                 (instrument_id, block, status, time.time(), reason))
+        for issuer_id in sorted({f.get("issuer_id") for f in fact_dicts
+                                 if f.get("issuer_id")}):
+            _apply_reporting_currency(c, issuer_id)
 
 
 # Блоки покрытия и их статусы — ровно эти восемь и пять

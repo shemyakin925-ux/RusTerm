@@ -1,13 +1,13 @@
 {
   "task": "agent/TASK-104.md",
   "report": "agent/REPORT-104.md",
-  "item": "ТЗ-104 P1: pe/ps/fcf_yield refuse across currencies — same K6 rule as pb, no FX conversion.",
-  "step": "Red-before recorded (pe=7.0, ps=0.7, fcf_yield=0.1714 on USD price + GBP filings). Guard added in rusterm/core/snapshot.py: sides_clash() beside mismatch(); pe/ps compare price_currency against window_units (window path) and the annual fact's currency (backup path); fcf_yield compares IssuerInputs.units['fcf'] against the price. IssuerInputs gained window_units. Verified: tests/test_task104_p1_…py 6 passed, and the KSPI pins + i5 guard + P1 file together 22 passed in 1317.40s; agent/p6_rule.sh came back byte-identical (its own fixture restored the widening it staged). Before/after measured on three /tmp copies of ~/EquityLab/data (HEAD worktree vs the change, same as_of) — one row moved: US-AMX pe 58.1009 -> currency_mismatch: MXN, USD. Full suite running, then commit.",
+  "item": "ТЗ-104 P2: one presentation per period, chosen by the issuer's dominant filing currency; issuer.reporting_currency refreshed on ingest and reparse.",
+  "step": "Implemented: core/snapshot.py choose_presentation() replaces the three max(key=(end,start)) sites that put unit in the key (annual, common, two-period flow); store/repos.py dominant_filing_currency() (monetary = unit GLOB '[A-Z][A-Z][A-Z]', same predicate as currency_of_unit), _apply_reporting_currency(cursor) inside persist_ingestion_results' transaction, public refresh_reporting_currency(conn) called once per issuer walked by rebuild_companyfacts (reparse persists only when it adds rows). Tests: tests/test_task104_p2_deterministic_presentation.py, 13 teeth — red on a detached 7ec196a worktree (7 failed at seeds 0 and 1, 6 at seed 2, reparse pair 'USD' vs 'MXN'), 13 passed on the working tree. Copy (P7, /tmp only, network 0, counter 86->86): before 1 of 1320 measure rows moved between hash seeds, after 0 in all three pairs; reparse moved issuer.reporting_currency for 4 issuers -> 0 differing, US-KSPI USD -> KZT. Convenience full suite reached 100% with no FAILED/ERROR lines but lost its exit code; the hook's run is the verdict. Disputed 25 (upsert_issuer overwrites the computed column) and 26 (four TJS facts on KSPI) recorded. FIRST COMMIT ATTEMPT REJECTED (05:25:41 -> 05:45:49Z, Итог: пройдено 11, провалено 2): both pytest checks failed tests/test_report_sections.py::test_disputed_lines_live_only_in_disputed_section because a P2 prose continuation line started with 'Disputed 26 below.' outside ## Disputed. Nothing was committed; the sentence was reworded (no test touched), the row is recorded in ## Runs, commit relaunched. Then P3.",
   "status": "working",
-  "last_commit": "583ab93",
+  "last_commit": "7ec196a",
   "requests": 40,
   "net_requests": 40,
   "llm_calls": 0,
   "model": "Qoder executor (model id not exposed)",
-  "updated_at": "2026-09-29T03:46:00Z"
+  "updated_at": "2026-09-29T05:55:00Z"
 }
