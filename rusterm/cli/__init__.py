@@ -1001,10 +1001,15 @@ def cmd_snapshot(args) -> int:
     if targets is None:
         conn.close()
         return 1
+    # ТЗ-104 P7: дата считается один раз и уходит и в фабрику, и в
+    # build(). Раньше фабрика получала сегодня машины, и пять строк
+    # governance сборки «--as-of 2026-09-12» датировались сегодняшним
+    # числом, пока меры жили на запрошенном; окно сделок инсайдера
+    # (365 дней от as_of) отсчитывалось от той же не той даты.
+    as_of = args.as_of or args_as_of_default()
     # ТЗ-97 Q6 (ТЗ-94 E1): wiring построителя — в одном месте, иначе
     # пути разъезжаются, и диагностика пишет снапшот беднее сборки.
-    builder = make_snapshot_builder(repos, args_as_of_default())
-    as_of = args.as_of or args_as_of_default()
+    builder = make_snapshot_builder(repos, as_of)
     for instrument_id, issuer_id in targets:
         # ТЗ-94 E2, ТЗ-97 Q6: набор аналогов разрешает сам
         # строитель на as_of сборки — команде не нужно об этом
