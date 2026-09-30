@@ -46,7 +46,7 @@ from rusterm.store.repos import Instrument, Issuer, RepoRegistry
 CORE_ROOT = Path(__file__).resolve().parents[1]
 _PAYLOAD = (CORE_ROOT / "tests" / "data" / "edgar" / "ownership"
             / "000114036126036226_form4.xml")
-_THRESHOLDS_DOC = CORE_ROOT / "docs" / "governance-thresholds.md"
+_THRESHOLDS_DOC = CORE_ROOT / "docs" / "adr" / "0026-insider-net-v-dengah.md"
 
 _AS_OF = "2026-09-13"
 _BUY_DATE = "2026-09-01"    # 200 акций куплено
