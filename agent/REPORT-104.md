@@ -653,7 +653,7 @@ catalogue, network 0).** The same 44 instruments rebuilt twice at
 
 Both rebuilds report 0 failed instruments per tree, 14 s and 17 s.
 
-### R1 — `census --rebuild` says it writes (TASK-105, prepared and uncommitted)
+### R1 — `census --rebuild` says it writes (TASK-105, committed in round 141)
 
 Item: ruling 9, «`census --rebuild` may write; say so». Done when: a test
 that `census` without `--rebuild` leaves the DB byte-identical.
@@ -712,7 +712,7 @@ read-only upgraded the user's schema. No data row moved. Recorded as item 29
 below, not fixed here — R1's letter is about the wording, and dropping the
 migration from a CLI command is a bigger ruling than a night item.
 
-### R5 — the G4 taxonomy pin restated per concept (TASK-105, prepared and uncommitted)
+### R5 — the G4 taxonomy pin restated per concept (TASK-105, committed in round 141)
 
 Item: ruling 19, «restate as a per-concept pin». Done when: it passes without
 `xfail`. Same scratch worktree as R1 (`/tmp/rt-105work` at `0c0f12d`); the
@@ -777,7 +777,7 @@ the same file — the commit message carries
 `ЗАМЕНА-БУЛАВКИ: tests/test_ifrs_map.py::test_g4_payload_taxonomy_us_gaap_wins_and_ifrs_parses -> tests/test_ifrs_map.py::test_g4_payload_taxonomy_maps_each_row_under_its_own_taxonomy`
 and a `ПОЧЕМУ СИЛЬНЕЕ:` line (`/tmp/commit-r5.txt`).
 
-### R2 — the `.app` build keeps its cache out of the substituted HOME (TASK-105, prepared and uncommitted)
+### R2 — the `.app` build keeps its cache out of the substituted HOME (TASK-105, committed in round 141)
 
 Item: «firsthour build stays inside tmp» — build subprocess gets
 `PYINSTALLER_CONFIG_DIR=<tmp>`, `HOME_ALLOWED` unchanged. Done when: `pytest -m
@@ -819,7 +819,7 @@ Red-before of the cheap teeth at base: 3 failed, 2 passed, `RC=1`
 (`/tmp/r2-red-before.log`). Whole offline suite re-run because R2 and R4 touch
 the harness — see `## Runs`.
 
-### R4 — live runs see the real env file (TASK-105, prepared and uncommitted)
+### R4 — live runs see the real env file (TASK-105, committed in round 141)
 
 Item: «`_isolated_rusterm_env` keeps `RUSTERM_ENV_FILE` real when the markexpr
 selects `live` (mirror `_p7_isolated_home`). Keys never printed.» Done when: a
@@ -853,7 +853,7 @@ user path survived / did not survive»), not on a `TypeError`. Red-before at
 base: **5 failed, 6 passed, `RC=1`** (`/tmp/r4-red-before.log`); after: 11
 passed (`/tmp/r4-after.log`). No assert removed; no network.
 
-### R3 — a share count is necessary but not sufficient: the offline tape's price has aged out (TASK-105, not done, network budget unspent)
+### R3 — the recording shipped, the graduation did not: the offline tape's price has aged out (TASK-105, done as far as the ruling allows)
 
 Item: «Record `dei:EntityCommonStockSharesOutstanding` for the AAPL fixture (1
 request, sanitized like the others); re-point the graduation tooth back to
@@ -894,16 +894,74 @@ No request was issued; see the last paragraph.
    `dei` fact is what makes the denominator possible, and the price door is
    what forbids it in the ordinary path.
 
-Why the one authorized request was not spent: with the dei section recorded the
-tooth would still read `{"gray"}`, so the Done-when fails either way, and the
-new bytes would sit unused in the fixture until the coordinator rules on the
-price door. Recording half an item as done is the thing AGENTS.md forbids
-(«Нет вывода команды — нет слова „работает"»); the measurement is reported and
-the ruling asked for — Disputed 30.
+What was written above this paragraph stood until the user ruled (30.09.2026):
+spend the one request, and if the Done-when is still unreachable offline, leave
+the tooth and record the finding. The request is now spent and the recording is
+shipped — raw 3 789 099 bytes in `/tmp/r3-raw-aapl-companyfacts.json` (the
+script re-runs without a second request; that is how the budget is protected),
+the `dei` section trimmed by the repo's own rules (`_trim_section` of
+`tools/trim_companyfacts.py`, same `KEEP_ENTRY_FIELDS`, same 10-K selection,
+same six freshest instantaneous periods), `facts.us-gaap` untouched, fixture
+31 652 → 32 584 bytes, manifest sha256 moved by exactly one line. The measured
+before/after on two copies of one tree is in `## Runs`; item 30 carries the
+ruling.
+
+What ships instead of the re-pointed tooth: `tests/test_task105_r3_dei_shares.py`
+(3 teeth) — the cover page reaches the dictionary (6 rows, `shares`, `dei.v1`,
+`as_reported`, the period list, the newest number), the refusal names the price
+and not the share count (prefix pin, deliberately no date, so the tooth does not
+rot at midnight), and `insider_net` is still gray. Red before on the old
+fixture: `assert 0 == 6` (`/tmp/r3-red-before.log`); the other two teeth pass in
+both trees because they pin what did **not** change.
 
 Nothing here says the current tooth is wrong: `colours == {"gray"}` passes and
 states the truth about today's offline path. It is the graduation route that is
 unresolved.
+
+### R6 — the window may start core commands: shipped as a new ADR-0027 (TASK-105, done by the user's ruling)
+
+Item: «One sentence: the window may start core commands (collect =
+`rusterm follow` in a worker); arithmetic and direct DB writes stay out of the
+interface layer.» Done when: «acceptance check 10 green; ADR diff is that
+sentence only».
+
+TASK-105's header authorizes editing
+`docs/adr/0023-qt-tolko-v-sloe-interfeysa.md`, and check 10
+(`agent/acceptance.sh:183` — `git diff --name-status origin/main HEAD -- docs/`,
+allowed `^A[[:space:]]+docs/(adr|industry-metrics)/`) reddens any `M` under
+`docs/` on every branch. That conflict is item 28; the user ruled the other door:
+R6 is the **new** `docs/adr/0027-okno-zapuskaet-komandy-yadra.md` («уточняет
+ADR-0023») and 0023 is not touched.
+
+Measured, not argued (rows in `## Runs`):
+
+* after the commit, `git diff --name-status origin/main HEAD -- docs/` prints
+  four `A` lines (0024, 0025, 0026, 0027) and no `M` — check 10 green by the same
+  arithmetic that made the coordinator's repair land;
+* `git diff <parent>..<this commit> -- docs/adr/0023-qt-tolko-v-sloe-interfeysa.md`
+  is empty: «never an edit of 0023» holds byte-wise;
+* the new ADR must be named in README §15 — the paragraph is in the same commit,
+  and the failure mode it prevents was measured one item earlier with 0026
+  («ADR есть в docs/adr/, но не назван в README §15: 0026», `RC=1`).
+
+Where the item and the shipped file differ, stated plainly: «ADR diff is that
+sentence only» cannot be literally true of a new file — the file is 66 lines
+because every ADR here carries context, teeth and consequences, and ADR-0026 (the
+coordinator's repair) is the same shape. The **rule** is the one sentence the
+item asked for; everything else in the file is citation.
+
+What the ADR pins to real teeth rather than to a promise:
+
+* `tests/test_desktop_task97_q12_collect_follow.py` — the window records a call
+  to `cli.cmd_follow` and the arg vector must parse with the real parser, so the
+  interface cannot quietly grow a copy of the stage bodies;
+* acceptance checks 6/7/8 — Qt only in `rusterm/desktop/` and
+  `tests/test_desktop_*.py`, SQL only in `rusterm/store/`, HTTP only in
+  `rusterm/providers/`;
+* the two honest exceptions the file names instead of hiding: `rusterm/desktop/actions.py:27`
+  imports `apply_migrations`/`open_connection` (the interface brings the file's
+  schema up when it opens it), and the window still closes over its own `_today()`
+  for the build date — item 27, out of R6's scope.
 
 ## Blocked
 
@@ -1259,7 +1317,61 @@ open.
     today; (c) graduate a different indicator offline — the four
     `no_data:not_collected` ones close through `rusterm import <файл> --issuer
     US-AAPL` (manual proxies, no network, no price), which needs no tape change
-    at all. The one authorized request is unspent for this reason.
+    at all.
+
+    **Update after the ruling (30.09.2026).** The user authorized the one
+    request and said: if the Done-when is still unreachable offline, record it
+    here and leave the tooth as it is. The request is spent, the recording is
+    shipped, and the tooth is left as it is. Measured on two copies of the same
+    tree, the fixture the only difference (`## Runs`, «R3 recording»):
+    `fact` rows for the issuer 206 → 212, `shares_outstanding` (canonical,
+    `dei.v1`, `basis=as_reported`) 0 → 6 covering 2020-10-16…2025-10-17,
+    `market_cap_total` NULL in **both** with the same
+    `missing_data: price_close_stale:2026-09-11`, and the five governance rows
+    unchanged (`no_data:not_collected` ×4, `no_data:ownership_without_market_cap`).
+    So exit (a)/(b)/(c) are still the only ways to graduate a row, and all three
+    are bigger than R3's letter. What ships instead of the re-point is
+    `tests/test_task105_r3_dei_shares.py`: three teeth that pin the recording
+    (6 facts, unit, map version, basis, the exact period list and the newest
+    number), pin that the refusal names the **price** and not the share count
+    (prefix pin, no date — the tooth survives midnight), and pin that
+    `insider_net` is still gray, so nobody can read the recording as a cure.
+
+31. **`8c84d4b` moved the method version into ADR-0026 and left the module
+    pointer pointing at the thresholds doc.** Three places now say different
+    things about the same number, and none of them is a red test:
+    `docs/governance-thresholds.md:10` and `:88` state `method_version =
+    governance.v1` (correct for that document — it describes the era before P6
+    and is append-only by ADR-0001), `rusterm/core/governance.py:2` says
+    `(TASK-7 T17, docs/governance-thresholds.md, method_version=governance.v2)`
+    — so the module points a v2 at a document that says v1, and
+    `docs/adr/0026-insider-net-v-dengah.md` is where v2 actually lives (2
+    mentions). No check compares them: `tests/test_governance.py:199`,
+    `tests/test_task104_p6_insider_net_money.py:277,288` pin the *stored*
+    version history (v1 rows survive a v2 row — append-only proven), and
+    `tests/test_docs_truth.py` only requires every ADR to be named in README
+    §15. Repair wanted, one line either way, and neither is mine from the
+    executor's seat: name ADR-0026 in the module's pointer (a code edit
+    outside TASK-105's scope), or add a v2 line to the thresholds doc (an
+    `M` under `docs/`, which check 10 refuses — item 28). My own repair
+    version of this pointer split is kept at
+    `/tmp/rusterm-round141-artifacts/prepull-repair/rusterm/core/governance.py`
+    for comparison and is deliberately not committed.
+
+    **Item 28 — ruled 30.09.2026 by the user, and it is exit (a) of the three
+    named there**, with one correction to my own suggestion: the number 0026 is
+    taken (it is the coordinator's repair `8c84d4b`), so R6 ships as
+    **`docs/adr/0027-okno-zapuskaet-komandy-yadra.md`** and ADR-0023 stays
+    byte-identical. Recorded in the R6 section of `## Done` and in `## Runs`.
+    The second half of item 28 — check 10 comparing `origin/main` with **HEAD**
+    while the hook runs before the commit it authorises — is **not** closed by
+    the ruling. It is still true, it is why my own repair commit could not be
+    gated green, and the coordinator's `8c84d4b` is the case where the same
+    arithmetic happened to work (that commit makes the docs diff vs
+    `origin/main` contain only `A` lines, so the check is green for it and for
+    everything after it). Nothing here asks to widen the check; the note stands
+    only as a fact a future shift should know: a violation created on the
+    branch is invisible to the commit that creates it and fatal to the next one.
 
 ## Runs
 
@@ -1700,3 +1812,70 @@ hand remain.**
 - BUDGET NOTE: each commit costs ≈20 min of hook (checks 3 and 11 run the whole
   offline suite). Commits are launched detached; a timed-out commit is never
   re-issued, because the hook may still be running.
+
+## Runs — round 141, commits 2 and 3: the measurements behind the R sections
+
+Every row is a command that ran and a number read off its output; nothing here
+is inferred from the code.
+
+| run | command | measured result |
+|---|---|---|
+| commit A landing | `nohup git commit -F /tmp/commit-92.txt` → `/tmp/c92-commit2.log` | `Итог: пройдено 13, провалено 0`, `COMMIT_RC=0`, `f25a748`, 37 files 4555+/145−, 07:11:41Z→07:31:29Z (19 m 48 s) |
+| commit B landing | same shape, `/tmp/p7-commit2.log` | `Итог: пройдено 13, провалено 0`, `COMMIT_RC=0`, `cb01c81`, 4 files 1122+/28−, 07:42:03Z→08:01:35Z (19 m 32 s) |
+| commit C landing | `nohup … git commit -F /tmp/commit-105.txt` → `/tmp/c105-commit.log` | `Итог: пройдено 13, провалено 0`, `COMMIT_RC=0`, `75651e0` «ТЗ-105 R1 R2 R3 R4 R5 R6: …», **13 files 730+/56−**, 08:20:27Z→08:40:58Z (20 m 31 s). The message identity was checked, not assumed: `git log -1 --format=%B` vs `/tmp/commit-105.txt` differ by one trailing newline that `git log` itself prints (`diff` shows `268a269 >`, 23 216 vs 23 217 bytes) |
+| R3 the one authorized request | `/tmp/r3-record.py` → `/tmp/r3-record.log` | «request spent, raw saved … 3789099 bytes»; `dei` tags in the answer: `EntityCommonStockSharesOutstanding`, `EntityPublicFloat`; `unit=shares` rows=70, forms `10-Q` 52 / `10-K` 17 / `10-K/A` 1 |
+| R3 the trim | same log, tail | the six 10-K instantaneous rows kept: 2020-10-16, 2021-10-15, 2022-10-14, 2023-10-20, 2024-10-18, 2025-10-17 (newest `14776353000`); `facts.us-gaap` bytes untouched, fixture 31 652 → 32 584 |
+| R3 what the cassette serves | `follow` under the offline providers, both trees | `стадия записи — получено 35078 байт` (pristine) vs `36110 байт` (extended) — the recorded section reaches the parser, not just the file |
+| R3 manifest | recompute and compare | `tests/data/edgar/m3_manifest.json` diff = exactly one line; sha256 `e3343d5c1286…` → `d1a9744dbff7ed0d…0746a1`, re-verified MATCH against the shipped fixture |
+| R3 before/after on two copies of one tree | probe printing `canonical_concept` counts, `/tmp/r3-probe-base.log` and `/tmp/r3-probe-ext.log` | facts 206 → 212; `shares_outstanding` facts 0 → 6 (all `dei:EntityCommonStockSharesOutstanding`, `unit shares`, `basis as_reported`, `concept_map_version dei.v1`); `status!=ok` 0 in both; valued measures 11 of 29 in **both** |
+| R3 what did NOT change | same probe | `market_cap_total` = `NULL` with `null_reason = missing_data: price_close_stale:2026-09-11` in both trees — the date, not the share count |
+| R3 red-before | `test_task105_r3_dei_shares.py` against the pristine fixture, `/tmp/r3-red-before.log` | 1 FAILED — `assert 0 == 6` in `test_cover_page_share_count_reaches_the_dictionary`; the other two teeth pass in both trees, because they pin the refusal and the gray |
+| R3 the teeth on the shipped fixture | each tooth of `tests/test_task105_r3_dei_shares.py` run where it belongs | all 3 green on the extended fixture — counted in the pre-flight row below (`/tmp/preflight-c.log`, set 1). `/tmp/r3-tooth.log` is a single-tooth run (1 outcome) made while the file was still being written; it is cited for what it shows and not for the whole file |
+| R3 consumer sweep | the 13 consumer files that read the AAPL fixture, then the same set with the 3 new teeth appended | 74 outcomes / 2 xfail `RC=0` before (`/tmp/r3-consumers.log`) and 77 / 2 xfail `RC=0` after (`/tmp/r3-consumers2.log`) — the 3 added outcomes are exactly the new teeth, so the fixture growth breaks no consumer |
+| pre-flight over the exact bytes commit 3 stages | `I5_NESTED=1 QT_QPA_PLATFORM=offscreen python3 -m pytest -q` in three sets, detached (`/tmp/preflight-c.sh` → `/tmp/preflight-c.log`, 08:13:59Z→08:17:35Z) | set 1 — R1+R2+R3+R4+R5+P7 files: **39 outcomes, 37 passed, 2 xfail, `RC1=0`**; set 2 — `test_docs_truth`, `test_adr_numbers`, `test_report_sections`, `test_state_report_tracked`: **37 outcomes, 36 passed, 1 skipped, `RC2=0`**; set 3 — the 13 consumer files: **74 outcomes, 72 passed, 2 xfail, `RC3=0`**. `tests/test_refresh_live.py` is deliberately not in set 3 (it is the live path, and this round's remaining request budget is 0); the 2 xfails in sets 1 and 3 are the pre-existing ТЗ-31 cases, named in earlier rounds |
+| R1/R2/R4/R5/P7 in the consolidated tree | `I5_NESTED=1 QT_QPA_PLATFORM=offscreen pytest -q` | P7+R1+R4+R5 = 29 outcomes RC=0 (`/tmp/consolidate-1.log`, the same 2 pre-existing xfails); R2 = 5 passed RC=0 (`/tmp/consolidate-r2.log`) |
+| R6 the door check 10 allows | `git diff --cached --name-status origin/main -- docs/` | four `A` lines — 0024, 0025, 0026, 0027 — and **zero `M`**; `git diff origin/main HEAD -- docs/adr/0023-…md` = 0 paths, so «never an edit of 0023» holds byte-wise |
+| R6 the README door | `test_docs_truth.py::test_readme_lists_every_adr` after the §15 paragraph | green; its failure mode was measured one item earlier with 0026 («ADR есть в docs/adr/, но не назван в README §15: 0026», `RC=1`) |
+| R6 file shape | `wc -l docs/adr/0027-okno-zapuskaet-komandy-yadra.md` | 66 lines: the one ruled sentence, its context, the teeth it pins, and the two exceptions it names instead of hiding |
+
+## HANDOFF — round 141, final (supersedes the block at commit 2 of 3)
+
+**Status: DONE — the three commits the user ruled are landed, the hand carries
+both reports, and two items go back to the coordinator as questions, not as
+blockers.**
+
+- Items done: R1 (the census names both paths into the base — docstring +
+  `--rebuild` help), R2 (the `.app` build keeps its cache out of the substituted
+  HOME), R3 (the `dei` recording + 3 teeth; the graduation tooth left exactly as
+  it is, by the ruling), R4 (live runs read the real env file), R5 (the G4 pin
+  split per concept), R6 (`docs/adr/0027-okno-zapuskaet-komandy-yadra.md` + the
+  README §15 paragraph that names it).
+- Landed this round: `f25a748` TASK-92 C0–C4, `cb01c81` TASK-104 P7, `75651e0`
+  TASK-105 R1–R6 — each through the pre-commit acceptance hook at
+  «Итог: пройдено 13, провалено 0». The coordinator's own repair `8c84d4b` is the
+  base all three sit on; my duplicate version of that repair was dropped on
+  order and its bytes are kept only for comparison.
+- THEN: `git push origin HEAD:agent/night-11` (detached tree; the branch ref is
+  held by `/tmp/rusterm-night11`), then `python3 agent/relay.py hand --to
+  coordinator --add agent/REPORT-104.md --add agent/REPORT-92.md`, then re-arm
+  `relay.py wait --for executor` detached. Both reports reach the coordinator in
+  that baton commit — the edits below the `## Runs` header of this file are
+  deliberately still dirty in the tree while commit 3 carries the code.
+- For the coordinator (no repair requested, only rulings): item 30 — the share
+  count now reaches the dictionary and `market_cap_total` is still refused for
+  the price, so a graduation tooth of the form «colours is not gray» cannot be
+  green offline for any fixture whose tape ends 2026-09-11 while
+  `_PRICE_STALE_DAYS = 7` (`core/snapshot.py:102`); say which door you want open.
+  Item 31 — `rusterm/core/governance.py` still points a `governance.v2` at
+  `docs/governance-thresholds.md`, which documents v1; both ways to fix it are
+  outside TASK-105's scope or an `M` under `docs/` that check 10 refuses, so this
+  one needs your hand, not mine.
+- Budget: 2 network requests for the whole round (1 EDGAR ingest for TASK-92 C1,
+  1 SEC `companyfacts` for R3), 0 LLM calls. Every other cost was the hook:
+  about 20 minutes per commit, so commits are launched detached and a timed-out
+  commit is never re-issued.
+- What is not claimed here: no check is asserted that is not a row in `## Runs`.
+  The full offline suite was run by the hook of each commit, not separately; the
+  per-set pre-flight rows name their own log files.
+- Queue: 93 → 87 G1 → 94 E3–E8 → 85 → 86 remains untouched, as instructed — this
+  round had three commits to land first.
