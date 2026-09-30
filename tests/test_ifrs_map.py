@@ -4,10 +4,12 @@
   отображаются в None (они дают неверное число там, где сейчас честная
   дыра); st_investments не имеет IFRS-тега вовсе;
 - us-gaap-карта байт-в-байт та же, что на origin/main (ruling 1);
-- payload с двумя таксономиями: us-gaap выигрывает по КОНЦЕПТУ
-  (priority_rank со смещением ifrs-full) — ТЗ-97 Q4 уточняет ruling 2:
+- payload с двумя таксономиями: отбрасывать раздел ifrs-full нельзя,
+  обе строки доживают до канонизации (ТЗ-97 Q4 уточняет ruling 2:
   раньше раздел ifrs-full отбрасывался целиком, если в payload был хоть
-  один us-gaap-тег;
+  один us-gaap-тег). Победителя между таксономиями нет: каждая строка
+  канонизируется своей картой — это и закрепляет тест в конце файла
+  (переформулирован по ТЗ-105 R5);
 - rusterm/formulas.py байт-в-байт равен origin/main (механический страж).
 """
 from __future__ import annotations
@@ -24,6 +26,7 @@ from rusterm.normalize.concepts import (
     CONCEPT_MAP,
     CONCEPT_MAP_IFRS,
     CONCEPT_MAP_VERSION,
+    CONCEPT_MAP_VERSION_DEI,
     CONCEPT_MAP_VERSION_IFRS,
     canonical_for,
 )
@@ -122,15 +125,27 @@ def test_formulas_py_matches_era_baseline():
         "baseline тем же коммитом и учтите замену в отчёте")
 
 
-@pytest.mark.xfail(strict=True, reason="ТЗ-31 C2: карта us-gaap расширена по payload-доказательствам (us-gaap.v4); булавки прежнего состояния заменены более сильными в tests/test_c2_six_measures.py — REPORT-31, Disputed")
+def test_g4_payload_taxonomy_maps_each_row_under_its_own_taxonomy():
+    """G4, переформулирована по ТЗ-105 R5: у двух таксономий в одном
+    payload нет победителя — каждая строка канонизируется своей картой.
 
-def test_g4_payload_taxonomy_us_gaap_wins_and_ifrs_parses():
-    """G4: парсер разбирает ту таксономию, которую несёт payload; обе —
-    побеждает us-gaap; ifrs-full-only payload даёт канонические
-    концепты с версией ifrs-full.v1."""
+    Прежняя булавка сверяла весь список концептов с ["us-gaap:Revenues"]
+    и версию карты с us-gaap.v3; она уперлась в xfail ещё в ТЗ-31 C2,
+    когда карта us-gaap выросла до v4. Заодно она молчала о том, что
+    именно проверяла: вывод парсера — две строки, а не одна, и у каждой
+    своя версия карты и свой указатель. Здесь по проверке на строку.
+    """
     from rusterm.parsers import CompanyFactsParser
+    from rusterm.pipeline import apply_concept_map
 
-    both = {
+    def rows(payload, ref):
+        parsed = CompanyFactsParser().parse(json.dumps(payload).encode(),
+                                            {"source_ref": ref})
+        for f in parsed.facts:
+            apply_concept_map(f)
+        return {f["concept"]: f for f in parsed.facts}
+
+    both = rows({
         "cik": 1000275,
         "facts": {
             "us-gaap": {"Revenues": {"units": {"USD": [
@@ -140,19 +155,28 @@ def test_g4_payload_taxonomy_us_gaap_wins_and_ifrs_parses():
                 {"end": "2025-12-31", "start": "2025-01-01", "val": 999,
                  "accn": "a2", "form": "40-F", "filed": "2026-03-01"}]}}},
         },
-    }
-    from rusterm.pipeline import apply_concept_map
-    parser = CompanyFactsParser()
-    parsed = parser.parse(json.dumps(both).encode(), {"source_ref": "sha-x"})
-    assert [f["concept"] for f in parsed.facts] == ["us-gaap:Revenues"], \
-        "us-gaap не победил"
-    fact = parsed.facts[0]
-    apply_concept_map(fact)
-    assert fact["canonical_concept"] == "revenue"
-    assert fact["concept_map_version"] == "us-gaap.v3"
-    assert "/facts/us-gaap/" in fact["locator"]["json_pointer"]
+    }, "sha-g4-both")
 
-    ifrs_only = {
+    # ни одна таксономия не вытесняет другую на уровне парсера
+    assert set(both) == {"us-gaap:Revenues", "ifrs-full:Revenue"}
+    us, ifrs = both["us-gaap:Revenues"], both["ifrs-full:Revenue"]
+    # одна мера из двух карт: значения не слились в одну строку
+    assert us["canonical_concept"] == "revenue"
+    assert ifrs["canonical_concept"] == "revenue"
+    assert (us["value"], ifrs["value"]) == ("100", "999")
+    # версия карты — своя у каждой строки; сверяется с константой модуля,
+    # а не с литералом эры: литерал us-gaap.v3 в прежней булавке и
+    # упрёл её в xfail, когда карта выросла до v4
+    assert us["concept_map_version"] == CONCEPT_MAP_VERSION
+    assert ifrs["concept_map_version"] == CONCEPT_MAP_VERSION_IFRS
+    assert us["concept_map_version"] != ifrs["concept_map_version"]
+    assert us["concept_map_version"].startswith("us-gaap.")
+    assert ifrs["concept_map_version"].startswith("ifrs-full.")
+    # таксономия читается из указателя без миграции: строка смотрит на себя
+    assert "/facts/us-gaap/Revenues/" in us["locator"]["json_pointer"]
+    assert "/facts/ifrs-full/Revenue/" in ifrs["locator"]["json_pointer"]
+
+    only = rows({
         "cik": 1000275,
         "facts": {"ifrs-full": {"Revenue": {"units": {"USD": [
             {"end": "2025-12-31", "start": "2025-01-01", "val": 100,
@@ -160,17 +184,15 @@ def test_g4_payload_taxonomy_us_gaap_wins_and_ifrs_parses():
             "dei": {"EntityCommonStockSharesOutstanding": {"units": {
                 "shares": [{"end": "2025-12-31", "val": 5,
                             "accn": "a1", "filed": "2026-02-01"}]}}}},
-    }
-    parsed = parser.parse(json.dumps(ifrs_only).encode(),
-                          {"source_ref": "sha-y"})
-    concepts = {}
-    for f in parsed.facts:
-        apply_concept_map(f)
-        concepts[f["concept"]] = f
-    assert "ifrs-full:Revenue" in concepts
-    assert concepts["ifrs-full:Revenue"]["canonical_concept"] == "revenue"
-    assert concepts["ifrs-full:Revenue"]["concept_map_version"] == \
-        "ifrs-full.v1"
-    # "/facts/ifrs-full/" в указателе — таксономия видна без миграции
-    assert "/facts/ifrs-full/" in \
-        concepts["ifrs-full:Revenue"]["locator"]["json_pointer"]
+    }, "sha-g4-ifrs")
+
+    assert set(only) == {"ifrs-full:Revenue",
+                         "dei:EntityCommonStockSharesOutstanding"}
+    assert only["ifrs-full:Revenue"]["canonical_concept"] == "revenue"
+    assert only["ifrs-full:Revenue"]["concept_map_version"] == \
+        CONCEPT_MAP_VERSION_IFRS
+    dei = only["dei:EntityCommonStockSharesOutstanding"]
+    assert dei["canonical_concept"] == "shares_outstanding"
+    assert dei["concept_map_version"] == CONCEPT_MAP_VERSION_DEI
+    assert dei["concept_map_version"].startswith("dei.")
+    assert dei["unit"] == "shares"

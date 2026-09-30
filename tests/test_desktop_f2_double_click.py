@@ -14,7 +14,10 @@ agent/REPORT-95.md (строка `no such table: chat_transcript`).
 Сборка и каталоги:
 - `.app` собирается этим же кодом (`python3 -m PyInstaller
   EquityLab.spec --noconfirm`), dist/work уходят в песочницу теста, чтобы
-  не плодить следы в дереве клона;
+  не плодить следы в дереве клона; кэш PyInstaller — тоже туда, через
+  `PYINSTALLER_CONFIG_DIR` (ТЗ-105 R2): иначе сборка оставляет
+  `Library/Application Support/pyinstaller` в подменённом HOME, а
+  `HOME_ALLOWED` этого каталога не знает и не узнает;
 - каталог со свежей схемой строится миграциями, каталог со старой —
   настоящая база схемы 44 из tests/data/upgrade (тот же файл, что у
   test_upgrade_path и test_desktop_f1_stale_schema).
@@ -28,6 +31,7 @@ from __future__ import annotations
 
 import gzip
 import importlib.util
+import os
 import subprocess
 import sys
 import time
@@ -52,6 +56,23 @@ def _app_dir(app: Path) -> Path:
     return app / "Contents" / "MacOS"
 
 
+def _build_env(work: Path) -> dict[str, str]:
+    """Окружение сборки: всё как у прогона, плюс адрес под кэш PyInstaller.
+
+    Без него сборка пишет в `$HOME/Library/Application Support/pyinstaller`
+    (`PyInstaller/configure.py:55-62`: переменная окружения проверяется
+    первой, иначе — `expanduser` от HOME). А HOME на прогоне набора
+    подменён песочницей (дверь P7, ТЗ-97 Q11), и после первой же сборки
+    в песочнике остаётся каталог `Library` — то есть `HOME_ALLOWED`
+    обязан был бы его пустить. `HOME_ALLOWED` не расширяют (в нём только
+    `EquityLab`, и это пункт ТЗ-105 R2), поэтому мусор убирать не
+    запретом проверки, а адресом кэша: он уезжает в рабочую папку теста.
+    """
+    env = dict(os.environ)
+    env["PYINSTALLER_CONFIG_DIR"] = str(work / "pyinstaller-config")
+    return env
+
+
 def _build_app(work: Path) -> Path:
     """Собрать .app той же командой, что названа в GUIDE.md."""
     if importlib.util.find_spec("PyInstaller") is None:
@@ -60,7 +81,8 @@ def _build_app(work: Path) -> Path:
         [sys.executable, "-m", "PyInstaller", "EquityLab.spec",
          "--noconfirm", "--distpath", str(work / "dist"),
          "--workpath", str(work / "build")],
-        cwd=REPO, capture_output=True, text=True, timeout=900)
+        cwd=REPO, capture_output=True, text=True, timeout=900,
+        env=_build_env(work))
     tail = (done.stdout[-2000:] + done.stderr[-2000:])
     assert done.returncode == 0, f"сборка не вышла: {tail}"
     app = work / "dist" / "EquityLab.app"

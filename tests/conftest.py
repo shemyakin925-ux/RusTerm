@@ -8,6 +8,11 @@ ENV_NAMES из os.environ до теста; monkeypatch возвращает вс
 os.environ — не меняется: тесты test_env.py продолжают это доказывать
 уже со своим восстанавливающим fixture.
 
+Исключение — живой прогон (ТЗ-105 R4): когда селектор маркеров зовёт
+`live`, фикстура путь не подменяет (иначе живым тестам пришлось бы
+_restore-ить его руками, как они и делают в test_b36_live и
+test_c5_asx_body_live), но имена ключей вычищает по-прежнему.
+
 Вторая часть изоляции — профили Hypothesis (ТЗ-82 E1, ADR-0024): они
 зарегистрированы здесь и только здесь, выбор делает переменная
 HYPOTHESIS_PROFILE. Ядро их не импортирует.
@@ -40,13 +45,21 @@ settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
 
 @pytest.fixture(autouse=True)
-def _isolated_rusterm_env(tmp_path, monkeypatch):
-    env_file = tmp_path / "empty-rusterm.env"
-    env_file.write_text("", encoding="utf-8")
-    # 0600, как у настоящего файла: doctor иначе честно ругается на
-    # файл, читаемый группой/остальными, и чистая база становится «не ok».
-    env_file.chmod(0o600)
-    monkeypatch.setenv("RUSTERM_ENV_FILE", str(env_file))
+def _isolated_rusterm_env(request, tmp_path, monkeypatch):
+    # ТЗ-105 R4: та же дверь, что у подмены HOME ниже (`_p7_isolated_home`,
+    # ТЗ-97 Q11). Живому прогону нужен настоящий `~/.rusterm.env`, поэтому
+    # пустышка ставится только когда селектор маркеров живых тестов не
+    # зовёт. Правило — одна функция на обе двери
+    # (`p7_home_isolation.live_run_selected`), а не копия условия.
+    # Ключи при этом вычищаются в обоих прогонах: живой прогон получает
+    # путь к файлу, а не значения в окружении процесса.
+    if not p7_home.live_run_selected(request.config.getoption("markexpr")):
+        env_file = tmp_path / "empty-rusterm.env"
+        env_file.write_text("", encoding="utf-8")
+        # 0600, как у настоящего файла: doctor иначе честно ругается на
+        # файл, читаемый группой/остальными, и чистая база становится «не ok».
+        env_file.chmod(0o600)
+        monkeypatch.setenv("RUSTERM_ENV_FILE", str(env_file))
     for name in env_module.ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
     # Кэш происхождений у load_env процесса, а не теста: без сброса
