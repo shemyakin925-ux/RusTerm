@@ -1,6 +1,6 @@
 # TASK-92 — facts that survive ingestion, issuers that stay in their market, a manual import that counts
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 142, 30.09)
 - **Report:** `agent/REPORT-92.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Relay:** hand in — `python3 agent/relay.py --branch agent/night-11

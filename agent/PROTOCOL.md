@@ -43,6 +43,7 @@ file disagree, the task wins only where it says so explicitly.
   clone the desktop shortcut runs, `data/` the real base, `backups/`,
   `archive/`): never write there, and never create any new directory
   in `~` — scratch goes to `/tmp`/`tmp_path`.
+- **P9. `docs/` changes only by new files.** Existing files under `docs/` are never edited; a change is a new ADR that names the one it refines. Before every commit run `git diff --cached --name-status origin/main -- docs/` — only `A` lines. Check 10 compares HEAD, so a bad edit passes its own commit and freezes every later one (0c0f12d, 30.09).
 - **P8. No tab is empty without an executable hint** (TASK-73 T1): a
   tab or table with no value shows the reason in words and the exact
   command that fills it; a guard test enforces it.

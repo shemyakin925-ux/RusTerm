@@ -1,6 +1,6 @@
 # TASK-104 — honest numbers: rulings on REPORT-103 Disputed (part 1)
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 142, 30.09)
 - **Report:** `agent/REPORT-104.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Relay:** hand — `python3 agent/relay.py --branch agent/night-11

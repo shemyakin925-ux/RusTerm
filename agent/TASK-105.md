@@ -1,6 +1,6 @@
 # TASK-105 — harness and docs: rulings on REPORT-103 Disputed (part 2)
 
-- **Status: READY**
+- **Status: ACCEPTED** (round 142, 30.09)
 - **Report:** `agent/REPORT-104.md` (same round as TASK-104).
 - **Budgets:** network 1 (Q14 recording), LLM 0.
 - **Queue:** right after TASK-104, same round.
