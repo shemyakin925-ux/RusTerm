@@ -32,8 +32,8 @@ GOLDEN = json.loads((DATA / "golden_schema44.json").read_text(
     encoding="utf-8"))
 
 CASES = {
-    "schema41.sqlite": [42, 43, 44, 45, 46],
-    "schema44.sqlite": [45, 46],
+    "schema41.sqlite": [42, 43, 44, 45, 46, 47],
+    "schema44.sqlite": [45, 46, 47],
 }
 
 
@@ -83,7 +83,7 @@ def test_upgrade_applies_missing_migrations_and_keeps_counts(
     conn = sqlite3.connect(str(paths.db_path))
     applied = apply_migrations(conn)
     assert applied == expected, (fixture, applied)
-    assert current_schema_version(conn) == 46
+    assert current_schema_version(conn) == 47
     # идемпотентность: применённая миграция не переписывается
     assert apply_migrations(conn) == []
     conn.commit()

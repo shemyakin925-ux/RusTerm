@@ -90,7 +90,12 @@ def test_add_market_br_works_through_real_provider(monkeypatch, tmp_path,
                      "--market", "BR"]) == 0
     out = capsys.readouterr().out
     assert "AMBEV S.A." in out, out
-    assert "CIK 23264" in out, out
+    # ТЗ-92 C2 (замена булавки, было → стало): строка печатала «CIK
+    # 23264» для бразильского эмитента, хотя 23264 — это CD_CVM, а не
+    # CIK. Слоково обращение к чужому идентификатору — тот же обман,
+    # из-за которого refresh ходил в SEC за CIK = <код CVM>.
+    # было: "CIK 23264"  стало: "cvm_code 23264"
+    assert "cvm_code 23264" in out, out
 
     # не-эмитент: кадастровый поиск отвечает значением, а не падением
     from rusterm.providers.base import ProviderError

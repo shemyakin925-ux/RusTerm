@@ -25,7 +25,8 @@ from rusterm.normalize.concepts import (
 )
 from rusterm.providers.base import ProviderError
 from rusterm.providers.disclosures import FetchedDocument, IndexRecord
-from rusterm.store.repos import RepoRegistry, persist_ingestion_results
+from rusterm.store.repos import (RepoRegistry, link_superseded,
+                                 persist_ingestion_results)
 
 # Блок конвейера по типу документа индекса.
 _BLOCK_BY_DOC_TYPE = {
@@ -257,7 +258,7 @@ class IngestionPipeline:
         fact_dicts: list[dict] = []
         suspects = 0
         unmapped = 0
-        for f in parsed.facts:
+        for f in parsed.all_facts:
             fact = dict(f)
             fact["fact_id"] = str(uuid4())
             if _validate_fact(fact, getter):
@@ -265,6 +266,9 @@ class IngestionPipeline:
                 suspects += 1
             unmapped += apply_concept_map(fact)
             fact_dicts.append(fact)
+        # ТЗ-92 C1: проигравшие дедупликации — тоже разобранные факты;
+        # они пишутся и указывают на победителя, а не исчезают.
+        link_superseded(fact_dicts)
         result.unmapped_concepts += unmapped
 
         # ── Узел 8: persist — факты + coverage одной транзакцией ──

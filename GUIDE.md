@@ -42,7 +42,7 @@ RUSTERM_TWELVEDATA_KEY=...                         # котировки (ADR-001
 ```console
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide init
 каталог: /tmp/rusterm-guide
-применено миграций: 45; schema_version=46
+применено миграций: 46; schema_version=47
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide demo
 создан демо-инструмент US-CLI-DEMO (эмитент issuer-cli-demo); данные синтетические, выдуманные — не данные эмитента
@@ -67,7 +67,7 @@ $ python3 -m rusterm.cli --root /tmp/rusterm-guide demo
 ```console
 $ RUSTERM_ENV_FILE=/nonexistent/env python3 -m rusterm.cli --root /tmp/rusterm-guide follow AAPL
 каталог: /tmp/rusterm-guide
-применено миграций: 0; schema_version=46
+применено миграций: 0; schema_version=47
 US-AAPL: 1/6 каталог — готово (запросов 0)
 US-AAPL: 2/6 поиск в SEC — отказ (запросов 0)
 нет контакта SEC (network_provider_requires_gate:edgar); офлайн-режим требует --cik и --name; задайте их или заполните ~/.rusterm.env
@@ -126,6 +126,17 @@ US-AAPL: мер: 29 — со значением 13, пусто 16; перцен�
 `rusterm import <DEF-14A.pdf> --issuer US-AAPL` (прокси-статемент) или
 `rusterm import <10-K.pdf> --issuer US-AAPL` (годовая отчётность) —
 импорт разбирает документ и его строки кормят governance (ТЗ-20 L6).
+Неудача шага с моделью (429, таймаут, неразобранный ответ) не оставляет в
+каталоге ничего: заголовок документа и его байты записываются только когда
+записи разобраны, — поэтому повтор файла после сбоя остаётся обычной
+командой, а не `replay` с нулём записей (ТЗ-92 C3).
+
+Строка, которую контроль подтвердил, доходит до мер: «Revenue: 1,234.5 USD m
+(FY2025)» — это выручка 1 234 500 000 в валюте за фискальный год эмитента
+(при 30 июня — июль 2024 … июнь 2025), и `rusterm import` печатает, сколько
+строк отображено в словарь. Чего словарь не называет — ставку в сутки
+(«USD/day»), штуки, цену акции — в формулы не идёт и остаётся в каталоге
+дословно: подогнанное число хуже отсутствующего (ТЗ-92 C4).
 
 Шесть запросов — это первая бумага в пути 24.09. Формы владения стоят
 сверху по одному запросу на каждое тело: 28.09.2026 на AAPL вышло 1
@@ -181,7 +192,7 @@ RUSTERM_DATA=/Users/you/equitylab
 (ТЗ-95 F1; путь в ней — тот же каталог, который окно и показало):
 
 ```
-база в /Users/you/equitylab — схема 44, программе нужна 46; обновите: rusterm --root /Users/you/equitylab init
+база в /Users/you/equitylab — схема 44, программе нужна 47; обновите: rusterm --root /Users/you/equitylab init
 ```
 
 После `init` то же окно покажет актуальную схему; ни одна из этих команд
@@ -245,7 +256,7 @@ concept_map_version: us-gaap.v4
 
 ```console
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide status --json
-{"data_dir": "/private/tmp/rusterm-guide", "schema_version": 46, "schema_version_expected": 46, "schema_version_observed": 46, "instruments": 1, "watchlists": 1, "snapshots": [{"instrument_id": "US-CLI-DEMO", "snapshot_id": "523637c9-89de-4039-a92d-af7c8c80a773", "version": 1, "as_of": "2026-09-18"}], "coverage": {"ready": 2, "stale": 1, "processing": 0, "missing": 5, "error": 0}, "concept_map_version": "us-gaap.v4", "concept_map_version_ifrs": "ifrs-full.v3", "market_codes": ["US", "CA", "OTC", "KR", "BR", "AU"], "peer_sets": [], "budget": {"ceiling_per_night": 5000, "rate_per_second": 5, "provider_ran": false, "used": 0, "samples": {}}, "env": {"file": "/tmp/empty-guide-env", "exists": true, "world_readable": false, "vars": {"RUSTERM_SEC_UA": "—", "RUSTERM_LLM_PROVIDER": "—", "RUSTERM_LLM_API_KEY": "—", "RUSTERM_LLM_MODEL": "—", "RUSTERM_TWELVEDATA_KEY": "—", "RUSTERM_DATA": "—", "RUSTERM_DART_KEY": "—", "RUSTERM_LLM_BASE_URL": "—"}}, "chat": {"calls_total": 0, "calls_today": 0, "per_model": {}}}
+{"data_dir": "/private/tmp/rusterm-guide", "schema_version": 47, "schema_version_expected": 47, "schema_version_observed": 47, "instruments": 1, "watchlists": 1, "snapshots": [{"instrument_id": "US-CLI-DEMO", "snapshot_id": "523637c9-89de-4039-a92d-af7c8c80a773", "version": 1, "as_of": "2026-09-18"}], "coverage": {"ready": 2, "stale": 1, "processing": 0, "missing": 5, "error": 0}, "concept_map_version": "us-gaap.v4", "concept_map_version_ifrs": "ifrs-full.v3", "market_codes": ["US", "CA", "OTC", "KR", "BR", "AU"], "peer_sets": [], "budget": {"ceiling_per_night": 5000, "rate_per_second": 5, "provider_ran": false, "used": 0, "samples": {}}, "env": {"file": "/tmp/empty-guide-env", "exists": true, "world_readable": false, "vars": {"RUSTERM_SEC_UA": "—", "RUSTERM_LLM_PROVIDER": "—", "RUSTERM_LLM_API_KEY": "—", "RUSTERM_LLM_MODEL": "—", "RUSTERM_TWELVEDATA_KEY": "—", "RUSTERM_DATA": "—", "RUSTERM_DART_KEY": "—", "RUSTERM_LLM_BASE_URL": "—"}}, "chat": {"calls_total": 0, "calls_today": 0, "per_model": {}}}
 
 $ python3 -m rusterm.cli --root /tmp/rusterm-guide coverage --instrument US-CLI-DEMO
 US-CLI-DEMO	corporate_actions	missing причина: no_data:corporate_actions
@@ -314,6 +325,18 @@ $ RUSTERM_ENV_FILE=/nonexistent/env python3 -m rusterm.cli --root /tmp/rusterm-g
 автоматически, `add` откажет и назовёт команду ручного импорта
 (`manual_import_required`) — пустого эмитента программа не создаст.
 Если рынок не знает тикер — `unknown_issuer`, код 1.
+
+Идентификатор эмитента принадлежит своему рынку (ТЗ-92 C2): префикс
+строки `issuer_id` берётся из его схемы — `cik-` для US/CA/OTC, `cvm-`
+для BR, `dart-` для KR, `asx-` для AU. `--cik` принимает строку: у
+корейского `corp_code` ведущие нули значащие (ровно 8 цифр), а код
+ASX вообще буквенный. Отчётность и валюта тоже берутся из реестра:
+`reporting_standard` — таксономию рынка, `reporting_currency` — из его
+строки (для CA и OTC это `XXX`, «валюты нет»: угадать программа не
+вправе). Дверь сбора сверяет префикс со своим провайдером и отказывает
+без запроса (`unknown_issuer: registry is not edgar`), а `doctor`
+находит legacy-строки `cik-` вне рынков EDGAR — старые эмитенты
+программа не переименовывает.
 
 ## 7. Инкрементальный проход и массовые операции
 

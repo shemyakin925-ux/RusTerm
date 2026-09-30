@@ -470,11 +470,21 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     from rusterm.normalize.concepts import CONCEPT_MAP_VERSION
     from rusterm.parsers import CompanyFactsParser
     from rusterm.providers.budget import ConfigError
-    from rusterm.store.repos import persist_ingestion_results
+    from rusterm.store.repos import (link_superseded,
+                                     persist_ingestion_results)
 
     instrument = repos.instrument.get_instrument(instrument_id)
     issuer = repos.instrument.get_issuer(instrument.issuer_id) \
         if instrument else None
+    from rusterm.markets import registry_prefix_owner
+    if issuer is not None and registry_prefix_owner(
+            instrument.issuer_id) not in (None, "edgar"):
+        # ТЗ-92 C2: identifier другого рынка — не CIK, и просить у SEC
+        # код CVM нельзя даже тогда, когда он состоит из цифр
+        print(f"unknown_issuer: registry is not edgar — у эмитента "
+              f"{instrument.issuer_id!r} идентификатор чужого рынка",
+              file=sys.stderr)
+        return 1
     if issuer is None or not (issuer.registry_id or "").isdigit():
         print(f"у эмитента {issuer_id!r} нет CIK — выполните "
               f"rusterm add --ticker ... --market ...", file=sys.stderr)
@@ -526,15 +536,18 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
         raw, {"issuer_id": issuer_id, "source_ref": obj.sha256})
     fact_dicts = []
     unmapped = 0
-    for fact in parsed.facts:
+    for fact in parsed.all_facts:
         fact = dict(fact)
         fact["fact_id"] = str(_uuid.uuid4())
         unmapped += apply_concept_map(fact)
         fact_dicts.append(fact)
+    link_superseded(fact_dicts)
     persist_ingestion_results(repos.conn, fact_dicts, [])
     repos.coverage.upsert(instrument_id, "fundamentals", "ready")
-    print(f"{instrument_id}: companyfacts загружены; фактов: "
-          f"{len(fact_dicts)}; неотображённых концептов: {unmapped}")
+    live = sum(1 for f in fact_dicts if not f.get("superseded_by"))
+    print(f"{instrument_id}: companyfacts загружены; фактов: {live}; "
+          f"вытесненных в них же: {len(fact_dicts) - live}; "
+          f"неотображённых концептов: {unmapped}")
     return 0
 
 
@@ -652,6 +665,13 @@ def _ingest_cvm_dfp(repos, instrument_id: str, issuer_id: str,
     instrument = repos.instrument.get_instrument(instrument_id)
     issuer = repos.instrument.get_issuer(instrument.issuer_id) \
         if instrument else None
+    from rusterm.markets import registry_prefix_owner
+    if issuer is not None and registry_prefix_owner(
+            instrument.issuer_id) not in (None, "cvm"):
+        print(f"unknown_issuer: registry is not cvm — у эмитента "
+              f"{instrument.issuer_id!r} идентификатор чужого рынка",
+              file=sys.stderr)
+        return 1
     if issuer is None or not (issuer.registry_id or "").isdigit():
         print(f"у эмитента {issuer_id!r} нет кода CD_CVM — выполните "
               f"rusterm add --ticker ... --market BR", file=sys.stderr)
@@ -770,6 +790,13 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
     instrument = repos.instrument.get_instrument(instrument_id)
     issuer = repos.instrument.get_issuer(instrument.issuer_id) \
         if instrument else None
+    from rusterm.markets import registry_prefix_owner
+    if issuer is not None and registry_prefix_owner(
+            instrument.issuer_id) not in (None, "edgar"):
+        print(f"unknown_issuer: registry is not edgar — у эмитента "
+              f"{instrument.issuer_id!r} идентификатор чужого рынка, "
+              f"Form 4 по CIK его не имеет", file=sys.stderr)
+        return 1
     if issuer is None or not (issuer.registry_id or "").isdigit():
         print(f"у эмитента {issuer_id!r} нет CIK — выполните "
               f"rusterm add --ticker ... --market ...", file=sys.stderr)
@@ -1461,7 +1488,9 @@ def cmd_add(args) -> int:
     офлайн оба обязательны."""
     # TASK-18 G1: --market валидируется реестром до всякой базы;
     # опечатка не должна становиться эмитентом с чужой юрисдикцией
-    from rusterm.markets import get_market, known_codes
+    from rusterm.markets import (get_market, known_codes,
+                                 registry_id_error, registry_prefix,
+                                 reporting_currency)
     market_row = get_market(args.market)
     if market_row is None:
         print(f"неизвестный рынок {args.market!r}; известные коды: "
@@ -1526,6 +1555,19 @@ def cmd_add(args) -> int:
         cik = cik if cik is not None else resolution["cik"]
         name = name or resolution.get("title") or args.ticker.upper()
 
+    # ТЗ-92 C2: идентификатор проходит схему СВОЕГО рынка до всякой
+    # записи. `--cik` был `type=int`, поэтому корейский `00126380`
+    # терял ведущий ноль, а бразильский CD_CVM попадал в SEC как CIK.
+    if cik is not None:
+        cik = str(cik).strip()
+        bad = registry_id_error(market_row, cik)
+        if bad is not None:
+            print(f"рынок {args.market}: {bad} — идентификатор не "
+                  f"проходит схему {market_row.identifier}",
+                  file=sys.stderr)
+            conn.close()
+            return 1
+
     if instruments.get_instrument(instrument_id) is not None:
         _record_gate_usage(repos, market_row.provider, add_gate)
         print(f"инструмент {instrument_id} уже существует")
@@ -1569,10 +1611,21 @@ def cmd_add(args) -> int:
         if not isinstance(venues, (ConfigError, _PE)):
             venue = venues.get(args.ticker.upper(), "unknown")
 
-    issuer_id = f"cik-{cik}"
+    # ТЗ-92 C2: валюта отчётности — из таблицы реестра. None означает
+    # рынок без строки в ней; угадывать (писать USD всем) запрещено —
+    # команда отказывает и называет, где именно дыра.
+    currency = reporting_currency(market_row.code)
+    if currency is None:
+        print(f"рынка {args.market} нет в таблице REPORTING_CURRENCIES "
+              f"(rusterm/markets.py) — валюту отчётности угадать нельзя",
+              file=sys.stderr)
+        conn.close()
+        return 1
+
+    issuer_id = f"{registry_prefix(market_row)}{cik}"
     instruments.upsert_issuer(Issuer(
         issuer_id, name, market_row.jurisdiction, str(cik),
-        args.fye, "us_gaap", "USD"))
+        args.fye, market_row.default_taxonomy, currency))
     instruments.upsert_instrument(Instrument(
         instrument_id, issuer_id, None, args.class_, "active", None))
     listing_id = f"{instrument_id}-listing"
@@ -1582,9 +1635,14 @@ def cmd_add(args) -> int:
                                    args_as_of_default(), None, None, None)
     repos.audit.log("add", instrument_id,
                     {"ticker": args.ticker.upper(), "market": args.market,
-                     "cik": cik}, True, "ok")
+                     "registry_id": cik}, True, "ok")
+    # слово CIK принадлежит только рынку EDGAR: называть так CD_CVM —
+    # тот же обман, из-за которого refresh ходил в SEC за чужим кодом
+    ident_label = ("CIK" if market_row.identifier == "cik"
+                   else market_row.identifier)
     print(f"создан инструмент {instrument_id} "
-          f"(эмитент {name}, CIK {cik}, тикер {args.ticker.upper()} "
+          f"(эмитент {name}, {ident_label} {cik}, тикер "
+          f"{args.ticker.upper()} "
           f"на {args.market}, площадка {venue})")
     _record_gate_usage(repos, market_row.provider, add_gate)
     conn.close()
@@ -2526,10 +2584,18 @@ def cmd_import(args) -> int:
                 and getattr(outcome, "records_near_miss", 0):
             near_miss_total += outcome.records_near_miss
         if isinstance(outcome, ConfigError):
-            print(f"{path}: файл прочитан (ступень ①), но ключ "
-                  f"RUSTERM_LLM_API_KEY не задан — ступень ② не "
-                  f"выполняется, ничего не записано ({outcome.reason}; "
-                  f"ТЗ-20 L6)", file=sys.stderr)
+            if outcome.reason == "llm_key_unset":
+                print(f"{path}: файл прочитан (ступень ①), но ключ "
+                      f"RUSTERM_LLM_API_KEY не задан — ступень ② не "
+                      f"выполняется, ничего не записано ({outcome.reason}; "
+                      f"ТЗ-20 L6)", file=sys.stderr)
+            else:
+                # ТЗ-92 C3: 429, таймаут и «модель не задана» — тоже
+                # ConfigError, а прежняя фраза про ключ заставляла
+                # искать опечатку в окружении, когда причина другая.
+                print(f"{path}: ступень ② не выполнена "
+                      f"({outcome.reason}) — ключ при этом задан, "
+                      f"ничего не записано (ТЗ-92 C3)", file=sys.stderr)
             exit_code = 1
             continue
         if args.dry_run:
@@ -2547,7 +2613,8 @@ def cmd_import(args) -> int:
               f"с чужой категорией: {outcome.dropped_bad_category}; "
               f"подтверждено контролем: {outcome.records_verified}; "
               f"не подтверждено (manual_unverified, в меры не идут): "
-              f"{outcome.records_unverified}; фактов записано: "
+              f"{outcome.records_unverified}; отображено в словарь: "
+              f"{outcome.records_mapped}; фактов записано: "
               f"{outcome.facts_stored}")
     if near_miss_total:
         print(f"near-miss записей: {near_miss_total} "
@@ -2585,7 +2652,11 @@ def _build_parser() -> argparse.ArgumentParser:
                             "(например 06-30 для австралийского июня)")
     p_add.add_argument("--ticker", required=True)
     p_add.add_argument("--market", required=True)
-    p_add.add_argument("--cik", type=int, default=None)
+    p_add.add_argument("--cik", default=None,
+                       help="идентификатор эмитента на его рынке: CIK "
+                            "(US/CA/OTC), CD_CVM (BR), corp_code — ровно "
+                            "8 цифр (KR), код ASX (AU); строкой, ведущие "
+                            "нули сохраняются")
     p_add.add_argument("--name", default=None)
     p_add.add_argument("--instrument-id", dest="instrument_id", default=None)
     p_add.add_argument("--class", dest="class_", default="common")

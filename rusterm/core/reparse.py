@@ -21,8 +21,15 @@ TECK, VALE, VZ — по две на бумагу в каждой версии с
 Теперь прогон делает обе вещи одним движением: недостающие факты
 довставляются нынешним разборщиком через те же двери, что и сбор
 (``apply_concept_map`` + ``persist_ingestion_results``), а у имеющихся
-выравнивается basis. Значения, периоды, происхождение и вытеснение
-сохранённых строк не трогаются; сеть не нужна — 0 запросов.
+выравнивается basis. Значения, периоды и происхождение сохранённых строк
+не трогаются; сеть не нужна — 0 запросов.
+
+ТЗ-92 C1 добавил к прогону третье: разбор теперь отдаёт и проигравших
+дедупликации (``ParseResult.all_facts``), поэтому прогон дописывает их
+тоже и помечает вытесненными (``superseded_by``) те сохранённые строки,
+которыми новое правило их считает. Без этого база, собранная прежним
+ключом без basis, осталась бы с одним числом на период навсегда: сбор
+пропускает уже скачанный ответ, и оригинал подачи не появился бы ничем.
 """
 from __future__ import annotations
 
@@ -40,6 +47,9 @@ class ReparseResult:
     unmapped: int = 0         # из них — вне карты концептов
     ownerless: int = 0        # объектов без инструмента-владельца
     unlocatable: int = 0      # объектов, чьи строки не несут указателей
+    # ТЗ-92 C1: сколько сохранённых строк прогон помечает вытесненными
+    # (новое правило дедупликации считает их проигравшими).
+    superseded_marked: int = 0
     unreadable: list = field(default_factory=list)
 
 
@@ -53,7 +63,8 @@ def rebuild_companyfacts(repos) -> ReparseResult:
 
     from rusterm.parsers import CompanyFactsParser
     from rusterm.pipeline import apply_concept_map
-    from rusterm.store.repos import (persist_ingestion_results,
+    from rusterm.store.repos import (link_superseded,
+                                     persist_ingestion_results,
                                      refresh_reporting_currency)
 
     result = ReparseResult()
@@ -84,30 +95,57 @@ def rebuild_companyfacts(repos) -> ReparseResult:
             # из них. Это не повод молчать — считается.
             result.unlocatable += 1
             continue
+        # ТЗ-92 C1: пропущенные строки добираются все, что отдаёт разбор,
+        # — и живые факты, и проигравших дедупликации. Прежний прогон
+        # смотрел только parsed.facts и потому никогда не лечил базу,
+        # собранную правилом без basis.
+        live = {f.get("locator", {}).get("json_pointer")
+                for f in parsed.facts}
         changes = []
         fresh = []
-        for fact in parsed.facts:
+        fresh_ids: dict = {}
+        for fact in parsed.all_facts:
             pointer = fact.get("locator", {}).get("json_pointer")
-            result.facts_checked += 1
+            if pointer in live:
+                result.facts_checked += 1
             if pointer not in stored:
-                fresh.append(dict(fact))
+                row = dict(fact)
+                row["fact_id"] = str(_uuid.uuid4())
+                result.unmapped += apply_concept_map(row)
+                fresh_ids[pointer] = row["fact_id"]
+                fresh.append(row)
                 continue
             fact_id, basis = stored[pointer]
-            if basis != fact["basis"]:
+            if pointer in live and basis != fact["basis"]:
                 changes.append((fact_id, fact["basis"]))
                 if fact["basis"] == "as_reported":
                     result.to_as_reported += 1
                 else:
                     result.to_restated += 1
+        # Указатели сохранённых строк — тоже кандидаты в победители:
+        # проигравший мог приехать сейчас, а его победитель лежит в базе
+        # с прошлого прогона, и наоборот.
+        known = {p: fid for p, (fid, _basis) in stored.items()}
+        known.update(fresh_ids)
+        link_superseded(fresh, known)
+        # Из прежнего разбора победитель мог быть записан живым, а новым
+        # правилом он проигравший — его помечаем здесь, в базе.
+        marks = []
+        for loser in parsed.superseded:
+            pointer = loser.get("locator", {}).get("json_pointer")
+            if pointer in stored:
+                winner = known.get(
+                    (loser.get("superseded_by_locator") or {})
+                    .get("json_pointer"))
+                if winner:
+                    marks.append((stored[pointer][0], winner))
         if fresh:
-            for fact in fresh:
-                fact["fact_id"] = str(_uuid.uuid4())
-                result.unmapped += apply_concept_map(fact)
             # Одна транзакция на объект (те же двери, что у сбора):
             # сбой на середине не оставляет половину фактов.
             persist_ingestion_results(repos.conn, fresh, [])
             result.added += len(fresh)
         result.changed += repos.fact.update_basis(changes)
+        result.superseded_marked += repos.fact.mark_superseded_rows(marks)
         result.objects += 1
         if issuer_id not in walked:
             walked.append(issuer_id)

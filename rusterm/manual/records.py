@@ -106,15 +106,34 @@ def parse_records(raw: str) -> ParsedRecords | ProviderError:
                          dropped_bad_shape=dropped_shape)
 
 
-def period_bounds(period: str) -> tuple[str, str, str]:
+def is_year_like(period: str) -> bool:
+    """'2025' / 'FY2025' / 'fy 2025' — год без даты: только для таких
+    периодов нужен фискальный календарь эмитента (ТЗ-92 C4)."""
+    text = (period or "").strip()
+    tail = text[2:].strip() if text.startswith(("FY", "fy", "Fy")) else text
+    return len(tail) == 4 and tail.isdigit()
+
+
+def period_bounds(period: str,
+                  fiscal_year_end: str | None = None) -> tuple[str, str, str]:
     """Детерминированное отображение периода записи на границы факта:
     'FY2025' -> (2025-01-01, 2025-12-31, duration); дата -> та же дата,
-    instant; что-то иное -> строка в оба поля, instant."""
+    instant; что-то иное -> строка в оба поля, instant.
+
+    ТЗ-92 C4: у эмитента с fye ('MM-DD') годовой период — не
+    январь–декабрь, а 12 месяцев до его годовщины: FY2025 при 06-30 —
+    это 2024-07-01…2025-06-30. Без fye остаётся календарный год, и это
+    названо в локаторе факта (см. pipeline)."""
     text = (period or "").strip()
+    year = None
     if len(text) == 4 and text.isdigit():
-        return f"{text}-01-01", f"{text}-12-31", "duration"
-    if text.startswith(("FY", "fy")) and text[2:].strip().isdigit():
+        year = text
+    elif text.startswith(("FY", "fy")) and text[2:].strip().isdigit():
         year = text[2:].strip()
+    if year is not None:
+        bounds = _fiscal_bounds(int(year), fiscal_year_end)
+        if bounds is not None:
+            return bounds
         return f"{year}-01-01", f"{year}-12-31", "duration"
     import datetime as _dt
     try:
@@ -124,5 +143,22 @@ def period_bounds(period: str) -> tuple[str, str, str]:
         return text or "unknown", text or "unknown", "instant"
 
 
-__all__ = ["build_prompt", "parse_records", "period_bounds",
+def _fiscal_bounds(year: int,
+                   fiscal_year_end: str | None) -> tuple[str, str, str] | None:
+    """Границы фискального года `year` по календарю эмитента; None —
+    календарь неизвестен или дата невозможна (29 февраля в невисокосном
+    году), тогда зовущий откатывается на январь–декабрь."""
+    if not fiscal_year_end:
+        return None
+    import datetime as _dt
+    try:
+        month, day = fiscal_year_end.split("-")
+        end = _dt.date(year, int(month), int(day))
+    except (ValueError, TypeError):
+        return None
+    start = _dt.date(end.year - 1, end.month, end.day) + _dt.timedelta(days=1)
+    return start.isoformat(), end.isoformat(), "duration"
+
+
+__all__ = ["build_prompt", "parse_records", "period_bounds", "is_year_like",
            "PROMPT_VERSION", "CATEGORIES", "ParsedRecords"]

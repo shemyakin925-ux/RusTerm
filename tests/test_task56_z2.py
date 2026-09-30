@@ -202,7 +202,10 @@ def test_facts_carry_cvm_provenance_and_resolve(app, cvm_channel,
             """SELECT fact_id, concept, canonical_concept, value,
                       unit, period_type, source_ref, locator,
                       concept_map_version
-               FROM fact WHERE issuer_id='cik-23264'""").fetchall()
+               -- ТЗ-92 C2 (булавка переехала, было → стало): эмитент
+               -- BR создавался с идентификатором `cik-23264`, хотя
+               -- 23264 — код CD_CVM; теперь `cvm-23264`.
+               FROM fact WHERE issuer_id='cvm-23264'""").fetchall()
         assert facts, "факты CVM не записаны"
         raw = conn.execute(
             """SELECT provider, url FROM raw_object

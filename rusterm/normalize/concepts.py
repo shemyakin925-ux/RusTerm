@@ -259,6 +259,73 @@ _DEI_PRIORITY: dict[str, dict[str, int]] = {
     for concept, tags in CONCEPT_MAP_DEI.items()
 }
 
+# ── Ручная карта метрик (ТЗ-92 C4) ─────────────────────────────────────────
+# До C4 ручной импорт писал факты с canonical_concept = NULL (метрика —
+# свободный текст модели), а читалка мер фильтрует по canonical_concept,
+# поэтому ни одна ручная запись в формулу не попадала.
+#
+# Таблица авторитетна и выведена не из догадок о словаре модели: ключи —
+# ровно имена словаря §2 с единицей «валюта», алиас — то же имя строчными
+# буквами и с пробелами вместо подчёркиваний (нормализация ниже делает
+# «Net_Income.» и «NET INCOME» одним алиасом). Синонимов («net profit»,
+# «turnover», «cash flow») здесь нет намеренно: ни один записанный ответ
+# их не доказывает (правило 9), а выдуманный синоним опаснее отсутствия —
+# он превращает чужую строку в число словаря. Такая запись остаётся
+# неотображённой фактом с NULL и видна счётчиком.
+#
+# Исключены поимённо (молча не опущено ничего):
+#   price_close, price_adj — цена класса акций, её берёт ценовой канал;
+#   shares_outstanding, shares_diluted — единица «шт.», не деньги;
+#   eps_diluted, dps — «валюта/акцию», ставка на акцию за период; тот же
+#   закон, по которому карта отвергает единицу-ставку «USD/day».
+MANUAL_MAP_VERSION = "manual.v1"
+MANUAL_MAP_EXCLUDED = ("price_close", "price_adj", "shares_outstanding",
+                       "shares_diluted", "eps_diluted", "dps")
+
+MANUAL_METRIC_MAP: dict[str, tuple[str, ...]] = {
+    "revenue": ("revenue",),
+    "cogs": ("cogs",),
+    "gross_profit": ("gross profit",),
+    "opex": ("opex",),
+    "operating_income": ("operating income",),
+    "d_and_a": ("d and a",),
+    "net_income": ("net income",),
+    "pretax_income": ("pretax income",),
+    "tax_expense": ("tax expense",),
+    "interest_expense": ("interest expense",),
+    "ocf": ("ocf",),
+    "capex": ("capex",),
+    "cash": ("cash",),
+    "st_investments": ("st investments",),
+    "total_debt": ("total debt",),
+    "total_assets": ("total assets",),
+    "total_equity": ("total equity",),
+    "total_equity_incl_nci": ("total equity incl nci",),
+    "minority_interest": ("minority interest",),
+    "preferred_equity": ("preferred equity",),
+    "buyback_amount": ("buyback amount",),
+}
+
+_MANUAL_ALIAS_TO_CONCEPT: dict[str, str] = {
+    alias: concept
+    for concept, aliases in MANUAL_METRIC_MAP.items()
+    for alias in aliases
+}
+
+
+def normalize_metric(metric: str) -> str:
+    """Вид метрики для сравнения с картой: строчными, подчёркивания —
+    пробелами, лишние пробелы и точка в конце убраны. Больше ничего:
+    падежи, опечатки и чужие слова нормализация не выдумывает."""
+    text = (metric or "").strip().lower().replace("_", " ")
+    return " ".join(text.replace(".", " ").split())
+
+
+def canonical_for_manual(metric: str) -> str | None:
+    """Канонический концепт ручной записи; None — строка вне карты
+    (факт остаётся, каноническое имя NULL: считается, не выбрасывается)."""
+    return _MANUAL_ALIAS_TO_CONCEPT.get(normalize_metric(metric))
+
 
 def normalize_sign_cvm(fact: dict) -> bool:
     """Привести знак величины к конвенции словаря мер (cvm-dfp.v2).
@@ -303,6 +370,8 @@ def map_version(taxonomy: str = "us-gaap") -> str:
         return CONCEPT_MAP_VERSION_CVM
     if taxonomy == "dei":
         return CONCEPT_MAP_VERSION_DEI
+    if taxonomy == "manual":
+        return MANUAL_MAP_VERSION
     return CONCEPT_MAP_VERSION
 
 

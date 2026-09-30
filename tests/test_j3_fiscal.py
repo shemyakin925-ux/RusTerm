@@ -233,7 +233,11 @@ def test_add_records_fiscal_year_end(tmp_path, monkeypatch, capsys):
     conn = sqlite3.connect(str(root / "rusterm.db"))
     try:
         fye = conn.execute(
-            "SELECT fiscal_year_end FROM issuer WHERE issuer_id='cik-8'"
+            # ТЗ-92 C2 (булавка переехала, было → стало): `add --market
+            # AU` писал `cik-8` австралийскому эмитенту; теперь
+            # префикс берётся из схемы рынка — `asx-8`.
+            # было: issuer_id='cik-8'   стало: issuer_id='asx-8'
+            "SELECT fiscal_year_end FROM issuer WHERE issuer_id='asx-8'"
         ).fetchone()[0]
     finally:
         conn.close()

@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 46  # 45 (ТЗ-36 H1) + 46: период_basis в lineage пропускает 'annual_fallback' (ТЗ-97 Q10, ADR-0025)
+_SCHEMA_VERSION = 47  # 46 (ТЗ-97 Q10, ADR-0025) + 47: индекс ревизий покрывает superseded_by (ТЗ-92 C0)
 
 
 def _checksum(text: str) -> str:
@@ -748,6 +748,31 @@ def _migrate_46_period_basis_fallback(conn: sqlite3.Connection) -> None:
 _CUSTOM_MIGRATIONS[46] = (
     _migrate_46_period_basis_fallback,
     _MEASURE_LINEAGE_V46_DDL + ";" + _MEASURE_LINEAGE_CA_V46_DDL)
+
+
+# Миграция 47 (ТЗ-92 C0): выборки фактов начали отбрасывать отвергнутые
+# строки (`superseded_by IS NULL`), а этого столбца в индексе ревизий нет
+# — план соскакивает с покрывающего индекса на поиск по индексу сходом в
+# таблицу (страж миграции 38 краснеет именно на этом). Индекс 38
+# пересоздаётся под тем же именем с пятым, хвостовым столбцом: префикс
+# (issuer_id, concept, period_end, basis) не тронут, порядок строк в нём
+# тот же, поэтому все прежние выборки остаются на том же плане и только
+# выигрывают — фильтр тоже читается из индекса. Правкой миграцию 38 не
+# тронуть (версии опубликованы, чексумма в schema_version), потому
+# перемена и живёт в новой версии. Имя остаётся в _SCHEMA_INDEXES —
+# doctor сверяет индекс по нему, как и раньше.
+_FACT_REVISIONS_INDEX_V47_DDL = (
+    "CREATE INDEX idx_fact_issuer_concept_period_basis"
+    " ON fact(issuer_id, concept, period_end, basis, superseded_by)")
+
+
+def _migrate_47_revisions_index_covering(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP INDEX IF EXISTS idx_fact_issuer_concept_period_basis")
+    conn.execute(_FACT_REVISIONS_INDEX_V47_DDL)
+
+
+_CUSTOM_MIGRATIONS[47] = (
+    _migrate_47_revisions_index_covering, _FACT_REVISIONS_INDEX_V47_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

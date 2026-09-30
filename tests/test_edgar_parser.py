@@ -63,9 +63,18 @@ def test_real_companyfacts_basis_distribution():
         assert fact["concept"].startswith("us-gaap:")
 
 
-def test_duplicate_across_filings_newest_filed_wins():
-    """Тот же (concept, unit, период) в двух флингах: живой — новейший
-    filed; проигравший — в superseded со ссылкой на локатор победителя."""
+def test_as_reported_duplicate_earliest_filed_wins():
+    """Тот же (concept, unit, период) в двух подачах ОБА as_reported
+    (каждая подача отчитывается за этот период сама): живой — РАННЯЯ
+    filed, оригинал подачи; проигравший — в superseded со ссылкой на
+    локатор, filed и basis победителя.
+
+    ТЗ-92 C1: направление здесь перевёрнуто прежним «новейший filed
+    побеждает» — та копия и есть пересмотр оригинала той же подачи, а
+    число из поздней подачи живёт отдельным restated-фактом (следующий
+    тест). Усилено против прежней закрепки: проверяются и filed, и basis
+    ссылки проигравшего, а не только локатор.
+    """
     doc = {
         "source": "synthetic",
         "note": "синтетический companyfacts для дедупликации",
@@ -87,14 +96,54 @@ def test_duplicate_across_filings_newest_filed_wins():
             if (f["concept"], f["period_start"], f["period_end"])
             == ("us-gaap:Revenues", "2023-01-01", "2023-12-31")]
     assert len(live) == 1
-    assert live[0]["value"] == "900", "новейший filed должен победить"
+    assert live[0]["value"] == "880", "ранняя filed — оригинал подачи"
+    assert live[0]["filed"] == "2024-02-15"
+    assert live[0]["basis"] == "as_reported"
 
     assert len(result.superseded) == 1
     loser = result.superseded[0]
-    assert loser["value"] == "880"
+    assert loser["value"] == "900"
     assert loser["superseded_by_locator"]["json_pointer"] == \
         live[0]["locator"]["json_pointer"]
-    assert loser["superseded_by_filed"] == "2025-02-15"
+    assert loser["superseded_by_filed"] == "2024-02-15"
+    assert loser["superseded_by_basis"] == "as_reported"
+
+
+def test_later_comparative_is_restated_and_survives_alongside():
+    """Сравнительное число поздней подачи — другой basis, и оно живёт РЯДОМ
+    с оригиналом (ТЗ-92 C1): прежний ключ без basis вытеснял оригинал
+    подачи его же копией из поздней подачи, и as_reported-число не
+    доходило до базы.
+
+    Здесь подача FY2024 несёт и свой период, поэтому её строка за 2023 —
+    restated: ни одна запись не становится проигравшей.
+    """
+    doc = {
+        "source": "synthetic",
+        "note": "синтетический companyfacts: оригинал и сравнительное",
+        "facts": {"us-gaap": {"Revenues": {"units": {"USD": [
+            {"start": "2023-01-01", "end": "2023-12-31", "val": 880,
+             "accn": "0001", "form": "10-K", "filed": "2024-02-15",
+             "fy": 2023, "fp": "FY"},
+            {"start": "2024-01-01", "end": "2024-12-31", "val": 940,
+             "accn": "0002", "form": "10-K", "filed": "2025-02-15",
+             "fy": 2024, "fp": "FY"},
+            {"start": "2023-01-01", "end": "2023-12-31", "val": 900,
+             "accn": "0002", "form": "10-K", "filed": "2025-02-15",
+             "fy": 2024, "fp": "FY"},
+        ]}}}},
+    }
+    raw = json.dumps(doc).encode()
+    sha = _sha(raw)
+    result = CompanyFactsParser().parse(
+        raw, {"issuer_id": "i1", "source_ref": sha})
+
+    by = {(f["period_end"], f["basis"]): f["value"] for f in result.facts}
+    assert by[("2023-12-31", "as_reported")] == "880"
+    assert by[("2023-12-31", "restated")] == "900"
+    assert by[("2024-12-31", "as_reported")] == "940"
+    assert result.superseded == []
+    assert len(result.facts) == 3
 
 
 def test_parse_auto_dispatches_companyfacts_and_every_fact_resolves():

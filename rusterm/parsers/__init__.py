@@ -85,15 +85,46 @@ def _is_non_finite(value) -> bool:
     return not math.isfinite(number)
 
 
+def _dedup_rank(basis: str, doc_period_end: str, fact_period_end: str,
+                fact: dict) -> tuple:
+    """Позиция записи в своей группе дедупликации (TASK-92 C1).
+
+    Один кортеж `(честность оригинала, filed, accn, указатель)` на оба
+    basis; направление задаёт `_outranks`. Для as_reported первым слоем
+    идёт «собственный период подачи совпадает с концом факта» — это и
+    есть оригинал; аномальная ветка determine_basis (подача раньше
+    периода факта) оказывается после настоящих оригиналов.
+    """
+    own = 1 if doc_period_end != fact_period_end else 0
+    return (own if basis == "as_reported" else 0,
+            fact.get("filed", ""), fact.get("accn") or "",
+            fact["locator"]["json_pointer"])
+
+
+def _outranks(basis: str, candidate: tuple, incumbent: tuple) -> bool:
+    """Кто живёт в своей группе: у as_reported ранняя filed (оригинал
+    подачи), у restated — новейшая (свежая ревизия)."""
+    return (candidate > incumbent if basis == "restated"
+            else candidate < incumbent)
+
+
 @dataclass
 class ParseResult:
     """Разобранный документ: факты-словари + счётчик неразобранного."""
     facts: list[dict] = field(default_factory=list)
     unparsed: int = 0
     parser_version: str = PARSER_VERSION
-    # Проигравшие дедупликации: тот же (concept, unit, период) от более
-    # раннего флинга; несут superseded_by_locator победителя (TASK-8 U6).
+    # Проигравшие дедупликации: тот же (concept, unit, период, basis) из
+    # другой подачи; несут superseded_by_locator, superseded_by_filed и
+    # superseded_by_basis победителя (TASK-8 U6, TASK-92 C1). Это тоже
+    # разобранные факты — дверь записи берёт all_facts, чтобы ни одна
+    # строка не исчезла молча.
     superseded: list[dict] = field(default_factory=list)
+
+    @property
+    def all_facts(self) -> list[dict]:
+        """Живые и вытесненные: всё, что разбор достал из документа."""
+        return [*self.facts, *self.superseded]
 
 
 class Parser(Protocol):
@@ -280,10 +311,14 @@ class CompanyFactsParser:
 
     basis — то же правило I3: determine_basis(latest_end_of_accn, end,
     filed), где latest_end_of_accn — конец периода, на который отчитывался
-    этот accession. Дубликаты одного (concept, unit, период) из разных
-    флингов: живой — новейший filed, проигравший сохраняется в
-    result.superseded с ссылкой на локатор победителя — ничего не
-    выбрасывается и не усредняется.
+    этот accession. Дедупликация (TASK-92 C1) — по
+    `(concept, unit, start, end, basis)`: одно и то же число живёт в
+    каждой поздней подаче сравнительным, и прежний ключ без basis
+    вытеснял as_reported-оригинал его же restated-копией. Внутри группы
+    живой: у as_reported — ранняя filed (подача собственного периода),
+    у restated — новейшая filed (свежая ревизия). Проигравшие уходят в
+    result.superseded со ссылкой на победителя, а дверь записи берёт
+    all_facts — ничего не выбрасывается и не усредняется.
     """
 
     source_name = "edgar"
@@ -381,8 +416,9 @@ class CompanyFactsParser:
                                      or end > latest_end_by_accn[accn]):
                             latest_end_by_accn[accn] = end
 
-        # Проход 2: факты; ключ дедупликации (concept, unit, start, end)
-        seen: dict[tuple, dict] = {}
+        # Проход 2: факты; ключ дедупликации
+        # (concept, unit, start, end, basis) -> (живой факт, его позиция)
+        seen: dict[tuple, tuple] = {}
         for taxonomy, concepts in taxonomies:
             for key, node in concepts.items():
                 if not isinstance(node, dict):
@@ -408,6 +444,10 @@ class CompanyFactsParser:
                         start = _text(entry.get("start")) or end
                         filed = _text(entry.get("filed"))
                         accn = _text(entry.get("accn"))
+                        # Конец периода самой подачи — признак оригинала:
+                        # факт с таким концом подан в ней самой, а не
+                        # пришёл сравнительным из поздней.
+                        doc_end = latest_end_by_accn.get(accn, end)
                         locator = {
                             "kind": "api",
                             "endpoint": endpoint,
@@ -433,9 +473,7 @@ class CompanyFactsParser:
                             "period_type": ("duration"
                                             if entry.get("start")
                                             else "instant"),
-                            "basis": determine_basis(
-                                latest_end_by_accn.get(accn, end),
-                                end, filed),
+                            "basis": determine_basis(doc_end, end, filed),
                             "origin": "extracted",
                             "source_ref": request_hash,
                             "locator": locator,
@@ -444,25 +482,34 @@ class CompanyFactsParser:
                             "accn": accn,
                             "filed": filed,
                         }
-                        dedup_key = (concept, unit_kind, start, end)
-                        previous = seen.get(dedup_key)
-                        if previous is None:
-                            seen[dedup_key] = fact
+                        dedup_key = (concept, unit_kind, start, end,
+                                     fact["basis"])
+                        rank = _dedup_rank(fact["basis"], doc_end, end, fact)
+                        incumbent = seen.get(dedup_key)
+                        if incumbent is None:
+                            seen[dedup_key] = (fact, rank)
                             result.facts.append(fact)
-                        elif filed > previous.get("filed", ""):
-                            # предыдущий флинг проигрывает новейшему
-                            previous["superseded_by_locator"] = dict(locator)
-                            previous["superseded_by_filed"] = filed
+                            continue
+                        previous, prev_rank = incumbent
+                        if _outranks(fact["basis"], rank, prev_rank):
+                            # новичок живёт, прежнего — в проигравшие
                             result.facts.remove(previous)
-                            result.superseded.append(previous)
-                            seen[dedup_key] = fact
+                            seen[dedup_key] = (fact, rank)
                             result.facts.append(fact)
+                            result.superseded.append(previous)
                         else:
-                            fact["superseded_by_locator"] = dict(
-                                previous["locator"])
-                            fact["superseded_by_filed"] = \
-                                previous.get("filed", "")
                             result.superseded.append(fact)
+
+        # Ссылки проигравших — на ЖИВОЙ строку своей группы: пока шёл
+        # обход, победитель мог сам стать проигравшим, и записанная в
+        # момент смены ссылка указала бы на цепочку (TASK-92 C1).
+        for loser in result.superseded:
+            winner = seen[(loser["concept"], loser["unit"],
+                           loser["period_start"], loser["period_end"],
+                           loser["basis"])][0]
+            loser["superseded_by_locator"] = dict(winner["locator"])
+            loser["superseded_by_filed"] = winner.get("filed", "")
+            loser["superseded_by_basis"] = winner["basis"]
         return result
 
 

@@ -152,7 +152,8 @@ class InstrumentRepo:
                 """SELECT EXISTS(SELECT 1 FROM fact
                    JOIN raw_object ON fact.source_ref =
                         raw_object.sha256
-                   WHERE raw_object.provider = ?)""",
+                   WHERE raw_object.provider = ?
+                     AND fact.superseded_by IS NULL)""",
                 (m.provider,)).fetchone()[0]
             if has_facts:
                 degrees[m.code] = "факты"
@@ -407,7 +408,9 @@ class FactRepo:
     def count_for_issuer_concept(self, issuer_id: str, concept: str) -> int:
         """Сколько фактов концепта у эмитента (для flag_parser)."""
         return self.conn.execute(
-            "SELECT COUNT(*) FROM fact WHERE issuer_id=? AND concept=?",
+            "SELECT COUNT(*) FROM fact"
+            " WHERE issuer_id=? AND concept=?"
+            " AND superseded_by IS NULL",
             (issuer_id, concept)).fetchone()[0]
 
     def mark_superseded(self, old_fact_id: str, new_fact_id: str) -> None:
@@ -416,6 +419,21 @@ class FactRepo:
                 "UPDATE fact SET superseded_by = ? WHERE fact_id = ?",
                 (new_fact_id, old_fact_id),
             )
+
+    def mark_superseded_rows(self, pairs: List[tuple]) -> int:
+        """Пакетное вытеснение по (old_fact_id, new_fact_id) — прогон
+        reparse помечает уже сохранённые дубли, которыми новое правило
+        дедупликации их считает (TASK-92 C1). Идемпотентно: строка, где
+        победитель уже записан такой же, не меняется и не считается."""
+        if not pairs:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany(
+                """UPDATE fact SET superseded_by = ?
+                   WHERE fact_id = ? AND superseded_by IS NOT ?""",
+                [(new, old, new) for old, new in pairs])
+            return self.conn.total_changes - before
 
     def basis_by_pointer(self, source_ref: str) -> Dict[str, tuple]:
         """{json_pointer: (fact_id, basis)} фактов одного сырого объекта —
@@ -597,6 +615,7 @@ class SnapshotRepo:
             """SELECT value, period_end, currency, fact_id, period_start
                FROM fact WHERE issuer_id=? AND canonical_concept=?
                AND status='ok' AND value IS NOT NULL
+               AND superseded_by IS NULL
                AND (? IS NULL OR period_end <= ?)
                ORDER BY period_end DESC LIMIT 200""",
             (issuer_id, canonical, as_of, as_of)).fetchall()
@@ -625,6 +644,7 @@ class SnapshotRepo:
             """SELECT value, period_start, period_end, currency, fact_id
                FROM fact WHERE issuer_id=? AND canonical_concept=?
                AND status='ok' AND value IS NOT NULL
+               AND superseded_by IS NULL
                AND period_start IS NOT NULL
                ORDER BY period_end DESC, ingested_at DESC LIMIT ?""",
             (issuer_id, canonical, limit)).fetchall()
@@ -660,11 +680,14 @@ class SnapshotRepo:
         должно)."""
         return self.conn.execute(
             """SELECT f.concept, f.period_end FROM fact f
-               WHERE f.issuer_id=? AND f.basis='restated' AND EXISTS (
+               WHERE f.issuer_id=? AND f.basis='restated'
+                 AND f.superseded_by IS NULL
+                 AND EXISTS (
                      SELECT 1 FROM fact a
                      WHERE a.issuer_id=f.issuer_id AND a.concept=f.concept
                        AND a.period_end=f.period_end
-                       AND a.basis='as_reported')""",
+                       AND a.basis='as_reported'
+                       AND a.superseded_by IS NULL)""",
             (issuer_id,)
         ).fetchall()
 
@@ -733,6 +756,7 @@ class SnapshotRepo:
                        period_end, canonical_concept
                 FROM fact
                 WHERE issuer_id=? AND basis='as_reported' AND status='ok'
+                  AND superseded_by IS NULL
                   AND canonical_concept IN ({placeholders})
                 ORDER BY period_end DESC, ingested_at DESC""",
             (issuer_id, *concepts)).fetchall()
@@ -764,6 +788,7 @@ class SnapshotRepo:
                 LEFT JOIN raw_object r ON r.sha256 = f.source_ref
                 WHERE f.issuer_id=? AND f.basis='restated'
                   AND f.status='ok' AND f.period_type='instant'
+                  AND f.superseded_by IS NULL
                   AND f.canonical_concept IN ({placeholders})
                 ORDER BY f.period_end DESC, f.ingested_at DESC""",
             (issuer_id, *concepts)).fetchall()
@@ -814,7 +839,8 @@ class SnapshotRepo:
         rows = self.conn.execute(
             """SELECT DISTINCT f.currency, f.unit FROM measure_lineage l
                JOIN fact f ON f.fact_id = l.fact_id
-               WHERE l.measure_id = ?""", (measure_id,)).fetchall()
+               WHERE l.measure_id = ?
+                 AND f.superseded_by IS NULL""", (measure_id,)).fetchall()
         from rusterm.core.fact import currency_of_unit
         out: set[str] = set()
         for currency, fact_unit in rows:
@@ -1056,7 +1082,8 @@ class PeerSetRepo:
                JOIN instrument i ON i.instrument_id = m.instrument_id
                JOIN fact f ON f.issuer_id = i.issuer_id
                WHERE m.peer_set_version_id=?
-                 AND f.currency IS NOT NULL""",
+                 AND f.currency IS NOT NULL
+                 AND f.superseded_by IS NULL""",
             (peer_set_version_id,)).fetchall()})
         return {"markets": markets, "currencies": currencies,
                 "members": sorted(members),
@@ -1556,6 +1583,7 @@ def dominant_filing_currency(conn: sqlite3.Connection,
     row = conn.execute(
         """SELECT unit FROM fact
            WHERE issuer_id=? AND status='ok'
+             AND superseded_by IS NULL
              AND unit GLOB '[A-Z][A-Z][A-Z]'
            GROUP BY unit ORDER BY COUNT(*) DESC, unit ASC LIMIT 1""",
         (issuer_id,)).fetchone()
@@ -1592,6 +1620,36 @@ def refresh_reporting_currency(conn: sqlite3.Connection,
         _apply_reporting_currency(c, issuer_id)
 
 
+def link_superseded(fact_dicts: list[dict],
+                    known: Optional[dict] = None) -> int:
+    """Проигравшим дедупликации ставит `superseded_by` = fact_id победителя.
+
+    Победитель ищется по json_pointer локатора: внутри одного разбора
+    указатель уникален. `known` — {указатель: fact_id} строк, которые уже
+    лежат в базе (прогон reparse связывает новый факт с тем, что
+    сохранено раньше, и наоборот). Строка без победителя остаётся живой:
+    выдумывать ему победителя разбор не вправе (TASK-92 C1).
+
+    У локаторов других разборщиков (`xbrl`, `table`) json_pointer нет и не
+    бывало — такие строки проходят мимо: они не проигравшие.
+    """
+    by_pointer = dict(known or {})
+    for f in fact_dicts:
+        pointer = (f.get("locator") or {}).get("json_pointer")
+        if pointer:
+            by_pointer[pointer] = f["fact_id"]
+    linked = 0
+    for f in fact_dicts:
+        pointer = (f.get("superseded_by_locator") or {}).get("json_pointer")
+        if not pointer:
+            continue
+        winner = by_pointer.get(pointer)
+        if winner and winner != f["fact_id"]:
+            f["superseded_by"] = winner
+            linked += 1
+    return linked
+
+
 def persist_ingestion_results(conn: sqlite3.Connection,
                               fact_dicts: list[dict],
                               coverage_rows: list[tuple]) -> None:
@@ -1600,7 +1658,13 @@ def persist_ingestion_results(conn: sqlite3.Connection,
     полусостояний не остаётся.
 
     fact_dicts — словари факта по data-model.md §3 (как их отдаёт парсер,
-    с добавленным fact_id). coverage_rows — (instrument_id, block, status, reason).
+    с добавленным fact_id). coverage_rows — (instrument_id, block, status,
+    reason).
+
+    Порядок вставки — живые строки первыми: `superseded_by` ссылается на
+    `fact(fact_id)` (FK включён в `open_connection`), а проигравший и его
+    победитель прилетают из одного разбора в произвольном порядке
+    (TASK-92 C1).
 
     ТЗ-104 P2: здесь же обновляется `issuer.reporting_currency` — тем же
     правилом, которым снапшот выбирает presentation мер (Disputed 23:
@@ -1608,7 +1672,10 @@ def persist_ingestion_results(conn: sqlite3.Connection,
     писал запуск `watch add` и больше её никто не пересчитывал).
     """
     with writer_transaction(conn) as c:
-        for f in fact_dicts:
+        # Живые первыми: на проигравшем висит FK на строку победителя.
+        ordered = sorted(fact_dicts,
+                         key=lambda f: bool(f.get("superseded_by")))
+        for f in ordered:
             c.execute(
                 """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
                   period_start, period_end, period_type, value, unit, currency,
