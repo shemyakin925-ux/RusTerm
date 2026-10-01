@@ -957,10 +957,13 @@ def _repaint_table(table, info: dict) -> None:
     table.setRowCount(len(info["measures"]))
     for row, measure in enumerate(info["measures"]):
         table.setItem(row, 0, QTableWidgetItem(measure["concept"]))
-        table.setItem(row, 1, QTableWidgetItem(measure["current"]))
-        for column, year in enumerate(years):
-            table.setItem(row, 2 + column,
-                          QTableWidgetItem(measure["years"][year]))
+        cells = [measure["current"]] + [measure["years"][y] for y in years]
+        for column, text in enumerate(cells, start=1):
+            item = QTableWidgetItem(text)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignRight
+                                  | Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(row, column, item)
+    table.resizeColumnsToContents()
 
 
 def _repaint_measures(box, info: dict) -> None:

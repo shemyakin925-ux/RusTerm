@@ -162,7 +162,7 @@ def test_table_no_data_by_words_and_years(qapp, env):
     for column in range(2, table.columnCount()):
         assert table.item(roe_row, column).text() == desktop_data.NO_DATA
     nm_row = concepts.index("net_margin")
-    assert table.item(nm_row, 1).text() == "0.2043"
+    assert table.item(nm_row, 1).text() == "20,43 %"
 
 
 def test_cell_click_opens_source_panel_with_reason(qapp, env):
