@@ -90,6 +90,8 @@ AS_OF = "2026-09-28"
 KSPI_VALUED = {
     "asset_turnover", "effective_tax", "gross_margin", "gross_profit",
     "market_cap", "market_cap_total", "net_margin", "roe", "roe_incl_nci",
+    # ADR-0029: ценовые меры по ряду с реинвестированием дивидендов
+    "total_return", "drawdown",
 }
 # Меры, чьи входы — только факты отчётности: на «стороне было» (payload
 # без раздела ifrs-full) они обязаны отказаться все до единой.
@@ -311,7 +313,8 @@ def test_vale_lost_the_same_section_to_the_same_filter(vale_sandbox):
     assert vale_sandbox["by_taxonomy"] == {"ifrs-full": 43, "dei": 5}
     measures = vale_sandbox["measures"]
     valued = {c for c, (v, _r) in measures.items() if v is not None}
-    assert valued == {"asset_turnover", "ebitda", "effective_tax",
+    assert valued == {"total_return", "drawdown",  # ADR-0029
+                      "asset_turnover", "ebitda", "effective_tax",
                       "gross_margin", "gross_profit", "interest_coverage",
                       "net_margin", "nopat", "operating_margin", "roe",
                       "roe_incl_nci"}, sorted(valued)

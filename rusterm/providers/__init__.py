@@ -53,6 +53,9 @@ _HOST_LIMITS: dict[str, HostLimit] = {
     "twelvedata": HostLimit(host="api.twelvedata.com",
                             per_second=8.0 / 60.0,
                             nightly_max=800),
+    # ADR-0029: котировки без ключа — бережный темп
+    "yahoo": HostLimit(host="query1.finance.yahoo.com", per_second=1.0,
+                       nightly_max=2000),
 }
 
 # Тариф внешнего канала (ADR-0018, ТЗ-28 R1): закрытый набор.
@@ -70,6 +73,7 @@ _CHANNEL_TIERS: dict[str, str] = {
     "otcmarkets": "open",     # без ключа
     "llm-api": "free_key",    # ключ OpenRouter по регистрации
     "twelvedata": "free_key",  # ключ по регистрации, бесплатный тариф
+    "yahoo": "open",          # без ключа (ADR-0029)
 }
 
 # Какое env-имя открывает канал (ТЗ-28 R2, doctor печатает да/нет):
@@ -97,6 +101,7 @@ _NETWORK_PROVIDERS: dict[str, Callable[[RequestGate], object]] = {
     # ждал ключа); модуль не подделывается — место возвращает
     # provider_not_implemented, пока TASK-30 не принесёт twelvedata.py.
     "twelvedata": lambda gate: _seat_provider("twelvedata", gate),
+    "yahoo": lambda gate: _seat_provider("yahoo", gate),
 }
 
 

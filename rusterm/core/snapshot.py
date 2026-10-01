@@ -86,8 +86,12 @@ _DISCLOSED_AGGREGATE: frozenset[str] = frozenset({"gross_profit"})
 # сумма долга), hhi (нужны пиры), price_adj/total_return/drawdown
 # (нужен ряд цен, а не одна закрытая).
 _UNMAPPED_FORMULAS: tuple[str, ...] = (
-    "total_return", "drawdown", "price_adj", "hhi",
+    "price_adj", "hhi",
 )
+
+# ADR-0029 (решение пользователя 01.10.2026): полная доходность — с
+# реинвестированием дивидендов; окно ценовых мер — год до as_of.
+PRICE_WINDOW_DAYS = 365
 
 # Канонические входы оценочных мер, которых нет в карте V0 (ТЗ-23 K4).
 _VALUATION_INPUT_CONCEPTS: tuple[str, ...] = (
@@ -402,6 +406,57 @@ class SnapshotBuilder:
         # пути, кто о них не забыл.
         self._peer_for = peer_for
 
+    def _price_measures(self, instrument_id: str, as_of: str) -> dict:
+        """ADR-0029: total_return и drawdown за год до as_of по ряду с
+        реинвестированием дивидендов: close уже в сегодняшней базе
+        акций (сплиты внутри), дивиденд на ex-date входит множителем
+        dividend_factor (core/prices.vendor_adjusted_series). Нет ряда —
+        отказ словами, а не пропуск строки."""
+        import datetime as _dt
+
+        from rusterm.core.prices import vendor_adjusted_series
+        from rusterm.formulas import drawdown, total_return
+
+        try:
+            end = _dt.date.fromisoformat(as_of)
+        except (TypeError, ValueError):
+            return {}
+        start = (end - _dt.timedelta(days=PRICE_WINDOW_DAYS)).isoformat()
+        if self._prices is None:
+            reason = "missing_data: price_close"
+            return {c: (None, reason, as_of, as_of)
+                    for c in ("total_return", "drawdown")}
+        by_date: dict = {}
+        for row in self._prices.series(instrument_id):
+            if row.get("close") is None or row["date"] > as_of:
+                continue
+            by_date.setdefault(row["date"], row)  # одна строка на дату
+        rows = [by_date[d] for d in sorted(by_date)]
+        actions = (self._corp_actions.all(instrument_id)
+                   if self._corp_actions is not None else [])
+        series, _ = vendor_adjusted_series(rows, actions)
+        window = [(d, v) for d, v in series if d >= start]
+        # окно обязано начинаться у своего края: ряд, начатый на полгода
+        # позже, — не годовая доходность
+        first_ok = bool(window) and (
+            _dt.date.fromisoformat(window[0][0])
+            - _dt.date.fromisoformat(start)).days <= 7
+        last_ok = bool(window) and (
+            end - _dt.date.fromisoformat(window[-1][0])).days <= 7
+        if not (first_ok and last_ok):
+            reason = "missing_data: price_close"
+            return {c: (None, reason, as_of, as_of)
+                    for c in ("total_return", "drawdown")}
+        out = {}
+        for concept, fn in (("total_return", total_return),
+                            ("drawdown", drawdown)):
+            value, reason = fn(window)
+            # отказ — период as_of, как у всякой меры без входов
+            out[concept] = ((value, None, window[0][0], window[-1][0])
+                            if value is not None else
+                            (None, reason or "missing_data", as_of, as_of))
+        return out
+
     def build(self, instrument_id: str, issuer_id: str, as_of: str,
               peer_set_version: str | None = None,
               peer_measures: list | None = None,
@@ -555,6 +610,28 @@ class SnapshotBuilder:
                 result.measures += 1
                 if value is not None:
                     computed[concept] = value
+
+        # ── ADR-0029: ценовые меры по ряду с реинвестированием ──
+        for concept, (value, reason, start, end) in self._price_measures(
+                instrument_id, as_of).items():
+            if concept in written_measures:
+                continue
+            self._snapshots.insert_measure_with_lineage(
+                dict(measure_id=str(uuid4()), snapshot_id=snapshot_id,
+                     scope="issuer", scope_ref=issuer_id,
+                     concept=concept,
+                     value=None if value is None else repr(value),
+                     unit=measure_unit(concept),
+                     period_start=start, period_end=end,
+                     formula_id=concept, method_version="v1",
+                     null_reason=None if value is not None else reason,
+                     peer_set_version=None),
+                [] if value is None else [
+                    {"price_instrument_id": instrument_id,
+                     "date_from": start, "date_to": end,
+                     "role": "price_series_total_return"}])
+            written_measures.add(concept)
+            result.measures += 1
 
         # ── Реестр формул §3 вне карты V0: строка видна, причина честна ──
         for concept in _UNMAPPED_FORMULAS:

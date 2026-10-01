@@ -964,6 +964,15 @@ class SnapshotRepo:
                  measure.get("method_version"), null_reason,
                  measure.get("peer_set_version")))
             for l in lineage:
+                # ADR-0029: отрезок ряда цен — своя таблица (миграция 48)
+                if l.get("price_instrument_id") is not None:
+                    c.execute(
+                        """INSERT INTO measure_lineage_price(measure_id,
+                          instrument_id, date_from, date_to, role)
+                          VALUES (?, ?, ?, ?, ?)""",
+                        (measure["measure_id"], l["price_instrument_id"],
+                         l["date_from"], l["date_to"], l["role"]))
+                    continue
                 # ТЗ-32 D6: period_basis (ttm|annual) — база периода
                 # входа, NULL для прямого однопериодного
                 if l.get("ca_instrument_id") is not None:

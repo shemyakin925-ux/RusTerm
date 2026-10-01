@@ -21,7 +21,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         # init: каталог + миграции
         assert main(["--root", root, "init"]) == 0
         out = capsys.readouterr().out
-        assert "schema_version=47" in out
+        assert "schema_version=48" in out
 
         # demo: демо-данные создаются только явно (TASK-8 U3)
         assert main(["--root", root, "demo"]) == 0
@@ -74,7 +74,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         assert main(["--root", root, "doctor"]) == 0
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is True
-        assert report["schema_version"] == 47
+        assert report["schema_version"] == 48
     finally:
         shutil.rmtree(root)
 
@@ -101,7 +101,7 @@ def test_cli_doctor_reports_schema_drift(capsys):
         capsys.readouterr()
         import sqlite3
         conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
-        for v in (37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47):
+        for v in (37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48):
             conn.execute("DELETE FROM schema_version WHERE version=?", (v,))
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
@@ -112,7 +112,7 @@ def test_cli_doctor_reports_schema_drift(capsys):
         # 40 — ручной импорт, 41 — цены): MAX не видит дырок,
         # сносим верх тоже
         assert report["schema_version"] == 36
-        assert any("schema_version=36" in p and "47" in p
+        assert any("schema_version=36" in p and "48" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -136,6 +136,7 @@ def test_cli_doctor_reports_schema_drift_38(capsys):
         conn.execute("DELETE FROM schema_version WHERE version=44")
         conn.execute("DELETE FROM schema_version WHERE version=45")
         conn.execute("DELETE FROM schema_version WHERE version=46")
+        conn.execute("DELETE FROM schema_version WHERE version=48")
         conn.execute("DELETE FROM schema_version WHERE version=47")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
@@ -143,7 +144,7 @@ def test_cli_doctor_reports_schema_drift_38(capsys):
         assert report["ok"] is False
         # после удаления 38 и выше максимум — 37
         assert report["schema_version"] == 37
-        assert any("schema_version=37" in p and "47" in p
+        assert any("schema_version=37" in p and "48" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -166,13 +167,14 @@ def test_cli_doctor_reports_schema_drift_39(capsys):
         conn.execute("DELETE FROM schema_version WHERE version=44")
         conn.execute("DELETE FROM schema_version WHERE version=45")
         conn.execute("DELETE FROM schema_version WHERE version=46")
+        conn.execute("DELETE FROM schema_version WHERE version=48")
         conn.execute("DELETE FROM schema_version WHERE version=47")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
         assert report["schema_version"] == 38
-        assert any("schema_version=38" in p and "47" in p
+        assert any("schema_version=38" in p and "48" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -538,7 +540,7 @@ def test_u9_status_after_demo_flow_reports_snapshot_and_coverage(capsys):
         assert main(["--root", root, "status", "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["instruments"] == 1
-        assert payload["schema_version"] == 47
+        assert payload["schema_version"] == 48
         assert len(payload["snapshots"]) == 1
         assert payload["snapshots"][0]["version"] == 1
         assert payload["coverage"]["ready"] >= 1
@@ -951,13 +953,14 @@ def test_cli_doctor_reports_schema_drift_40(capsys):
         conn.execute("DELETE FROM schema_version WHERE version=44")
         conn.execute("DELETE FROM schema_version WHERE version=45")
         conn.execute("DELETE FROM schema_version WHERE version=46")
+        conn.execute("DELETE FROM schema_version WHERE version=48")
         conn.execute("DELETE FROM schema_version WHERE version=47")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
         assert report["schema_version"] == 39
-        assert any("schema_version=39" in p and "47" in p
+        assert any("schema_version=39" in p and "48" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)

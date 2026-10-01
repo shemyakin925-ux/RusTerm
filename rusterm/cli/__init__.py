@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 import sys
 import time
 import uuid
@@ -182,19 +183,21 @@ def cmd_ingest(args) -> int:
     if targets is None:
         conn.close()
         return 1
-    if args.source == "twelvedata":
+    if args.source in ("twelvedata", "yahoo"):
         # Котировки (ТЗ-30 B2): сбор никогда не дефолт — только по
-        # явному --source, как edgar.
+        # явному --source, как edgar. ADR-0029: yahoo — без ключа.
         exit_code = 0
         for instrument_id, issuer_id in targets:
             code = _ingest_twelvedata_prices(repos, instrument_id,
-                                             args_as_of_default())
+                                             args_as_of_default(),
+                                             source=args.source)
             if code != 0:
                 exit_code = code
             # Корпоративные действия (ТЗ-31 C3): тот же вендор, свои
             # два payload'а со своим кешем; отказ не топит котировки
             code = _ingest_twelvedata_actions(repos, instrument_id,
-                                              args_as_of_default())
+                                              args_as_of_default(),
+                                              source=args.source)
             if code != 0:
                 exit_code = code
         conn.close()
@@ -281,9 +284,17 @@ def cmd_ingest(args) -> int:
     return exit_code
 
 
+def price_source() -> str:
+    """ADR-0029: источник котировок — RUSTERM_PRICE_SOURCE (окружение
+    или ~/.rusterm.env): `yahoo` — без ключа, `twelvedata` — по ключу.
+    Не задан — twelvedata, как было до решения пользователя 01.10."""
+    name = (os.environ.get("RUSTERM_PRICE_SOURCE") or "").strip().lower()
+    return name if name in ("twelvedata", "yahoo") else "twelvedata"
+
+
 def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
                               start: str | None = None,
-                              provider=None) -> int:
+                              provider=None, source: str | None = None) -> int:
     """Котировочный сбор (ТЗ-30 B2, ТЗ-23 K2, ADR-0014, ТЗ-90 A1): один
     запрос /time_series на дату, payload в raw-хранилище, строки в
     price. Повторный сбор того же `as_of` находит payload по
@@ -308,9 +319,9 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
     price_gate = None
     if provider is None:
         price_gate = RequestGate()
-        provider = get_provider("twelvedata", gate=price_gate)
+        provider = get_provider(source or price_source(), gate=price_gate)
     if isinstance(provider, ConfigError):
-        print(f"twelvedata недоступен: {provider.reason}",
+        print(f"{source or price_source()} недоступен: {provider.reason}",
               file=sys.stderr)
         if provider.reason == "twelvedata_key_unset":
             from rusterm.providers.twelvedata import key_instruction
@@ -318,7 +329,7 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
         return 1
 
     cache_url = provider.cache_url(symbol, start, as_of)
-    cached_sha = repos.raw.find_by_provider_url("twelvedata", cache_url)
+    cached_sha = repos.raw.find_by_provider_url(provider.source_name, cache_url)
     requests_spent = 0
     if cached_sha is not None:
         payload = json.loads(repos.raw.get(cached_sha).decode("utf-8"))
@@ -329,23 +340,23 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
             # Отказ — тоже запрос: гейт его пропустил, значит budget
             # обязан его назвать (ТЗ-96 R3: на живом прогоне 403-ный
             # вызов исчезал из счётчика).
-            _record_gate_usage(repos, "twelvedata", price_gate)
-            print(f"twelvedata: {outcome.reason}", file=sys.stderr)
+            _record_gate_usage(repos, provider.source_name, price_gate)
+            print(f"{provider.source_name}: {outcome.reason}", file=sys.stderr)
             return 1
         payload = outcome
         requests_spent = 1
         raw = json.dumps(payload, sort_keys=True,
                          ensure_ascii=False).encode("utf-8")
-        repos.raw.put(raw, provider="twelvedata", block="prices",
+        repos.raw.put(raw, provider=provider.source_name, block="prices",
                       url=cache_url, instrument_id=instrument_id)
     rows = provider.parse_series(payload)
-    inserted = repos.price.put_rows(instrument_id, "twelvedata", rows)
+    inserted = repos.price.put_rows(instrument_id, provider.source_name, rows)
     last = rows[-1]["date"] if rows else "—"
     # ТЗ-64 J1: путь через RequestGate записывает его расход; цена была
     # единственным путём, который этого не делал — живая котировка
     # считалась нулём запросов. Инъецированный провайдер оставляет gate
     # равным None: чужой гейт не считаем.
-    _record_gate_usage(repos, "twelvedata", price_gate)
+    _record_gate_usage(repos, provider.source_name, price_gate)
     print(f"{instrument_id}: строк получено: {len(rows)}; "
           f"записано новых: {inserted}; запросов: {requests_spent}; "
           f"последняя дата: {last}")
@@ -353,7 +364,7 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
 
 
 def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
-                               provider=None) -> int:
+                               provider=None, source: str | None = None) -> int:
     """Корпоративные действия с вендора (ТЗ-31 C3, ТЗ-90 A1): /splits и
     /dividends тем же каналом, что котировки; каждый payload кешируется
     по каноническому URL без ключа (ADR-0003), и URL этот датированный —
@@ -382,9 +393,9 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
     ca_gate = None
     if provider is None:
         ca_gate = RequestGate()
-        provider = get_provider("twelvedata", gate=ca_gate)
+        provider = get_provider(source or price_source(), gate=ca_gate)
     if isinstance(provider, ConfigError):
-        print(f"twelvedata недоступен: {provider.reason}",
+        print(f"{source or price_source()} недоступен: {provider.reason}",
               file=sys.stderr)
         if provider.reason == "twelvedata_key_unset":
             from rusterm.providers.twelvedata import key_instruction
@@ -397,10 +408,16 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
     for kind, fetch in (("splits", provider.splits),
                         ("dividends", provider.dividends)):
         cache_url = provider.cache_url_ca(kind, symbol, as_of)
-        cached_sha = repos.raw.find_by_provider_url("twelvedata", cache_url)
+        cached_sha = repos.raw.find_by_provider_url(provider.source_name, cache_url)
         if cached_sha is not None:
             payloads[kind] = json.loads(
                 repos.raw.get(cached_sha).decode("utf-8"))
+            continue
+        if (kind == "dividends" and "splits" in payloads
+                and provider.cache_url_ca("splits", symbol, as_of)
+                == cache_url):
+            # ADR-0029: у Yahoo оба вида событий в одном ответе chart
+            payloads[kind] = payloads["splits"]
             continue
         outcome = fetch(symbol, as_of)
         if isinstance(outcome, (ProviderError, ConfigError,
@@ -416,18 +433,18 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
                 continue
             # Тот же счёт, что у котировок: отказанный вызов гейт уже
             # пропустил, и терять его на выходе из стадии нельзя.
-            _record_gate_usage(repos, "twelvedata", ca_gate)
-            print(f"twelvedata: {kind}: {reason}", file=sys.stderr)
+            _record_gate_usage(repos, provider.source_name, ca_gate)
+            print(f"{provider.source_name}: {kind}: {reason}", file=sys.stderr)
             return 1
         payloads[kind] = outcome
         requests_spent += 1
         raw = json.dumps(outcome, sort_keys=True,
                          ensure_ascii=False).encode("utf-8")
-        repos.raw.put(raw, provider="twelvedata",
+        repos.raw.put(raw, provider=provider.source_name,
                       block="corporate_actions", url=cache_url,
                       instrument_id=instrument_id)
 
-    _record_gate_usage(repos, "twelvedata", ca_gate)
+    _record_gate_usage(repos, provider.source_name, ca_gate)
     if refused:
         print(f"{instrument_id}: корп.действия "
               f"({', '.join(refused)}): недоступны на бесплатном тарифе "
@@ -1935,7 +1952,7 @@ def cmd_follow(args, emit=None, cancel=None) -> int:
         # документа, уже лежащее в сыром хранилище, не качается снова.
         ("4/6 формы владения", ["ingest", "--source", "ownership",
                                 "--instrument", instrument_id]),
-        ("5/6 цены", ["ingest", "--source", "twelvedata",
+        ("5/6 цены", ["ingest", "--source", price_source(),
                       "--instrument", instrument_id]),
         ("6/6 снапшот", ["snapshot", "--instrument", instrument_id]),
     ]
@@ -2690,7 +2707,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ing.add_argument("--market", default=None)
     p_ing.add_argument("--watchlist", default=None)
     p_ing.add_argument("--source", choices=("synthetic", "edgar", "cvm",
-                                            "asx", "twelvedata",
+                                            "asx", "twelvedata", "yahoo",
                                             "ownership"),
                        default="synthetic")
     sub.add_parser("demo", help="создать синтетический демо-инструмент")

@@ -31,7 +31,9 @@ def paths_env(tmp_path, monkeypatch):
                  "RUSTERM_LLM_API_KEY", "RUSTERM_LLM_MODEL",
                  "RUSTERM_TWELVEDATA_KEY",
                  # ТЗ-90 A4: список панели = список загружаемых имён
-                 "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL"):
+                 "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL",
+                 # ADR-0029: источник котировок
+                 "RUSTERM_PRICE_SOURCE"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("RUSTERM_ENV_FILE",
                        str(tmp_path / "empty.env"))
@@ -62,7 +64,9 @@ def test_keys_view_names_origin_without_values(paths_env, monkeypatch):
                          "RUSTERM_TWELVEDATA_KEY", "RUSTERM_DATA",
                          # ТЗ-90 A4: панель шире — два имени, которые
                          # GUIDE обещает грузить из ~/.rusterm.env
-                         "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL"}
+                         "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL",
+                         # ADR-0029: источник котировок
+                         "RUSTERM_PRICE_SOURCE"}
     assert rows["RUSTERM_LLM_API_KEY"]["found"] is True
     assert rows["RUSTERM_LLM_API_KEY"]["origin"] == "окружение"
     assert "sk-secret-value-xyz" not in str(view)

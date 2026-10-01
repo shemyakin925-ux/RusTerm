@@ -1186,6 +1186,9 @@ KEY_PURPOSE = {
                         "их тела без ключа недоступны",
     "RUSTERM_LLM_BASE_URL": "куда ходят запросы модели; без него — "
                             "OpenRouter (ADR-0018)",
+    # ADR-0029: yahoo — котировки, сплиты и дивиденды без ключа
+    "RUSTERM_PRICE_SOURCE": "откуда котировки: yahoo — без ключа, "
+                            "twelvedata — по ключу; без него — twelvedata",
 }
 
 

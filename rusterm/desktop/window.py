@@ -222,13 +222,21 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     center_layout.addLayout(controls)
     chart_area = ChartArea()
     chart_area.setObjectName("chart_area")
-    center_layout.addWidget(chart_area, 2)
+    # ТЗ-107: график крупнее таблицы, граница перетаскивается мышью
+    chart_area.setMinimumHeight(320)
     table = QTableWidget(objectName="table")
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.horizontalHeader().setSectionResizeMode(
         QHeaderView.ResizeMode.Stretch)
     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-    center_layout.addWidget(table, 3)
+    chart_split = QSplitter(Qt.Orientation.Vertical,
+                            objectName="chart_split")
+    chart_split.addWidget(chart_area)
+    chart_split.addWidget(table)
+    chart_split.setStretchFactor(0, 3)
+    chart_split.setStretchFactor(1, 2)
+    chart_split.setChildrenCollapsible(False)
+    center_layout.addWidget(chart_split, 5)
     source_panel = QLabel(objectName="source_panel")
     source_panel.setWordWrap(True)
     center_layout.addWidget(source_panel)

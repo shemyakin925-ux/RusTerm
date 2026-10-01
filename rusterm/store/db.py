@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 47  # 46 (ТЗ-97 Q10, ADR-0025) + 47: индекс ревизий покрывает superseded_by (ТЗ-92 C0)
+_SCHEMA_VERSION = 48  # 46 (ТЗ-97 Q10, ADR-0025) + 47: индекс ревизий покрывает superseded_by (ТЗ-92 C0) + 48: lineage ряда цен (ADR-0029)
 
 
 def _checksum(text: str) -> str:
@@ -773,6 +773,27 @@ def _migrate_47_revisions_index_covering(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[47] = (
     _migrate_47_revisions_index_covering, _FACT_REVISIONS_INDEX_V47_DDL)
+
+
+# ADR-0029: ценовые меры (total_return, drawdown) считаются по ряду цен,
+# а не по фактам отчётности, — их происхождение — отрезок ряда цен
+# инструмента и источник котировок. Только добавление таблицы.
+_MEASURE_LINEAGE_PRICE_V48_DDL = """CREATE TABLE IF NOT EXISTS
+    measure_lineage_price (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        instrument_id TEXT NOT NULL,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        role TEXT NOT NULL,
+        PRIMARY KEY (measure_id, role))"""
+
+
+def _migrate_48_price_lineage(conn) -> None:
+    conn.execute(_MEASURE_LINEAGE_PRICE_V48_DDL)
+
+
+_CUSTOM_MIGRATIONS[48] = (_migrate_48_price_lineage,
+                          _MEASURE_LINEAGE_PRICE_V48_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

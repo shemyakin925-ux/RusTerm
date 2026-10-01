@@ -32,7 +32,9 @@ ENV_NAMES = ("RUSTERM_SEC_UA", "RUSTERM_LLM_PROVIDER", "RUSTERM_LLM_API_KEY",
              # вовсе. Список проверяет тест tests/test_a4_env_names.py:
              # любое RUSTERM_*-имя, читаемое из окружения под rusterm/,
              # должно быть перечислено здесь.
-             "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL")
+             "RUSTERM_DART_KEY", "RUSTERM_LLM_BASE_URL",
+             # ADR-0029: источник котировок — twelvedata | yahoo
+             "RUSTERM_PRICE_SOURCE")
 
 # Происхождения последнего load_env: после бутстрапа doctor обязан
 # показывать, ОТКУДА пришла переменная, а не «окружение» (load_env сам

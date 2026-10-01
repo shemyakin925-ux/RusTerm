@@ -205,17 +205,17 @@ def _counters(root):
 # выбор таксономии ничего не терял.
 EXPECTED = {
     "US-AAPL": {"facts": 230, "fact_years": 20, "prices": 1000,
-                "price_years": 5, "valued": 24},
+                "price_years": 5, "valued": 26},
     "US-ADBE": {"facts": 191, "fact_years": 19, "prices": 1000,
-                "price_years": 5, "valued": 23},
+                "price_years": 5, "valued": 25},
     "US-KSPI": {"facts": 3, "fact_years": 3, "prices": 672,
-                "price_years": 3, "valued": 2},
+                "price_years": 3, "valued": 4},
     "US-MSFT": {"facts": 217, "fact_years": 18, "prices": 1000,
-                "price_years": 5, "valued": 24},
+                "price_years": 5, "valued": 26},
     "US-VALE": {"facts": 48, "fact_years": 6, "prices": 1000,
-                "price_years": 5, "valued": 11},
+                "price_years": 5, "valued": 13},
     "US-VZ": {"facts": 181, "fact_years": 20, "prices": 1000,
-              "price_years": 5, "valued": 13},
+              "price_years": 5, "valued": 15},
 }
 
 # Байты фикстур = запись живого ответа: повторная обрезка того же

@@ -100,6 +100,8 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "twelvedata_bad_response": "provider channel refusal (providers/twelvedata.py)",
     "twelvedata_key_unset": "provider channel refusal (providers/twelvedata.py)",
     "vendor_rate_limited": "provider channel refusal (providers/twelvedata.py)",
+    "yahoo_bad_response": "provider channel refusal (providers/yahoo.py, ADR-0029)",
+    "yahoo_error": "provider channel refusal (providers/yahoo.py, ADR-0029)",
     "source_has_no_disclosure": "coverage label (cli ownership)",
     "paid_channel_refused": "coverage label (cli, ADR-0018)",
     # chat/LLM: свои отказы, в меры не попадают
