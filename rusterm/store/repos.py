@@ -635,6 +635,33 @@ class SnapshotRepo:
                 best = (numeric, end, currency, fact_id, start, length)
         return best
 
+    def annual_period_ends(self, issuer_id: str,
+                           concepts: tuple = ("revenue", "net_income"),
+                           min_days: int = 350,
+                           max_days: int = 380) -> list[str]:
+        """ТЗ-107 V1: концы финансовых лет эмитента — по годовым
+        (350..380 дней) потокам выручки и чистой прибыли, новые первыми.
+        Источник дат для пересборки истории по годам."""
+        import datetime as _dt
+        marks = ",".join("?" for _ in concepts)
+        rows = self.conn.execute(
+            f"""SELECT DISTINCT period_start, period_end FROM fact
+               WHERE issuer_id=? AND canonical_concept IN ({marks})
+               AND status='ok' AND value IS NOT NULL
+               AND superseded_by IS NULL
+               AND period_start IS NOT NULL AND period_end IS NOT NULL""",
+            (issuer_id, *concepts)).fetchall()
+        ends = set()
+        for start, end in rows:
+            try:
+                length = (_dt.date.fromisoformat(end)
+                          - _dt.date.fromisoformat(start)).days
+            except (TypeError, ValueError):
+                continue
+            if min_days <= length <= max_days:
+                ends.add(end)
+        return sorted(ends, reverse=True)
+
     def duration_facts(self, issuer_id: str, canonical: str,
                        limit: int = 200) -> list:
         """Свежайшие факты-потоки по каноническому концепту, любой

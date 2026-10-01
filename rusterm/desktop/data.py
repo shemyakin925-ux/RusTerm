@@ -331,6 +331,20 @@ NO_HISTORY_HINT = ("истории мер нет: посчитайте ряд о
                    "rusterm snapshot --instrument {instrument_id}")
 
 
+# ТЗ-107 V4: отрасль из причины not_applicable — словами
+_SECTOR_WORDS = {"banks": "банкам"}
+
+
+def not_applicable_text(null_reason) -> Optional[str]:
+    """«не применимо к банкам» для причины `not_applicable: banks`;
+    прочие причины — None (ячейка остаётся «нет данных»)."""
+    if not null_reason or not str(null_reason).startswith("not_applicable"):
+        return None
+    sector = str(null_reason).partition(":")[2].strip()
+    word = _SECTOR_WORDS.get(sector, sector)
+    return f"не применимо к {word}" if word else "не применимо"
+
+
 def measure_table_rows(repos, instrument_id: str,
                        year_count: int = DEFAULT_YEAR_COLUMNS) -> dict:
     """Строки центральной таблицы из card_rows: сейчас + годы.
@@ -370,11 +384,12 @@ def measure_table_rows(repos, instrument_id: str,
     for measure in card["measures"]:
         current = measure["value"]
         has_value = current is not None and current != tui_model.NULL_MARK
+        empty = not_applicable_text(measure.get("null_reason")) or NO_DATA
         year_cells = {}
         for year in years:
             point = history.get(year, {}).get(measure["concept"])
             if point is None:
-                year_cells[year] = NO_DATA
+                year_cells[year] = empty
                 continue
             cell = format_value(point)
             if (basis.get(year, {}).get(measure["concept"])
@@ -384,7 +399,7 @@ def measure_table_rows(repos, instrument_id: str,
         period_end = measure.get("period") or ""
         rows.append({
             "concept": measure["concept"],
-            "current": format_value(current) if has_value else NO_DATA,
+            "current": format_value(current) if has_value else empty,
             "years": year_cells,
             "has_value": has_value,
             "null_reason": measure.get("null_reason"),
@@ -949,9 +964,17 @@ def remove_instruments(repos, watchlist_id: str,
 def raw_object_location(paths: AppPaths, sha256: str) -> dict:
     """C6.2: где лежит сохранённый ответ и есть ли он. raw/store/<2>/<sha>;
     файла нет — exists=False, окно скажет словами, а не упадёт."""
-    from rusterm.store.raw_store import object_path
+    from rusterm.store.raw_store import (GZIP_EXTENSION, ZSTD_EXTENSION,
+                                         object_path)
     path = object_path(paths.raw_store, sha256)
-    return {"path": str(path), "exists": path.exists()}
+    # ТЗ-107 V3: ответ свыше 64 КБ лежит сжатым (<sha>.gz | <sha>.zst);
+    # проверка одного имени без суффикса писала «сырья нет» про файл,
+    # который на месте (скриншот пользователя 30.09, BAC)
+    for candidate in (path, path.with_name(path.name + ZSTD_EXTENSION),
+                      path.with_name(path.name + GZIP_EXTENSION)):
+        if candidate.exists():
+            return {"path": str(candidate), "exists": True}
+    return {"path": str(path), "exists": False}
 
 
 def source_panel_view(repos, paths: AppPaths, measure_row: dict,

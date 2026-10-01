@@ -435,14 +435,23 @@ class SnapshotBuilder:
                                         as_of, peer_set_version,
                                         "unverified" if peer_set_version else "none",
                                         "building")
+        real_snapshots = self._snapshots
+        sector = _sector_of(self._peers, instrument_id)
+        if sector in NOT_APPLICABLE_BY_SECTOR:
+            # ТЗ-107 V4: мера, не определённая для отрасли, без числа —
+            # «не применимо», а не «нет данных»
+            self._snapshots = _NotApplicableSnapshots(
+                real_snapshots, sector, NOT_APPLICABLE_BY_SECTOR[sector])
         try:
             result = self._assemble(
                 instrument_id, issuer_id, as_of, peer_set_version,
                 peer_measures, peer_members_previous, peer_members_current,
                 source_errors, snapshot_id, version)
         except BaseException:
-            self._snapshots.delete_snapshot(snapshot_id)
+            real_snapshots.delete_snapshot(snapshot_id)
             raise
+        finally:
+            self._snapshots = real_snapshots
         self._snapshots.set_status(snapshot_id, "ready")
         return result
 
@@ -2366,6 +2375,49 @@ def snapshot_measures_identical(rows_a: list, rows_b: list) -> bool:
         return sorted((m[3], str(m[4]), m[5], m[6], m[7],
                        (m[10] or "")) for m in rows)
     return key(rows_a) == key(rows_b)
+
+
+# ТЗ-107 V4: меры, которые для отрасли не определены. Банк не имеет
+# EBITDA и свободного денежного потока в смысле промышленной компании:
+# его «выручка» — процентный доход, долг — сырьё бизнеса, а не
+# финансирование. Пустая клетка у такой меры — не пробел в данных.
+NOT_APPLICABLE_BY_SECTOR: dict[str, frozenset] = {
+    "banks": frozenset({
+        "ebitda", "ev", "ev_ebitda", "fcf", "fcf_yield", "gross_profit",
+        "gross_margin", "net_debt", "net_debt_ebitda", "interest_coverage",
+        "capex", "capex_to_revenue", "roic", "invested_capital",
+    }),
+}
+
+
+def _sector_of(peer_set_repo, instrument_id: str):
+    finder = getattr(peer_set_repo, "peer_set_for_instrument", None)
+    if finder is None:
+        return None
+    try:
+        found = finder(instrument_id)
+    except Exception:  # noqa: BLE001 — сектор — подсказка, не условие сборки
+        return None
+    return found.get("peer_set_id") if found else None
+
+
+class _NotApplicableSnapshots:
+    """Прокладка над репозиторием снапшотов на время одной сборки:
+    пустая мера из списка отрасли получает причину not_applicable."""
+
+    def __init__(self, inner, sector: str, concepts: frozenset):
+        self._inner = inner
+        self._reason = f"not_applicable: {sector}"
+        self._concepts = concepts
+
+    def insert_measure_with_lineage(self, row, lineage_rows):
+        if (row.get("value") is None and row.get("scope") == "issuer"
+                and row.get("concept") in self._concepts):
+            row = dict(row, null_reason=self._reason)
+        return self._inner.insert_measure_with_lineage(row, lineage_rows)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 def make_snapshot_builder(repos, as_of: str) -> SnapshotBuilder:

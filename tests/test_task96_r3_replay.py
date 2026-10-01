@@ -248,11 +248,19 @@ FIXTURE_SHA256 = {
 }
 
 
+# ТЗ-107: дата прогона записи. Лента цен фикстур кончается 2026-09-23, а
+# дверь свежести цены — 7 дней: с 01.10.2026 снапшот «на сегодня» отказывал
+# в цене, и тест краснел от календаря, а не от кода. Сбор цен остаётся «на
+# сегодня» (тикер в каталоге фикстуры заведён сегодняшней датой), снапшот
+# строится на дату записи.
+REPLAY_AS_OF = "2026-09-24"
+
+
 def test_replay_makes_zero_requests_and_rebuilds_the_numbers(catalog):
     repos, root = catalog
     assert cli._requests_used(str(root)) == 0, "add с --cik/--name тянет сеть"
 
-    as_of = cli.args_as_of_default()
+    as_of = cli.args_as_of_default()  # тикер в каталоге живёт с сегодня
     for ticker in TICKERS:
         _replay_fundamentals(repos, root, ticker)
         rc, gate, _provider = _replay_prices(repos, root, ticker, as_of)
@@ -261,7 +269,8 @@ def test_replay_makes_zero_requests_and_rebuilds_the_numbers(catalog):
                                       f"{gate.calls_made} запросов в офлайне")
         iid = f"US-{ticker}"
         assert cli.main(["--root", str(root), "snapshot",
-                         "--instrument", iid]) == 0
+                         "--instrument", iid,
+                         "--as-of", REPLAY_AS_OF]) == 0
 
     counters = _counters(root)
     assert counters["requests"] == 0, counters["requests"]
@@ -295,7 +304,8 @@ def test_dei_input_survives_the_trim(catalog):
                                           cli.args_as_of_default())
     assert rc == 0
     assert cli.main(["--root", str(root), "snapshot",
-                     "--instrument", "US-VZ"]) == 0
+                     "--instrument", "US-VZ",
+                     "--as-of", REPLAY_AS_OF]) == 0
     ms = _measures(root, "US-VZ")
     for concept in ("market_cap", "market_cap_total", "pe", "ps"):
         assert ms.get(concept, (None, "нет меры"))[0] is not None, (

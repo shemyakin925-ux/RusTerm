@@ -45,6 +45,9 @@ NULL_REASONS: frozenset[str] = frozenset({
     # Отличается от stale_data: там факт вычищен окном снапшота и
     # мера не собиралась, здесь вход отвергнут конкретной мерой.
     "stale_input",
+    # ТЗ-107 V4: мера не определена для отрасли эмитента (банк: EBITDA,
+    # FCF, EV…). Продолжение — отрасль (not_applicable: banks).
+    "not_applicable",
 })
 
 

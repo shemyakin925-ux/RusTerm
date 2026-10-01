@@ -993,6 +993,41 @@ def cmd_refresh(args) -> int:
     return 0 if errors == 0 else 1
 
 
+def cmd_history(args) -> int:
+    """ТЗ-107 V1: история мер по финансовым годам — по снапшоту на конец
+    каждого года из уже скачанных фактов, без сети. Повтор ничего не
+    добавляет; после новых лет пересобирается текущий снапшот."""
+    from rusterm.core.history import build_history
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    if getattr(args, "all", False):
+        targets = []
+        for iid in repos.instrument.list_instruments():
+            inst = repos.instrument.get_instrument(iid)
+            if inst is not None:
+                targets.append((inst.instrument_id, inst.issuer_id))
+    else:
+        targets = _select_instruments(args, repos)
+    if targets is None:
+        conn.close()
+        return 1
+    for instrument_id, issuer_id in targets:
+        res = build_history(repos, instrument_id, issuer_id,
+                            years=args.years)
+        if not res.built and not res.skipped:
+            print(f"{instrument_id}: годовых периодов в базе нет — "
+                  f"сначала rusterm follow {instrument_id}")
+            continue
+        built = ", ".join(e[:4] for e in res.built) or "нет"
+        print(f"{instrument_id}: собрано лет: {len(res.built)} ({built}); "
+              f"уже было: {len(res.skipped)}"
+              + ("; текущий снапшот пересобран" if res.current_rebuilt
+                 else ""))
+    conn.close()
+    return 0
+
+
 def cmd_snapshot(args) -> int:
     paths, conn = _open(args.root)
     apply_migrations(conn)
@@ -2685,6 +2720,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_snap.add_argument("--market", default=None)
     p_snap.add_argument("--watchlist", default=None)
     p_snap.add_argument("--as-of", default=None)
+    p_hist = sub.add_parser(
+        "history", help="история мер по финансовым годам (без сети)")
+    p_hist.add_argument("--instrument", default=None)
+    p_hist.add_argument("--ticker", default=None)
+    p_hist.add_argument("--market", default=None)
+    p_hist.add_argument("--watchlist", default=None)
+    p_hist.add_argument("--all", action="store_true",
+                        help="все бумаги базы")
+    p_hist.add_argument("--years", type=int, default=10)
     p_exp = sub.add_parser("export", help="экспорт последнего снапшота")
     p_exp.add_argument("--instrument", required=False, default=None)
     p_exp.add_argument("--chat", default=None,
@@ -2869,6 +2913,7 @@ def main(argv: list[str] | None = None) -> int:
 
     commands = {
         "init": cmd_init, "ingest": cmd_ingest, "snapshot": cmd_snapshot,
+        "history": cmd_history,
         "export": cmd_export, "verify": cmd_verify, "doctor": cmd_doctor,
         "backup": cmd_backup, "restore": cmd_restore,
         "chat": cmd_chat,
