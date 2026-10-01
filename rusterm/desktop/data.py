@@ -949,6 +949,16 @@ def _next_version_full(repos, watchlist_id: str, action: str) -> str:
     return version_id
 
 
+def parse_add_request(text: str) -> tuple[str, str]:
+    """«NVDA» → ("NVDA", "US"); «cnq tsx» → ("CNQ", "TSX"). Рынок по
+    умолчанию — US, как у `rusterm follow`: без него поиск получал
+    пустой рынок и не находил ничего."""
+    parts = text.split()
+    ticker = parts[0].upper() if parts else ""
+    market = parts[1].upper() if len(parts) > 1 else "US"
+    return ticker, market
+
+
 def add_instrument(repos, watchlist_id: str, ticker: str, market: str,
                    as_of: str | None = None) -> dict:
     """C5.2: добавление бумаги тем же путём, что CLI watchlist add:
@@ -958,7 +968,10 @@ def add_instrument(repos, watchlist_id: str, ticker: str, market: str,
     candidates = repos.instrument.resolve_ticker_candidates(
         ticker, market, as_of or _today())
     if not candidates:
-        return {"ok": False,
+        # missing=True: окно может предложить найти и собрать бумагу
+        # командой ядра `follow` (ADR-0027), а не только сказать словами
+        return {"ok": False, "missing": True,
+                "instrument_id": f"{market}-{ticker.upper()}",
                 "message": (f"инструмента {ticker}.{market} нет в базе — "
                             f"добавьте бумагу командой "
                             f"rusterm add --ticker {ticker} "

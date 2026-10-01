@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QLabel,  # noqa: E402
                                QLineEdit, QPushButton, QTableWidget,
                                QTreeWidget)
 
+from rusterm.desktop import actions as desktop_actions  # noqa: E402
 from rusterm.desktop import data as desktop_data  # noqa: E402
 from rusterm.desktop import window as desktop_window  # noqa: E402
 from rusterm.desktop.charts import ChartArea  # noqa: E402
@@ -948,6 +949,11 @@ def test_s2_add_unknown_paper_names_ready_command(qapp, env, monkeypatch):
     monkeypatch.setattr(
         QInputDialog, "getText",
         staticmethod(lambda *a, **k: ("ZZ US", True)))
+    # новое предложение «найти и собрать» — отклонено; дальше прежний
+    # путь S2: готовая команда словами
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
     warned = []
     monkeypatch.setattr(
         QMessageBox, "warning",
@@ -1016,3 +1022,48 @@ def test_s4_watchlist_ops_without_list_say_words(qapp, tmp_path,
     assert len(warned) == 3, warned
     for message in warned:
         assert "rusterm watchlist create main --name main" in message
+
+
+def test_add_request_defaults_to_us_market():
+    """«NVDA» без рынка раньше уходил в поиск с пустым рынком и не
+    находился (осмотр 01.10.2026)."""
+    assert desktop_data.parse_add_request("nvda") == ("NVDA", "US")
+    assert desktop_data.parse_add_request("cnq tsx") == ("CNQ", "TSX")
+
+
+def test_add_unknown_paper_finds_and_collects_it(qapp, env, monkeypatch):
+    """Бумаги нет в базе — окно предлагает найти и собрать её той же
+    командой ядра, что «Собрать» (`follow`), и кладёт в список. Раньше
+    кнопка только писала «добавьте командой rusterm add»."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("s1x", True)))
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    calls = []
+
+    def fake_follow(root, instrument_id, cancel=None, on_stage=None):
+        # рабочий поток, своё соединение — как у настоящего `follow`
+        calls.append(instrument_id)
+        conn = sqlite3.connect(str(paths.db_path), isolation_level=None)
+        try:
+            _fresh_instrument(RepoRegistry(conn, paths))
+        finally:
+            conn.close()
+        return desktop_actions.CollectOutcome(ok=True, detail="путь пройден")
+
+    monkeypatch.setattr(desktop_actions, "follow_instrument", fake_follow)
+    _widget(window, QPushButton, "watchlist_add_button").click()
+    import time
+    deadline = time.time() + 10
+    counter = _widget(window, QLabel, "match_count")
+    while counter.text() != "компаний: 5" and time.time() < deadline:
+        qapp.processEvents()
+        time.sleep(0.05)
+    assert calls == ["US-S1X"]
+    assert counter.text() == "компаний: 5", "бумага не добавилась"
+    status = _widget(window, QLabel, "collect_status").text()
+    assert status.startswith("S1X: добавлена"), status

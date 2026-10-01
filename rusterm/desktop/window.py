@@ -468,16 +468,71 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             "тикер и рынок (например: CNQ TSX):")
         if not ok or not text.strip():
             return
-        parts = text.split()
-        outcome = data.add_instrument(repos, watchlist_id,
-                                      parts[0],
-                                      parts[1] if len(parts) > 1 else "")
+        ticker, market = data.parse_add_request(text)
+        outcome = data.add_instrument(repos, watchlist_id, ticker, market)
+        if outcome.get("missing"):
+            # бумаги нет в базе: найти и собрать её той же командой ядра,
+            # что кнопка «Собрать» (`rusterm follow`, ADR-0027), в рабочем
+            # потоке, и по готовности положить в список
+            if state["worker"] is not None:
+                QMessageBox.warning(window, "добавление",
+                                    "идёт сбор — дождитесь окончания")
+                return
+            answer = QMessageBox.question(
+                window, "добавление",
+                f"{ticker} ({market}) ещё нет в базе. Найти и собрать "
+                f"отчётность и цены (бесплатные источники)?")
+            if answer != QMessageBox.StandardButton.Yes:
+                # отказ — та же готовая команда, что и раньше (ТЗ-75 S2)
+                QMessageBox.warning(window, "добавление",
+                                    outcome["message"])
+                return
+            start_add_follow(outcome["instrument_id"], watchlist_id,
+                             ticker, market)
+            return
         if not outcome["ok"]:
             QMessageBox.warning(window, "добавление", outcome["message"])
             return
         state["companies"] = data.sidebar_companies(repos, watchlist_id)
         repaint_sidebar("")
         repaint_watchlists()
+
+    def start_add_follow(instrument_id, watchlist_id, ticker, market):
+        worker = _FollowWorker(paths.root, instrument_id, parent=window)
+        window.set_worker(worker)
+        state["worker"] = worker
+        collect_button.setEnabled(False)
+        cancel_button.setEnabled(True)
+        worker.stage.connect(collect_status.setText)
+        worker.finished_run.connect(
+            lambda outcome: on_add_follow_done(outcome, watchlist_id,
+                                               ticker, market))
+        collect_status.setText(f"{ticker}: поиск и сбор запущены")
+        worker.start()
+
+    def on_add_follow_done(outcome, watchlist_id, ticker, market):
+        state["worker"] = None
+        window.set_worker(None)
+        collect_button.setEnabled(state["selected"] is not None)
+        cancel_button.setEnabled(False)
+        if outcome.cancelled:
+            collect_status.setText(f"{ticker}: отменено — {outcome.detail}")
+            return
+        if not outcome.ok:
+            collect_status.setText(
+                f"{ticker}: не добавлена — {outcome.reason}: "
+                f"{outcome.detail}")
+            return
+        added = data.add_instrument(repos, watchlist_id, ticker, market)
+        if not added["ok"]:
+            collect_status.setText(f"{ticker}: собрана, но не в списке — "
+                                   f"{added['message']}")
+            return
+        collect_status.setText(f"{ticker}: добавлена; {outcome.detail}")
+        state["companies"] = data.sidebar_companies(repos, watchlist_id)
+        repaint_sidebar("")
+        repaint_watchlists()
+        repaint_header()
 
     def on_watchlist_remove() -> None:
         """C5.2: удаление выбранной бумаги; версия новая, старая
