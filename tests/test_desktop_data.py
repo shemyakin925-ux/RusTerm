@@ -467,8 +467,9 @@ def test_source_panel_collapses_stale_inputs(stale_env):
 @pytest.fixture()
 def one_year_env(tmp_path):
     """ТЗ-81 B2: форма живой базы пользователя — все снапшоты одного года
-    (2026), период мер — июнь 2026. Три прочие колонки нынешнего
-    правила стоят пустыми."""
+    (2026), период мер — год, кончившийся в июне 2026 (полугодие в
+    колонку года не идёт, test_history_annual_only). Три прочие колонки
+    нынешнего правила стоят пустыми."""
     paths = AppPaths.from_root(tmp_path / "one-year")
     ensure_app_dir(paths)
     conn = _connect(paths)
@@ -486,12 +487,12 @@ def one_year_env(tmp_path):
                                    None, None, "ready")
     repos.snapshot.insert_measure(
         "m-nm-jun", "s-jun", "issuer", "i-AAA", "net_margin", "0.2043",
-        "ratio", "2026-01-01", "2026-06-30", "f-1", "v1", None, None)
+        "ratio", "2025-07-01", "2026-06-30", "f-1", "v1", None, None)
     repos.snapshot.create_snapshot("s-sep", "US-AAA", 2, "2026-09-22",
                                    None, None, "ready")
     repos.snapshot.insert_measure(
         "m-nm-sep", "s-sep", "issuer", "i-AAA", "net_margin", "0.21",
-        "ratio", "2026-01-01", "2026-06-30", "f-2", "v1", None, None)
+        "ratio", "2025-07-01", "2026-06-30", "f-2", "v1", None, None)
     yield repos, paths
     conn.close()
 

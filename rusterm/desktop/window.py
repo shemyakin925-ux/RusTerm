@@ -233,8 +233,11 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
                             objectName="chart_split")
     chart_split.addWidget(chart_area)
     chart_split.addWidget(table)
-    chart_split.setStretchFactor(0, 3)
-    chart_split.setStretchFactor(1, 2)
+    # график не меньше 320 px (ТЗ-107), но и таблица не схлопывается до
+    # двух строк: ей гарантирован минимум примерно на 8 строк мер
+    table.setMinimumHeight(260)
+    chart_split.setStretchFactor(0, 1)
+    chart_split.setStretchFactor(1, 1)
     chart_split.setChildrenCollapsible(False)
     center_layout.addWidget(chart_split, 5)
     source_panel = QLabel(objectName="source_panel")
@@ -1102,12 +1105,13 @@ def _repaint_table(table, info: dict) -> None:
             item.setTextAlignment(Qt.AlignmentFlag.AlignRight
                                   | Qt.AlignmentFlag.AlignVCenter)
             table.setItem(row, column, item)
-    # колонка мер тянется на всю ширину, числовые — по содержимому
+    # все колонки — по содержимому (имя меры не обрезается «asset_turno…»),
+    # последняя добирает остаток ширины
     header = table.horizontalHeader()
-    header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-    for column in range(1, table.columnCount()):
+    for column in range(table.columnCount()):
         header.setSectionResizeMode(
             column, QHeaderView.ResizeMode.ResizeToContents)
+    header.setStretchLastSection(True)
 
 
 def _repaint_measures(box, info: dict) -> None:

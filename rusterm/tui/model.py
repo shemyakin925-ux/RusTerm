@@ -515,6 +515,18 @@ def _period_year(value) -> Optional[str]:
     return None
 
 
+def _sub_annual_period(start, end) -> bool:
+    """Поток короче ~10 месяцев (квартал, полугодие, 9 месяцев)."""
+    if not start or not end or start == end:
+        return False
+    try:
+        days = (datetime.date.fromisoformat(end)
+                - datetime.date.fromisoformat(start)).days
+    except (TypeError, ValueError):
+        return False
+    return 0 < days < 300
+
+
 def _history_walk(repos, instrument_id: str):
     """Один обход ВСЕХ снапшотов инструмента: значения по годам и
     основание года каждой клетки (ТЗ-76 W3).
@@ -535,6 +547,12 @@ def _history_walk(repos, instrument_id: str):
             try:
                 val = float(m[4])
             except (TypeError, ValueError):
+                continue
+            if _sub_annual_period(m[6], m[7]):
+                # квартал в годовой колонке — не год: у BAC клетка
+                # «2026» показывала asset_turnover за Q2 (0,009 против
+                # 0,03 у всех лет); аналоги держат в колонке года только
+                # годовой период или остаток
                 continue
             year = _period_year(m[7]) or _period_year(m[6])
             why = HISTORY_BASIS_PERIOD
