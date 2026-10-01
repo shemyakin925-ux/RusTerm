@@ -90,6 +90,8 @@ AS_OF = "2026-09-28"
 KSPI_VALUED = {
     "asset_turnover", "effective_tax", "gross_margin", "gross_profit",
     "market_cap", "market_cap_total", "net_margin", "roe", "roe_incl_nci",
+    # ТЗ-108 W1: по ряду цены, не по фактам отчётности
+    "drawdown", "total_return",
 }
 # Меры, чьи входы — только факты отчётности: на «стороне было» (payload
 # без раздела ifrs-full) они обязаны отказаться все до единой.
@@ -311,10 +313,12 @@ def test_vale_lost_the_same_section_to_the_same_filter(vale_sandbox):
     assert vale_sandbox["by_taxonomy"] == {"ifrs-full": 43, "dei": 5}
     measures = vale_sandbox["measures"]
     valued = {c for c, (v, _r) in measures.items() if v is not None}
-    assert valued == {"asset_turnover", "ebitda", "effective_tax",
-                      "gross_margin", "gross_profit", "interest_coverage",
-                      "net_margin", "nopat", "operating_margin", "roe",
-                      "roe_incl_nci"}, sorted(valued)
+    # ТЗ-108 W1: доходность и просадка — по ряду цены (миграция 48)
+    assert valued == {"asset_turnover", "drawdown", "ebitda",
+                      "effective_tax", "gross_margin", "gross_profit",
+                      "interest_coverage", "net_margin", "nopat",
+                      "operating_margin", "roe", "roe_incl_nci",
+                      "total_return"}, sorted(valued)
     assert measures["market_cap"][1] == (
         "stale_input: shares_outstanding (2012-12-31)")
     assert measures["net_debt"][1] == ("missing_data: st_investments, "

@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 47  # 46 (ТЗ-97 Q10, ADR-0025) + 47: индекс ревизий покрывает superseded_by (ТЗ-92 C0)
+_SCHEMA_VERSION = 48  # 47: индекс ревизий (ТЗ-92 C0) + 48: lineage мер на окно цен (ТЗ-108 W1)
 
 
 def _checksum(text: str) -> str:
@@ -773,6 +773,33 @@ def _migrate_47_revisions_index_covering(conn: sqlite3.Connection) -> None:
 
 _CUSTOM_MIGRATIONS[47] = (
     _migrate_47_revisions_index_covering, _FACT_REVISIONS_INDEX_V47_DDL)
+
+
+_MEASURE_LINEAGE_PRICE_DDL = """CREATE TABLE IF NOT EXISTS measure_lineage_price (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        instrument_id TEXT NOT NULL REFERENCES instrument(instrument_id),
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        source TEXT NOT NULL,
+        points INTEGER NOT NULL CHECK (points >= 2),
+        role TEXT NOT NULL,
+        PRIMARY KEY (measure_id, instrument_id, date_from, date_to, source,
+                     role),
+        CHECK (date_from <= date_to))"""
+
+
+def _migrate_48_price_lineage(conn: sqlite3.Connection) -> None:
+    """Ряд цены как вход меры (ТЗ-108 W1): total_return и drawdown
+    считаются по окну котировок, у которого нет строки fact, — I4 без
+    канала на окно цен выталкивал их в отказ (попытка 16ad207 падала
+    «I4: measure без lineage»). Отдельная таблица рядом с
+    measure_lineage и measure_lineage_ca, как миграция 42: прежние
+    таблицы, их CHECK и индексы не трогаются."""
+    conn.execute(_MEASURE_LINEAGE_PRICE_DDL)
+
+
+_CUSTOM_MIGRATIONS[48] = (_migrate_48_price_lineage,
+                          _MEASURE_LINEAGE_PRICE_DDL)
 
 
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:

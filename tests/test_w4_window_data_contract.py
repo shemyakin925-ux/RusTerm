@@ -435,7 +435,9 @@ def test_history_cells_agree_with_the_history_door(base):
             row = data.chosen_measure_table_row(table, concept)
             assert row is not None, concept
             cell = row["years"][year]
-            expected = data.format_value(value)
+            expected = data.format_value(value, concept, row.get("unit"))
+            # сырое число клетки — то же, что у двери истории
+            assert row["year_values"][year] == value, (year, concept)
             if cell.endswith(data.RUN_YEAR_MARK):
                 expected += data.RUN_YEAR_MARK
             assert cell == expected, (year, concept, cell, expected)

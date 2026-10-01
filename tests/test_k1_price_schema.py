@@ -79,7 +79,7 @@ def test_existing_database_migrates_and_keeps_rows(env):
         for t in ("issuer", "instrument", "fact", "measure")}
     assert counts_before == counts_after
     assert conn.execute(
-        "SELECT MAX(version) FROM schema_version").fetchone()[0] == 47
+        "SELECT MAX(version) FROM schema_version").fetchone()[0] == 48
 
 
 def test_price_uniqueness_per_instrument_date_source(env):

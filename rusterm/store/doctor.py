@@ -82,7 +82,10 @@ def doctor_report(paths: AppPaths, conn) -> dict:
                      WHERE l.measure_id = m.measure_id)
                  AND NOT EXISTS (
                      SELECT 1 FROM measure_lineage_ca c
-                     WHERE c.measure_id = m.measure_id)""").fetchone()[0]
+                     WHERE c.measure_id = m.measure_id)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM measure_lineage_price p
+                     WHERE p.measure_id = m.measure_id)""").fetchone()[0]
         if bad_measures:
             problems.append(f"мер с значением, но без lineage: {bad_measures}")
 

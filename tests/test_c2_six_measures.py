@@ -42,7 +42,7 @@ def _payload(name: str) -> dict:
 def test_c2_map_grew_from_task_start():
     """Преемник булавки «карта байт-в-байт» (test_ifrs_map, xfail):
     карта TASK-18 (237a7) — подмножество текущей; дельта РОВНО
-    посылки ТЗ-31 C2; версия us-gaap.v4."""
+    посылки ТЗ-31 C2 и ТЗ-108 W2/W3; версия us-gaap.v5."""
     old_src = subprocess.run(
         ["git", "show", "23737a7:rusterm/normalize/concepts.py"],
         capture_output=True, text=True, check=True).stdout
@@ -58,15 +58,20 @@ def test_c2_map_grew_from_task_start():
             and len(new_tags) > len(tags)), (concept, tags, new_tags)
     delta = {c for c in CONCEPT_MAP if c not in old_map}
     assert delta == {"total_debt", "shares_outstanding"}, delta
-    # единственное расширенное кортеж — st_investments (ТЗ-31 C2)
+    # единственное расширенное кортеж — st_investments (ТЗ-31 C2,
+    # ТЗ-108 W3 дописал преемника CRM в конец)
     assert CONCEPT_MAP["st_investments"] == \
-        old_map["st_investments"] + ("MarketableSecuritiesCurrent",)
-    assert CONCEPT_MAP_VERSION == "us-gaap.v4"
+        old_map["st_investments"] + ("MarketableSecuritiesCurrent",
+                                     "AvailableForSaleSecuritiesDebtSecuritiesCurrent")
+    # total_debt (новый в дельте) растёт только хвостом: W2 SMCI
+    assert CONCEPT_MAP["total_debt"] == (
+        "LongTermDebt", "DebtLongtermAndShorttermCombinedAmount")
+    assert CONCEPT_MAP_VERSION == "us-gaap.v5"
     # новый тег штампует канонический концепт и версию карты
     fact = {"concept": "us-gaap:CommonStockSharesOutstanding"}
     apply_concept_map(fact)
     assert fact["canonical_concept"] == "shares_outstanding"
-    assert fact["concept_map_version"] == "us-gaap.v4"
+    assert fact["concept_map_version"] == "us-gaap.v5"
 
 
 # ── золотой тест шести мер на реальных значениях ───────────────────────

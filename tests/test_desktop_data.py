@@ -380,7 +380,7 @@ def test_run_year_fallback_shows_in_the_cell(no_period_env):
     table = data.measure_table_rows(repos, "US-AAA")
     rows = {r["concept"]: r for r in table["measures"]}
     assert rows["net_margin"]["years"]["2026"] == "20,00 %" + data.RUN_YEAR_MARK
-    assert rows["revenue"]["years"]["2026"] == "100 USD"
+    assert rows["revenue"]["years"]["2026"] == "100"
     basis = data.measure_history_basis(repos, "US-AAA")
     assert basis["2026"]["net_margin"] == "run_year"
     assert basis["2026"]["revenue"] == "period"

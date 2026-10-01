@@ -25,7 +25,7 @@ def test_schema_version_is_36():
     + 46 (период_basis lineage пропускает annual_fallback; ТЗ-97 Q10,
     ADR-0025)
     + 47 (индекс ревизий покрывает superseded_by; ТЗ-92 C0)."""
-    assert _SCHEMA_VERSION == 47
+    assert _SCHEMA_VERSION == 48
 
 
 def test_apply_migrations_creates_all_tables():
@@ -41,7 +41,7 @@ def test_apply_migrations_creates_all_tables():
         # Берём максимальную версию (последняя применённая)
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 47
+        assert row[0] == 48
         # Ключевые таблицы
         tables = ["issuer", "instrument", "listing", "fact", "peer_set", "snapshot",
                   "measure", "coverage", "job", "audit_log",
@@ -81,7 +81,7 @@ def test_apply_migrations_idempotent():
             # + price + corporate_action (ТЗ-23 K1)
             # + measure_lineage_ca (ТЗ-31 C2)
             # + ownership_transaction (ТЗ-33 E1)
-            assert count1 == count2 == 43
+            assert count1 == count2 == 44  # + measure_lineage_price (миграция 48)
         finally:
             conn2.close()
     finally:
@@ -221,8 +221,8 @@ def test_migration_33_keeps_data_and_allows_gzip():
         # 37 (issuer_ingest_state), 38 (индексы), 39 (агрегат) и
         # 40 (ручной импорт, TASK-19 F4)
         assert newly == [33, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
-                         46, 47], \
-            f"ожидались [33…46, 47], получили {newly}"
+                         46, 47, 48], \
+            f"ожидались [33…47, 48], получили {newly}"
         rows = dict(conn.execute(
             "SELECT sha256, compression FROM raw_object").fetchall())
         assert rows == {"a" * 64: "none", "b" * 64: "zstd"}, (
@@ -492,7 +492,7 @@ def test_v39_database_migrates_fact_source_kind_defaults_provider(monkeypatch):
         # подъём: схема дозировано доезжает до 40
         monkeypatch.setattr(db_module, "_SCHEMA_VERSION", real_version)
         newly = apply_migrations(conn)
-        assert newly == [40, 41, 42, 43, 44, 45, 46, 47]
+        assert newly == [40, 41, 42, 43, 44, 45, 46, 47, 48]
         rows = conn.execute(
             "SELECT fact_id, source_kind FROM fact").fetchall()
         assert len(rows) == 1
@@ -559,8 +559,9 @@ def test_migration_46_widens_period_basis_and_keeps_lineage_rows():
             conn.execute(f"ALTER TABLE {table}_narrow RENAME TO {table}")
         conn.execute("DELETE FROM schema_version WHERE version=46")
         conn.execute("DELETE FROM schema_version WHERE version=47")
+        conn.execute("DELETE FROM schema_version WHERE version=48")
 
-        assert apply_migrations(conn) == [46, 47]
+        assert apply_migrations(conn) == [46, 47, 48]
         # база периода переживает перелив, а не обнуляется
         assert conn.execute("SELECT period_basis FROM measure_lineage"
                             ).fetchone()[0] == "annual"

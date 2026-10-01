@@ -16,7 +16,7 @@ from rusterm.core.peers import (currency_guard, evaluate,
                                 percentile_share, period_window)
 from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow,
                               is_annual_window, ttm_window)
-from rusterm.formulas import (calculate_measure, effective_tax_rate,
+from rusterm.formulas import (calculate_measure, price_adj, effective_tax_rate,
                               invested_capital, measure_unit, nopat)
 from rusterm.normalize.concepts import priority_rank, strip_taxonomy
 
@@ -86,8 +86,13 @@ _DISCLOSED_AGGREGATE: frozenset[str] = frozenset({"gross_profit"})
 # сумма долга), hhi (нужны пиры), price_adj/total_return/drawdown
 # (нужен ряд цен, а не одна закрытая).
 _UNMAPPED_FORMULAS: tuple[str, ...] = (
-    "total_return", "drawdown", "price_adj", "hhi",
+    "price_adj", "hhi",
 )
+
+# Окно total_return и drawdown: последние 365 дней до as_of — так их
+# показывают аналоги (доходность и максимальная просадка за год); словарь
+# оставляет t0, t1 вызывающему, период окна пишется в строку меры
+_RETURN_WINDOW_DAYS = 365
 
 # Канонические входы оценочных мер, которых нет в карте V0 (ТЗ-23 K4).
 _VALUATION_INPUT_CONCEPTS: tuple[str, ...] = (
@@ -546,6 +551,10 @@ class SnapshotBuilder:
                 result.measures += 1
                 if value is not None:
                     computed[concept] = value
+
+        # ── Доходность и просадка по ряду цены (словарь §Котировки) ──
+        self._price_return_pass(snapshot_id, issuer_id, instrument_id,
+                                as_of, written_measures, result)
 
         # ── Реестр формул §3 вне карты V0: строка видна, причина честна ──
         for concept in _UNMAPPED_FORMULAS:
@@ -1654,6 +1663,83 @@ class SnapshotBuilder:
             return ((edge.value, edge.end, currency),
                     window_lineage(edge, why), None, why)
         return (None, [], "missing_data: dps_ttm", "")
+
+    def _price_return_pass(self, snapshot_id: str, issuer_id: str,
+                           instrument_id: str, as_of: str,
+                           written_measures: set, result) -> None:
+        """total_return и drawdown за _RETURN_WINDOW_DAYS до as_of по
+        price_adj (денежные дивиденды из corporate_action по формуле
+        словаря; сплиты уже учтены в close вендора). Нет репозитория
+        цен или ряда короче двух точек — missing_data: price_close;
+        период окна — в строке меры. Lineage (миграция 48): окно
+        котировок (источник, даты, число точек) и дивиденды окна из
+        corporate_action — I4 видит, из чего число собрано."""
+        try:
+            low = (date.fromisoformat(as_of)
+                   - timedelta(days=_RETURN_WINDOW_DAYS)).isoformat()
+        except (TypeError, ValueError):
+            return
+        rows = []
+        if self._prices is not None:
+            rows = [r for r in self._prices.series(instrument_id)
+                    if r["close"] is not None and r["date"] <= as_of]
+        # один источник на ряд: смешение вендоров в одном окне дало бы
+        # ступеньку на стыке; берётся источник с последней датой
+        source = rows[-1].get("source") if rows else None
+        if source:
+            rows = [r for r in rows if r.get("source") == source]
+        by_date = {r["date"]: float(r["close"]) for r in rows}
+        closes = sorted(by_date.items())
+        events: list = []
+        used_dividends: list = []
+        if self._corp_actions is not None and closes:
+            prior = {d: c for d, c in closes}
+            dates = [d for d, _ in closes]
+            for e in self._corp_actions.all(instrument_id):
+                ex = e["ex_date"]
+                if ex > as_of:
+                    continue
+                # сплиты не применяются: close вендора уже в базе
+                # сегодняшних акций (ADR-0020; у AAPL 31.08.2020 нет
+                # скачка в 4 раза) — второй раз сплит удвоил бы поправку
+                if e["kind"] == "dividend" and e.get("amount"):
+                    before = [d for d in dates if d < ex]
+                    if before and prior[before[-1]] > 0:
+                        events.append(
+                            (ex, 1.0 - float(e["amount"])
+                             / prior[before[-1]]))
+                        used_dividends.append(e)
+        adjusted = [(d, v) for d, v in price_adj(closes, events)
+                    if d > low] if closes else []
+        start = adjusted[0][0] if adjusted else as_of
+        end = adjusted[-1][0] if adjusted else as_of
+        lineage: list = []
+        if len(adjusted) >= 2:
+            lineage = [{"price_instrument_id": instrument_id,
+                        "date_from": start, "date_to": end,
+                        "source": source or "unknown",
+                        "points": len(adjusted),
+                        "role": "input: price_close window"}]
+            lineage += [{"ca_instrument_id": instrument_id,
+                         "ca_ex_date": e["ex_date"], "ca_kind": "dividend",
+                         "role": "input: dividend in window"}
+                        for e in used_dividends if start < e["ex_date"]]
+        for concept in ("total_return", "drawdown"):
+            if len(adjusted) < 2:
+                value, reason = None, "missing_data: price_close"
+            else:
+                m = calculate_measure(concept, prices_adj=adjusted)
+                value, reason = m.value, m.null_reason
+            self._snapshots.insert_measure_with_lineage(
+                dict(measure_id=str(uuid4()), snapshot_id=snapshot_id,
+                     scope="issuer", scope_ref=issuer_id, concept=concept,
+                     value=None if value is None else repr(value),
+                     unit="ratio", period_start=start, period_end=end,
+                     formula_id=concept, method_version="v1",
+                     null_reason=reason, peer_set_version=None),
+                lineage if value is not None else [])
+            written_measures.add(concept)
+            result.measures += 1
 
     def _dps_ttm_from_actions(self, instrument_id: str, as_of: str,
                               price_currency: Optional[str]) -> Optional[tuple]:

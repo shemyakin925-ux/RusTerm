@@ -723,6 +723,15 @@ class SnapshotRepo:
             (measure_id,)).fetchall()
         return [r[0] for r in rows]
 
+    def lineage_price(self, measure_id: str) -> List[dict]:
+        """Окна котировок — входы меры (ТЗ-108 W1, миграция 48)."""
+        rows = self.conn.execute(
+            """SELECT instrument_id, date_from, date_to, source, points, role
+               FROM measure_lineage_price WHERE measure_id=?""",
+            (measure_id,)).fetchall()
+        return [dict(zip(("instrument_id", "date_from", "date_to",
+                          "source", "points", "role"), r)) for r in rows]
+
     def lineage_ca(self, measure_id: str) -> List[dict]:
         """Корпоративные действия — входы меры (ТЗ-31 C2, миграция 42):
         события окна dps_ttm для панели источника и проверки I4."""
@@ -991,7 +1000,17 @@ class SnapshotRepo:
             for l in lineage:
                 # ТЗ-32 D6: period_basis (ttm|annual) — база периода
                 # входа, NULL для прямого однопериодного
-                if l.get("ca_instrument_id") is not None:
+                if l.get("price_instrument_id") is not None:
+                    # ТЗ-108 W1 (миграция 48): окно котировок как вход
+                    c.execute(
+                        """INSERT INTO measure_lineage_price(measure_id,
+                          instrument_id, date_from, date_to, source,
+                          points, role)
+                          VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (measure["measure_id"], l["price_instrument_id"],
+                         l["date_from"], l["date_to"], l["source"],
+                         l["points"], l["role"]))
+                elif l.get("ca_instrument_id") is not None:
                     c.execute(
                         """INSERT INTO measure_lineage_ca(measure_id,
                           ca_instrument_id, ca_ex_date, ca_kind, role,
@@ -2354,7 +2373,7 @@ class PriceRepo:
 
     def series(self, instrument_id: str,
                source: str | None = None) -> list[dict]:
-        sql = """SELECT date, close, adjusted, currency, volume
+        sql = """SELECT date, close, adjusted, currency, volume, source
                  FROM price WHERE instrument_id=?"""
         args: list = [instrument_id]
         if source:
@@ -2362,7 +2381,7 @@ class PriceRepo:
             args.append(source)
         sql += " ORDER BY date"
         return [dict(zip(("date", "close", "adjusted", "currency",
-                          "volume"), r))
+                          "volume", "source"), r))
                 for r in self.conn.execute(sql, args)]
 
     def price_as_of(self, instrument_id: str, as_of: str) -> Optional[dict]:
