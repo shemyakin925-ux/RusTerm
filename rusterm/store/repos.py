@@ -456,6 +456,30 @@ class FactRepo:
                           [(basis, fid) for fid, basis in changes])
             return self.conn.total_changes - before
 
+    def unmapped_concepts(self) -> List[tuple]:
+        """Различные теги фактов без канонического имени: (concept,
+        число фактов) — вход для `rusterm remap`."""
+        return [tuple(r) for r in self.conn.execute(
+            """SELECT concept, COUNT(*) FROM fact
+               WHERE canonical_concept IS NULL GROUP BY concept""")]
+
+    def fill_canonical(self, mapping: Dict[str, tuple]) -> int:
+        """Заполняет canonical_concept/concept_map_version ТОЛЬКО там, где
+        его нет (тег был вне карты на момент загрузки). Уже отображённые
+        факты не переназначаются; значение, период и происхождение не
+        трогаются. mapping: concept -> (canonical, map_version)."""
+        if not mapping:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany(
+                """UPDATE fact SET canonical_concept = ?,
+                          concept_map_version = ?
+                   WHERE concept = ? AND canonical_concept IS NULL""",
+                [(canon, version, concept)
+                 for concept, (canon, version) in mapping.items()])
+            return self.conn.total_changes - before
+
     def companyfacts_objects(self) -> List[sqlite3.Row]:
         """(sha256, instrument_id) ВСЕХ сохранённых companyfacts.
 
@@ -781,6 +805,23 @@ class SnapshotRepo:
                JOIN snapshot s ON s.snapshot_id = m.snapshot_id
                WHERE ml.fact_id = ?""",
             (fact_id,)).fetchall()
+        return [r[0] for r in rows]
+
+    def unmapped_current_investments(self, issuer_id: str,
+                                     period_end: str) -> List[str]:
+        """Теги без канонического имени на дату баланса, похожие на
+        текущие вложения (…Investments…Current, MarketableSecurities…,
+        AvailableForSale…Current): страж правила нулевых вложений."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT concept FROM fact
+               WHERE issuer_id=? AND period_end=? AND status='ok'
+                 AND canonical_concept IS NULL
+                 AND ((concept LIKE '%Investments%Current%'
+                       AND concept NOT LIKE '%Noncurrent%')
+                      OR concept LIKE '%MarketableSecurities%Current%'
+                      OR (concept LIKE '%AvailableForSale%Current%'
+                          AND concept NOT LIKE '%Noncurrent%'))""",
+            (issuer_id, period_end)).fetchall()
         return [r[0] for r in rows]
 
     def as_reported_facts(self, issuer_id: str, concepts: tuple) -> list:

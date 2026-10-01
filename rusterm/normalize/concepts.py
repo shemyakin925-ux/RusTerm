@@ -31,7 +31,7 @@ dei:EntityCommonStockSharesOutstanding (обложка 10-K, сущность в
 """
 from __future__ import annotations
 
-CONCEPT_MAP_VERSION = "us-gaap.v4"  # v4: + shares_outstanding/total_debt/st_investments по payload-доказательствам (ТЗ-31 C2)
+CONCEPT_MAP_VERSION = "us-gaap.v5"  # v5: + total_debt <- DebtLongtermAndShorttermCombinedAmount, st_investments <- AvailableForSaleSecuritiesDebtSecuritiesCurrent (ТЗ-108 W2/W3)
 
 CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "revenue": (
@@ -70,12 +70,21 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "st_investments": ("ShortTermInvestments",
                        # ТЗ-31 C2: строка баланса «рыночные ценные
                        # бумаги (текущие)» — преемник ShortTermInvestments
-                       "MarketableSecuritiesCurrent"),
+                       "MarketableSecuritiesCurrent",
+                       # ТЗ-108 W3: строка баланса CRM «рыночные ценные
+                       # бумаги» (3 093 000 000 USD на 2026-07-31, 10-Q);
+                       # без неё правило нулевых вложений занижало деньги
+                       "AvailableForSaleSecuritiesDebtSecuritiesCurrent"),
     "total_assets": ("Assets",),
     "total_equity": ("StockholdersEquity",),
     # ТЗ-31 C2: весь сроковой долг ОДНИМ тегом эмитента (не сумма
     # двух тегов); коммерческие бумаги не входят — недоучёт назван
-    "total_debt": ("LongTermDebt",),
+    "total_debt": ("LongTermDebt",
+                   # ТЗ-108 W2: преемник у SMCI — весь долг одним тегом
+                   # (4 056 148 000 USD на 2026-06-30, 10-K; LongTermDebt
+                   # последний раз 2023-06-30). Ранг ниже LongTermDebt:
+                   # эмитент, подающий оба, получает прежний
+                   "DebtLongtermAndShorttermCombinedAmount"),
     # ТЗ-31 C2: акции в обращении по строке баланса эмитента
     "shares_outstanding": ("CommonStockSharesOutstanding",),
     # капитал включая неконтролирующую долю (TASK-10 W3): НЕ синоним

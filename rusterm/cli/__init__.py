@@ -1706,6 +1706,22 @@ def cmd_add(args) -> int:
     return 0
 
 
+def fill_canonical_from_map(repos) -> int:
+    """Нынешняя карта концептов — фактам без канонического имени."""
+    from rusterm.normalize.concepts import (canonical_for, map_version,
+                                            strip_taxonomy)
+    mapping = {}
+    for concept, _count in repos.fact.unmapped_concepts():
+        taxonomy, local = strip_taxonomy(concept or "")
+        effective = taxonomy or "us-gaap"
+        if effective not in ("us-gaap", "ifrs-full", "dei"):
+            continue    # cvm-dfp несёт знаковую нормализацию — только сбор
+        canonical = canonical_for(local, effective)
+        if canonical:
+            mapping[concept] = (canonical, map_version(effective))
+    return repos.fact.fill_canonical(mapping)
+
+
 def cmd_reparse(args) -> int:
     """Пересобрать факты из сохранённых companyfacts нынешним разборщиком
     и выровнять их basis (ТЗ-97 Q12 (6): раньше правил только basis и
@@ -1734,7 +1750,12 @@ def cmd_reparse(args) -> int:
               f"строки")
     for line in res.unreadable:
         print(f"не прочитан сырой объект: {line}")
-    if res.added or res.changed:
+    # ТЗ-108 W2/W3: тег, вошедший в карту позже загрузки (us-gaap.v5),
+    # получает каноническое имя у уже сохранённых фактов — только там,
+    # где его не было; отображённые факты не переназначаются
+    remapped = fill_canonical_from_map(repos)
+    print(f"каноническое имя дописано фактам: {remapped}")
+    if res.added or res.changed or remapped:
         print("дальше: пересчитайте снапшоты — rusterm snapshot "
               "--watchlist <id> (или --ticker T --market M)")
     return 0 if not res.unreadable else 1
