@@ -198,7 +198,7 @@ def test_company_tab_shows_the_snapshot_numbers(hour):
     assert table.item(row, 1).text() == empty
     row = next(r for r in range(table.rowCount())
                if table.item(r, 0).text() == "asset_turnover")
-    assert table.item(row, 1).text() == "1.1493"
+    assert table.item(row, 1).text() == "1,15×"
 
 
 def test_company_tab_count_matches_the_snapshot_in_the_base(hour):

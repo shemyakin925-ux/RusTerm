@@ -222,18 +222,53 @@ def expanded_sectors(tree: list[dict], query: str,
 
 # ── Центр: таблица «сейчас плюс годы истории» (C1.2) ─────────────────────
 
-def format_value(value) -> str:
-    """Число для ячейки таблицы: 4 знака после точки, без хвостов.
+# Доли, которые читаются в процентах; прочие безразмерные — кратные (×).
+# Так показывают аналоги (Yahoo, Finviz, Koyfin): 0,43 %, 18,3×, 11,2 млрд
+PERCENT_CONCEPTS = frozenset({
+    "div_yield", "drawdown", "effective_tax", "fcf_yield", "gross_margin",
+    "net_margin", "operating_margin", "roe", "roe_incl_nci", "roic",
+    "total_return", "percentile"})
+MULTIPLE_CONCEPTS = frozenset({
+    "pe", "pb", "ps", "ev_ebitda", "net_debt_ebitda", "interest_coverage",
+    "asset_turnover"})
 
-    Не число (текст меры) показывается как есть; полный precision
-    остаётся в панели источника и экспорте — здесь только отображение.
+
+def _group(number: float, digits: int) -> str:
+    """Число с узким пробелом между тысячами и запятой."""
+    text = f"{number:,.{digits}f}".replace(",", "\u202f")
+    return text.replace(".", ",")
+
+
+def format_value(value, concept: str | None = None,
+                 unit: str | None = None) -> str:
+    """Число для ячейки таблицы.
+
+    С концептом — человеческий вид, как у аналогов: доли — проценты
+    (0.0043 → «0,43 %»), мультипликаторы — «×», деньги — млн/млрд/трлн
+    с валютой. Без концепта — прежние 4 знака после точки. Полный
+    precision остаётся в панели источника и экспорте — здесь только
+    отображение; не число (текст меры) показывается как есть.
     """
     if value is None:
         return NO_DATA
     try:
-        return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
+        number = float(value)
     except (TypeError, ValueError):
         return str(value)
+    if concept is None:
+        return f"{number:.4f}".rstrip("0").rstrip(".") or "0"
+    if concept in PERCENT_CONCEPTS:
+        return f"{_group(number * 100, 2)} %"
+    if concept in MULTIPLE_CONCEPTS:
+        return f"{_group(number, 2)}×"
+    currency = f" {unit}" if unit and unit not in ("ratio", "index") else ""
+    size = abs(number)
+    for limit, word in ((1e12, "трлн"), (1e9, "млрд"), (1e6, "млн")):
+        if size >= limit:
+            return f"{_group(number / limit, 2)} {word}{currency}"
+    if size >= 1000:
+        return f"{_group(number, 0)}{currency}"
+    return f"{_group(number, 4).rstrip('0').rstrip(',') or '0'}{currency}"
 
 
 def history_years(card: dict, count: int = DEFAULT_YEAR_COLUMNS,
@@ -371,12 +406,15 @@ def measure_table_rows(repos, instrument_id: str,
         current = measure["value"]
         has_value = current is not None and current != tui_model.NULL_MARK
         year_cells = {}
+        year_values = {}
         for year in years:
             point = history.get(year, {}).get(measure["concept"])
+            year_values[year] = point
             if point is None:
                 year_cells[year] = NO_DATA
                 continue
-            cell = format_value(point)
+            cell = format_value(point, measure["concept"],
+                                measure.get("unit"))
             if (basis.get(year, {}).get(measure["concept"])
                     == tui_model.HISTORY_BASIS_RUN_YEAR):
                 cell += RUN_YEAR_MARK
@@ -384,8 +422,14 @@ def measure_table_rows(repos, instrument_id: str,
         period_end = measure.get("period") or ""
         rows.append({
             "concept": measure["concept"],
-            "current": format_value(current) if has_value else NO_DATA,
+            "current": (format_value(current, measure["concept"],
+                                     measure.get("unit"))
+                        if has_value else NO_DATA),
+            # сырое число — для диаграмм и сравнений; «current» — текст
+            "value": current if has_value else None,
             "years": year_cells,
+            # сырые числа лет — для диаграмм: текст ячейки форматирован
+            "year_values": year_values,
             "has_value": has_value,
             "null_reason": measure.get("null_reason"),
             "unit": measure.get("unit"),
@@ -474,11 +518,17 @@ def _series_spec(kind: str, table: dict,
         return {"kind": "message", "text": "нет данных"}
     concept = concept if concept in concepts else concepts[0]
     row = chosen_measure_table_row(table, concept)
+    raw = (row or {}).get("year_values")
     history = row["years"] if row else {}
     years, values = [], []
     for year in table["years"]:
-        text = history.get(year, NO_DATA)
         years.append(int(year))
+        if raw is not None:
+            # сырые числа строки: текст ячейки уже «20,43 %», не float
+            point = raw.get(year)
+            values.append(None if point is None else float(point))
+            continue
+        text = history.get(year, NO_DATA)
         if text == NO_DATA:
             values.append(None)
             continue
@@ -530,7 +580,7 @@ def _radar_spec(table: dict) -> dict:
         if row["unit"] != RATIO_UNIT or not row["has_value"]:
             continue
         axes.append({"concept": row["concept"],
-                     "value": float(row["current"])})
+                     "value": float(row["value"])})
     if not axes:
         return {"kind": "message",
                 "text": "нет данных: нет безразмерных мер со значением"}
@@ -768,7 +818,7 @@ def radar_vs_group_spec(table: dict, industry_screen: dict | None) -> dict:
             base["excluded_group"] += 1
             continue
         axes.append({"concept": row["concept"],
-                     "value": float(row["current"]),
+                     "value": float(row["value"]),
                      "median": float(g["median"])})
     if not axes:
         return {"kind": "message",

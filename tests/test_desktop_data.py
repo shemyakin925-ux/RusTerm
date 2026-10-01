@@ -212,7 +212,7 @@ def test_measure_table_no_data_by_words_in_every_column(env):
     assert rows["roe"]["null_reason"] == "missing_prior_period"
     assert all(cell == data.NO_DATA
                for cell in rows["roe"]["years"].values())
-    assert rows["net_margin"]["current"] == "0.2043"
+    assert rows["net_margin"]["current"] == "20,43 %"
     # в этой базе значение есть только за 2024 — значит одна колонка
     assert table["years"] == ["2024"], table["years"]
     for year in table["years"]:
@@ -278,11 +278,11 @@ def test_history_cells_carry_snapshotted_values(history_env):
     repos, _ = history_env
     table = data.measure_table_rows(repos, "US-AAA")
     rows = {r["concept"]: r for r in table["measures"]}
-    assert rows["net_margin"]["years"]["2024"] == "0.2043"
-    assert rows["net_margin"]["years"]["2023"] == "0.226"
+    assert rows["net_margin"]["years"]["2024"] == "20,43 %"
+    assert rows["net_margin"]["years"]["2023"] == "22,60 %"
     assert table["years"] == ["2024", "2023"], table["years"]
     assert "2022" not in rows["net_margin"]["years"]
-    assert rows["revenue"]["years"]["2024"] == "416161000000"
+    assert rows["revenue"]["years"]["2024"] == "416,16 млрд USD"
     assert rows["revenue"]["years"]["2023"] == data.NO_DATA
 
 
@@ -293,7 +293,7 @@ def test_history_year_is_the_measure_period(env):
     repos, _ = env
     table = data.measure_table_rows(repos, "US-AAA")
     rows = {r["concept"]: r for r in table["measures"]}
-    assert rows["net_margin"]["years"]["2024"] == "0.2043"
+    assert rows["net_margin"]["years"]["2024"] == "20,43 %"
     history = data.measure_history(repos, "US-AAA")
     assert "2024" in history and "2026" not in history
 
@@ -339,8 +339,8 @@ def test_one_run_two_periods_does_not_collapse_into_one_column(
     table = data.measure_table_rows(repos, "US-AAA")
     rows = {r["concept"]: r for r in table["measures"]}
     assert table["years"][:2] == ["2025", "2024"]
-    assert rows["net_margin"]["years"]["2025"] == "0.2043"
-    assert rows["net_margin"]["years"]["2024"] == "0.226"
+    assert rows["net_margin"]["years"]["2025"] == "20,43 %"
+    assert rows["net_margin"]["years"]["2024"] == "22,60 %"
 
 
 @pytest.fixture()
@@ -379,8 +379,8 @@ def test_run_year_fallback_shows_in_the_cell(no_period_env):
     repos, _ = no_period_env
     table = data.measure_table_rows(repos, "US-AAA")
     rows = {r["concept"]: r for r in table["measures"]}
-    assert rows["net_margin"]["years"]["2026"] == "0.2" + data.RUN_YEAR_MARK
-    assert rows["revenue"]["years"]["2026"] == "100"
+    assert rows["net_margin"]["years"]["2026"] == "20,00 %" + data.RUN_YEAR_MARK
+    assert rows["revenue"]["years"]["2026"] == "100 USD"
     basis = data.measure_history_basis(repos, "US-AAA")
     assert basis["2026"]["net_margin"] == "run_year"
     assert basis["2026"]["revenue"] == "period"
@@ -561,7 +561,8 @@ def test_census_pair_cnq_roe_refuses_roe_incl_nci_counts(cnq):
     assert roe["null_reason"], "причина отказа — из словаря"
     value = rows["roe_incl_nci"]["current"]
     assert value != data.NO_DATA
-    float(value)  # значение — число, не выдумка и не прочерк
+    assert value.endswith(" %")  # доля показана процентом
+    float(rows["roe_incl_nci"]["value"])  # значение — число, не выдумка
 
 
 # ── C1.3: спецификации диаграмм ─────────────────────────────────────────
