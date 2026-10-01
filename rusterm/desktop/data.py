@@ -763,10 +763,15 @@ def industry_table_rows(screen: dict) -> list[dict]:
                          "median": NO_DATA, "p75": NO_DATA, "n": r["n"],
                          "mark": mark, "refused": True})
         else:
+            # тот же вид, что на «Компании»: 16,28 %, 1,25×, 63,04 млрд USD;
+            # сырые квартили — рядом, для сравнений и тестов
+            fmt = (lambda v: format_value(v, r["concept"],
+                                          r.get("currency")))
             rows.append({"concept": r["concept"],
-                         "p25": format_value(r["p25"]),
-                         "median": format_value(r["median"]),
-                         "p75": format_value(r["p75"]), "n": r["n"],
+                         "p25": fmt(r["p25"]),
+                         "median": fmt(r["median"]),
+                         "p75": fmt(r["p75"]), "n": r["n"],
+                         "median_value": r["median"],
                          "mark": note, "refused": False})
     return rows
 
