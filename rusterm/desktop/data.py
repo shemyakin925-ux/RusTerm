@@ -162,18 +162,50 @@ def expanded_sectors(tree: list[dict], query: str,
 
 # ── Центр: таблица «сейчас плюс годы истории» (C1.2) ─────────────────────
 
-def format_value(value) -> str:
-    """Число для ячейки таблицы: 4 знака после точки, без хвостов.
+# Доли, которые читаются в процентах; прочие безразмерные — кратные (×)
+PERCENT_CONCEPTS = frozenset({
+    "div_yield", "drawdown", "effective_tax", "fcf_yield", "gross_margin",
+    "net_margin", "operating_margin", "roe", "roe_incl_nci", "roic",
+    "total_return", "percentile"})
+MULTIPLE_CONCEPTS = frozenset({
+    "pe", "pb", "ps", "ev_ebitda", "net_debt_ebitda", "interest_coverage",
+    "asset_turnover"})
 
-    Не число (текст меры) показывается как есть; полный precision
-    остаётся в панели источника и экспорте — здесь только отображение.
+
+def _group(number: float, digits: int) -> str:
+    """Число с разделителем тысяч (узкий пробел) и запятой."""
+    text = f"{number:,.{digits}f}".replace(",", "\u202f")
+    return text.replace(".", ",")
+
+
+def format_value(value, concept: str | None = None,
+                 unit: str | None = None) -> str:
+    """Число для ячейки таблицы в человеческом виде.
+
+    Доли — проценты (0.0042 → 0,42 %), мультипликаторы — «×»,
+    денежные суммы — млрд/млн с валютой. Полный precision остаётся
+    в панели источника и экспорте — здесь только отображение.
     """
     if value is None:
         return NO_DATA
     try:
-        return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
+        number = float(value)
     except (TypeError, ValueError):
         return str(value)
+    if concept in PERCENT_CONCEPTS:
+        return f"{_group(number * 100, 2)} %"
+    if concept in MULTIPLE_CONCEPTS:
+        return f"{_group(number, 2)}×"
+    if concept is None:
+        return f"{number:.4f}".rstrip("0").rstrip(".") or "0"
+    size = abs(number)
+    currency = f" {unit}" if unit and unit not in ("ratio", "index") else ""
+    for limit, word in ((1e12, "трлн"), (1e9, "млрд"), (1e6, "млн")):
+        if size >= limit:
+            return f"{_group(number / limit, 2)} {word}{currency}"
+    if size >= 1000:
+        return f"{_group(number, 0)}{currency}"
+    return f"{_group(number, 4).rstrip('0').rstrip(',') or '0'}{currency}"
 
 
 def history_years(card: dict, count: int = MIN_YEAR_COLUMNS) -> list[str]:
@@ -221,13 +253,18 @@ def measure_table_rows(repos, instrument_id: str,
         year_cells = {}
         for year in years:
             point = history.get(measure["concept"], {}).get(year)
-            year_cells[year] = (format_value(point["value"])
+            year_cells[year] = (format_value(point["value"],
+                                             measure["concept"],
+                                             measure.get("unit"))
                                 if point else NO_DATA)
         period_end = measure.get("period") or ""
         rows.append({
             "concept": measure["concept"],
-            "current": format_value(current) if has_value else NO_DATA,
+            "current": (format_value(current, measure["concept"],
+                                    measure.get("unit"))
+                        if has_value else NO_DATA),
             "years": year_cells,
+            "value": current if has_value else None,
             "has_value": has_value,
             "null_reason": measure.get("null_reason"),
             "unit": measure.get("unit"),
@@ -362,7 +399,7 @@ def _radar_spec(table: dict) -> dict:
         if row["unit"] != RATIO_UNIT or not row["has_value"]:
             continue
         axes.append({"concept": row["concept"],
-                     "value": float(row["current"])})
+                     "value": float(row["value"])})
     if not axes:
         return {"kind": "message",
                 "text": "нет данных: нет безразмерных мер со значением"}
@@ -515,7 +552,7 @@ def radar_vs_group_spec(table: dict, industry_screen: dict | None) -> dict:
             base["excluded_group"] += 1
             continue
         axes.append({"concept": row["concept"],
-                     "value": float(row["current"]),
+                     "value": float(row["value"]),
                      "median": float(g["median"])})
     if not axes:
         return {"kind": "message",

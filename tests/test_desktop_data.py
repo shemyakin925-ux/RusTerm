@@ -208,7 +208,7 @@ def test_measure_table_no_data_by_words_in_every_column(env):
     assert rows["roe"]["null_reason"] == "missing_prior_period"
     assert all(cell == data.NO_DATA
                for cell in rows["roe"]["years"].values())
-    assert rows["net_margin"]["current"] == "0.2043"
+    assert rows["net_margin"]["current"] == "20,43 %"
     assert len(table["years"]) >= data.MIN_YEAR_COLUMNS
     assert table["years"][0] == "2024"
 
@@ -230,7 +230,7 @@ def test_census_pair_cnq_roe_refuses_roe_incl_nci_counts(cnq):
     assert roe["null_reason"], "причина отказа — из словаря"
     value = rows["roe_incl_nci"]["current"]
     assert value != data.NO_DATA
-    float(value)  # значение — число, не выдумка и не прочерк
+    float(rows["roe_incl_nci"]["value"])  # значение — число, не выдумка и не прочерк
 
 
 # ── C1.3: спецификации диаграмм ─────────────────────────────────────────
