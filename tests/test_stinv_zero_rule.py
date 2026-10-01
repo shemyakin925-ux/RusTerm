@@ -39,3 +39,29 @@ def test_line_present_in_the_same_balance_is_not_replaced():
 
 def test_no_cash_block_no_evidence_no_zero():
     assert _why([], None) is None
+
+
+class _NciFacts:
+    def __init__(self, ends):
+        self._ends = ends
+
+    def as_reported_facts(self, issuer_id, concepts):
+        return [("us-gaap:MinorityInterest", "1", f"f-{e}", "USD", None, e,
+                 "minority_interest") for e in self._ends]
+
+
+def _nci(ends, equity_end):
+    builder = SnapshotBuilder.__new__(SnapshotBuilder)
+    builder._snapshots = _NciFacts(ends)
+    return builder._nci_discontinued("i", equity_end)
+
+
+def test_nci_discontinued_before_fresh_equity_is_named_zero():
+    assert (_nci(["2009-07-31", "2010-07-31"], "2026-07-31")
+            == "nci_discontinued: last 2010-07-31")
+
+
+def test_nci_in_the_same_equity_block_or_no_equity_is_not_zero():
+    assert _nci(["2026-07-31"], "2026-07-31") is None
+    assert _nci(["2010-07-31"], None) is None
+    assert _nci([], "2026-07-31") is None   # «никогда» — правило D7

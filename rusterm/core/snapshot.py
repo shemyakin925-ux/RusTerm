@@ -1449,7 +1449,9 @@ class SnapshotBuilder:
             picked = [at[k] for k in needed]
             nci = at.get("minority_interest")
             if nci is None:
-                if not self._nci_never_reported(issuer_id):
+                if not (self._nci_never_reported(issuer_id)
+                        or self._nci_discontinued(
+                            issuer_id, at["total_equity"][3])):
                     return None
                 minority_value = 0.0
             else:
@@ -1504,6 +1506,22 @@ class SnapshotBuilder:
         if last < cash_end:
             return f"st_investments_discontinued: last {last}"
         return None
+
+    def _nci_discontinued(self, issuer_id: str,
+                          equity_end: Optional[str]) -> Optional[str]:
+        """NCI подавалась и перестала раньше свежего блока капитала —
+        ноль тем же правилом D7, с причиной ``nci_discontinued: last
+        <дата>``. Так CRM: меньшинство последний раз в 2010, и пять мер
+        стояли stale_data. Блока капитала нет или NCI в нём есть — None."""
+        if not equity_end:
+            return None
+        rows = self._snapshots.as_reported_facts(
+            issuer_id, ("minority_interest", "total_equity_incl_nci"))
+        if not rows:
+            return None
+        last = max(r[5] for r in rows)
+        return f"nci_discontinued: last {last}" if last < equity_end \
+            else None
 
     def _nci_never_reported(self, issuer_id: str) -> bool:
         """Истинно, если эмитент НИ РАЗУ не отчитывал неконтролирующую
@@ -1853,6 +1871,12 @@ class SnapshotBuilder:
             nci_lineage = [{"fact_id": equity[3],
                             "peer_measure_id": None,
                             "role": "nci_absent_in_equity_block"}]
+        elif minority is None and equity is not None:
+            why = self._nci_discontinued(issuer_id, equity[1])
+            if why:
+                minority = (0.0, None, None, equity[3])
+                nci_lineage = [{"fact_id": equity[3],
+                                "peer_measure_id": None, "role": why}]
 
         # ── ТЗ-68 N1: net_debt = total_debt - cash - st_investments ──
         # ТЗ-91 B2: рынок капитала в формуле не участвует, поэтому
