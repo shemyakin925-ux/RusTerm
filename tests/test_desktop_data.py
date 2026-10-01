@@ -711,3 +711,30 @@ def test_thin_source_summary_in_table_and_words(thin_env, env):
     # сытая карточка (3 значения из 4 мер) — сводки нет
     full = data.measure_table_rows(env[0], "US-AAA")
     assert full["summary"] is None and full["summary_line"] is None
+
+
+def test_percentile_row_names_its_measure(env):
+    """Строка перцентиля в таблице называет свою меру по lineage пиров:
+    «перцентиль net_margin», а не голое «percentile» (осмотр окна
+    01.10.2026: восемь одинаковых строк подряд)."""
+    repos, _ = env
+    repos.snapshot.create_snapshot("s-b", "US-BBB", 1, "2026-09-01",
+                                   "psv-1", "verified", "ready")
+    repos.snapshot.insert_measure(
+        "m-nm-b", "s-b", "issuer", "i-BBB", "net_margin", "0.1",
+        "ratio", "2024-01-01", "2024-12-31", "f-net-margin", "v1",
+        None, None)
+    repos.snapshot.insert_measure_with_lineage(
+        dict(measure_id="m-pct", snapshot_id="s-1", scope="issuer",
+             scope_ref="i-AAA", concept="percentile", value="0.75",
+             unit="ratio", period_start="2024-01-01",
+             period_end="2024-12-31", formula_id="percentile",
+             method_version="v1", null_reason=None,
+             peer_set_version="psv-1"),
+        [{"fact_id": None, "peer_measure_id": "m-nm-b", "role": "peer"}])
+    table = data.measure_table_rows(repos, "US-AAA")
+    pct = [r for r in table["measures"] if r["concept"] == "percentile"]
+    assert [r["label"] for r in pct] == ["перцентиль net_margin"]
+    assert pct[0]["current"] == "75,00 %"
+    nm = [r for r in table["measures"] if r["concept"] == "net_margin"]
+    assert nm[0]["label"] == "net_margin"

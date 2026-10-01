@@ -1093,7 +1093,8 @@ def _repaint_table(table, info: dict) -> None:
     table.setHorizontalHeaderLabels(["мера", "сейчас", *years])
     table.setRowCount(len(info["measures"]))
     for row, measure in enumerate(info["measures"]):
-        table.setItem(row, 0, QTableWidgetItem(measure["concept"]))
+        table.setItem(row, 0, QTableWidgetItem(
+            measure.get("label") or measure["concept"]))
         cells = [measure["current"]] + [measure["years"][y] for y in years]
         for column, text in enumerate(cells, start=1):
             # числа — вправо, как в любой финансовой таблице

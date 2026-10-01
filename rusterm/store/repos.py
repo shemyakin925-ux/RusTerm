@@ -751,6 +751,17 @@ class SnapshotRepo:
             (measure_id,)).fetchall()
         return [r[0] for r in rows]
 
+    def percentile_base_concept(self, measure_id: str) -> Optional[str]:
+        """К какой мере относится строка перцентиля: концепт мер пиров
+        из её lineage. Строка «percentile» без этого имени в окне
+        повторялась восемь раз подряд и ничего не говорила."""
+        row = self.conn.execute(
+            """SELECT m.concept FROM measure_lineage l
+               JOIN measure m ON m.measure_id = l.peer_measure_id
+               WHERE l.measure_id=? AND l.peer_measure_id IS NOT NULL
+               LIMIT 1""", (measure_id,)).fetchone()
+        return row[0] if row else None
+
     def lineage_roles(self, measure_id: str) -> List[str]:
         """Все роли строк lineage меры. ТЗ-97 Q8: пометка «пир вне окна
         периодов» живёт именно в роли — у читателя отказа перцентиля

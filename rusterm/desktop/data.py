@@ -435,8 +435,11 @@ def measure_table_rows(repos, instrument_id: str,
                 cell += RUN_YEAR_MARK
             year_cells[year] = cell
         period_end = measure.get("period") or ""
+        base = measure.get("percentile_of")
         rows.append({
             "concept": measure["concept"],
+            "label": (f"перцентиль {base}" if base
+                      else measure["concept"]),
             "current": (format_value(current, measure["concept"],
                                      measure.get("unit"))
                         if has_value else empty),
