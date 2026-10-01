@@ -50,6 +50,9 @@ class ReparseResult:
     # ТЗ-92 C1: сколько сохранённых строк прогон помечает вытесненными
     # (новое правило дедупликации считает их проигравшими).
     superseded_marked: int = 0
+    # ТЗ-108 W4: эмитентов, чьё состояние сбора восстановлено из
+    # сохранённого companyfacts (refresh больше не видит «первый сбор»)
+    states_restored: int = 0
     unreadable: list = field(default_factory=list)
 
 
@@ -86,6 +89,9 @@ def rebuild_companyfacts(repos) -> ReparseResult:
         except (OSError, ValueError) as exc:
             result.unreadable.append(f"{sha[:12]}: {type(exc).__name__}")
             continue
+        from rusterm.core.refresh import remember_ingest
+        if remember_ingest(repos, issuer_id, raw):
+            result.states_restored += 1
         parsed = parser.parse(raw, {"issuer_id": issuer_id,
                                     "source_ref": sha})
         stored = repos.fact.basis_by_pointer(sha)

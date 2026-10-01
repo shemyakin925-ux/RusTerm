@@ -198,3 +198,36 @@ def refresh_watchlist(repos, provider_factory: Callable,
             "companyfacts уже в store (дедупликация по sha256)",
             calls=calls))
     return results
+
+
+def companyfacts_last_filed(raw: bytes) -> str | None:
+    """Последняя дата подачи (`filed`) во всём документе companyfacts —
+    та же величина, с которой refresh сверяет submissions (ТЗ-108 W4)."""
+    import json as _json
+    try:
+        doc = _json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    last = None
+    for taxonomy in (doc.get("facts") or {}).values():
+        for concept in (taxonomy or {}).values():
+            for rows in ((concept or {}).get("units") or {}).values():
+                for row in rows or ():
+                    filed = row.get("filed") if isinstance(row, dict) \
+                        else None
+                    if filed and (last is None or filed > last):
+                        last = filed
+    return last
+
+
+def remember_ingest(repos, issuer_id: str, raw: bytes) -> bool:
+    """Состояние эмитента после сбора companyfacts вне refresh: без него
+    первый refresh планировал «первый сбор» всем 38 и тянул каждый
+    companyfacts заново. Уже записанное состояние не трогается."""
+    if repos.issuer_state.get(issuer_id) is not None:
+        return False
+    last = companyfacts_last_filed(raw)
+    if last is None:
+        return False
+    repos.issuer_state.put(issuer_id, last)
+    return True
