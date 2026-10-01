@@ -10,17 +10,21 @@ from rusterm.core.snapshot import SnapshotBuilder
 
 
 class _Facts:
-    def __init__(self, ends):
+    def __init__(self, ends, unmapped=()):
         self._ends = ends
+        self._unmapped = list(unmapped)
+
+    def unmapped_current_investments(self, issuer_id, period_end):
+        return self._unmapped
 
     def as_reported_facts(self, issuer_id, concepts):
         return [("us-gaap:ShortTermInvestments", "1", f"f-{e}", "USD",
                  None, e, "st_investments") for e in self._ends]
 
 
-def _why(ends, cash_end):
+def _why(ends, cash_end, unmapped=()):
     builder = SnapshotBuilder.__new__(SnapshotBuilder)
-    builder._snapshots = _Facts(ends)
+    builder._snapshots = _Facts(ends, unmapped)
     return builder._stinv_absent_from_balance("i", cash_end)
 
 
@@ -29,8 +33,17 @@ def test_discontinued_line_with_fresh_cash_is_zero_with_named_reason():
             == "st_investments_discontinued: last 2019-02-01")
 
 
-def test_never_reported_with_cash_is_zero():
-    assert _why([], "2026-07-31") == "st_investments_never_reported"
+def test_never_reported_is_not_zero():
+    """VALE (IFRS): строки нет вовсе — чаще неотображённый тег."""
+    assert _why([], "2026-07-31") is None
+
+
+def test_unmapped_current_investments_tag_blocks_the_zero():
+    """CRM: ShortTermInvestments до 2014, дальше
+    AvailableForSaleSecuritiesDebtSecuritiesCurrent вне карты."""
+    assert _why(["2014-10-31"], "2026-07-31",
+                ["us-gaap:AvailableForSaleSecuritiesDebtSecuritiesCurrent"]
+                ) is None
 
 
 def test_line_present_in_the_same_balance_is_not_replaced():

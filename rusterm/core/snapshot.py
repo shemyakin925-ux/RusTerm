@@ -1488,24 +1488,28 @@ class SnapshotBuilder:
         """Почему st_investments можно взять нулём, или None.
 
         Тем же правилом, что D7 для NCI: ноль — только с положительным
-        свидетельством. Свидетельство — свежий денежный блок баланса
-        (cash), в котором строки краткосрочных вложений нет: либо её не
-        было никогда (``st_investments_never_reported``), либо она
-        перестала подаваться раньше этого баланса
-        (``st_investments_discontinued: last <дата>``) — так DELL с 2019
-        сводит вложения в денежные средства, и прежде шесть мер
-        (ev, ev_ebitda, net_debt, net_debt_ebitda, invested_capital,
-        roic) стояли отказом stale_data. Нет денежного блока — None."""
+        свидетельством. Свидетельство — строка вложений подавалась и
+        перестала раньше свежего денежного блока баланса (cash):
+        ``st_investments_discontinued: last <дата>`` — так DELL с 2019.
+        «Не подавалась никогда» нулём НЕ считается: у эмитента с тонкой
+        картой (VALE, IFRS) это чаще неотображённый тег, чем отсутствие.
+        И «перестала» не считается, если в том же балансе лежит
+        неотображённый тег текущих вложений (`unmapped_current_investments`)
+        — так у CRM строка жила под AvailableForSale…Current, и ноль
+        занизил бы деньги на 3 млрд (ТЗ-108 W3)."""
         if not cash_end:
             return None
         rows = self._snapshots.as_reported_facts(issuer_id,
                                                  ("st_investments",))
         if not rows:
-            return "st_investments_never_reported"
+            return None
         last = max(r[5] for r in rows)
-        if last < cash_end:
-            return f"st_investments_discontinued: last {last}"
-        return None
+        if last >= cash_end:
+            return None
+        if self._snapshots.unmapped_current_investments(issuer_id,
+                                                        cash_end):
+            return None
+        return f"st_investments_discontinued: last {last}"
 
     def _nci_discontinued(self, issuer_id: str,
                           equity_end: Optional[str]) -> Optional[str]:
