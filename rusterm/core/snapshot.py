@@ -1429,6 +1429,15 @@ class SnapshotBuilder:
                 issuer_id, tuple(missing)), restated=True)
 
         needed = ("total_equity", "total_debt", "cash", "st_investments")
+        # то же правило нулевых вложений, что в проходе оценки: денежный
+        # блок границы есть, строки вложений к этой дате уже/ещё нет
+        if "st_investments" not in at and "cash" in at:
+            why = self._stinv_absent_from_balance(issuer_id, at["cash"][3])
+            if why:
+                cash_row = at["cash"]
+                at["st_investments"] = (cash_row[0], cash_row[1], 0.0,
+                                        cash_row[3], cash_row[4],
+                                        cash_row[5], cash_row[6])
         picked: list = []
         if "invested_capital" in at:
             # капитал, поданный целиком, — тот же вход, что и на конце
@@ -1471,6 +1480,30 @@ class SnapshotBuilder:
                                                   as_of=as_of)
 
     # ── ТЗ-31 C2: входы оценочных мер из реальных данных ────────────────
+
+    def _stinv_absent_from_balance(self, issuer_id: str,
+                                   cash_end: Optional[str]) -> Optional[str]:
+        """Почему st_investments можно взять нулём, или None.
+
+        Тем же правилом, что D7 для NCI: ноль — только с положительным
+        свидетельством. Свидетельство — свежий денежный блок баланса
+        (cash), в котором строки краткосрочных вложений нет: либо её не
+        было никогда (``st_investments_never_reported``), либо она
+        перестала подаваться раньше этого баланса
+        (``st_investments_discontinued: last <дата>``) — так DELL с 2019
+        сводит вложения в денежные средства, и прежде шесть мер
+        (ev, ev_ebitda, net_debt, net_debt_ebitda, invested_capital,
+        roic) стояли отказом stale_data. Нет денежного блока — None."""
+        if not cash_end:
+            return None
+        rows = self._snapshots.as_reported_facts(issuer_id,
+                                                 ("st_investments",))
+        if not rows:
+            return "st_investments_never_reported"
+        last = max(r[5] for r in rows)
+        if last < cash_end:
+            return f"st_investments_discontinued: last {last}"
+        return None
 
     def _nci_never_reported(self, issuer_id: str) -> bool:
         """Истинно, если эмитент НИ РАЗУ не отчитывал неконтролирующую
@@ -1792,6 +1825,18 @@ class SnapshotBuilder:
         debt = inputs.get("total_debt")
         cash = inputs.get("cash")
         stinv = inputs.get("st_investments")
+        # нулевые краткосрочные вложения — тем же правилом
+        # положительного свидетельства, что D7 для NCI: свежий денежный
+        # блок без строки вложений (_stinv_absent_from_balance); роль в
+        # lineage называет, почему ноль
+        stinv_lineage: list = []
+        if stinv is None and cash is not None:
+            why = self._stinv_absent_from_balance(issuer_id, cash[1])
+            if why:
+                stinv = (0.0, cash[1], cash[2], cash[3])
+                inputs["st_investments"] = stinv
+                stinv_lineage = [{"fact_id": cash[3],
+                                  "peer_measure_id": None, "role": why}]
         minority = inputs.get("minority_interest")
         equity = inputs.get("total_equity")
         # ТЗ-32 D7 (вердикт: отсутствие — не ноль): 0.0 требует
@@ -1831,6 +1876,7 @@ class SnapshotBuilder:
         for c in ("total_debt", "cash", "st_investments"):
             if inputs.get(c):
                 nd_lineage += self._fact_lineage(inputs[c][3])
+        nd_lineage += stinv_lineage
         write("net_debt", nd_value, nd_reason,
               measure_unit("net_debt", nd_unit), nd_lineage)
 
@@ -1888,7 +1934,7 @@ class SnapshotBuilder:
                 ic_lineage += self._fact_lineage(inputs[c][3])
         # производный ноль меньшинства — не факт, а решение: свою роль в
         # lineage он получает от ветки, которая его вывела, как и в ev
-        ic_lineage += nci_lineage
+        ic_lineage += nci_lineage + stinv_lineage
         write("invested_capital", ic_value, ic_reason,
               measure_unit("invested_capital", ic_unit), ic_lineage)
 
@@ -1992,7 +2038,7 @@ class SnapshotBuilder:
                   "minority_interest"):
             if inputs.get(c):
                 ev_lineage += self._fact_lineage(inputs[c][3])
-        ev_lineage += nci_lineage
+        ev_lineage += nci_lineage + stinv_lineage
         ev_mid = write("ev", ev_value, ev_reason,
                        measure_unit("ev", ev_unit), ev_lineage)
 
@@ -2232,7 +2278,8 @@ class SnapshotBuilder:
                            + ([] if nci_lineage else [minority]))
                 ic_lineage = [{"fact_id": s[3], "peer_measure_id": None,
                                "role": "input"}
-                              for s in sources if s[3]] + nci_lineage
+                              for s in sources if s[3]] + nci_lineage \
+                    + stinv_lineage
         else:
             ic_lineage = self._fact_lineage(ic[3])
         annual_nopat = None
