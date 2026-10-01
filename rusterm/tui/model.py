@@ -131,6 +131,10 @@ def card_rows(repos, instrument_id: str) -> dict:
         measures.append({
             "measure_id": measure_id,
             "concept": concept,
+            # строка перцентиля называет свою меру (иначе восемь
+            # одинаковых «percentile» подряд)
+            "percentile_of": (repos.snapshot.percentile_base_concept(
+                measure_id) if concept == "percentile" else None),
             "value": value if value is not None else NULL_MARK,
             "null_reason": null_reason if value is None else None,
             "unit": unit,
