@@ -243,9 +243,10 @@ def format_value(value, concept: str | None = None,
                  unit: str | None = None) -> str:
     """Число для ячейки таблицы.
 
-    С концептом — человеческий вид, как у аналогов: доли — проценты
-    (0.0043 → «0,43 %»), мультипликаторы — «×», деньги — млн/млрд/трлн
-    с валютой. Без концепта — прежние 4 знака после точки. Полный
+    Как у аналогов: доли — проценты (0.0043 → «0,43 %»),
+    мультипликаторы — «×», денежные суммы от миллиона — млн/млрд/трлн
+    с валютой. Остальное (без концепта, мера вне словаря, сумма меньше
+    миллиона) — прежние 4 знака после точки. Полный
     precision остаётся в панели источника и экспорте — здесь только
     отображение; не число (текст меры) показывается как есть.
     """
@@ -255,20 +256,21 @@ def format_value(value, concept: str | None = None,
         number = float(value)
     except (TypeError, ValueError):
         return str(value)
-    if concept is None:
-        return f"{number:.4f}".rstrip("0").rstrip(".") or "0"
+    legacy = f"{number:.4f}".rstrip("0").rstrip(".") or "0"
     if concept in PERCENT_CONCEPTS:
         return f"{_group(number * 100, 2)} %"
     if concept in MULTIPLE_CONCEPTS:
         return f"{_group(number, 2)}×"
-    currency = f" {unit}" if unit and unit not in ("ratio", "index") else ""
-    size = abs(number)
-    for limit, word in ((1e12, "трлн"), (1e9, "млрд"), (1e6, "млн")):
-        if size >= limit:
-            return f"{_group(number / limit, 2)} {word}{currency}"
-    if size >= 1000:
-        return f"{_group(number, 0)}{currency}"
-    return f"{_group(number, 4).rstrip('0').rstrip(',') or '0'}{currency}"
+    # деньги — только у меры в валюте (трёхбуквенный код) и от миллиона:
+    # меньшие суммы и меры вне словаря остаются в виде полосы C
+    # (4 знака, ТЗ-60 E5 / ТЗ-61 F1 — ячейка не теряет значения)
+    is_money = bool(unit) and len(unit) == 3 and unit.isalpha() \
+        and unit.isupper()
+    if is_money:
+        for limit, word in ((1e12, "трлн"), (1e9, "млрд"), (1e6, "млн")):
+            if abs(number) >= limit:
+                return f"{_group(number / limit, 2)} {word} {unit}"
+    return legacy
 
 
 def history_years(card: dict, count: int = DEFAULT_YEAR_COLUMNS,
