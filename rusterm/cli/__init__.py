@@ -544,6 +544,9 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
     link_superseded(fact_dicts)
     persist_ingestion_results(repos.conn, fact_dicts, [])
     repos.coverage.upsert(instrument_id, "fundamentals", "ready")
+    # ТЗ-108 W4: refresh узнаёт этот сбор по дате последней подачи
+    from rusterm.core.refresh import remember_ingest
+    remember_ingest(repos, issuer_id, raw)
     live = sum(1 for f in fact_dicts if not f.get("superseded_by"))
     print(f"{instrument_id}: companyfacts загружены; фактов: {live}; "
           f"вытесненных в них же: {len(fact_dicts) - live}; "
@@ -1703,6 +1706,8 @@ def cmd_reparse(args) -> int:
     # где его не было; отображённые факты не переназначаются
     remapped = fill_canonical_from_map(repos)
     print(f"каноническое имя дописано фактам: {remapped}")
+    print(f"состояние сбора восстановлено эмитентам: "
+          f"{res.states_restored}")
     if res.added or res.changed or remapped:
         print("дальше: пересчитайте снапшоты — rusterm snapshot "
               "--watchlist <id> (или --ticker T --market M)")
