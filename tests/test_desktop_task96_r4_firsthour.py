@@ -66,7 +66,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox,  # noqa: E402
 # ТЗ-97 Q7: валовая прибыль стала мерой словаря — строк 28 → 29, и у AAPL
 # подан GrossProfit, поэтому мер со значением 10 → 11 (замер прогона).
 MEASURE_ROWS = 29
-VALUED_NOW = 11
+VALUED_NOW = 20
 
 
 @pytest.fixture(scope="module")
@@ -145,6 +145,14 @@ def hour(tmp_path_factory, qapp):
             return TwelveDataProvider(gate=gate,
                                       api_key=FAKE_TWELVEDATA_KEY,
                                       transport=_twelvedata_transport)
+        if name == "yahoo":
+            # ТЗ-110 B1: цены по умолчанию — yahoo (chart с диска)
+            from rusterm.providers.yahoo import YahooProvider
+            from pathlib import Path as _P
+            chart = _P(__file__).parent / "data/yahoo/chart_AAPL_trimmed.json"
+            return YahooProvider(
+                gate=gate, transport=lambda url, headers:
+                    (200, chart.read_bytes(), {}))
         return real(name, gate=gate)
 
     mp.setattr(cli, "get_provider", fake)
@@ -192,10 +200,14 @@ def test_company_tab_shows_the_snapshot_numbers(hour):
     valued = [r for r in range(table.rowCount())
               if table.item(r, 1) and table.item(r, 1).text() != empty]
     assert len(valued) == VALUED_NOW
-    # пустая мера показана словом, а не нулём и не молчанием
+    # пустая мера показана словом, а не нулём и не молчанием (ТЗ-110 B1:
+    # div_yield с дивидендами yahoo теперь считает — 0,32 %, не «нет»)
+    assert table.item(next(
+        r for r in range(table.rowCount())
+        if table.item(r, 0).text() == "div_yield"), 1).text() == "0,32 %"
     row = next(r for r in range(table.rowCount())
-               if table.item(r, 0).text() == "div_yield")
-    assert table.item(row, 1).text() == empty
+               if table.item(r, 1) and table.item(r, 1).text() == empty)
+    assert table.item(row, 0).text(), "пустых мер нет — зуб не сработал"
     row = next(r for r in range(table.rowCount())
                if table.item(r, 0).text() == "asset_turnover")
     assert table.item(row, 1).text() == "1,15×"
@@ -350,4 +362,8 @@ def test_governance_rows_carry_words_and_a_door_after_the_usual_path(hour):
     assert note != not_collected, (
         "канал владения обошёл путь, а строка всё ещё говорит "
         "«источник не обойдён»")
-    assert "сделки инсайдеров собраны" in note, note
+    # ТЗ-110 B1: с котировками yahoo в базе знаменатель market_cap_total
+    # считается, и insider_net доезжает до жёлтой оценки §4 (окно около
+    # нуля) — слова из того же словаря, «не описана» исключено выше
+    assert table.item(insider[0], 1).text() == "yellow", note
+    assert note == grey_reason_text("within_pm_0.1pct"), note

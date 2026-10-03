@@ -101,6 +101,14 @@ def offline_providers(monkeypatch):
         if name == "twelvedata":
             return TwelveDataProvider(gate=gate, api_key="TESTONLY",
                                       transport=_twelvedata_transport)
+        if name == "yahoo":
+            # ТЗ-110 B1: котировки по умолчанию — yahoo (chart с диска)
+            from rusterm.providers.yahoo import YahooProvider
+            chart = (DATA / "yahoo" / "chart_AAPL_trimmed.json")
+            return YahooProvider(
+                gate=gate,
+                transport=lambda url, headers:
+                    (200, chart.read_bytes(), {}))
         return real(name, gate=gate)
 
     monkeypatch.setattr(cli, "get_provider", fake)

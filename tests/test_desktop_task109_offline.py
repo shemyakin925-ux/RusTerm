@@ -94,6 +94,11 @@ def prices_offline(monkeypatch):
         if name == "twelvedata":
             return TwelveDataProvider(gate=gate, api_key="TESTONLY",
                                       transport=_raise_urllib)
+        if name == "yahoo":
+            # ТЗ-110 B1: цены по умолчанию — yahoo; сценарий offline
+            # требует, чтобы их транспорт падал
+            from rusterm.providers.yahoo import YahooProvider
+            return YahooProvider(gate=gate, transport=_raise_urllib)
         return real(name, gate=gate)
 
     monkeypatch.setattr(cli, "get_provider", fake)
@@ -112,6 +117,9 @@ def everything_offline(monkeypatch):
         if name == "twelvedata":
             return TwelveDataProvider(gate=gate, api_key="TESTONLY",
                                       transport=_down_everywhere)
+        if name == "yahoo":
+            from rusterm.providers.yahoo import YahooProvider
+            return YahooProvider(gate=gate, transport=_down_everywhere)
         return real(name, gate=gate)
 
     monkeypatch.setattr(cli, "get_provider", fake)

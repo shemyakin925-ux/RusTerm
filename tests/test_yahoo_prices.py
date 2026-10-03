@@ -120,9 +120,15 @@ def test_actions_use_one_request_for_splits_and_dividends(repos, capsys):
 
 
 def test_price_source_reads_the_setting(monkeypatch):
+    """ТЗ-110 B1 (ЗАМЕНА-БУЛАВКИ: дефолт twelvedata -> yahoo): без
+    переменной и при нераспознанном значении источник — yahoo, явная
+    «twelvedata» по-прежнему выбирается. Сильнее: закреплён дефолт
+    решения пользователя, а не старый."""
     monkeypatch.delenv("RUSTERM_PRICE_SOURCE", raising=False)
-    assert cli.price_source() == "twelvedata"
+    assert cli.price_source() == "yahoo"
     monkeypatch.setenv("RUSTERM_PRICE_SOURCE", "Yahoo")
     assert cli.price_source() == "yahoo"
-    monkeypatch.setenv("RUSTERM_PRICE_SOURCE", "nonsense")
+    monkeypatch.setenv("RUSTERM_PRICE_SOURCE", "twelvedata")
     assert cli.price_source() == "twelvedata"
+    monkeypatch.setenv("RUSTERM_PRICE_SOURCE", "nonsense")
+    assert cli.price_source() == "yahoo"

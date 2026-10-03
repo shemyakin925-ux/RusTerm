@@ -285,11 +285,12 @@ def cmd_ingest(args) -> int:
 
 
 def price_source() -> str:
-    """ADR-0029: источник котировок — RUSTERM_PRICE_SOURCE (окружение
-    или ~/.rusterm.env): `yahoo` — без ключа, `twelvedata` — по ключу.
-    Не задан — twelvedata, как было до решения пользователя 01.10."""
+    """ADR-0029 + решение пользователя (ТЗ-110 B1): котировки — Yahoo,
+    без ключа; Twelve Data остаётся опцией по RUSTERM_PRICE_SOURCE
+    (окружение или ~/.rusterm.env): ключ там отвечает «invalid», сплиты
+    и дивиденды — платные, ADR-0018 платного не берёт."""
     name = (os.environ.get("RUSTERM_PRICE_SOURCE") or "").strip().lower()
-    return name if name in ("twelvedata", "yahoo") else "twelvedata"
+    return name if name in ("twelvedata", "yahoo") else "yahoo"
 
 
 def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
@@ -2752,7 +2753,10 @@ def cmd_markets(args) -> int:
     if conn is not None:
         conn.close()
     if args.json:
-        print(json.dumps({"markets": rows}, ensure_ascii=False))
+        # ТЗ-110 B1: источник котировок виден в машинном ответе
+        print(json.dumps({"markets": rows,
+                          "price_source": price_source()},
+                         ensure_ascii=False))
         return 0
     for row in rows:
         print(f"{row['code']}\t{row['jurisdiction']}\t"
@@ -2760,6 +2764,9 @@ def cmd_markets(args) -> int:
               f"{row['identifier']}\t{row['default_taxonomy']}\t"
               f"{row['access']}\t{row['provider_status']}\t"
               f"{row['channel'] or '-'}\t{row['degree']}\t{row['issuers']}")
+    # ТЗ-110 B1: «котировки» — не рынок, а один источник на всё окно
+    print(f"котировки\t{price_source()}\t"
+          f"(RUSTERM_PRICE_SOURCE; по умолчанию yahoo, ADR-0029)")
     return 0
 
 

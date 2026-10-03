@@ -102,6 +102,14 @@ def _patch(monkeypatch, ca_transport):
         if name == "twelvedata":
             return TwelveDataProvider(gate=gate, api_key="TESTONLY",
                                       transport=ca_transport)
+        if name == "yahoo":
+            # ТЗ-110 B1: котировки по умолчанию — yahoo (chart с диска)
+            from rusterm.providers.yahoo import YahooProvider
+            chart = REPO / "tests/data/yahoo/chart_AAPL_trimmed.json"
+            return YahooProvider(
+                gate=gate,
+                transport=lambda url, headers:
+                    (200, chart.read_bytes(), {}))
         return real(name, gate=gate)
 
     monkeypatch.setattr(cli, "get_provider", fake)
@@ -302,6 +310,9 @@ def test_follow_finishes_the_path_and_builds_the_snapshot(tmp_path,
     снапшота, и совета, который не может сработать, в выводе нет."""
     root = tmp_path / "app"
     _patch(monkeypatch, _twelvedata_transport())
+    # ТЗ-110 B1: по умолчанию путь зовёт yahoo; сценарий отказа по
+    # тарифу — про Twelve Data, тест называет её сам
+    monkeypatch.setenv("RUSTERM_PRICE_SOURCE", "twelvedata")
     args = _build_parser().parse_args(
         ["--root", str(root), "follow", "AAPL", "--market", "US"])
     rc = cli.cmd_follow(args)

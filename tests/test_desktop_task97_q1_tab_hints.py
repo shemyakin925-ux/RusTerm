@@ -99,6 +99,14 @@ def _follow_aapl(root, mp):
         if name == "twelvedata":
             return TwelveDataProvider(gate=gate, api_key=FAKE_TWELVEDATA_KEY,
                                       transport=_twelvedata_transport)
+        if name == "yahoo":
+            # ТЗ-110 B1: цены по умолчанию — yahoo (chart с диска)
+            from rusterm.providers.yahoo import YahooProvider
+            from pathlib import Path as _P
+            chart = _P(__file__).parent / "data/yahoo/chart_AAPL_trimmed.json"
+            return YahooProvider(
+                gate=gate, transport=lambda url, headers:
+                    (200, chart.read_bytes(), {}))
         return real(name, gate=gate)
 
     mp.setattr(cli, "get_provider", fake)
@@ -334,15 +342,17 @@ def test_industry_hint_on_an_unconfirmed_set_asks_to_approve(tmp_path):
 # ── «Качество»: чем закрывается серый governance ─────────────────────────
 
 def test_quality_governance_is_gray_and_names_the_channel(hour):
-    """Сегодня governance — пять серых строк; вкладка обязана назвать
-    канал владения, который их наполняет."""
+    """Governance — серые строки, и вкладка обязана назвать канал
+    владения, который их наполняет. ТЗ-110 B1: с котировками в базе
+    insider_net получает жёлтую оценку §4 — серые строки остаются, и
+    их слова обязаны жить в словаре."""
     table = _table_of(_tab_page(hour.win, "Качество"), "governance_table")
     assert table.rowCount() > 0, "governance не показан вовсе"
     colours = {table.item(r, 1).text()
                for r in range(table.rowCount()) if table.item(r, 1)}
-    assert colours == {"gray"}, (
-        f"наполнение появилось — причину серости и этот зуб надо "
-        f"переносить: {colours}")
+    assert "gray" in colours, colours
+    assert colours <= {"gray", "yellow"}, (
+        f"новый цвет — перенеси слова и этот зуб: {colours}")
     argvs = [argv for argv in _hints_of(hour, "Качество")
              if argv[1:3] == ["ingest", "--source"]]
     assert argvs, _tab_texts(_tab_page(hour.win, "Качество"))
@@ -352,12 +362,18 @@ def test_quality_governance_is_gray_and_names_the_channel(hour):
 
 
 def test_quality_hint_words_are_one_door(hour):
-    """Слово подсказки живёт в слое данных, а не в окне: и вкладка, и
-    любой другой читатель получают одну и ту же строку, разбираемую
-    парсером."""
+    """Слово подсказки живёт в слое данных, а не в окне: строка
+    разбирается парсером, а на вкладке она ровно тогда, когда строки
+    серые (governance_needs_hint). ТЗ-110 B1: с котировками insider_net
+    жёлтый — подсказки быть не должно, и дверь с вкладкой согласны."""
     hint = desktop_data.governance_hint("US-AAPL")
     assert "rusterm ingest --source ownership --instrument US-AAPL" in hint
     argv = shlex.split(hint[hint.index("rusterm"):])
     _build_parser().parse_args(["--root", str(hour.root)] + argv[1:])
-    texts = _tab_texts(_tab_page(hour.win, "Качество"))
-    assert any(hint in text for text in texts), texts
+    page = _tab_page(hour.win, "Качество")
+    texts = _tab_texts(page)
+    table = _table_of(page, "governance_table")
+    colours = {table.item(r, 1).text()
+               for r in range(table.rowCount()) if table.item(r, 1)}
+    on_tab = any(hint in text for text in texts)
+    assert on_tab == (colours <= {"gray"}), (on_tab, colours, texts)

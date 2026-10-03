@@ -67,6 +67,15 @@ def _twelvedata_transport(url, headers):
     return 404, b'{"status": "error"}', {}
 
 
+# ТЗ-110 B1: Yahoo — источник котировок по умолчанию; путь стадии 5/6
+# зовёт yahoo, и фикстура подменяет его записанным chart-ответом
+YAHOO_CHART = REPO / "tests/data/yahoo/chart_AAPL_trimmed.json"
+
+
+def _yahoo_transport(url, headers):
+    return 200, YAHOO_CHART.read_bytes(), {}
+
+
 @pytest.fixture
 def offline_providers(monkeypatch):
     """Настоящие провайдеры, но транспорт — с диска. Дверь одна на
@@ -79,6 +88,9 @@ def offline_providers(monkeypatch):
         if name == "twelvedata":
             return TwelveDataProvider(gate=gate, api_key="TESTONLY",
                                       transport=_twelvedata_transport)
+        if name == "yahoo":
+            from rusterm.providers.yahoo import YahooProvider
+            return YahooProvider(gate=gate, transport=_yahoo_transport)
         return real(name, gate=gate)
 
     monkeypatch.setattr(cli, "get_provider", fake)
@@ -183,7 +195,7 @@ def test_the_printed_total_is_the_number_of_calls_made(tmp_path, monkeypatch,
     R2 ценовой стадий в metric_sample не было вовсе — `rusterm budget`
     называл живые запросы вендора нулём, и `follow` унаследовал бы этот
     ноль."""
-    served = {"edgar": 0, "twelvedata": 0}
+    served = {"edgar": 0, "yahoo": 0}
     real = cli.get_provider
 
     def counting(name, gate=None):
@@ -192,12 +204,14 @@ def test_the_printed_total_is_the_number_of_calls_made(tmp_path, monkeypatch,
                 served["edgar"] += 1
                 return _edgar_transport(url, headers)
             return EdgarProvider(gate=gate, transport=transport)
-        if name == "twelvedata":
+        if name == "yahoo":
+            # ТЗ-110 B1 (ЗАМЕНА-БУЛАВКИ: счётчик вендора twelvedata ->
+            # yahoo): источник котировок по умолчанию — yahoo
+            from rusterm.providers.yahoo import YahooProvider
             def transport(url, headers):
-                served["twelvedata"] += 1
-                return _twelvedata_transport(url, headers)
-            return TwelveDataProvider(gate=gate, api_key="TESTONLY",
-                                      transport=transport)
+                served["yahoo"] += 1
+                return _yahoo_transport(url, headers)
+            return YahooProvider(gate=gate, transport=transport)
         return real(name, gate=gate)
 
     monkeypatch.setattr(cli, "get_provider", counting)
@@ -209,7 +223,7 @@ def test_the_printed_total_is_the_number_of_calls_made(tmp_path, monkeypatch,
     out = capsys.readouterr().out
     total = int(re.search(r"путь пройден; всего запросов: (\d+)", out)[1])
 
-    assert served["twelvedata"] > 0, "фикстура не дошла до вендора"
+    assert served["yahoo"] > 0, "фикстура не дошла до вендора"
     assert cli._requests_used(str(root)) == sum(served.values())
     assert total == sum(served.values()), (total, served)
 

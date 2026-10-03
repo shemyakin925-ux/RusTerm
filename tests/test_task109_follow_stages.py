@@ -85,7 +85,22 @@ def _raising(base):
     return transport, mixed
 
 
-def _install_providers(monkeypatch, edgar_transport, td_transport):
+# ТЗ-110 B1: источник котировок по умолчанию — yahoo; фикстура
+# подменяет его записанным chart-ответом, сценарии падения цен
+# передают свой транспорт третьим аргументом _install_providers
+YAHOO_CHART = DATA / "yahoo" / "chart_AAPL_trimmed.json"
+
+
+def _yahoo_ok(url, headers):
+    return 200, YAHOO_CHART.read_bytes(), {}
+
+
+def _yahoo_down(url, headers):
+    raise urllib.error.URLError("vendor down")
+
+
+def _install_providers(monkeypatch, edgar_transport, td_transport,
+                       yahoo_transport=None):
     real = cli.get_provider
 
     def fake(name, gate=None):
@@ -94,6 +109,12 @@ def _install_providers(monkeypatch, edgar_transport, td_transport):
         if name == "twelvedata":
             return TwelveDataProvider(gate=gate, api_key="TESTONLY",
                                       transport=td_transport)
+        if name == "yahoo":
+            from rusterm.providers.yahoo import YahooProvider
+            return YahooProvider(
+                gate=gate,
+                transport=yahoo_transport
+                if yahoo_transport is not None else _yahoo_ok)
         return real(name, gate=gate)
 
     monkeypatch.setattr(cli, "get_provider", fake)
@@ -172,7 +193,8 @@ def test_price_transport_error_does_not_stop_the_path(
     """Стадия 5/6 упала по транспорту — снапшот построен на отчётности,
     код 0, строка «пропущено» называет причину и повтор."""
     _, mixed = _raising(_twelvedata_ok)
-    _install_providers(monkeypatch, _edgar_ok, mixed)
+    _install_providers(monkeypatch, _edgar_ok, mixed,
+                       yahoo_transport=_yahoo_down)
     root = tmp_path / "app"
 
     assert _run(root) == 0
@@ -186,7 +208,7 @@ def test_price_transport_error_does_not_stop_the_path(
     assert reason.startswith(_SKIP_REASONS), f"{reason!r}"
     words = shlex.split(line.split("повтор: ", 1)[1])
     parsed = _build_parser().parse_args(words[1:])
-    assert parsed.command == "ingest" and parsed.source == "twelvedata", \
+    assert parsed.command == "ingest" and parsed.source == "yahoo", \
         vars(parsed)
     prices = _coverage(root, "prices")
     assert prices is not None and prices["status"] == "missing", prices
@@ -236,20 +258,30 @@ def test_resume_reruns_only_the_skipped_stage(tmp_path, monkeypatch, capsys):
         td_calls["n"] += 1
         raise urllib.error.URLError("vendor down")
 
-    _install_providers(monkeypatch, counting_edgar, counting_td)
+    def counting_yahoo_down(url, headers):
+        td_calls["n"] += 1
+        raise urllib.error.URLError("vendor down")
+
+    _install_providers(monkeypatch, counting_edgar, counting_td,
+                       yahoo_transport=counting_yahoo_down)
     root = tmp_path / "app"
 
     assert _run(root) == 0, "первый прогон: цены пропущены, путь дошёл"
     first_out = capsys.readouterr().out
     assert "5/6 цены: пропущено" in first_out, first_out
-    assert "повтор: rusterm ingest --source twelvedata" in first_out
+    assert "повтор: rusterm ingest --source yahoo" in first_out
     edgar_after_run1 = edgar_calls["n"]
 
     def serving_td(url, headers):
         td_calls["n"] += 1
         return _twelvedata_ok(url, headers)
 
-    _install_providers(monkeypatch, counting_edgar, serving_td)
+    def serving_yahoo(url, headers):
+        td_calls["n"] += 1
+        return _yahoo_ok(url, headers)
+
+    _install_providers(monkeypatch, counting_edgar, serving_td,
+                       yahoo_transport=serving_yahoo)
     assert _run(root) == 0
     second_out = capsys.readouterr().out
 

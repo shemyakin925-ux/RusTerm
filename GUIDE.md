@@ -81,9 +81,10 @@ US-AAPL: стадия не прошла (код 1); починив, повтор
 стадию; её разбирает тот же парсер, что и всё остальное. Записей при
 этом не появляется ни одних: стадия остановилась до скачивания.
 
-Чтобы путь прошёл целиком, в `~/.rusterm.env` нужны две строки:
-`RUSTERM_SEC_UA` (ваш контакт для SEC) и `RUSTERM_TWELVEDATA_KEY`
-(котировки, §0). Реальный прогон 24.09.2026 на AAPL — он шёл по сети,
+Чтобы путь прошёл целиком, в `~/.rusterm.env` нужна одна строка:
+`RUSTERM_SEC_UA` (ваш контакт для SEC) — котировки с 03.10.2026 берутся
+на Yahoo без ключа (ТЗ-110 B1, ADR-0029); ключ Twelve Data опционален
+через RUSTERM_PRICE_SOURCE (§0). Реальный прогон 24.09.2026 на AAPL — он шёл по сети,
 страж его не исполняет, числа живые. Тогда стадий было пять; 28.09.2026
 в путь вошла четвёртая — формы владения (ТЗ-97 Q2), и нумерация
 сдвинулась:
@@ -290,6 +291,7 @@ OTC	US	otc	edgar	cik	us-gaap	partial	implemented	edgar	—	1
 KR	KR	exchange	dart	corp_code	ifrs-full	auto	implemented	-	нет ключа	1
 BR	BR	exchange	cvm	cvm_code	ifrs-full	auto	implemented	cvm	—	1
 AU	AU	exchange	asx	asx_code	ifrs-full	partial	implemented	asx	—	1
+котировки	yahoo	(RUSTERM_PRICE_SOURCE; по умолчанию yahoo, ADR-0029)
 ```
 
 `markets` — реестр рынков: провайдер, схема идентификатора, уровень

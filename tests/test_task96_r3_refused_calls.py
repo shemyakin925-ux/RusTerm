@@ -32,6 +32,14 @@ TIMES = REPO / "tests/data/twelvedata/time_series_r3_AAPL_1000d.json"
 
 def _transport(fail_on: str, calls: list):
     def send(url, headers):
+        # ТЗ-110 B1: yahoo по умолчанию — одна chart-дверь на всё
+        if "query1.finance.yahoo.com" in url or "/chart/" in url:
+            calls.append("chart")
+            if fail_on == "chart":
+                return 403, json.dumps(
+                    {"code": "403", "status": "error"}).encode(), {}
+            chart = (REPO / "tests/data/yahoo/chart_AAPL_trimmed.json")
+            return 200, chart.read_bytes(), {}
         for kind in ("time_series", "/splits", "/dividends"):
             if kind in url:
                 calls.append(kind)
@@ -67,6 +75,12 @@ def _wire(monkeypatch, root, fail_on, calls):
         if name == "twelvedata":
             return TwelveDataProvider(api_key="TESTONLY", gate=gate,
                                       transport=_transport(fail_on, calls))
+        if name == "yahoo":
+            # ТЗ-110 B1: путь зовёт yahoo; отказ вендора счётчику важен,
+            # не имя канала — транспорт тот же отказник
+            from rusterm.providers.yahoo import YahooProvider
+            return YahooProvider(
+                gate=gate, transport=_transport(fail_on, calls))
         raise AssertionError(f"чужой провайдер не нужен: {name}")
     monkeypatch.setattr(cli, "get_provider", fake)
 
@@ -105,11 +119,12 @@ def test_refused_dividends_after_successful_splits_are_counted_once(
 
 
 def test_refused_quotes_are_counted(catalog, monkeypatch):
-    """Только котировочная дверь: отказ /time_series — один пропущенный
-    гейтом запрос, и он обязан быть в счётчике."""
+    """Только котировочная дверь: отказ вендора — один пропущенный
+    гейтом запрос, и он обязан быть в счётчике. ТЗ-110 B1: источник
+    по умолчанию — yahoo, отказ приходит на chart-запрос."""
     root = catalog
     calls: list = []
-    _wire(monkeypatch, root, "time_series", calls)
+    _wire(monkeypatch, root, "chart", calls)
     conn = sqlite3.connect(str(Path(root) / "rusterm.db"),
                            isolation_level=None)
     apply_migrations(conn)
@@ -120,5 +135,5 @@ def test_refused_quotes_are_counted(catalog, monkeypatch):
     finally:
         conn.close()
     assert rc == 1
-    assert calls == ["time_series"], calls
+    assert calls == ["chart"], calls
     assert cli._requests_used(str(root)) == 1

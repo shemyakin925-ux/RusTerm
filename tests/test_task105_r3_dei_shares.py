@@ -20,12 +20,50 @@
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
-from tests.test_task96_r2_follow import _run, offline_providers  # noqa: F401
+import pytest
+
+from tests.test_task96_r2_follow import (_run, offline_providers,
+                                         YAHOO_CHART)  # noqa: F401
 
 TAG = "dei:EntityCommonStockSharesOutstanding"
+
+
+@pytest.fixture
+def stale_providers(monkeypatch):
+    """Тот же офлайн-путь, но ценовая лента yahoo устаревшая: записанный
+    chart сдвинут на 60 дней назад — снапшот обязан отказывать ценовым
+    мерам с price_close_stale (ТЗ-110 B1: источник по умолчанию —
+    yahoo, а отказ от старой ленты — то, что этот файл закрепляет)."""
+    import rusterm.cli as cli
+    from rusterm.providers.edgar import EdgarProvider
+    from tests.test_task96_r2_follow import _edgar_transport
+
+    real = cli.get_provider
+    shift = 60 * 86400
+
+    def _stale_yahoo(url, headers):
+        payload = json.loads(YAHOO_CHART.read_text(encoding="utf-8"))
+        result = (payload.get("chart") or {}).get("result") or []
+        for r in result:
+            r["timestamp"] = [ts - shift for ts in (r.get("timestamp")
+                                                    or [])]
+        return 200, json.dumps(payload).encode("utf-8"), {}
+
+    def fake(name, gate=None):
+        if name == "edgar":
+            return EdgarProvider(gate=gate, transport=_edgar_transport)
+        if name == "yahoo":
+            from rusterm.providers.yahoo import YahooProvider
+            return YahooProvider(gate=gate, transport=_stale_yahoo)
+        return real(name, gate=gate)
+
+    monkeypatch.setattr(cli, "get_provider", fake)
+    monkeypatch.setenv("RUSTERM_SEC_UA", "Rusterm Test r.invalid")
+    monkeypatch.setenv("RUSTERM_ENV_FILE", "/nonexistent/rusterm.env")
 
 
 def _rows(root, sql, params=()):
@@ -60,7 +98,7 @@ def test_cover_page_share_count_reaches_the_dictionary(tmp_path,
 
 
 def test_denominator_refuses_on_price_not_on_share_count(tmp_path,
-                                                         offline_providers):
+                                                         stale_providers):
     """Знаменатель считан, но пуст: отказ называет цену, а не акции —
     это и есть причина, по которой зуб выпуска не переносится."""
     root = tmp_path / "app"
@@ -80,7 +118,7 @@ def test_denominator_refuses_on_price_not_on_share_count(tmp_path,
 
 
 def test_governance_insider_net_still_names_the_missing_denominator(
-        tmp_path, offline_providers):
+        tmp_path, stale_providers):
     """Серость не перекрашена записью обложки: `insider_net` остаётся
     серым и указывает на тот же знаменатель."""
     root = tmp_path / "app"

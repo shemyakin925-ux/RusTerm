@@ -18,6 +18,7 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 from dataclasses import dataclass
 
@@ -260,11 +261,20 @@ GREY_REASONS: dict[str, str] = {
     "ownership_without_deal_price":
         "сделки инсайдеров собраны, но close за их дату в базе отсутствует: "
         "числитель в деньгах из этого не собирается — закрывается сбором "
-        "котировок (ingest --source twelvedata)",
+        "котировок (rusterm refresh)",
     "insider_deal_currency_mismatch":
         "сделки оценены в валюте котировок, а капитализация — в другой: "
         "отношение денег к другой валюте сравнивалось бы с порогами §4 "
         "напрасно — закрывается сбором котировок того же источника",
+    # ТЗ-110 B1: с котировками в базе insider_net доезжает до жёлтых
+    # оценок §4 — их слова живут в том же словаре, иначе окно показывает
+    # код вместо расшифровки
+    "within_pm_0.1pct":
+        "чистые операции инсайдеров за окно около нуля (±0,1% рынка) — "
+        "цвет нейтральный, сделок, двигающих indicator, не видно",
+    "sales_below_0.5pct_not_red_yellow_band":
+        "чистые продажи ниже красного порога §4 (0,5%) — жёлтая полоса "
+        "между зелёным и красным",
 }
 
 
@@ -277,8 +287,13 @@ def grey_reason_key(reason: str) -> str:
     на базе пользователя показывала код вместо слов: все пять строк были
     `no_data:not_collected`, и `GREY_REASONS.get(reason)` не находил
     ничего (ТЗ-97 Q2).
+
+    ТЗ-110 B1: у insider_net продолжение после `;`
+    (`within_pm_0.1pct;tenb5_net=-467862 (100% of net)`, ТЗ-104 P6) —
+    токен и здесь до первого разделителя, иначе жёлтая строка
+    показывала «в словаре не описана» при живом словарном слове.
     """
-    parts = (reason or "").split(":")
+    parts = re.split(r"[:;]", (reason or ""))
     if parts[0] == "no_data" and len(parts) > 1:
         return parts[1]
     return parts[0]
