@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 5,
+ "holder": "coordinator",
+ "round": 6,
  "branch": "agent/night-13",
  "task": "agent/TASK-C1.md",
- "report": "agent/REPORT-C1.md",
- "note": "Очередь полосы C до ТЗ-C10 выложена: C2 действия из окна, C3 peer set и отрасль, C4 экспорт, C5 списки наблюдения, C6 панель источника, C7 разговор, C8 качество данных, C9 ключи и лимиты, C10 сборка .app. Берутся по номерам без ожидания рецензии; текущее — ТЗ-C1.",
- "handed_by": "coordinator",
- "handed_at": "2026-09-19T14:20:09Z",
+ "report": "agent/REPORT-109.md",
+ "note": "ТЗ-109 done in 89ac5ed (hook acceptance 13/0): R1 optional stages skip with reason+retry command, R2 transport retries 1/4/15s budget-counted, R3 resume-only-missing via coverage, R4 offline window banner with data date. Arrival was RED (fresh clone bd3be41 11/13): three tests repaired (Y1 probe W1, VZ refusal per D7, window pins) + GUIDE us-gaap.v5. look.py on base copy: 38 companies, 0 errors. Network 0/30.",
+ "handed_by": "executor",
+ "handed_at": "2026-10-03T13:38:53Z",
  "paused": false,
  "finished": false
 }
