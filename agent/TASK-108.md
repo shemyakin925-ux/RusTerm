@@ -1,6 +1,6 @@
 # TASK-108 — live-window findings 01.10 (rusterm-check skill)
 
-- **Status: READY**
+- **Status: DONE by coordinator — see REPORT-108**
 - **Report:** `agent/REPORT-108.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Budgets:** network ≤ 40 SEC requests (W3 only), LLM 0.
