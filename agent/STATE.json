@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-109.md",
  "report": "agent/REPORT-109.md",
- "item": "R1-R4",
- "step": "ROUND 144 — all four items implemented and green offline: R1 optional stages skip with «пропущено — <reason>; повтор: <command>» (coverage blocks prices/corporate_actions added; fetch_document no longer masks ProviderError as unexpected_response; companyfacts transport refusal is a value, was a json.dumps TypeError); R2 retry_transport in budget.py (RETRY_DELAYS 1/4/15 s, TRANSIENT_STATUSES 429+5xx), wired into edgar._guarded/yahoo._chart/twelvedata._request, sleeper injectable, conftest makes RETRY_SLEEP a no-op; R3 resume: stages with ready coverage skip («уже собрано, пропуск»), stages with recorded refusal announce «повтор: <stage>»; R4 window: stderr of children forwarded to emit, CollectOutcome.offline, offline_notice banner «нет сети — данные от <as_of>», data.last_snapshot_date door, w4 pin table extended (also pins the previously bare parse_add_request). One assert replaced in tests/test_task97_q12_ca_plan_refusal.py (500 now retried: 4 transport calls) — ЗАМЕНА-БУЛАВКИ block in the commit message. New tests: test_task109_follow_stages.py (5), test_task109_retry.py (16), test_task109_offline_window.py (4). look.py on a COPY of the user's base (/tmp/rusterm-base-copy, 44 instruments): 38 companies clicked, 153 shots, errors []. Arrival reds on clean HEAD bd3be41 measured individually: test_dei_input_survives_the_trim, test_guide_blocks_run_and_match (us-gaap.v4 vs v5), w4 pin (parse_add_request) — fresh-clone acceptance at HEAD running; verdict in the report. Waiting for it before the commit (hook runs acceptance). Network budget: 0 of 30 used, llm 0.",
+ "item": "R1-R4 committed (89ac5ed), handing back",
+ "step": "ROUND 144 — commit 89ac5ed through the hook (acceptance 13/0, /tmp/commit-109b.log): arrival repairs (Y1 probe W3->W1 measured, VZ refusal string per D7 25fece2, window pins parse_add_request+last_snapshot_date, GUIDE us-gaap.v5 measured) + TASK-109 R1 R2 R3 R4. New tests 25 (follow_stages 5, retry 16, desktop_task109_offline 4). look.py on /tmp/rusterm-base-copy (COPY of user base): 38 companies, 153 shots, errors []. Network 0/30, llm 0. Queue next: TASK-110.",
  "status": "working",
- "last_commit": "bd3be41",
+ "last_commit": "89ac5ed",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM (zai individual coding plan) via ZCode",
- "updated_at": "2026-10-03T08:26:09Z"
+ "updated_at": "2026-10-03T10:10:42Z"
 }
