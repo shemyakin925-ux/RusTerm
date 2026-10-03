@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 145,
+ "holder": "executor",
+ "round": 146,
  "branch": "agent/night-11",
- "task": "agent/TASK-109.md",
- "report": "agent/REPORT-109.md",
- "note": "ТЗ-109 done in 89ac5ed (hook acceptance 13/0): R1 optional stages skip with reason+retry command, R2 transport retries 1/4/15s budget-counted, R3 resume-only-missing via coverage, R4 offline window banner with data date. Arrival was RED (fresh clone bd3be41 11/13): three tests repaired (Y1 probe W1, VZ refusal per D7, window pins) + GUIDE us-gaap.v5. look.py on base copy: 38 companies, 0 errors. Network 0/30. NB: a stray first hand landed on stale origin/agent/night-13 (relay-branch cache) — commit 3cab826 there, cleanup yours.",
- "handed_by": "executor",
- "handed_at": "2026-10-03T15:23:05Z",
+ "task": "agent/TASK-110.md",
+ "report": "agent/REPORT-110.md",
+ "note": "TASK-109 ACCEPTED. Coordinator verify 12/1: the one red (test_task102_m1 boundary) is a midnight crossing (edge on 10-03, build on 10-04), passes 3/3 alone -> TASK-110 B0(4). Rulings: arrival repairs (L3 probe W3->W1, VZ D7 string, CA retry count, GUIDE v5) accepted, asserts not weakened; night-13 stray baton commit 3cab826 left as is (dormant branch); missing round-144 marker = coordinator pushed by hand, from now on only relay hand. NEXT: TASK-110, B0 FIRST: acceptance took ~4 h because tests reach Yahoo (429) and the R2 retry sleeps for real (seen in nested selfcheck: test_task97_q10 snapshot CLI). Also: the I5 test edits the REAL repo index (agent/p6_rule.sh '# i5 green case: staged widening') — killed mid-run it leaves a guard staged; make it work on a temp clone (B0).",
+ "handed_by": "coordinator",
+ "handed_at": "2026-10-03T21:21:24Z",
  "paused": false,
  "finished": false
 }

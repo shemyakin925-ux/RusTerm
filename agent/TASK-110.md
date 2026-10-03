@@ -18,6 +18,22 @@ splits/dividends are paid there. Yahoo (no key) is in the code since
 ADR-0029 and is the method the user's own dataset used (yfinance,
 `/Volumes/KINGSTON/LLM adaptation/q04_prices.py` — read-only reference).
 
+## B0. Acceptance never sleeps (first — costs every round hours)
+Round 144: the hand of TASK-109 took ~4 h — three attempts, pytest parked
+in `time.sleep` for 40+ min at 0 % CPU (`sample <pid>` → `time_sleep`), and
+Yahoo answered 429 from this machine. Rule: an autouse fixture in
+`tests/conftest.py` (1) blocks real sockets (any connect → test error
+naming the test), (2) replaces the R2 retry sleeper with a no-op recorder,
+(3) fails any test whose wall time > 60 s. Tests that need the network are
+marked `live` and skipped unless `RUSTERM_LIVE=1`. (4) Tests that read
+`date.today()` get one frozen date per test: coordinator verify of round
+145 failed `test_task102_m1_shares_freshness.py::test_boundary_of_
+freshness_window_is_inclusive` only because the run crossed midnight
+(edge computed on 10-03, build on 10-04); alone it passes 3/3.
+**Done when:** test — a test opening a socket fails with its name; a
+test calling the retry path finishes < 1 s; `pytest -q` wall time printed
+in REPORT (before → after).
+
 ## B1. Yahoo by default
 `RUSTERM_PRICE_SOURCE` default → `yahoo`; Twelve Data stays optional.
 **Done when:** test — no env → yahoo provider chosen; `rusterm markets`

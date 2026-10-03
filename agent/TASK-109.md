@@ -1,6 +1,6 @@
 # TASK-109 — collection never dies on one stage; retries; offline shows what is there
 
-- **Status: READY**
+- **Status: ACCEPTED (round 145, coordinator verify — see LAUNCH.md 03.10)**
 - **Report:** `agent/REPORT-109.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Budgets:** network ≤ 30 requests (live check), LLM 0.
