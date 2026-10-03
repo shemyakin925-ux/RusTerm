@@ -71,6 +71,10 @@ class CollectOutcome:
     jobs_done: int = 0
     snapshot_id: Optional[str] = None
     snapshot_version: Optional[int] = None
+    # ТЗ-109 R4: по пути прошла строка с транспортным отказом
+    # (`source_unreachable:transport…`) — окно называет «нет сети»
+    # словами и показывает дату данных, а не немую старину
+    offline: bool = False
 
 
 @dataclass
@@ -309,9 +313,14 @@ def follow_instrument(root, instrument_id: str,
         return CollectOutcome(cancelled=True,
                               detail=lines[-1] if lines else
                               "отменено до первой стадии")
+    # ТЗ-109 R4: транспортный отказ виден в строках пути — и в строке
+    # «пропущено» необязательной стадии (R1), и в отказе ребёнка,
+    # который follow теперь передаёт в emit; окно называет его словами
+    offline = any("source_unreachable:transport" in line for line in lines)
     if rc != 0:
         return CollectOutcome(ok=False, reason="follow_failed",
-                              detail=lines[-1] if lines else f"код {rc}")
+                              detail=lines[-1] if lines else f"код {rc}",
+                              offline=offline)
 
     paths = AppPaths.from_root(root)
     conn = open_connection(paths)
@@ -326,6 +335,7 @@ def follow_instrument(root, instrument_id: str,
     version = row["version"] if row else None
     return CollectOutcome(
         ok=True, snapshot_id=snapshot_id, snapshot_version=version,
+        offline=offline,
         detail=("путь пройден"
                 + (f"; снапшот v{version}" if version is not None else "")))
 

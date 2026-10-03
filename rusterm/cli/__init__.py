@@ -326,6 +326,10 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
         if provider.reason == "twelvedata_key_unset":
             from rusterm.providers.twelvedata import key_instruction
             print(f"что делать: {key_instruction()}", file=sys.stderr)
+        # ТЗ-109 R1: покрытие знает причину — строка «пропущено» в пути
+        # берёт её отсюда
+        repos.coverage.upsert(instrument_id, "prices", "missing",
+                              reason=provider.reason)
         return 1
 
     cache_url = provider.cache_url(symbol, start, as_of)
@@ -341,6 +345,8 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
             # обязан его назвать (ТЗ-96 R3: на живом прогоне 403-ный
             # вызов исчезал из счётчика).
             _record_gate_usage(repos, provider.source_name, price_gate)
+            repos.coverage.upsert(instrument_id, "prices", "missing",
+                                  reason=outcome.reason)
             print(f"{provider.source_name}: {outcome.reason}", file=sys.stderr)
             return 1
         payload = outcome
@@ -357,6 +363,8 @@ def _ingest_twelvedata_prices(repos, instrument_id: str, as_of: str,
     # считалась нулём запросов. Инъецированный провайдер оставляет gate
     # равным None: чужой гейт не считаем.
     _record_gate_usage(repos, provider.source_name, price_gate)
+    # ТЗ-109 R1: цена собрана — покрытие готово, повтор пути её пропустит
+    repos.coverage.upsert(instrument_id, "prices", "ready", reason=None)
     print(f"{instrument_id}: строк получено: {len(rows)}; "
           f"записано новых: {inserted}; запросов: {requests_spent}; "
           f"последняя дата: {last}")
@@ -400,6 +408,10 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
         if provider.reason == "twelvedata_key_unset":
             from rusterm.providers.twelvedata import key_instruction
             print(f"что делать: {key_instruction()}", file=sys.stderr)
+        # ТЗ-109 R1: покрытие знает причину — строка «пропущено» в пути
+        # берёт её отсюда
+        repos.coverage.upsert(instrument_id, "corporate_actions", "missing",
+                              reason=provider.reason)
         return 1
 
     payloads: dict[str, dict] = {}
@@ -434,6 +446,9 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
             # Тот же счёт, что у котировок: отказанный вызов гейт уже
             # пропустил, и терять его на выходе из стадии нельзя.
             _record_gate_usage(repos, provider.source_name, ca_gate)
+            # ТЗ-109 R1: причина — в покрытие, для строки «пропущено»
+            repos.coverage.upsert(instrument_id, "corporate_actions",
+                                  "missing", reason=reason)
             print(f"{provider.source_name}: {kind}: {reason}", file=sys.stderr)
             return 1
         payloads[kind] = outcome
@@ -470,6 +485,10 @@ def _ingest_twelvedata_actions(repos, instrument_id: str, as_of: str,
                                  amount=d["amount"], currency=currency):
             written += 1
     skipped = splits_skipped + div_skipped
+    # ТЗ-109 R1: события собраны (отказ по тарифу — ответ вендора, не
+    # сбой) — покрытие готово, повтор пути стадию пропустит
+    repos.coverage.upsert(instrument_id, "corporate_actions", "ready",
+                          reason=None)
     print(f"{instrument_id}: корп.действия: сплитов {len(splits)}; "
           f"дивидендов {len(dividends)}; записано новых: {written}; "
           f"запросов: {requests_spent}; неразобрано: {skipped}")
@@ -538,6 +557,14 @@ def _ingest_edgar_companyfacts(repos, instrument_id: str,
         print(f"{instrument_id}: эмитент не подаёт XBRL в SEC "
               f"(companyfacts 404) — покрытие missing: no_sec_filings")
         return 0
+    if isinstance(facts, _PE):
+        # ТЗ-109 R1: транспортный отказ — значение, не падение: раньше
+        # он доезжал сюда и падал в json.dumps TypeError-ом; теперь
+        # причина печатается словами и ложится в покрытие
+        repos.coverage.upsert(instrument_id, "fundamentals", "missing",
+                              reason=facts.reason)
+        print(f"edgar: {facts.reason}", file=sys.stderr)
+        return 1
     raw = json.dumps(facts, ensure_ascii=False, sort_keys=True).encode()
     print(f"{instrument_id}: стадия записи — получено {len(raw)} байт…",
           file=sys.stderr, flush=True)
@@ -880,6 +907,10 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
             fetched = provider.fetch_document(url)
             if isinstance(fetched, _PE):
                 _flush_spend(listed_calls)
+                # ТЗ-109 R1: причина отказа нужна строке «пропущено» —
+                # покрытие пишет её здесь же, как список форм выше
+                repos.coverage.upsert(instrument_id, "ownership", "missing",
+                                      reason=fetched.reason)
                 print(f"edgar: {fetched.reason}", file=sys.stderr)
                 return 1
             raw = fetched.content
@@ -1892,6 +1923,44 @@ def _instrument_exists(root: str, instrument_id: str) -> bool:
         conn.close()
 
 
+# ТЗ-109 R1/R3: покрытие, которое стадия пути пишет о себе (`ownership`
+# пишет сбор форм 3/4/5, `prices` и `corporate_actions` — котировочный,
+# `fundamentals` — отчётность). R1: у необязательных стадий (`4/6`, `5/6`)
+# отказ им не кончает путь. R3: повтор пути запускает только стадии без
+# готового покрытия + снапшот — состояние живёт в базе, не в памяти.
+_STAGE_COVERAGE = {
+    "3/6 отчётность": ("fundamentals",),
+    "4/6 формы владения": ("ownership",),
+    "5/6 цены": ("prices", "corporate_actions"),
+}
+_OPTIONAL_STAGES = ("4/6 формы владения", "5/6 цены")
+
+
+def _coverage_rows(root: str, instrument_id: str,
+                   blocks: tuple) -> dict:
+    """Строки покрытия стадии по её блокам; чтение, каталог не создаётся."""
+    paths, conn = _open_readonly(root)
+    if conn is None:
+        return {}
+    try:
+        rows = RepoRegistry(conn, paths).coverage.for_instrument(
+            instrument_id)
+        return {row["block"]: row for row in rows if row["block"] in blocks}
+    finally:
+        conn.close()
+
+
+def _stage_refusal_reason(root: str, instrument_id: str, blocks: tuple,
+                          rc: int) -> str:
+    """Причина отказа необязательной стадии — из покрытия, которое
+    стадия записала о себе; записи нет — честный «код N», а не выдумка.
+    Чтение свежее: строки могли измениться во время самой стадии."""
+    for row in _coverage_rows(root, instrument_id, blocks).values():
+        if row["status"] != "ready" and row["reason"]:
+            return str(row["reason"])
+    return f"код {rc}"
+
+
 def _requests_used(root: str) -> int:
     """Сумма всех проб запросов в базе — та же арифметика, что у
     `rusterm budget` (ТЗ-64 J1): слагать надо `provider_requests_used`,
@@ -1913,6 +1982,34 @@ def _requests_used(root: str) -> int:
 # 130 принят в CLI как ответ на SIGINT, поэтому он же означает «путь
 # прерван по воле вызывателя», а не «стадия отказалась».
 FOLLOW_CANCELLED = 130
+
+
+class _EmitForwarder:
+    """ТЗ-109 R4: в окне строки стадий идут через emit, а отказы детей —
+    печать в sys.stderr мимо него: причина до окна не доезжала. Здесь
+    каждая строка stderr ребёнка уходит и в оригинальный поток, и в
+    emit. Терминал (emit None) перенаправления не получает — его вывод
+    не меняется ни на байт."""
+
+    def __init__(self, original, emit) -> None:
+        self._original = original
+        self._emit = emit
+        self._pending = ""
+
+    def write(self, text: str) -> int:
+        self._original.write(text)
+        self._pending += text
+        while "\n" in self._pending:
+            line, self._pending = self._pending.split("\n", 1)
+            if line.strip():
+                self._emit(line)
+        return len(text)
+
+    def flush(self) -> None:
+        self._original.flush()
+
+    def isatty(self) -> bool:
+        return False
 
 
 def cmd_follow(args, emit=None, cancel=None) -> int:
@@ -1994,14 +2091,48 @@ def cmd_follow(args, emit=None, cancel=None) -> int:
             out(f"{instrument_id}: {name} — инструмент уже есть, "
                 f"поиск пропущен (запросов 0)")
             continue
+        # ТЗ-109 R3: повтор пути — только недособранное. Стадия с готовым
+        # покрытием не перезапускается (ноль запросов), стадия с записанным
+        # отказом — перезапускается и называется вслух.
+        blocks = _STAGE_COVERAGE.get(name)
+        if blocks is not None:
+            rows = _coverage_rows(args.root, instrument_id, blocks)
+            if len(rows) == len(blocks) and \
+                    all(row["status"] == "ready" for row in rows.values()):
+                out(f"{instrument_id}: {name} — уже собрано, "
+                    f"пропуск (запросов 0)")
+                continue
+            if any(row["status"] == "missing" and row["reason"]
+                   for row in rows.values()):
+                out(f"{instrument_id}: повтор: {name.split(' ', 1)[1]}")
         before = _requests_used(args.root)
         child = parser.parse_args(["--root", str(args.root), *argv])
-        rc = commands[child.command](child)
+        if emit is None:
+            rc = commands[child.command](child)
+        else:
+            # ТЗ-109 R4: отказ ребёнка печатается в stderr — в окне он
+            # иначе теряется; строки идут в emit вместе со стадиями
+            real_stderr = sys.stderr
+            sys.stderr = _EmitForwarder(real_stderr, out)
+            try:
+                rc = commands[child.command](child)
+            finally:
+                sys.stderr = real_stderr
         spent = _requests_used(args.root) - before
         spent_total += spent
         out(f"{instrument_id}: {name} — "
             f"{'готово' if rc == 0 else 'отказ'} (запросов {spent})")
         if rc != 0:
+            # ТЗ-109 R1: необязательная стадия (владение, цены) путь не
+            # кончает — снапшот обязан построиться на том, что доехало.
+            # Причина берётся из покрытия, которое стадия записала о
+            # себе; повтор — та же стадия, исполнимой строкой.
+            if name in _OPTIONAL_STAGES:
+                reason = _stage_refusal_reason(
+                    args.root, instrument_id, _STAGE_COVERAGE[name], rc)
+                out(f"{instrument_id}: {name}: пропущено — {reason}; "
+                    f"повтор: rusterm {' '.join(argv)}")
+                continue
             # Совет — та же стадия, одним вызовом: он обязан разбираться
             # парсером CLI, поэтому это строка команды, а не описание
             # проблемы. Причина отказа и что чинить — в выводе самой

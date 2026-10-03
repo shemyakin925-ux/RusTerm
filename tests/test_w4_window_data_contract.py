@@ -266,6 +266,13 @@ CONTRACTS: dict[str, list] = {
     "measure_table_rows": (lambda c: _table(c), "table"),
     "open_readonly": (lambda c: data.open_readonly(str(c["root"])),
                       "readonly"),
+    # ТЗ-109 R4: дата данных для строки «нет сети — данные от <дата>»;
+    # вместе с ней закреплён и ранее голый в окне parse_add_request
+    "last_snapshot_date": (
+        lambda c: data.last_snapshot_date(c["repos"], c["instrument_id"]),
+        "text_or_none"),
+    "parse_add_request": (lambda c: data.parse_add_request("nvda"),
+                          "add_request"),
     "peer_screen": (
         lambda c: data.peer_screen(c["repos"], c["instrument_id"]),
         "peer"),
@@ -389,6 +396,10 @@ def _assert_shape(kind, value):
         assert value is None or isinstance(value, str), value
     elif kind == "text_or_none":
         assert value is None or isinstance(value, str), value
+    elif kind == "add_request":
+        assert isinstance(value, tuple) and len(value) == 2, value
+        assert all(isinstance(part, str) for part in value), value
+        assert value == ("NVDA", "US"), value
     elif kind == "hint":
         _check_hint(value)
     elif kind == "bool":

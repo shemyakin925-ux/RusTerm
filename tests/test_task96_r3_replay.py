@@ -312,8 +312,11 @@ def test_dei_input_survives_the_trim(catalog):
             concept, ms.get(concept))
     # ТЗ-91 B4: брошенные теги долга — отказ по давности, названный
     # периодом, а не число из 2013 года, подписанное сегодняшней датой.
-    stale = "stale_data: st_investments: last 2015-12-31, " \
-            "total_debt: last 2013-12-31"
+    # Правило D7 (круг 144, `25fece2`): st_investments, которого нет в
+    # свежем денежном блоке, даёт вклад 0 с ролью lineage
+    # st_investments_discontinued — из строки отказа он уходит, остаётся
+    # total_debt со своим периодом; числа по-прежнему нет.
+    stale = "stale_data: total_debt: last 2013-12-31"
     for concept in ("net_debt", "net_debt_ebitda", "ev", "ev_ebitda"):
         assert ms.get(concept, (None, "нет меры"))[0] is None, (
             concept, ms.get(concept))

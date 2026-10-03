@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import time
+import urllib.error
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TypeVar
@@ -185,3 +186,68 @@ class RequestGate:
         if limit is None:
             self._made += 1
         return send(headers)
+
+
+# ── Ретраи транспорта (ТЗ-109 R2) ────────────────────────────────────────
+#
+# URLError, тайм-аут, 5xx и 429 повторяются до трёх раз с растущей
+# паузой (1 с, 4 с, 15 с); остальные 4xx (403, 404) не повторяются
+# никогда — это ответ, а не обрыв (N4, PROTOCOL §6). Каждая попытка —
+# отдельный проход через RequestGate.request, поэтому бюджет считает
+# каждую; исчерпание бюджета повтором не считается — это не сеть.
+
+RETRY_DELAYS: tuple[float, ...] = (1.0, 4.0, 15.0)
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+# Сон подменяется тестами (tests/conftest.py) — ни один тест не спит 20 с.
+RETRY_SLEEP: Callable[[float], None] = time.sleep
+
+
+def is_transient_transport_error(exc: BaseException) -> bool:
+    """Транзиентный ли это отказ транспорта: обрыв (URLError, тайм-аут,
+    OSError) — да; среди HTTPError — только 429 и 5xx. HTTPError —
+    подкласс URLError, поэтому проверяется первым."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in TRANSIENT_STATUSES
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, OSError))
+
+
+def retry_transport(op: Callable[[], T],
+                    sleeper: Callable[[float], None] | None = None,
+                    retryable_result: Callable[[T], bool] | None = None) -> T:
+    """Повторять op(), пока отказ транзиентный; не транзиентное — сразу.
+
+    op — один проход через гейт (например, ``lambda:
+    gate.request(send)``): повтор = новая попытка = новый списанный
+    запрос. Исключение после последней попытки поднимается дальше —
+    превращать его в значение здесь рано: значения ошибок — дело
+    вызывающего провайдера. Транспорт, который ВОЗВРАЩАЕТ статус, а не
+    поднимает (Yahoo, Twelve Data), называет транзиентный результат
+    через retryable_result; последний транзиентный результат
+    возвращается как есть — классификация вендора остаётся на месте.
+    Пауза перед повтором — RETRY_DELAYS[попытка]; сон — sleeper, по
+    умолчанию RETRY_SLEEP (в тестах — подставной).
+    """
+    snooze = sleeper or RETRY_SLEEP
+    exc: BaseException | None = None
+    result: T | None = None
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        if attempt:
+            snooze(RETRY_DELAYS[attempt - 1])
+        exc = None
+        transient_result = False
+        try:
+            result = op()
+        except urllib.error.HTTPError as e:
+            if e.code not in TRANSIENT_STATUSES:
+                raise
+            exc = e
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            exc = e
+        else:
+            transient_result = (retryable_result is not None
+                                and retryable_result(result))
+        if exc is None and not transient_result:
+            return result  # type: ignore[return-value]
+    if exc is not None:
+        raise exc
+    return result  # type: ignore[return-value]

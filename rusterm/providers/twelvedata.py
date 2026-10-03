@@ -94,6 +94,8 @@ class TwelveDataProvider:
     transport: Callable[[str, dict], tuple] = _default_transport
     source_name: str = "twelvedata"
     limit: HostLimit = _LIMIT
+    # ТЗ-109 R2: сон между ретраями транспорта; тесты подставляют свой
+    sleeper: Callable | None = None
 
     def __repr__(self) -> str:
         """api_key не печатается никогда (ТЗ-29 A4)."""
@@ -160,7 +162,15 @@ class TwelveDataProvider:
             return status, body
 
         try:
-            outcome = self.gate.request(send, limit=self.limit)
+            # ТЗ-109 R2: обрыв и 429/5xx повторяются с бэкоффом; Twelve
+            # Data возвращает статус, не поднимая, — транзиентный
+            # результат называет retryable_result. Попытка = запрос.
+            from .budget import TRANSIENT_STATUSES, retry_transport
+            outcome = retry_transport(
+                lambda: self.gate.request(send, limit=self.limit),
+                sleeper=self.sleeper,
+                retryable_result=lambda o: isinstance(o, tuple) and bool(o)
+                and o[0] in TRANSIENT_STATUSES)
         except OSError:
             # тайм-аут/обрыв транспорта — значение, не исключение (§7)
             return ProviderError(reason="source_unreachable:transport")

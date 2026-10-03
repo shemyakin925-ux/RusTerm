@@ -302,6 +302,18 @@ def snapshot_span(repos, instrument_id: str) -> Optional[tuple[str, str]]:
     return (dates[0], dates[-1]) if dates else None
 
 
+def last_snapshot_date(repos, instrument_id: str) -> Optional[str]:
+    """Дата данных (as_of) последнего ГОТОВОГО снапшота (ТЗ-109 R4) —
+    та, что окно называет в строке «нет сети — данные от <дата>».
+    None — готовых снапшотов нет, и строка честно говорит «данных
+    пока нет» вместо даты."""
+    snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)
+    if snapshot_id is None:
+        return None
+    snapshot = repos.snapshot.get_snapshot(snapshot_id)
+    return snapshot["as_of"] if snapshot else None
+
+
 def _years_word(n: int) -> str:
     """Склонение числа лет: 1 год, 2 года, 5 лет; 11–14 — лет."""
     if 11 <= n % 100 <= 14:

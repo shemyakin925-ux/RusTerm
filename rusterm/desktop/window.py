@@ -139,6 +139,12 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     schema_notice.setWordWrap(True)
     schema_notice.setVisible(False)
     root_layout.addWidget(schema_notice)
+    # ТЗ-109 R4: сеть пропала — окно говорит об этом словами под шапкой
+    # и называет дату показанных данных, вместо немой старины
+    offline_notice = QLabel(objectName="offline_notice")
+    offline_notice.setWordWrap(True)
+    offline_notice.setVisible(False)
+    root_layout.addWidget(offline_notice)
 
     body = QSplitter(Qt.Orientation.Horizontal)
     root_layout.addWidget(body, 1)
@@ -995,6 +1001,9 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
                             parent=window)
         window.set_worker(worker)
         state["worker"] = worker
+        # ТЗ-109 R4: чей сбор идёт — строка «нет сети» зовёт дату данных
+        # этой бумаги, а не выбранной
+        state["collecting"] = instrument_id
         collect_button.setEnabled(False)
         cancel_button.setEnabled(True)
         worker.stage.connect(collect_status.setText)
@@ -1013,10 +1022,28 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         window.set_worker(None)
         collect_button.setEnabled(state["selected"] is not None)
         cancel_button.setEnabled(False)
+        # ТЗ-109 R4: по пути прошла транспортная причина — слова «нет
+        # сети» в шапке и в полосе сбора с датой данных этой бумаги;
+        # окно остаётся на последнем снапшоте (перечитывается ниже)
+        collecting = state.get("collecting")
+        offline = bool(getattr(outcome, "offline", False)) and collecting
+        offline_notice.setVisible(False)
+        message = None
+        if offline:
+            date = (data.last_snapshot_date(repos, collecting)
+                    if repos is not None else None)
+            message = (f"нет сети — данные от {date}" if date
+                       else "нет сети — данных пока нет")
+            offline_notice.setText(message)
+            offline_notice.setVisible(True)
         if outcome.cancelled:
             collect_status.setText(f"отменено: {outcome.detail}")
         elif outcome.ok:
-            collect_status.setText(f"готово: {outcome.detail}")
+            collect_status.setText(
+                f"готово: {outcome.detail}"
+                + (f"; {message}" if message else ""))
+        elif message:
+            collect_status.setText(message)
         else:
             collect_status.setText(
                 f"сбор не удался: {outcome.reason} — {outcome.detail}")

@@ -67,6 +67,8 @@ class YahooProvider:
     transport: Callable[[str, dict], tuple] = _default_transport
     source_name: str = "yahoo"
     limit: HostLimit = _LIMIT
+    # ТЗ-109 R2: сон между ретраями транспорта; тесты подставляют свой
+    sleeper: Callable[[float], None] | None = None
 
     # ── канонические параметры и ключ кеша ──────────────────────────────
 
@@ -111,7 +113,15 @@ class YahooProvider:
             return status, body
 
         try:
-            outcome = self.gate.request(send, limit=self.limit)
+            # ТЗ-109 R2: обрыв и 429/5xx повторяются с бэкоффом; Yahoo
+            # возвращает статус, не поднимая, — транзиентный результат
+            # называет retryable_result. Каждая попытка — свой запрос.
+            from .budget import TRANSIENT_STATUSES, retry_transport
+            outcome = retry_transport(
+                lambda: self.gate.request(send, limit=self.limit),
+                sleeper=self.sleeper,
+                retryable_result=lambda o: isinstance(o, tuple) and bool(o)
+                and o[0] in TRANSIENT_STATUSES)
         except OSError:
             return ProviderError(reason="source_unreachable:transport")
         if isinstance(outcome, (ConfigError, BudgetExceeded)):

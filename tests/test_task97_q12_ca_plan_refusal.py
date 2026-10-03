@@ -245,7 +245,9 @@ def test_a_refused_by_plan_call_is_still_counted(tmp_path, monkeypatch,
 
 def test_a_hard_failure_is_counted_too(tmp_path, monkeypatch):
     """Тот же счётчик на жёстком отказе: 500 на /splits топит стадию,
-    но оба пропущенных гейтом запроса в счётчике остаются."""
+    но все пропущенные гейтом запросы в счётчике остаются. ТЗ-109 R2:
+    500 — транзиентный отказ, повторяется трижды (1 с, 4 с, 15 с), и
+    каждая попытка — списанный запрос; раньше попытка была одной."""
     root = tmp_path / "app"
     calls: list = []
     before = _stage_ready(
@@ -254,7 +256,12 @@ def test_a_hard_failure_is_counted_too(tmp_path, monkeypatch):
                               dividends=(200, DIVS.read_bytes(), {}),
                               calls=calls))
     assert _prices_stage(root) != 0
-    assert calls == ["time_series", "splits"], calls
+    # ТЗ-109 R2 (ЗАМЕНА-БУЛАВКИ): было ["time_series", "splits"] — одна
+    # попытка; стало четыре (начальная + три повтора) — сильнее: число
+    # ретраев закреплено, счётчик бюджета по-прежнему равен числу
+    # обращений к транспорту
+    assert calls == ["time_series", "splits", "splits", "splits", "splits"], \
+        calls
     assert cli._requests_used(str(root)) - before == len(calls)
 
 

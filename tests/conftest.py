@@ -43,6 +43,14 @@ settings.register_profile("deep", derandomize=False, database=None,
                           deadline=None, max_examples=5000)
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
+# ТЗ-109 R2: ретраи транспорта ждут 1/4/15 с между попытками — в тестах
+# сон подставной (нулевая пауза), число попыток и счёт бюджета честные.
+# Живые повторы спят настоящим сном: константа возвращается процессом,
+# который conftest не импортировал.
+from rusterm.providers import budget as _budget  # noqa: E402
+
+_budget.RETRY_SLEEP = lambda _seconds: None
+
 
 @pytest.fixture(autouse=True)
 def _isolated_rusterm_env(request, tmp_path, monkeypatch):
