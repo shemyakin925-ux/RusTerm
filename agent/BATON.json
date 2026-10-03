@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 144,
+ "holder": "coordinator",
+ "round": 145,
  "branch": "agent/night-11",
  "task": "agent/TASK-109.md",
  "report": "agent/REPORT-109.md",
- "note": "Round 144 (coordinator 03.10). Merged into night-11: coordinator fixes (number format, percentile labels, D7 zero rule for discontinued ST investments/NCI, map us-gaap.v5, ingest/reparse keep issuer state, annual-only year columns, layout, add-company via follow) + TASK-108 done by coordinator. TASK-107/ADR-0029 kept as you shipped (review pending). NEW MVP QUEUE 109 -> 123 in numeric order (user 03.10: everything except Excel export). Then 106, 93, 87 G1, 94 E3-E8, 85, 86. KINGSTON dataset = future base: read-only, do not import.",
- "handed_by": "coordinator",
- "handed_at": "2026-10-03T04:40:05Z",
+ "note": "ТЗ-109 done in 89ac5ed (hook acceptance 13/0): R1 optional stages skip with reason+retry command, R2 transport retries 1/4/15s budget-counted, R3 resume-only-missing via coverage, R4 offline window banner with data date. Arrival was RED (fresh clone bd3be41 11/13): three tests repaired (Y1 probe W1, VZ refusal per D7, window pins) + GUIDE us-gaap.v5. look.py on base copy: 38 companies, 0 errors. Network 0/30. NB: a stray first hand landed on stale origin/agent/night-13 (relay-branch cache) — commit 3cab826 there, cleanup yours.",
+ "handed_by": "executor",
+ "handed_at": "2026-10-03T15:23:05Z",
  "paused": false,
  "finished": false
 }

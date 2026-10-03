@@ -99,3 +99,32 @@ NOW: R4, step 6 (commit pending fresh-clone arrival verdict)
   (both full pytest runs) red with the same three tests named above;
   all other checks green. All three are repaired by this round's first
   commit (probe W1, D7 refusal string, window pins).
+
+## Done (committed)
+
+- **89ac5ed** «ТЗ-109 R1-R4: …» — landed through the pre-commit hook
+  (selfcheck + acceptance): «Итог: пройдено 13, провалено 0»,
+  `SELFCHECK OK` (/tmp/commit-109b.log). Carries the arrival repairs
+  (Y1 probe W3→W1, VZ refusal string per D7, window pins, GUIDE
+  us-gaap.v4→v5 measured), R1–R4, the three new test files (25 tests;
+  the offscreen window test lives at
+  `tests/test_desktop_task109_offline.py` per acceptance check 6),
+  conftest RETRY_SLEEP no-op, STATE.json, this report.
+  Two assert lines replaced across two files under declared
+  ЗАМЕНА-БУЛАВКИ blocks in the message (probe re-measure; 5xx retry
+  count), no assert removed net.
+
+## Disputed (continued)
+
+2. **The first `hand` landed on the wrong branch.** `.git/relay-branch`
+   held a stale `agent/night-13` from the September C-lane, and relay
+   resolves the branch from that cache before anything else — my
+   shift-start `wait` («круг 5 … ТЗ-C1») was reading night-13's stale
+   baton all along, and the first hand moved THAT baton: commit
+   `3cab826` on `origin/agent/night-13` («Эстафета: круг 6, ход у
+   coordinator — agent/TASK-C1.md») carries my note, the report delta
+   (+9 lines) and a STATE stamp. Night-13 is a dormant merged C-lane
+   branch, so I left the published history alone (no rewrite) and
+   re-pointed the cache with `--branch agent/night-11`; the real hand
+   follows this entry. Coordinator: night-13 carries one stray baton
+   commit (`3cab826`) — cleanup is yours (CLEANUP.md).
