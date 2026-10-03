@@ -198,7 +198,10 @@ class RequestGate:
 
 RETRY_DELAYS: tuple[float, ...] = (1.0, 4.0, 15.0)
 TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
-# Сон подменяется тестами (tests/conftest.py) — ни один тест не спит 20 с.
+# Сон подменяется тестами (tests/conftest.py, ТЗ-110 B0): приёмка не
+# спит — запрошенные паузы пишутся в RETRY_SLEEPS (зубы сверяют
+# 1/4/15), реальный сон остаётся только вне тестового прогона.
+RETRY_SLEEPS: list[float] = []
 RETRY_SLEEP: Callable[[float], None] = time.sleep
 
 

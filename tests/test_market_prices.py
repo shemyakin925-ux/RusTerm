@@ -189,12 +189,19 @@ def test_golden_replay_parses_recorded_payload_offline():
 def test_vendor_failures_stop_price_path_with_named_reasons():
     """K7: 403, 429 и тайм-аут — значения с именованной причиной,
     цена не подделывается, исключение наружу не выходит."""
+    from rusterm.providers.budget import HostLimit
+
     gate = RequestGate(gate=NetworkGate(environ={
         "RUSTERM_SEC_UA": FAKE_UA}))
 
     def _provider(transport):
-        return td.TwelveDataProvider(gate=gate, api_key="TESTONLY-key",
-                                     transport=transport)
+        # ТЗ-110 B0: темп пула здесь не то, что закрепляется тестом, —
+        # 9 запросов по 7.5 с (8/60 в секунду) не должны съедать бюджет
+        # 60 с; отказы и счётчики честные
+        return td.TwelveDataProvider(
+            gate=gate, api_key="TESTONLY-key", transport=transport,
+            limit=HostLimit(host="api.twelvedata.com", per_second=1000.0,
+                            nightly_max=5000))
 
     out403 = _provider(_payload_transport({}, status=403)).time_series(
         "AAPL")

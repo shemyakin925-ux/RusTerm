@@ -43,13 +43,95 @@ settings.register_profile("deep", derandomize=False, database=None,
                           deadline=None, max_examples=5000)
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
-# ТЗ-109 R2: ретраи транспорта ждут 1/4/15 с между попытками — в тестах
-# сон подставной (нулевая пауза), число попыток и счёт бюджета честные.
-# Живые повторы спят настоящим сном: константа возвращается процессом,
-# который conftest не импортировал.
+# ТЗ-110 B0 «приёмка не спит»: у ретраев транспорта (ТЗ-109 R2) сон —
+# через budget.RETRY_SLEEP, и в тестах он заменяется на писаря запрошенных
+# пауз: 1/4/15 с попадают в RETRY_SLEEPS (зубы сверяют), никто не ждёт.
+# Живой прогон спит настоящим сном: константу возвращает сам процесс вне
+# pytest. Живые тесты отсечены и автозаменом: они несут маркер live.
 from rusterm.providers import budget as _budget  # noqa: E402
 
-_budget.RETRY_SLEEP = lambda _seconds: None
+_budget.RETRY_SLEEP = _budget.RETRY_SLEEPS.append
+
+# Дата текущего теста, замороженная автозаменой B0 (см. ниже); пусто —
+# тест живой (live) или тело замены ещё не звалось.
+_FROZEN_TODAY: list = []
+
+
+def _acceptance_never_sleeps_setup(request, monkeypatch):
+    """Тело автозамены ТЗ-110 B0 — вынесено, чтобы зубы могли звать его
+    на «сыром» тесте; сами правила описаны в фикстуре ниже."""
+    import datetime as _datetime
+    import socket as _socket
+    import time as _time
+
+    # (4) одна замороженная дата на тест: двери программы читают дату
+    # из заморозки, значит «край окна» в тесте и сборка в прогоне
+    # согласованы, чьим бы часам ни верило время (круг 145: verify
+    # пал на переходе полуночи внутри одного теста).
+    frozen = _datetime.date.today()
+    monkeypatch.setattr("rusterm.cli.args_as_of_default",
+                        lambda: frozen.isoformat())
+    monkeypatch.setattr("rusterm.desktop.actions._today",
+                        lambda: frozen.isoformat())
+    monkeypatch.setattr("rusterm.tui.model._today",
+                        lambda: frozen.isoformat())
+    # (2) писарь сна: чистый лист на тест
+    del _budget.RETRY_SLEEPS[:]
+    _FROZEN_TODAY.clear()
+    _FROZEN_TODAY.append(frozen)
+    # (1) сокеты запрещены: urllib/http.client/сырой сокет сходятся в
+    # connect — тест назван по имени в самой ошибке
+    def _no_connect(self, address):
+        raise AssertionError(
+            f"сеть в тесте запрещена (ТЗ-110 B0): {request.node.nodeid} "
+            f"открыл сокет до {address!r}; сетевым тестам нужен маркер "
+            f"live и RUSTERM_LIVE=1")
+
+    def _no_create_connection(address, *args, **kwargs):
+        raise AssertionError(
+            f"сеть в тесте запрещена (ТЗ-110 B0): {request.node.nodeid} "
+            f"вызвал create_connection({address!r})")
+
+    monkeypatch.setattr(_socket.socket, "connect", _no_connect)
+    monkeypatch.setattr(_socket, "create_connection",
+                        _no_create_connection)
+    # (3) стена времени: тест дольше 60 с — красный, даже если ассерты
+    # зелёные (парковка в sleep подпроцессом — та же красная)
+    started = _time.perf_counter()
+    yield frozen
+    took = _time.perf_counter() - started
+    if took > 60.0:
+        pytest.fail(
+            f"тест шёл {took:.0f} с — бюджет B0 (60 с); долгие прогоны "
+            f"несут маркер slow/firsthour, спящие — чинятся, а не ждутся",
+            pytrace=False)
+
+
+@pytest.fixture(autouse=True)
+def _acceptance_never_sleeps(request, monkeypatch):
+    """ТЗ-110 B0: обычный тест — без сети, без сна, с одной датой и
+    бюджетом 60 с. Живые тесты (маркер live) из этого исключены: сеть им
+    нужна по условию, запускаются явно с RUSTERM_LIVE=1, иначе скип."""
+    if request.node.get_closest_marker("live"):
+        if os.environ.get("RUSTERM_LIVE") != "1":
+            pytest.skip("live-тест: нужна сеть; запускается с "
+                        "RUSTERM_LIVE=1 (ТЗ-110 B0)")
+        yield None
+        return
+    yield from _acceptance_never_sleeps_setup(request, monkeypatch)
+
+
+@pytest.fixture()
+def frozen_today():
+    """Дата, замороженная автозаменой B0 для текущего теста, — та же,
+    что читают двери программы (args_as_of_default и соседки). Тестам,
+    считающим края окон от «сегодня»: сходится с прогоном при любом
+    переходе полуночи (ТЗ-110 B0.4)."""
+    import datetime as _datetime
+
+    assert _FROZEN_TODAY, "заморозки нет: тест живой (live) без B0"
+    frozen: _datetime.date = _FROZEN_TODAY[-1]
+    return frozen
 
 
 @pytest.fixture(autouse=True)

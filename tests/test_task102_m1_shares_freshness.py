@@ -121,7 +121,9 @@ def test_refusal_propagates_to_market_cap_total(env):
 
 def test_fresh_share_count_computes_market_cap(env):
     conn, repos = env
-    fresh = (date.today() - timedelta(days=90)).isoformat()
+    # ТЗ-110 B0.4: край считается от ТОГО ЖЕ as_of, что идёт в сборку,
+    # — переход полуночи посреди прогона не разъезжает тест и сборку
+    fresh = (date.fromisoformat(AS_OF) - timedelta(days=90)).isoformat()
     _paper(repos, conn, "US-V", "i1")
     _vale_shape(conn, "i1", fresh)
     mcap = _measure(_build(repos, "US-V", "i1"), "market_cap")
@@ -132,8 +134,9 @@ def test_fresh_share_count_computes_market_cap(env):
 
 def test_boundary_of_freshness_window_is_inclusive(env):
     """Ровно _SHARES_FRESH_DAYS — ещё годен; на день старше — отказ."""
-    edge = (date.today() - timedelta(days=_SHARES_FRESH_DAYS)).isoformat()
-    over = (date.today()
+    edge = (date.fromisoformat(AS_OF)
+            - timedelta(days=_SHARES_FRESH_DAYS)).isoformat()
+    over = (date.fromisoformat(AS_OF)
             - timedelta(days=_SHARES_FRESH_DAYS + 1)).isoformat()
     conn, repos = env
     _paper(repos, conn, "US-E", "i1")
