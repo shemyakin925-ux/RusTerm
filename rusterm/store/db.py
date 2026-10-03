@@ -23,7 +23,7 @@ from .paths import AppPaths
 
 # Один писатель на процесс. Читать можно из любого потока.
 _writer_lock = threading.Lock()
-_SCHEMA_VERSION = 45  # 44 (ТЗ-33 E1) + 45: chat_transcript/chat_turn — расшифровки разговоров (ТЗ-36 H1)
+_SCHEMA_VERSION = 48  # 46 (ТЗ-97 Q10, ADR-0025) + 47: индекс ревизий покрывает superseded_by (ТЗ-92 C0) + 48: lineage ряда цен (ADR-0029)
 
 
 def _checksum(text: str) -> str:
@@ -688,6 +688,114 @@ _CUSTOM_MIGRATIONS[45] = (_migrate_45_chat_transcripts,
                           _CHAT_TRANSCRIPT_DDL + ";" + _CHAT_TURN_DDL)
 
 
+# Миграция 46 (ТЗ-97 Q10, ADR-0025): третья база периода в lineage.
+# Годовой запасной выход обязан называться в схеме так же, как в коде:
+# CHECK из миграции 43 пропускает только 'ttm'|'annual', и строка
+# «годовой, TTM не собран» падала бы на вставке (IntegrityError), т.е.
+# сама честная отметка не могла бы попасть в базу. Перестройка по
+# образцу миграции 38: новая таблица, перелив, DROP, RENAME. Порядок
+# столбцов сохраняем как его поставил ALTER 43 — period_basis последний,
+# иначе SELECT * у существующих вызывающих сторон читает не тот столбец.
+# У measure_lineage_ca своего индекса нет; idx_measure_lineage_measure
+# обязан вернуться — его сверяет doctor (_SCHEMA_INDEXES).
+_MEASURE_LINEAGE_V46_DDL = """CREATE TABLE measure_lineage_new (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        fact_id TEXT,
+        peer_measure_id TEXT,
+        role TEXT NOT NULL,
+        period_basis TEXT CHECK (period_basis IS NULL OR period_basis
+            IN ('ttm','annual','annual_fallback')),
+        PRIMARY KEY (measure_id, fact_id, peer_measure_id, role),
+        CHECK (fact_id IS NOT NULL OR peer_measure_id IS NOT NULL))"""
+
+_MEASURE_LINEAGE_V46_COLUMNS = (
+    "measure_id, fact_id, peer_measure_id, role, period_basis")
+
+_MEASURE_LINEAGE_CA_V46_DDL = """CREATE TABLE measure_lineage_ca_new (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        ca_instrument_id TEXT NOT NULL,
+        ca_ex_date TEXT NOT NULL,
+        ca_kind TEXT NOT NULL,
+        role TEXT NOT NULL,
+        period_basis TEXT CHECK (period_basis IS NULL OR period_basis
+            IN ('ttm','annual','annual_fallback')),
+        PRIMARY KEY (measure_id, ca_instrument_id, ca_ex_date, ca_kind,
+                     role),
+        FOREIGN KEY (ca_instrument_id, ca_ex_date, ca_kind)
+            REFERENCES corporate_action(instrument_id, ex_date, kind))"""
+
+_MEASURE_LINEAGE_CA_V46_COLUMNS = (
+    "measure_id, ca_instrument_id, ca_ex_date, ca_kind, role, period_basis")
+
+
+def _migrate_46_period_basis_fallback(conn: sqlite3.Connection) -> None:
+    """CHECK обеих таблиц lineage ширится на 'annual_fallback'; данные и
+    порядок столбцов не меняются — только ограничение."""
+    for table, new_ddl, cols in (
+            ("measure_lineage", _MEASURE_LINEAGE_V46_DDL,
+             _MEASURE_LINEAGE_V46_COLUMNS),
+            ("measure_lineage_ca", _MEASURE_LINEAGE_CA_V46_DDL,
+             _MEASURE_LINEAGE_CA_V46_COLUMNS)):
+        conn.execute(new_ddl)
+        conn.execute(f"INSERT INTO {table}_new ({cols})"
+                     f" SELECT {cols} FROM {table}")
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_measure_lineage_measure"
+                 " ON measure_lineage(measure_id)")
+
+
+_CUSTOM_MIGRATIONS[46] = (
+    _migrate_46_period_basis_fallback,
+    _MEASURE_LINEAGE_V46_DDL + ";" + _MEASURE_LINEAGE_CA_V46_DDL)
+
+
+# Миграция 47 (ТЗ-92 C0): выборки фактов начали отбрасывать отвергнутые
+# строки (`superseded_by IS NULL`), а этого столбца в индексе ревизий нет
+# — план соскакивает с покрывающего индекса на поиск по индексу сходом в
+# таблицу (страж миграции 38 краснеет именно на этом). Индекс 38
+# пересоздаётся под тем же именем с пятым, хвостовым столбцом: префикс
+# (issuer_id, concept, period_end, basis) не тронут, порядок строк в нём
+# тот же, поэтому все прежние выборки остаются на том же плане и только
+# выигрывают — фильтр тоже читается из индекса. Правкой миграцию 38 не
+# тронуть (версии опубликованы, чексумма в schema_version), потому
+# перемена и живёт в новой версии. Имя остаётся в _SCHEMA_INDEXES —
+# doctor сверяет индекс по нему, как и раньше.
+_FACT_REVISIONS_INDEX_V47_DDL = (
+    "CREATE INDEX idx_fact_issuer_concept_period_basis"
+    " ON fact(issuer_id, concept, period_end, basis, superseded_by)")
+
+
+def _migrate_47_revisions_index_covering(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP INDEX IF EXISTS idx_fact_issuer_concept_period_basis")
+    conn.execute(_FACT_REVISIONS_INDEX_V47_DDL)
+
+
+_CUSTOM_MIGRATIONS[47] = (
+    _migrate_47_revisions_index_covering, _FACT_REVISIONS_INDEX_V47_DDL)
+
+
+# ADR-0029: ценовые меры (total_return, drawdown) считаются по ряду цен,
+# а не по фактам отчётности, — их происхождение — отрезок ряда цен
+# инструмента и источник котировок. Только добавление таблицы.
+_MEASURE_LINEAGE_PRICE_V48_DDL = """CREATE TABLE IF NOT EXISTS
+    measure_lineage_price (
+        measure_id TEXT NOT NULL REFERENCES measure(measure_id),
+        instrument_id TEXT NOT NULL,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        role TEXT NOT NULL,
+        PRIMARY KEY (measure_id, role))"""
+
+
+def _migrate_48_price_lineage(conn) -> None:
+    conn.execute(_MEASURE_LINEAGE_PRICE_V48_DDL)
+
+
+_CUSTOM_MIGRATIONS[48] = (_migrate_48_price_lineage,
+                          _MEASURE_LINEAGE_PRICE_V48_DDL)
+
+
 def apply_migrations(conn: sqlite3.Connection) -> List[int]:
     """Применить все миграции до SCHEMA_VERSION.
 
@@ -780,6 +888,22 @@ def current_schema_version(conn: sqlite3.Connection) -> Optional[int]:
         return None
 
 
+def has_table(conn: sqlite3.Connection, name: str) -> bool:
+    """Есть ли в этой базе такая таблица.
+
+    Слой интерфейса читает базы, которые могут отставать от кода
+    (ТЗ-95 F1: у пользователя `~/.rusterm` — схема 44, таблицы разговоров
+    там нет). Спрашивать надо без исключения, иначе просмотр отставшей
+    базы падает вместо того, чтобы сказать словами.
+    Строка выше называет прежний каталог — с круга 135 по умолчанию
+    читается `~/EquityLab/data`, а тот путь остался только здесь, как
+    история про базу со схемой 44.
+    """
+    return conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (name,)).fetchone() is not None
+
+
 def open_connection(paths: AppPaths) -> sqlite3.Connection:
     """Единая точка открытия соединения приложения: WAL, FK, row_factory."""
     conn = sqlite3.connect(str(paths.db_path), timeout=30,
@@ -790,14 +914,29 @@ def open_connection(paths: AppPaths) -> sqlite3.Connection:
     return conn
 
 
+# Кто держит писательский лок: нужен, чтобы вложенный вызов падал
+# ошибкой, а не ждал вечно (ТЗ-84 K2). `threading.Lock` непереживаемый, а
+# SQLite не умеет вложенный BEGIN, так что «подождать» здесь не существует
+# как вариант — поток заблокировал бы сам себя.
+_writer_owner = threading.local()
+
+
 @contextmanager
 def writer_transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     """Контекст для записи под единым писательским локом (I14).
 
     Гарантирует сериализацию: только один поток пишет в одну транзакцию.
+    Вложенный вызов на том же потоке — ошибка вызывающего кода, и
+    обнаруживается он сразу: `RuntimeError`, названия двери в тексте.
     При выходе — COMMIT, при исключении — ROLLBACK.
     """
+    me = threading.get_ident()
+    if getattr(_writer_owner, "ident", None) == me:
+        raise RuntimeError(
+            "writer_transaction уже открыт в этом потоке: вложенная "
+            "транзакция невозможна, SQLite не умеет вложенный BEGIN")
     with _writer_lock:
+        _writer_owner.ident = me
         try:
             conn.execute("BEGIN IMMEDIATE")
             yield conn
@@ -808,3 +947,5 @@ def writer_transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]
             except sqlite3.Error:
                 pass
             raise
+        finally:
+            _writer_owner.ident = None

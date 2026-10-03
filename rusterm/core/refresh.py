@@ -16,11 +16,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from rusterm.markets import registry_prefix_owner
 from rusterm.parsers import CompanyFactsParser
 from rusterm.pipeline import apply_concept_map
 from rusterm.providers.budget import ConfigError
 from rusterm.providers.edgar import NotModified
-from rusterm.store.repos import persist_ingestion_results
+from rusterm.store.repos import link_superseded, persist_ingestion_results
 
 
 @dataclass
@@ -39,7 +40,9 @@ class RefreshResult:
 
 
 def _persist_companyfacts(repos, doc: dict, issuer_id: str, cik: int) -> int:
-    """companyfacts -> raw -> parse -> факты. Возвращает число фактов."""
+    """companyfacts -> raw -> parse -> факты. Возвращает число ЖИВЫХ
+    фактов: проигравшие дедупликации тоже ложатся в базу, но помеченные
+    `superseded_by` (TASK-92 C1) — в расчёт они не входят."""
     raw = json.dumps(doc, ensure_ascii=False, sort_keys=True).encode()
     sha = hashlib.sha256(raw).hexdigest()
     if repos.raw.has(sha):
@@ -51,13 +54,14 @@ def _persist_companyfacts(repos, doc: dict, issuer_id: str, cik: int) -> int:
     parsed = CompanyFactsParser().parse(
         raw, {"issuer_id": issuer_id, "source_ref": obj.sha256})
     fact_dicts = []
-    for fact in parsed.facts:
+    for fact in parsed.all_facts:
         fact = dict(fact)
         fact["fact_id"] = str(uuid.uuid4())
         apply_concept_map(fact)
         fact_dicts.append(fact)
+    link_superseded(fact_dicts)
     persist_ingestion_results(repos.conn, fact_dicts, [])
-    return len(fact_dicts)
+    return sum(1 for f in fact_dicts if not f.get("superseded_by"))
 
 
 def refresh_watchlist(repos, provider_factory: Callable,
@@ -79,6 +83,18 @@ def refresh_watchlist(repos, provider_factory: Callable,
                 reason="unknown_issuer: instrument not found"))
             continue
         issuer = repos.instrument.get_issuer(instrument.issuer_id)
+        # ТЗ-92 C2: проход говорит с EDGAR, поэтому чужой префикс
+        # идентификатора — отказ ДО запроса. Без этого шага CD_CVM
+        # бразильского эмитента уходил в SEC как CIK и чужие факты
+        # ложились под этот id (замер: 2 запроса на одного такого —
+        # `/tmp/c2-red.log:348`, транспорт посчитан).
+        owner = registry_prefix_owner(instrument.issuer_id)
+        if issuer is not None and owner not in (None, "edgar"):
+            results.append(RefreshResult(
+                instrument_id=instrument.instrument_id,
+                issuer_id=instrument.issuer_id, action="error",
+                reason="unknown_issuer: registry is not edgar"))
+            continue
         cik_raw = (issuer.registry_id or "") if issuer else ""
         if not cik_raw.isdigit():
             # B39: «ошибка» — не причина; словарь rusterm/reasons.py
@@ -182,3 +198,36 @@ def refresh_watchlist(repos, provider_factory: Callable,
             "companyfacts уже в store (дедупликация по sha256)",
             calls=calls))
     return results
+
+
+def companyfacts_last_filed(raw: bytes) -> str | None:
+    """Последняя дата подачи (`filed`) во всём документе companyfacts —
+    та же величина, с которой refresh сверяет submissions (ТЗ-108 W4)."""
+    import json as _json
+    try:
+        doc = _json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    last = None
+    for taxonomy in (doc.get("facts") or {}).values():
+        for concept in (taxonomy or {}).values():
+            for rows in ((concept or {}).get("units") or {}).values():
+                for row in rows or ():
+                    filed = row.get("filed") if isinstance(row, dict) \
+                        else None
+                    if filed and (last is None or filed > last):
+                        last = filed
+    return last
+
+
+def remember_ingest(repos, issuer_id: str, raw: bytes) -> bool:
+    """Состояние эмитента после сбора companyfacts вне refresh: без него
+    первый refresh планировал «первый сбор» всем 38 и тянул каждый
+    companyfacts заново. Уже записанное состояние не трогается."""
+    if repos.issuer_state.get(issuer_id) is not None:
+        return False
+    last = companyfacts_last_filed(raw)
+    if last is None:
+        return False
+    repos.issuer_state.put(issuer_id, last)
+    return True

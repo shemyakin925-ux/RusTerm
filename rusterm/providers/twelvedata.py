@@ -38,10 +38,13 @@ _LIMIT = HostLimit(host="api.twelvedata.com", per_second=8.0 / 60.0,
 READ_TIMEOUT = 30
 INTERVAL = "1day"
 OUTPUTSIZE = 5000
-# Корпоративные действия (ТЗ-31 C3): /splits и /dividends на бесплатном
-# тарифе отвечают (замер 14.09.2026, REPORT-31), но по умолчанию отдают
-# один последний элемент; полная история — только range=full.
-CA_RANGE = "full"
+# Корпоративные действия (ТЗ-31 C3, ТЗ-90 A1): полная история просится
+# датированным диапазоном, а не range=full — дата держит ключ кеша
+# свежим. Замер 23.09.2026 (tools/tz90_ca_range_check.py, AAPL, 4
+# запроса): range=full и start_date=CA_START&end_date=<as_of> отдают
+# ОДИННАКОВЫЕ наборы событий (дивидендов 83 против 83, сплитов 5
+# против 5, неразобранного 0, расхождений нет).
+CA_START = "1900-01-01"
 
 
 def _default_transport(url: str, headers: dict) -> tuple:
@@ -51,6 +54,34 @@ def _default_transport(url: str, headers: dict) -> tuple:
             return resp.status, resp.read(), dict(resp.headers)
     except urllib.error.HTTPError as e:
         return e.code, e.read(), dict(e.headers or {})
+
+
+KEY_SITE = "https://www.twelvedata.com"
+
+
+def key_instruction() -> str:
+    """ТЗ-68 N2: что делать при twelvedata_key_unset — подстановка
+    из констант, одна реализация для всех поверхностей."""
+    return ("получить бесплатный ключ на " + KEY_SITE
+            + " (тариф: 8 запросов/мин, 800/сут) и вписать его в "
+              "переменную RUSTERM_TWELVEDATA_KEY")
+
+
+# ТЗ-96 Disputed 5 (вердикт ТЗ-97 Q12): чем именно закрытый тариф
+# отвечает на /splits и /dividends. Замерено в поле (REPORT-96, Runs
+# 24/30): HTTP 403 со словами про план; тот же код может прийти и в теле
+# вендора, где он лежит в `code`. Значения собраны здесь, а не в CLI,
+# потому что форма отказа — знание вендора.
+PLAN_REFUSAL_REASONS = ("source_unreachable:http_403",
+                        "twelvedata_error:403")
+
+
+def is_plan_refusal(reason: str) -> bool:
+    """Отказ «этого нет в твоём тарифе», а не «данных нет» и не «временно
+    занята». Только он даёт стадии котировок право считаться пройденной
+    без корпоративных действий: 429, транспорт, 5xx и прочее остаются
+    отказом — иначе снисходительность съедает настоящие поломки."""
+    return reason in PLAN_REFUSAL_REASONS
 
 
 @dataclass
@@ -63,6 +94,8 @@ class TwelveDataProvider:
     transport: Callable[[str, dict], tuple] = _default_transport
     source_name: str = "twelvedata"
     limit: HostLimit = _LIMIT
+    # ТЗ-109 R2: сон между ретраями транспорта; тесты подставляют свой
+    sleeper: Callable | None = None
 
     def __repr__(self) -> str:
         """api_key не печатается никогда (ТЗ-29 A4)."""
@@ -92,25 +125,28 @@ class TwelveDataProvider:
         return params
 
     @staticmethod
-    def ca_params(symbol: str) -> dict:
-        """Параметры /splits и /dividends: полная история (замер
-        REPORT-31: без range вендор отдаёт один последний элемент)."""
-        return {"symbol": symbol, "range": CA_RANGE}
+    def ca_params(symbol: str, as_of: str) -> dict:
+        """Параметры /splits и /dividends: полная история до `as_of`
+        (ТЗ-90 A1 — дата в запросе, она же дата в ключе кеша)."""
+        return {"symbol": symbol, "start_date": CA_START,
+                "end_date": as_of}
 
     @classmethod
     def cache_url(cls, symbol: str, start: str | None = None,
                   end: str | None = None) -> str:
         """Канонический URL без ключа: индекс кеша в raw_object.url.
-        Повтор сбор того же диапазона находит объект по этому полю и
-        тратит ноль запросов (K2, ADR-0003)."""
+        Повторный сбор того же диапазона находит объект по этому полю и
+        тратит ноль запросов (K2, ADR-0003). Диапазон заканчивается
+        датой сбора, иначе кеш на всю жизнь замораживает цену
+        (ТЗ-90 A1)."""
         return f"{DEFAULT_BASE_URL}/time_series?{urlencode(cls.params_for(symbol, start, end))}"
 
     @classmethod
-    def cache_url_ca(cls, kind: str, symbol: str) -> str:
-        """Канонический URL без ключа для /splits и /dividends (C3)."""
+    def cache_url_ca(cls, kind: str, symbol: str, as_of: str) -> str:
+        """Канонический URL без ключа для /splits и /dividends (C3, A1)."""
         if kind not in ("splits", "dividends"):
             raise ValueError(f"kind {kind!r} вне ('splits','dividends')")
-        return f"{DEFAULT_BASE_URL}/{kind}?{urlencode(cls.ca_params(symbol))}"
+        return f"{DEFAULT_BASE_URL}/{kind}?{urlencode(cls.ca_params(symbol, as_of))}"
 
     # ── один запрос через дверь ─────────────────────────────────────────
 
@@ -126,7 +162,15 @@ class TwelveDataProvider:
             return status, body
 
         try:
-            outcome = self.gate.request(send, limit=self.limit)
+            # ТЗ-109 R2: обрыв и 429/5xx повторяются с бэкоффом; Twelve
+            # Data возвращает статус, не поднимая, — транзиентный
+            # результат называет retryable_result. Попытка = запрос.
+            from .budget import TRANSIENT_STATUSES, retry_transport
+            outcome = retry_transport(
+                lambda: self.gate.request(send, limit=self.limit),
+                sleeper=self.sleeper,
+                retryable_result=lambda o: isinstance(o, tuple) and bool(o)
+                and o[0] in TRANSIENT_STATUSES)
         except OSError:
             # тайм-аут/обрыв транспорта — значение, не исключение (§7)
             return ProviderError(reason="source_unreachable:transport")
@@ -154,13 +198,13 @@ class TwelveDataProvider:
         return self._request("/time_series",
                              self.params_for(symbol, start, end))
 
-    def splits(self, symbol: str) -> dict | ConfigError | \
+    def splits(self, symbol: str, as_of: str) -> dict | ConfigError | \
             BudgetExceeded | ProviderError:
-        return self._request("/splits", self.ca_params(symbol))
+        return self._request("/splits", self.ca_params(symbol, as_of))
 
-    def dividends(self, symbol: str) -> dict | ConfigError | \
+    def dividends(self, symbol: str, as_of: str) -> dict | ConfigError | \
             BudgetExceeded | ProviderError:
-        return self._request("/dividends", self.ca_params(symbol))
+        return self._request("/dividends", self.ca_params(symbol, as_of))
 
     # ── чистый разбор записанного payload ───────────────────────────────
 

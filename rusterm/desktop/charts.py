@@ -174,6 +174,14 @@ if QT_AVAILABLE:
                                 height=[p[1] for p in present],
                                 width=0.6, brush="w"))
                     self.setLabel("bottom", "год")
+                    # ТЗ-107 V2: на оси только целые годы — иначе при
+                    # узком ряде pyqtgraph подписывает дробные даты
+                    ticks = sorted(set(years))
+                    self.getAxis("bottom").setTicks(
+                        [[(y, str(y)) for y in ticks]])
+                    if ticks:
+                        self.setXRange(ticks[0] - 0.5, ticks[-1] + 0.5,
+                                       padding=0)
                 elif kind == "box":
                     box = pg.BarGraphItem(x=[0], height=[spec["p75"]
                                                         - spec["p25"]],
@@ -255,6 +263,11 @@ if QT_AVAILABLE:
                 axis_x = QValueAxis()
                 axis_x.setLabelFormat("%d")
                 axis_x.setTitleText("год")
+                # ТЗ-107 V2: деление — ровно год
+                present = sorted({int(y) for y in spec["years"]})
+                if present:
+                    axis_x.setRange(present[0], present[-1])
+                    axis_x.setTickCount(max(len(present), 2))
                 chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
                 axis_y = QValueAxis()
                 chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)

@@ -17,21 +17,23 @@ AGGREGATE_MIN_PEERS вкладчиков — агрегата нет: null с п
 peer_set_too_small (I6). Не подтверждённый набор —
 peer_set_not_confirmed: решение о верифицированности принимает
 вызывающая сторона, эта функция знает только значения.
+
+ТЗ-97 Q8 (решение пользователя 24.09): окно разрыва концов периодов
+участников — 2 года (INDUSTRY_PERIOD_WINDOW_DAYS), прежний порог ТЗ-22
+J3 в 100 дней отменял агрегат всего сектора из-за одного другого
+финансового года. Теперь участник вне окна исключается с пометкой
+(excluded + счётчик причин), а остальные считаются; строка агрегата
+несёт диапазон периодов включённых («периоды от … до …»).
 """
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass, field, replace
 
 from rusterm.core.peers import (AGGREGATE_MIN_PEERS, currency_bound,
-                                currency_guard)
+                                currency_guard, period_window)
 
 METHOD_VERSION = "industry.v1"
-
-# ТЗ-22 J3: порог разрыва концов периодов участников — тот же, что в
-# перцентильной сборке; причина существующая — period_mismatch.
-_PERIOD_GAP_DAYS = 100
 
 _VERIFIED_ORIGINS = ("manual", "catalog")
 
@@ -52,6 +54,57 @@ class AggregateMeasure:
     currency: str | None = None
     # причины, по которым участники не внесли вклад: причина -> счётчик
     reason_counts: dict = field(default_factory=dict)
+    # ТЗ-97 Q8: диапазон концов периодов включённых участников и кто
+    # остался вне окна (instrument_id -> period_end)
+    period_from: str | None = None
+    period_to: str | None = None
+    excluded: dict = field(default_factory=dict)
+    # ТЗ-102 M4: сколько участников дошло до расчёта этой меры и у
+    # скольких из них значение есть. Без этих двух чисел отказ
+    # `peer_set_too_small` неотличим от тощего набора, а `n` на отказе
+    # всегда нуль.
+    members_seen: int = 0
+    with_value: int = 0
+
+
+def _with_window(agg: AggregateMeasure, window) -> AggregateMeasure:
+    """Окно периодов — часть строки, а не только расчёта: отказ тоже
+    обязан называть диапазон и исключённых, иначе «почему тут пусто»
+    приходится угадывать по составу набора."""
+    counts = dict(agg.reason_counts)
+    if window.excluded:
+        counts["period_out_of_window"] = len(window.excluded)
+    return replace(agg, period_from=window.period_from,
+                   period_to=window.period_to,
+                   excluded=dict(window.excluded), reason_counts=counts)
+
+
+def period_note(agg: AggregateMeasure) -> str:
+    """«периоды от … до …» и кто вне окна — одной формулировкой для
+    `rusterm industry`, экрана «Отрасль» и вкладки Qt: пользователь не
+    должен выбирать, где ему поверят (ТЗ-97 Q8)."""
+    parts = []
+    if agg.period_from and agg.period_to:
+        parts.append(f"периоды от {agg.period_from} до {agg.period_to}")
+    if agg.excluded:
+        parts.append("вне окна: " + ", ".join(
+            f"{iid} ({end})" for iid, end in sorted(agg.excluded.items())))
+    return "; ".join(parts)
+
+
+def shortfall_note(agg: AggregateMeasure) -> str:
+    """Чем именно «мало участников»: составом набор или пустыми значениями.
+
+    Нехватка состава (участников меньше порога) фразы не получает — там
+    отказ честный и другой текст был бы оправданием. Фраза звучит только
+    когда участников столько, сколько нужно, а мера доехала не до всех
+    (ТЗ-102 M4)."""
+    if agg.null_reason != "peer_set_too_small":
+        return ""
+    if agg.members_seen < AGGREGATE_MIN_PEERS:
+        return ""
+    return (f"участников {agg.members_seen}, значение меры есть у "
+            f"{agg.with_value}")
 
 
 def sector_aggregate(concept: str, values: list[tuple[str, float | None]],
@@ -78,7 +131,8 @@ def sector_aggregate(concept: str, values: list[tuple[str, float | None]],
         return AggregateMeasure(
             concept=concept, n=0,
             null_reason="peer_set_too_small",
-            reason_counts=reason_counts)
+            reason_counts=reason_counts,
+            members_seen=len(values), with_value=len(contributing))
 
     q1, q2, q3 = statistics.quantiles(contributing, n=4, method="inclusive")
     return AggregateMeasure(
@@ -105,7 +159,7 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
     no_snapshot = sum(1 for sid in members.values() if sid is None)
     for concept in concepts:
         values: list[tuple[str, float | None]] = []
-        measure_ids: list[str] = []
+        member_measures: dict[str, str] = {}
         period_ends: dict[str, str] = {}
         for iid in sorted(members):
             sid = members[iid]
@@ -118,33 +172,35 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
             value = None if row is None or row[4] is None \
                 else float(row[4])
             if row is not None:
-                measure_ids.append(row[0])
+                member_measures[iid] = row[0]
                 if row[7]:
-                    period_ends[row[0]] = row[7]
+                    period_ends[iid] = row[7]
             values.append((iid, value))
+        # ТЗ-97 Q8: окно периодов — 2 года; участник старше самого
+        # свежего вне окна исключается с пометкой и в расчёт не входит
+        # (ни значением, ни валютой, ни причиной no_value)
+        window = period_window(period_ends)
+        if window.excluded:
+            values = [pair for pair in values
+                      if pair[0] not in window.excluded]
         # ТЗ-21 H3: агрегат несёт валюту, в которой заявлен; смешение
-        # валют абсолютной меры — currency_mismatch с перечнем
+        # валют абсолютной меры — currency_mismatch с перечнем.
+        # ТЗ-103 N2: валюта приходит только от участников СО ЗНАЧЕНИЕМ:
+        # отказная строка меры не вносит в сравнение ни числа, ни
+        # валюты, иначе набор из одних отказов отказывался по валютам,
+        # которых в сравнении не было вовсе (отчётная причина —
+        # `peer_set_too_small`, ТЗ-102 M4).
         currencies: set[str] = set()
-        for mid in measure_ids:
-            currencies |= repos.snapshot.currencies_for_measure(mid)
+        for iid, v in values:
+            mid = member_measures.get(iid) if v is not None else None
+            if mid:
+                currencies |= repos.snapshot.currencies_for_measure(mid)
         guard = currency_guard(concept, currencies)
         if guard is not None:
-            aggregates.append(AggregateMeasure(
+            aggregates.append(_with_window(AggregateMeasure(
                 concept=concept, p25=None, median=None, p75=None,
                 n=len([v for _, v in values if v is not None]),
-                null_reason=guard))
-            continue
-        # ТЗ-22 J3: участники на разных календарях вносят свои последние
-        # закрытые периоды; разрыв больше порога — отказ по имени
-        ends = sorted(period_ends.values())
-        if len(ends) >= 2 and (
-                date.fromisoformat(ends[-1])
-                - date.fromisoformat(ends[0])).days > _PERIOD_GAP_DAYS:
-            aggregates.append(AggregateMeasure(
-                concept=concept,
-                n=len([v for _, v in values if v is not None]),
-                null_reason="period_mismatch",
-                reason_counts={}))
+                null_reason=guard), window))
             continue
         agg = sector_aggregate(concept, values, verified=verified)
         # одновалютный абсолютный агрегат заявляет свою валюту
@@ -154,7 +210,8 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                 concept=agg.concept, p25=agg.p25, median=agg.median,
                 p75=agg.p75, n=agg.n, null_reason=agg.null_reason,
                 method_version=agg.method_version, currency=present[0],
-                reason_counts=agg.reason_counts)
+                reason_counts=agg.reason_counts,
+                members_seen=agg.members_seen, with_value=agg.with_value)
         if no_snapshot:
             reason_counts = dict(agg.reason_counts)
             reason_counts["no_snapshot_at_date"] = no_snapshot
@@ -162,8 +219,9 @@ def build_sector_aggregates(repos, peer_set_id: str, as_of: str,
                 concept=agg.concept, p25=agg.p25, median=agg.median,
                 p75=agg.p75, n=agg.n, null_reason=agg.null_reason,
                 method_version=agg.method_version,
-                reason_counts=reason_counts)
-        aggregates.append(agg)
+                reason_counts=reason_counts,
+                members_seen=agg.members_seen, with_value=agg.with_value)
+        aggregates.append(_with_window(agg, window))
     return {"outcome": "resolved",
             "peer_set_id": peer_set_id,
             "peer_set_version_id": version["peer_set_version_id"],

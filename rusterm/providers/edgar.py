@@ -56,6 +56,18 @@ def _default_transport(url: str, headers: dict) -> tuple:
         raise
 
 
+SEC_UA_NOTE = ("контактная строка (имя и email) по требованию SEC — "
+               "это не секретный ключ")
+
+
+def sec_ua_instruction() -> str:
+    """ТЗ-68 N2: что делать при sec_ua_unset — подстановка из
+    констант, одна реализация для всех поверхностей."""
+    return ("вписать контактную строку (имя и email) в переменную "
+            "RUSTERM_SEC_UA или в ~/.rusterm.env — "
+            + SEC_UA_NOTE)
+
+
 @dataclass
 class EdgarProvider:
     """Провайдер раскрытий одного эмитента: EDGAR не имеет общего фида
@@ -68,6 +80,8 @@ class EdgarProvider:
     needs_network: bool = True
     source_name: str = "edgar"
     transport: Callable = _default_transport
+    # ТЗ-109 R2: сон между ретраями транспорта; тесты подставляют свой
+    sleeper: Optional[Callable[[float], None]] = None
 
     _tickers: Optional[dict] = None  # {ticker: (cik, title)}
     _submissions: Optional[dict] = None
@@ -82,9 +96,15 @@ class EdgarProvider:
         пользователя они доходили «внутренней ошибкой» с трассировкой и
         кодом 2. У Twelve Data тот же отказ давно приходит значением —
         словарь причин общий: `source_unreachable`.
+
+        ТЗ-109 R2: обрыв транспорта и 429/5xx повторяются с бэкоффом
+        (retry_transport), каждая попытка — отдельный списанный запрос;
+        403 и прочие 4xx идут в значение с первой же попытки.
         """
+        from .budget import retry_transport
         try:
-            return self.gate.request(send)
+            return retry_transport(lambda: self.gate.request(send),
+                                   sleeper=self.sleeper)
         except urllib.error.HTTPError as e:
             return ProviderError(f"source_unreachable:http_{e.code}")
         except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -146,10 +166,12 @@ class EdgarProvider:
 
     # ── Карта тикеров: один запрос на весь рынок ────────────────────────
 
-    def _ticker_map(self) -> dict | ConfigError | NotModified:
+    def _ticker_map(self) -> dict | ConfigError | NotModified | ProviderError:
         if self._tickers is None:
             data = self._fetch_json(TICKERS_URL)
-            if isinstance(data, (ConfigError, NotModified)):
+            # ТЗ-109 R2: транспортный отказ — значение; без него в
+            # проверке карта падала на data.values() AttributeError-ом
+            if isinstance(data, (ConfigError, NotModified, ProviderError)):
                 return data
             # (cik, title): имя эмитента доступно там же, где и CIK
             self._tickers = {
@@ -257,7 +279,10 @@ class EdgarProvider:
             return body
 
         outcome = self._guarded(send)
-        if isinstance(outcome, (ConfigError, NotModified)):
+        # ТЗ-109 R1: транспортный отказ приходит значением ProviderError —
+        # раньше он проваливался в «unexpected_response» и маскировал
+        # настоящую причину (обрыв связи выглядел как чужой ответ)
+        if isinstance(outcome, (ConfigError, NotModified, ProviderError)):
             return outcome
         if not isinstance(outcome, bytes):
             return ProviderError(f"unexpected_response:{url}")

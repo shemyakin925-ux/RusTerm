@@ -73,3 +73,46 @@ def write_default_config(path: os.PathLike | str) -> None:
         "[provider_rate_limit]\n",
         encoding="utf-8",
     )
+
+
+def set_provider_rate_limit(path: os.PathLike | str, host: str,
+                            per_second: float) -> dict:
+    """Правит лимит хоста в config.toml (ТЗ-62 G1): формат файла знает
+    только слой конфигурации — десктоп и CLI зовут эту дверь.
+
+    Битый существующий файл не перезаписывается молча: отказ причиной
+    config_broken с текстом разбора; пользователь чинит или удаляет сам.
+    Запись проверяется обратным чтением load_config.
+    """
+    p = Path(path)
+    text = p.read_text(encoding="utf-8") if p.exists() else ""
+    if text.strip():
+        try:
+            tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            return {"ok": False,
+                    "reason": f"config_broken: {exc}"}
+    # хост с точкой — не TOML-ключ: только в кавычках это строка,
+    # иначе "sec.gov = 0.5" читается как вложенная таблица sec.gov
+    line = f'"{host}" = {per_second}'
+    if "[provider_rate_limit]" in text:
+        lines = text.splitlines()
+        start = lines.index("[provider_rate_limit]")
+        end = len(lines)
+        for i in range(start + 1, len(lines)):
+            if lines[i].startswith("["):
+                end = i
+                break
+        block = lines[start + 1:end]
+        block = [ln for ln in block
+                 if ln.split("=")[0].strip().strip('"') != host]
+        block.append(line)
+        lines[start + 1:end] = [""] + block
+        new_text = "\n".join(lines) + "\n"
+    else:
+        new_text = (text.rstrip("\n") + "\n\n[provider_rate_limit]\n"
+                    + line + "\n" if text.strip()
+                    else "[provider_rate_limit]\n" + line + "\n")
+    p.write_text(new_text, encoding="utf-8")
+    applied = load_config(p).provider_rate_limit.get(host)
+    return {"ok": applied == per_second, "applied": applied}

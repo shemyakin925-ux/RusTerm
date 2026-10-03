@@ -15,17 +15,31 @@ import json
 import re
 from typing import Optional
 
-from rusterm.core.industry.aggregate import build_sector_aggregates
+from rusterm.core.industry.aggregate import (build_sector_aggregates,
+                                             period_note, shortfall_note)
 from rusterm.core.snapshot import measure_inputs, stale_exclusions
 from rusterm.markets import get_market
 
 NULL_MARK = "—"
 
-# Меры экрана «Отрасль» (ТЗ-22 J7): четыре ratio-меры M7 + абсолютный
-# revenue — на нём видна валюта (J1) и отказ при смешении.
+# Меры экрана «Отрасль» (ТЗ-22 J7): четыре ratio-меры M7 + абсолютные —
+# на них видна валюта (J1) и отказ при смешении.
+# ТЗ-97 Q1 (ТЗ-73 T1): абсолютной мерой больше не может быть `revenue` —
+# выручки нет в словаре мер, ни один снапшот её не подаёт (в таблице
+# measure строк `revenue` — 0), и строка не наполнится никогда: на копии
+# базы пользователя она давала `peer_set_too_small (no_value=9)` во всех
+# пяти наборах. `ebitda` — абсолютная мера словаря с тем же валютным
+# сторожем, и она наполняется: строк агрегата с числами было 8 из 25,
+# стало 10 из 25 (software 5 из 5, hardware_electronics 4 из 5); где не
+# наполняется — называет настоящую причину (mining_metals
+# `currency_mismatch: CAD, USD`, telecom — MXN/USD). `market_cap_total`
+# стоит в списке с ТЗ-104 P5: раньше её вычеркнули как `revenue` — за
+# отказ `currency_mismatch: USD, (blank)` на всех пяти наборах копии:
+# пустоту в набор валют приносил факт числа акций, у которого валюты не
+# бывает по единице.
 _SECTOR_MEASURES: tuple[str, ...] = ("asset_turnover", "net_margin",
-                                     "operating_margin", "revenue",
-                                     "roe")
+                                     "operating_margin", "ebitda", "roe",
+                                     "market_cap_total")
 
 
 def _market_of(instrument_id: str) -> str:
@@ -77,6 +91,21 @@ def list_rows(repos, watchlist_id: Optional[str]) -> list[dict]:
     return rows
 
 
+def measure_reason_counts(repos, snapshot_id: str | None) -> dict:
+    """Токены причин пустых мер снапшота (ТЗ-61 F1): одно счётное
+    место для всех трёх лиц — `rusterm coverage --json`, окно и TUI.
+    Мера со значением не считается; токен — первый до ':'."""
+    counts: dict = {}
+    if not snapshot_id:
+        return counts
+    for m in repos.snapshot.get_measures(snapshot_id):
+        if m[4] is not None:
+            continue
+        token = (m[10] or "missing_data").split(":", 1)[0]
+        counts[token] = counts.get(token, 0) + 1
+    return counts
+
+
 def card_rows(repos, instrument_id: str) -> dict:
     """Экран «Карточка»: меры, покрытие с причинами, governance."""
     snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)
@@ -102,6 +131,10 @@ def card_rows(repos, instrument_id: str) -> dict:
         measures.append({
             "measure_id": measure_id,
             "concept": concept,
+            # строка перцентиля называет свою меру (иначе восемь
+            # одинаковых «percentile» подряд)
+            "percentile_of": (repos.snapshot.percentile_base_concept(
+                measure_id) if concept == "percentile" else None),
             "value": value if value is not None else NULL_MARK,
             "null_reason": null_reason if value is None else None,
             "unit": unit,
@@ -132,7 +165,10 @@ def card_rows(repos, instrument_id: str) -> dict:
                                "lineage_ref": latest["lineage_ref"],
                                "method_version": latest["method_version"]})
         else:
+            # ТЗ-97 Q2 (P8): строки без оценки — не молчание: причина
+            # словом и команда, которой она закрывается.
             governance.append({"indicator": indicator, "color": "gray",
+                               "reason": "no_data:not_collected",
                                "method_version": None})
     return {
         "instrument_id": instrument_id,
@@ -285,6 +321,13 @@ def industry_rows(repos, sector: str, as_of: Optional[str] = None) -> dict:
         "p25": a.p25, "median": a.median, "p75": a.p75,
         "currency": a.currency, "null_reason": a.null_reason,
         "reason_counts": a.reason_counts,
+        # ТЗ-97 Q8: за какие периоды сравнение и кто вне окна — экран
+        # обязан показать это и при отказе, и при числе
+        "period_from": a.period_from, "period_to": a.period_to,
+        "excluded": dict(a.excluded), "period_note": period_note(a),
+        # ТЗ-102 M4: чем именно «мало участников» — составом или
+        # пустыми значениями; экран обязан сказать это числом
+        "shortfall_note": shortfall_note(a),
     } for a in built["aggregates"]]
     return {"sector": sector, "as_of": as_of,
             "version": version["version"],
@@ -304,17 +347,23 @@ def render_industry(screen: dict) -> list[str]:
              + ("" if screen["verified"] else " [набор не подтверждён]"),
              f"внесли: {', '.join(screen['members']) or '—'}"]
     for r in screen["rows"]:
+        # ТЗ-97 Q8: «за какие периоды» и «кто вне окна» — и у числа, и
+        # у отказа: без этого агрегат выглядит ответом на весь набор
+        # ТЗ-102 M4: сюда же и «участников N, значение меры есть у K»
+        notes = [p for p in (r.get("shortfall_note"), r.get("period_note"))
+                 if p]
+        note = f" [{'; '.join(notes)}]" if notes else ""
         if r["null_reason"]:
             counts = ", ".join(f"{k}={v}" for k, v
                                in sorted(r["reason_counts"].items()))
             suffix = f" ({counts})" if counts else ""
             lines.append(f"  {r['concept']}: {r['null_reason']} "
-                         f"n={r['n']}{suffix}")
+                         f"n={r['n']}{suffix}{note}")
         else:
             currency = f" {r['currency']}" if r["currency"] else ""
             lines.append(f"  {r['concept']}: {r['p25']} / "
                          f"{r['median']} / {r['p75']} n={r['n']}"
-                         f"{currency}")
+                         f"{currency}{note}")
     return lines
 
 
@@ -359,7 +408,17 @@ def render_card(card: dict) -> list[str]:
         lines.append(f"  {block['block']}: {block['status']}{reason}")
     lines.append("Governance (пять цветов, не сворачиваются):")
     for g in card["governance"]:
-        lines.append(f"  {g['indicator']}: {g['color']}")
+        line = f"  {g['indicator']}: {g['color']}"
+        # ТЗ-97 Q2 (ТЗ-73 T3, P8): у серого цвета — слово причины и
+        # команда, которой строка закрывается; ядро их уже посчитало.
+        if g["color"] == "gray" and g.get("reason"):
+            from rusterm.core.governance import (grey_closing,
+                                                 grey_reason_text)
+            words = grey_reason_text(g["reason"])
+            door = grey_closing(g["indicator"], card["instrument_id"],
+                                g["reason"])
+            line += f" — {words} [{door}]"
+        lines.append(line)
     return lines
 
 
@@ -399,3 +458,131 @@ def render_chat(screen: dict) -> list[str]:
             lines.append(f"   цитата: {citation}")
     lines.append(f"вызовов: {screen['calls']}; модель: {screen['model']}")
     return lines
+
+
+def measure_summary(rows) -> dict | None:
+    """ТЗ-72 S5: «источник почти ничего не даёт по этой бумаге».
+
+    rows — пары (значение, null_reason): карточка card_rows или сырые
+    меры get_measures, одна реализация для окна и CLI. Правило: мер со
+    значением строго меньше четверти карточки. Причина сводки — самый
+    частый первый токен словарных отказов (выдумки нет); меры без
+    причины не участвуют в подсчёте причин. Сырая карточка — None.
+    """
+    total = len(rows)
+    if total == 0:
+        return None
+    valued = 0
+    counts: dict[str, int] = {}
+    for value, reason in rows:
+        if value is not None and value != NULL_MARK:
+            valued += 1
+            continue
+        if reason:
+            token = reason.split(":", 1)[0]
+            counts[token] = counts.get(token, 0) + 1
+    if valued * 4 >= total:
+        return None
+    dominant = (min(counts, key=lambda t: (-counts[t], t))
+                if counts else None)
+    return {"valued": valued, "total": total,
+            "dominant_reason": dominant,
+            "reason_count": counts.get(dominant, 0) if dominant else 0}
+
+
+def measure_summary_line(summary: dict) -> str:
+    """Слова сводки S5: одна формулировка для окна и CLI."""
+    tail = (f"; массовый отказ: {summary['dominant_reason']}"
+            f" ({summary['reason_count']})"
+            if summary.get("dominant_reason") else "")
+    return (f"источник почти ничего не даёт по этой бумаге: мер со "
+            f"значением {summary['valued']} из {summary['total']}{tail}")
+
+
+# ТЗ-76 W3: год ячейки истории — год периода меры, а не год прогона.
+# as_of снапшота остаётся фолбэком, когда периода нет, и фолбэк этот
+# виден: окно помечает клетку как отнесённую к году прогона.
+HISTORY_BASIS_PERIOD = "period"
+HISTORY_BASIS_RUN_YEAR = "run_year"
+
+
+def _period_year(value) -> Optional[str]:
+    """Год из даты периода: первые четыре ASCII-цифры, иначе None."""
+    text = str(value or "").strip()
+    head = text[:4]
+    if len(head) == 4 and head.isascii() and head.isdigit():
+        return head
+    return None
+
+
+def _sub_annual_period(start, end) -> bool:
+    """Поток короче ~10 месяцев (квартал, полугодие, 9 месяцев)."""
+    if not start or not end or start == end:
+        return False
+    try:
+        days = (datetime.date.fromisoformat(end)
+                - datetime.date.fromisoformat(start)).days
+    except (TypeError, ValueError):
+        return False
+    return 0 < days < 300
+
+
+def _history_walk(repos, instrument_id: str):
+    """Один обход ВСЕХ снапшотов инструмента: значения по годам и
+    основание года каждой клетки (ТЗ-76 W3).
+
+    Год берётся из периода меры: period_end, при его отсутствии
+    period_start. as_of снапшота — только фолбэк для меры без периода
+    (пересобранная сегодня база иначе схлопывает всю историю в один
+    столбец года запуска). В пределах года побеждает старшая версия
+    снапшота: снапшоты идут по возрастанию версии, позднейший
+    перезаписывает клетку."""
+    values: dict[str, dict[str, float]] = {}
+    basis: dict[str, dict[str, str]] = {}
+    for s in repos.snapshot.snapshots_of_instrument(instrument_id):
+        run_year = _period_year(s["as_of"])
+        for m in repos.snapshot.get_measures(s["snapshot_id"]):
+            if m[4] is None:
+                continue
+            try:
+                val = float(m[4])
+            except (TypeError, ValueError):
+                continue
+            if _sub_annual_period(m[6], m[7]):
+                # квартал в годовой колонке — не год: у BAC клетка
+                # «2026» показывала asset_turnover за Q2 (0,009 против
+                # 0,03 у всех лет); аналоги держат в колонке года только
+                # годовой период или остаток
+                continue
+            year = _period_year(m[7]) or _period_year(m[6])
+            why = HISTORY_BASIS_PERIOD
+            if year is None:
+                year, why = run_year, HISTORY_BASIS_RUN_YEAR
+            if year is None:
+                continue
+            values.setdefault(year, {})[m[3]] = val
+            basis.setdefault(year, {})[m[3]] = why
+    return values, basis
+
+
+def measure_history_by_year(repos, instrument_id: str) -> dict[str, dict[str, float]]:
+    """ТЗ-72 Д1: история мер по годам из ВСЕХ сохранённых снапшотов
+    инструмента.
+
+    Форма результата — ``{год: {концепт: значение}}``: год — период
+    меры (ТЗ-76 W3), в пределах года побеждает старшая версия
+    снапшота. Эту же форму словами читает measure_table_rows окна
+    (ТЗ-75 V1) — обе докстроки называют её одинаково, чтобы
+    расхождение не вернулось. Используется окном и CLI/TUI — одна
+    реализация для всех лиц."""
+    return _history_walk(repos, instrument_id)[0]
+
+
+def measure_history_basis(repos, instrument_id: str) -> dict[str, dict[str, str]]:
+    """Основание года для каждой клетки истории — ``{год: {концепт:
+    "period"|"run_year"}}``, той же формой, что значения (ТЗ-76 W3).
+
+    «run_year» значит, что у меры нет периода и клетка отнесена к году
+    прогона по as_of снапшота: интерфейс обязан показать это, а не
+    выдавать год запуска за год отчётности."""
+    return _history_walk(repos, instrument_id)[1]

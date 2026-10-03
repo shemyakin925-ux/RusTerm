@@ -19,6 +19,7 @@ import gzip
 import hashlib
 import json
 import os
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -125,6 +126,52 @@ def _is_gzip_magic(data: bytes) -> bool:
     return len(data) >= 2 and data[:2] == b"\x1f\x8b"
 
 
+_HEX = set("0123456789abcdef")
+
+
+def is_object_filename(fname: str) -> bool:
+    """Файл хранилища — это адрес: 64 шестнадцатеричных символа и опциональное
+    расширение сжатия. Всё остальное — временный файл публикации `_write_atomic`,
+    и в архив бэкапа ему нечего делать.
+
+    Чистка (`prune_raw_store`) пользуется тем же правилом «имя = адрес» и
+    сама по себе не трогает временный файл: основа его имени длиннее 64
+    символов и с точками, а удалить она могла бы только имя, совпадающее с
+    `raw_object.sha256`. Проверки по шестнадцатеричным символам чистка не
+    делает — этого и не требуется.
+    """
+    base = fname
+    for ext in (ZSTD_EXTENSION, GZIP_EXTENSION):
+        if base.endswith(ext):
+            base = base[:-len(ext)]
+            break
+    return len(base) == 64 and all(ch in _HEX for ch in base)
+
+
+def _write_atomic(target_path: Path, data: bytes) -> None:
+    """Опубликовать объект атомарно: писать во временный файл рядом и
+    переименовать через `os.replace`.
+
+    `write_bytes` оставлял окно, в котором файл по имени-адресу существует
+    обрезанным (замер ТЗ-84 K7: 20 проб из 20 с наблюдением нулевой длины),
+    и обход бэкапа — он хешет и кладёт в архив одни и те же байты — такого
+    объекта не заметил бы: молча положил бы в архив адрес, который хешуется
+    не в своё имя.
+    """
+    fd, tmp = tempfile.mkstemp(dir=str(target_path.parent),
+                               prefix=target_path.name + ".",
+                               suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target_path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def put_object(
     raw_store_dir: Path,
     data: bytes,
@@ -146,11 +193,11 @@ def put_object(
         compressed, label, ext = _compress(data)
         target_path = target.with_suffix(target.suffix + ext)
         if not target_path.exists():
-            target_path.write_bytes(compressed)
+            _write_atomic(target_path, compressed)
         bytes_written = len(compressed)
     else:
         if not target.exists():
-            target.write_bytes(data)
+            _write_atomic(target, data)
         target_path = target
         bytes_written = len(data)
         label = "none"

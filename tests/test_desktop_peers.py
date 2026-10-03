@@ -115,7 +115,8 @@ def test_industry_table_marks_refusals_not_silently(env):
             data.industry_table_rows(_industry(repos))}
     nm = rows["net_margin"]
     assert not nm["refused"]
-    assert float(nm["median"]) == pytest.approx(0.21)
+    assert float(nm["median_value"]) == pytest.approx(0.21)
+    assert nm["median"] == "21,00 %"   # вид как на «Компании»
     assert nm["n"] == 8
     roe = rows["roe"]
     assert roe["refused"]

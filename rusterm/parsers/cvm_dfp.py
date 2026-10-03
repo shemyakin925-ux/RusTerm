@@ -21,9 +21,23 @@ instant). Каждая строка становится фактом as_reporte
 """
 from __future__ import annotations
 
+import math
+
 _ESCALA = {"UNID": 1.0, "MIL": 1_000.0, "MILHOES": 1_000_000.0}
 
 PARSER_VERSION = "cvm-dfp.v1"
+
+
+def _cell(value) -> str:
+    """Поле строки CSV как текст.
+
+    ТЗ-83 F1: contract строки таблицы — «(факты, неразобрано)» и не
+    обещает исключения, а вендорский словарь полей в фаззере приходит и
+    None, и числом; `.strip()` на них — AttributeError наружу.
+    """
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
 
 
 class CvmDfpParser:
@@ -42,21 +56,32 @@ class CvmDfpParser:
         best: dict[tuple, dict] = {}
         unparsed = 0
         for r in rows:
-            raw_value = (r.get("VL_CONTA") or "").strip()
-            conta = (r.get("CD_CONTA") or "").strip()
-            end = (r.get("DT_FIM_EXERC") or "").strip()
-            start = ((r.get("DT_INI_EXERC") or "").strip()
+            if not isinstance(r, dict):
+                # Строка, пришедшая не из DictReader: засчитана, а не
+                # уронившая разбор AttributeError.
+                unparsed += 1
+                continue
+            raw_value = _cell(r.get("VL_CONTA")).strip()
+            conta = _cell(r.get("CD_CONTA")).strip()
+            end = _cell(r.get("DT_FIM_EXERC")).strip()
+            start = (_cell(r.get("DT_INI_EXERC")).strip()
                      if statement == "DRE" else end)
             if not raw_value or not conta or not end:
                 unparsed += 1
                 continue
             try:
                 value = float(raw_value)
-                versao = int((r.get("VERSAO") or "0").strip())
+                versao = int(_cell(r.get("VERSAO")).strip() or "0")
             except ValueError:
                 unparsed += 1
                 continue
-            key = (conta, (r.get("ORDEM_EXERC") or "").strip(),
+            if not math.isfinite(value):
+                # ТЗ-83 F1: nan/inf в VL_CONTA — не факт, а неразобранное
+                # (фиксирующее решение); иначе NaN уезжает в базу как
+                # выручка.
+                unparsed += 1
+                continue
+            key = (conta, _cell(r.get("ORDEM_EXERC")).strip(),
                    start, end)
             prev = best.get(key)
             if prev is None or versao > prev["versao"]:
@@ -67,18 +92,25 @@ class CvmDfpParser:
         facts: list[dict] = []
         for item in best.values():
             r = item["row"]
-            escala = (r.get("ESCALA_MOEDA") or "UNID").strip().upper()
+            escala = (_cell(r.get("ESCALA_MOEDA")).strip()
+                      or "UNID").upper()
             scale = _ESCALA.get(escala)
             if scale is None:
                 unparsed += 1
                 continue
-            moeda = (r.get("MOEDA") or "").strip()
+            value = item["value"] * scale
+            if not math.isfinite(value):
+                # Масштаб обязан оставаться числом: 1e308 × MILHOES —
+                # inf, и такой факт в отчётности смысла не имеет.
+                unparsed += 1
+                continue
+            moeda = _cell(r.get("MOEDA")).strip()
             concept = f"cvm-dfp:{item['conta']}"
             facts.append({
                 "issuer_id": context.get("issuer_id"),
                 "listing_id": context.get("listing_id"),
                 "concept": concept,
-                "value": repr(item["value"] * scale),
+                "value": repr(value),
                 "unit": moeda,
                 "currency": moeda,
                 "period_start": item["start"],

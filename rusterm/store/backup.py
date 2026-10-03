@@ -16,9 +16,11 @@ SQL здесь не нужен — кроме VACUUM INTO для согласо�
 """
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
+import re
 import time
 import zipfile
 from dataclasses import dataclass
@@ -26,6 +28,7 @@ from pathlib import Path
 
 from .db import current_schema_version
 from .paths import AppPaths
+from .raw_store import is_object_filename
 
 ARCHIVE_DB_MEMBER = "rusterm.db"
 MANIFEST_MEMBER = "MANIFEST.json"
@@ -42,6 +45,29 @@ class BackupError(Exception):
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+# Метка копии попадает в имя файла, поэтому это не путь: буквы/цифры/
+# точка/дефис/подчёркивание, до 40 символов, без «..» и без ведущей
+# точки. Разделителя здесь нет ни при каком флаге re — '/' и os.sep
+# в класс не входят.
+_LABEL_RE = re.compile(r"[\w.\-]{1,40}")
+
+
+def default_archive_path(paths: AppPaths,
+                         label: str | None = None) -> Path:
+    """Куда лечь копии, если пользователь не назвал путь (ТЗ-97 Q11):
+    `backups/<дата>[-метка].zip` — сосед каталога данных, а не новая
+    папка в домашнем каталоге. У `--root /tmp/x/data` копия,
+    соответственно, в `/tmp/x/backups`."""
+    name = dt.date.today().isoformat()
+    if label:
+        if (".." in label or label.startswith(".")
+                or not _LABEL_RE.fullmatch(label)):
+            raise BackupError(
+                f"метка копии не может быть именем пути: {label!r}")
+        name = f"{name}-{label}"
+    return paths.backups / f"{name}.zip"
 
 
 @dataclass(frozen=True)
@@ -75,27 +101,29 @@ def create_backup(paths: AppPaths, archive_path: str | Path) -> BackupSummary:
 
     members: list[dict] = []
     try:
-        members.append(_member_from_file(ARCHIVE_DB_MEMBER, snapshot_db))
-        manifests = sorted(paths.raw_manifests.glob("manifest-*.jsonl"))
-        for m in manifests:
-            # пути членов — относительно корня каталога данных, как на диске
-            members.append(_member_from_file(
-                f"raw/manifests/{m.name}", m))
-        if paths.raw_store.is_dir():
-            for dirpath, _dirs, files in os.walk(paths.raw_store):
-                for fname in sorted(files):
-                    full = Path(dirpath) / fname
-                    rel = full.relative_to(paths.root)
-                    members.append(_member_from_file(str(rel), full))
-        manifest = {
-            "schema_version": schema_version,
-            "created_at": time.time(),
-            "members": members,
-        }
         with zipfile.ZipFile(archive_path, "w",
                              compression=zipfile.ZIP_DEFLATED) as zf:
-            for member in members:
-                zf.write(member["_source"], member["path"])
+            members.append(_add_member(zf, ARCHIVE_DB_MEMBER, snapshot_db))
+            manifests = sorted(paths.raw_manifests.glob("manifest-*.jsonl"))
+            for m in manifests:
+                # пути членов — относительно корня каталога данных, как на диске
+                members.append(_add_member(
+                    zf, f"raw/manifests/{m.name}", m))
+            if paths.raw_store.is_dir():
+                for dirpath, _dirs, files in os.walk(paths.raw_store):
+                    for fname in sorted(files):
+                        if not is_object_filename(fname):
+                            # не-адрес в хранилище — не объект: публикация
+                            # держит временный файл рядом с целевым
+                            continue
+                        full = Path(dirpath) / fname
+                        rel = full.relative_to(paths.root)
+                        members.append(_add_member(zf, str(rel), full))
+            manifest = {
+                "schema_version": schema_version,
+                "created_at": time.time(),
+                "members": members,
+            }
             zf.writestr(MANIFEST_MEMBER,
                         json.dumps(manifest, ensure_ascii=False,
                                    indent=1))
@@ -117,10 +145,15 @@ def create_backup(paths: AppPaths, archive_path: str | Path) -> BackupSummary:
         created_at=manifest["created_at"])
 
 
-def _member_from_file(member_path: str, source: Path) -> dict:
+def _add_member(zf: zipfile.ZipFile, member_path: str, source: Path) -> dict:
+    """Член архива — ОДНО чтение файла: те же байты идут в архив и в хеш
+    манифеста. Прежний порядок (хеш по первому чтению, тело по второму) на
+    живой базе ловил дописанную строку манифеста между чтениями и выдавал
+    архив, который не восстанавливается (ТЗ-84 K7)."""
     data = source.read_bytes()
+    zf.writestr(member_path, data)
     return {"path": member_path, "sha256": _sha256(data),
-            "bytes": len(data), "_source": str(source)}
+            "bytes": len(data)}
 
 
 def restore_backup(archive_path: str | Path, target: AppPaths,

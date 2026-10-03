@@ -252,9 +252,10 @@ def test_collector_persists_transactions_with_tenb5(tmp_path):
 
 
 def test_insider_resolver_arithmetic_and_honest_empty(tmp_path):
-    """Числитель из сохранённых сделок (окно 365 дней), знаменатель —
-    market_cap_total последнего снапшота; без сделок или без
-    знаменателя входа нет — серость честная, число не выдумывается."""
+    """Числитель из сохранённых сделок (окно 365 дней) — деньги: акции ×
+    close за дату каждой сделки (ТЗ-104 P6); знаменатель — market_cap_total
+    последнего снапшота. Без сделок, без знаменателя или без котировок
+    входа нет — серость честная, число не выдумывается."""
     from rusterm.core.governance import insider_net, \
         insider_net_inputs_from_store
     from rusterm.parsers.ownership import OwnershipTransaction
@@ -279,9 +280,12 @@ def test_insider_resolver_arithmetic_and_honest_empty(tmp_path):
                              price=300.0, security="Common Stock",
                              tenb5_one=True),
     ])
-    # сделки есть, знаменателя нет — входа нет (0/None не выдумывается)
-    assert insider_net_inputs_from_store(repos, "US-OWN", "i-o",
-                                         "2026-09-13") == {}
+    # сделки есть, знаменателя нет — входа нет, но и «не собирали»
+    # уже не соврёт: ТЗ-97 Q2 требует именованную причину (P8)
+    spec = insider_net_inputs_from_store(repos, "US-OWN", "i-o",
+                                         "2026-09-13")
+    assert spec["insider_net"]["gray"] == "ownership_without_market_cap"
+    assert "transactions=2" in spec["insider_net"]["lineage_ref"]
     repos.snapshot.create_snapshot("s-own", "US-OWN", 1, "2026-09-13",
                                    None, "none", "ready")
     repos.snapshot.add_block("s-own", "fundamentals", "ready", None)
@@ -291,17 +295,31 @@ def test_insider_resolver_arithmetic_and_honest_empty(tmp_path):
         "market_cap_total", "v1", None, None)
     spec = insider_net_inputs_from_store(repos, "US-OWN", "i-o",
                                          "2026-09-13")
+    # ТЗ-104 P6: у денежного числителя есть собственный вход — котировки
+    # на даты сделок. Без них ряд право серел бы, поэтому фикстура их
+    # даёт: close 100 за дату покупки, close 200 за дату продажи.
+    assert repos.price.put_rows("US-OWN", "twelvedata", [
+        {"date": "2026-09-01", "close": 100.0, "adjusted": 100.0,
+         "currency": "USD"},
+        {"date": "2026-08-20", "close": 200.0, "adjusted": 200.0,
+         "currency": "USD"},
+    ]) == 2
+    spec = insider_net_inputs_from_store(repos, "US-OWN", "i-o",
+                                         "2026-09-13")
     inputs = spec["insider_net"]["inputs"]
-    assert inputs["net_ratio"] == pytest.approx(-300.0 / 1_000_000.0)
-    assert inputs["tenb5_net"] == -500.0
-    assert inputs["net_shares"] == -300.0
-    assert "buys=200,sells=500,net=-300sh" in \
+    # 200 акций по 100 против 500 акций по 200: числитель — деньги
+    assert inputs["net_ratio"] == pytest.approx(-80_000.0 / 1_000_000.0)
+    assert inputs["tenb5_net"] == -100_000.0
+    assert inputs["net_value"] == -80_000.0
+    assert "buys=20000,sells=100000,net=-80000" in \
         spec["insider_net"]["lineage_ref"]
     # цвет с названной долей 10b5-1 (BACKLOG 11)
     a = insider_net("US-OWN", inputs["net_ratio"], "2026-09-13",
                     spec["insider_net"]["lineage_ref"],
                     tenb5_net=inputs["tenb5_net"],
-                    net_shares=inputs["net_shares"])
-    assert a.color == "yellow"
-    assert "tenb5_net=-500sh (167% of net)" in a.reason
+                    net_value=inputs["net_value"])
+    # в акциях на доллар это же отношение (-300/1e6) было жёлтым: ряд
+    # говорил «в пределах 0,1%», хотя продано 8% капитализации
+    assert a.color == "red"
+    assert "tenb5_net=-100000 (125% of net)" in a.reason
     conn.close()

@@ -219,7 +219,7 @@ items already here, then two new ones:
   Until the chat door returns a client that implements what
   `ChatSession.ask` calls, a live-model test measures a fake.
 
-- [ ] B39 — `rusterm refresh --dry-run` prints `US-CLI-DEMO: ошибка (у
+- [x] B39 — закрыта ТЗ-50, коммит bdc03de — ошибка прохода refresh называет причину из словаря. Исходная формулировка: — `rusterm refresh --dry-run` prints `US-CLI-DEMO: ошибка (у
   эмитента нет CIK)`. «Ошибка» is not a reason: rule 2 of
   `agent/CONTEXT.md` §3 wants a token from `rusterm/reasons.py`, and a
   planning command that will never resolve an issuer should say so in
@@ -227,7 +227,7 @@ items already here, then two new ones:
   `is_known_reason` accepts its first token, asserted by a test —
   size: S
 
-- [ ] B40 — audit the remaining read-only commands the way B35 fixed
+- [x] B40 — закрыта ТЗ-50, коммит 3e75262 — budget/cadence/status/coverage не создают каталог. Исходная формулировка: — audit the remaining read-only commands the way B35 fixed
   `markets`: `budget`, `cadence`, `status` and `coverage` open the data
   directory through `_open`, which creates it. Decide per command
   whether it must create anything at all when the directory is absent —
@@ -240,7 +240,35 @@ Refilled by the coordinator 10.09.2026 after accepting TASK-14…18.
 Every item is small, pre-approved, and independent of the M8 lanes.
 A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
 
-- [ ] B38 — the interim `## HANDOFF` blocks pile up in a shift report:
+- [ ] B41 — targeted request counters: `add` and every `--source` ingest write provider_requests_used samples; `rusterm budget` and `status --json` show the real spend — accept: after add+ingest budget names a number greater than zero and equal to the requests actually made — size: M — **выдан ТЗ-64 J1**
+- [ ] B42 — provenance in the CLI export: `--format json` carries lineage document and hash per measure, like the desktop export — accept: no measure with a value leaves the export without provenance — size: M — **выдан ТЗ-64 J2**
+- [ ] B43 — price advice in refusals: `missing_data: price_close` carries a runnable `ingest --source twelvedata` line, substituted from constants — accept: the line parses with the CLI parser — size: S — **выдан ТЗ-64 J3**
+- [ ] B44 — stage progress in ingest: fetch/parse/store with counters — accept: on a live companyfacts run the user sees moving stages instead of 74 silent seconds — size: S — **выдан ТЗ-64 J4**
+- [ ] B45 — «неотображённых концептов: N» explained in words from the core, with map coverage share — accept: the ingest line explains the number instead of scaring — size: S — **выдан ТЗ-64 J5**
+- [ ] B46 — a repeat snapshot on identical inputs does not bump the version (or says «без изменений») — accept: the second run leaves the version unchanged for identical content, a changed input still bumps it — size: M — **выдан ТЗ-64 J5**
+- [ ] B47 — desktop collection for KR names `dart_key_unset` and how to get the key, in the same words as the CLI refusal (ТЗ-61 F4) — accept: the window refusal carries the reason and the substituted instruction line — size: S
+- [ ] B58 — KSPI has 0 of 56 measures valued on the user's real base while ADBE has 40: name the reason in words on screen (foreign filer / taxonomy), not an empty column — accept: the window says why KSPI is empty, from the dictionary — size: M
+- [ ] B59 — all five papers show «без отрасли» in the user's window: the sector never reaches the instrument, so the industry tab can never fill — accept: sector derived from the source (SEC SIC) and the tree groups by it — size: M — **покрыто ТЗ-73 T2**
+- [ ] B66 — the pre-commit hook validates the working tree, not the commit being made (REPORT-84 Disputed 2): an unstaged fix can make a red commit look green — accept: a commit whose staged content is red is refused even when the working tree is green — size: S
+- [ ] B64 — `rusterm watchlist add <id> --ticker T --market M` for a ticker that `add` just refused (TEF: `not_found:TEF`) crashes with `IndexError` at `args.instrument = candidates[0]` instead of a refusal in words — accept: the same call prints «тикер T не найден …» with the ready `rusterm add` line and exits non-zero, no traceback in `logs/app.log` — size: S — **найдено координатором 24.09 при сборе аналогов**
+- [ ] B65 — the free `qwen/qwen3.8-27b:free` (the user's target model) answered 9 of 12 calls with HTTP 429 on 24.09 — upstream congestion, not the daily cap (failures interleaved with successes). Add an ordered fallback: `RUSTERM_LLM_MODEL` first, then `RUSTERM_LLM_FALLBACK_MODEL` (e.g. `z-ai/glm-5.2:free`) on 429 only; never on a refusal or a bad answer — accept: a fake transport returning 429 then 200 yields the second model's answer and names both models in the audit row; a 400 does not fall back — size: M — **эксперимент координатора 24.09**
+- [ ] B63 — the input-side check `_has_non_finite` in `formulas.py` is not pinned on its own: making it return False reds no test, because the output `isfinite` check covers the same cases — accept: a test where the input is non-finite but the output would be finite (e.g. a term multiplied by zero) reds when the input check is disabled — size: S — **приёмка ТЗ-82**
+- [ ] B62 — a sqlite file with no `schema_version` table (not a RusTerm base) still raises in the window's sidebar (`sidebar_companies`) — accept: `open_readonly` treats it as «no base to read» and the window says so in words — size: S — **Disputed ТЗ-95**
+- [ ] B61 — `rusterm init` in a fresh directory creates the base in `~/.rusterm`, not where the user stands (rule 3 of `resolve_root` needs `./rusterm.db`, which `init` is about to create) — accept: `init` without `--root` creates in the current directory or says which rule it used and how to choose — size: S — **Disputed ТЗ-90 A5**
+- [ ] B55 — a guard must not depend on how many rounds passed since it was written: slice live git history by round number, never by head position (`_log_from_top_marker` pinned to the newest marker went red one round after it was written) — accept: appending N synthetic relay markers on top of the live log does not change the guard's verdict — size: S — **выдан ТЗ-80 A1**
+- [ ] B56 — `relay.py hand` refusing on red acceptance prints only the phrase; three rounds in a row the review started by digging for the failing test — accept: the refusal names the `FAILED …` lines and the path to the full log, with `acceptance.sh` untouched — size: S — **выдан ТЗ-80 A2**
+- [ ] B57 — `test_i5_staged_and_authorised_widening_is_green` fails in a linked worktree (and on uncommitted coordinator files) while a normal clone on the same commit is green — accept: the cause is measured and quoted, and the test either passes in both environments or skips with a reason naming the environment — size: M — **выдан ТЗ-80 A3**
+- [ ] B54 — a `РАЗРЕШЕНО ПРАВИТЬ` line that `agent/p6_rule.sh` cannot parse silently revokes the permission (TASK-76/77/78 wrote it as a markdown bullet with backticks; the rule greps `'^РАЗРЕШЕНО ПРАВИТЬ:'` plus a bare path) — accept: a guard reds on the markdown form and names the line — size: S — **найдено исполнителем, ТЗ-78; выдан ТЗ-79 Z2**
+- [ ] B52 — L3 is not bounded by the round: `_git_log_name_only()` scans the whole branch, so a repeated item id (`W3`) is satisfied by a TASK-53-era commit. Bound it the way G4 already is (`_commit_for_items(ids, round)`) — accept: an item closed only by an earlier round's commit is reported missing — size: S — **найдено исполнителем, ТЗ-76; выдан ТЗ-78 Y1**
+- [ ] B53 — Verizon's shares route: the payload carries `dei:EntityCommonStockSharesOutstanding` and `CommonStockSharesIssued` − `TreasuryStockCommonShares`, not `CommonStockSharesOutstanding` — accept: `shares_outstanding` gets a value on the committed VZ fixture and the per-share measures come alive, with the route chosen by a stated rule — size: M — **выдан ТЗ-78 Y2**
+- [ ] B49 — the add-dialog failure path opens a REAL modal `QMessageBox.warning`; an unresolved ticker hangs a headless run for minutes (measured in round 100: a 25s+ sample sat in `QDialog::exec`). Route the desktop's modals through one injectable seat so an offscreen run cannot block — accept: a headless press of «добавить» on an unresolvable ticker returns within a second and names the refusal, with no test-only patching of `QMessageBox` — size: M — **найдено исполнителем, ТЗ-75 S1**
+- [ ] B50 — a measure's history year must come from the measure's period, not the snapshot's `as_of` (a base rebuilt today collapses all history into the current year) — accept: a snapshot taken in 2026 for a 2024 period lands in the 2024 column — size: M — **выдан ТЗ-76 W3**
+- [ ] B51 — the desktop data layer's dictionary shapes are asserted on real data, so a fix that stops at the model never again misses the screen — accept: the guard reds when `measure_table_rows` is returned to `history[мера][год]` — size: M — **выдан ТЗ-76 W4**
+- [ ] B48 — the first-hour scenario becomes a marked test: the measured path (init → add → ingest → snapshot → window → export) runs end to end and prints its own timings — accept: `pytest -m firsthour` passes and the numbers land in the report; default collection deselects it — size: M
+
+- [ ] B60 (координаторский — исполнителю не выдаётся; пользователь, 23.09) — after TASK-94: commit everything, fast-forward `main` from `agent/night-11`, delete dead branches and worktrees, prune old `agent/` files — accept: `agent/CLEANUP.md` K1–K5 «Готово, когда» all hold, acceptance on `main` 13/0 — size: M
+
+- [ ] B38 (координаторский — правит agent/PROTOCOL.md §5, исполнителю не выдаётся) — the interim `## HANDOFF` blocks pile up in a shift report:
   `REPORT-45.md` ends with two of them and a reader must know that the
   second supersedes the first. Once TASK-46 N1 makes the guard read the
   last one, collapse the convention into one line in `agent/PROTOCOL.md`
@@ -248,7 +276,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   `## HANDOFF (FINAL)` — accept: `grep -c '^## HANDOFF' agent/REPORT-46.md`
   is the number of passes, and the guard names the final block — size: S
 
-- [ ] B37 — `agent/selfcheck.sh` leaks its guard temp dir: the
+- [x] B37 — закрыта ТЗ-50 T6, коммит adad2e5; перепроверена 71d6fa9. Исходная формулировка: — `agent/selfcheck.sh` leaks its guard temp dir: the
   `mktemp -d` for the extracted `p1_rule.sh`/`p6_rule.sh` copies (TASK-37
   I5) has no trap, and the later `trap ... EXIT` for the acceptance file
   would replace one anyway — so every selfcheck run, i.e. every commit,
@@ -257,7 +285,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   `ls -d "${TMPDIR:-/tmp}"/selfcheck-guards.* 2>/dev/null` prints
   nothing — size: S
 
-- [ ] B36 — the M5 live model path, implemented behind the `live`
+- [x] B36 — закрыта ТЗ-58 C2, коммит eaa91d7 (живая модель под гвардом цитат; принято кругом 72). Исходная формулировка: — the M5 live model path, implemented behind the `live`
   marker (debt guarded by the TASK-9 V7 tripwire, which on 13.09.2026
   became a `live`-marked test instead of a default-run failure, see
   TASK-29 A3): a real model answers through the read-only tools with
@@ -265,7 +293,7 @@ A parallel lane may take one **only inside its own zone** (ADR-0012 §2).
   executes nothing (the TASK-7 T16 contract) — accept:
   `python3 -m pytest -m live tests/test_llm_real.py` with the key set
   is green — size: M
-- [ ] B34 — the OTC universe drift (12,794 live vs 12,867 in
+- [x] B34 — закрыта ТЗ-56, коммит 71d6fa9 — полоса допуска и даты живого счёта в agent/REPORT-MARKETS.md. Исходная формулировка: — the OTC universe drift (12,794 live vs 12,867 in
   `agent/REPORT-MARKETS.md`) gets a written tolerance instead of a
   finding repeated every night — accept: REPORT-MARKETS states the
   tolerance band and the date of the last live count — size: S

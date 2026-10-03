@@ -106,11 +106,64 @@ class InstrumentRepo:
         ).fetchone()
         return Instrument(*row) if row else None
 
+    def list_instruments(self) -> List[str]:
+        """Все instrument-id справочника: окно без списков наблюдения
+        показывает инструменты базы (ТЗ-75 S4), а не пустоту. SQL в
+        слое хранилища — приёмка, пункт 7."""
+        rows = self.conn.execute(
+            "SELECT instrument_id FROM instrument ORDER BY instrument_id"
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def issuer_count(self) -> int:
         """Эмитентов в локальной базе (ТЗ-21 H1: markets показывает
         счётчик; SQL живёт в слое хранилища — приёмка, пункт 7)."""
         return self.conn.execute(
             "SELECT COUNT(*) FROM issuer").fetchone()[0]
+
+    def channel_degrees(self) -> Dict[str, str]:
+        """Степень канала по рынку из того, что канал произвёл в этой
+        базе (ТЗ-60 E4): «меры» / «факты» / «сырьё», ничего — «—».
+        Считается, а не записывается: рынок без единого факта не может
+        показать «факты». Опоры: меры — инструменты рынка (префикс
+        instrument_id до «-», как в реестре пиров), факты — по
+        провайдеру источника факта (fact.source_ref → raw_object:
+        факт ручного импорта — работа пользователя, не канала),
+        сырьё — провайдер канала в raw_object. Слова одни с
+        `rusterm markets` и окном. SQL живёт в слое хранилища
+        (приёмка, пункт 7)."""
+        from rusterm.markets import MARKETS
+        degrees: Dict[str, str] = {}
+        for m in MARKETS:
+            prefix = m.code + "-%"
+            has_measures = self.conn.execute(
+                """SELECT EXISTS(SELECT 1 FROM measure
+                   JOIN snapshot ON measure.snapshot_id =
+                        snapshot.snapshot_id
+                   JOIN instrument ON snapshot.instrument_id =
+                        instrument.instrument_id
+                   WHERE instrument.instrument_id = ?
+                      OR instrument.instrument_id LIKE ?)""",
+                (m.code, prefix)).fetchone()[0]
+            if has_measures:
+                degrees[m.code] = "меры"
+                continue
+            has_facts = self.conn.execute(
+                """SELECT EXISTS(SELECT 1 FROM fact
+                   JOIN raw_object ON fact.source_ref =
+                        raw_object.sha256
+                   WHERE raw_object.provider = ?
+                     AND fact.superseded_by IS NULL)""",
+                (m.provider,)).fetchone()[0]
+            if has_facts:
+                degrees[m.code] = "факты"
+                continue
+            has_raw = self.conn.execute(
+                "SELECT EXISTS(SELECT 1 FROM raw_object WHERE provider = ?)",
+                (m.provider,)).fetchone()[0]
+            if has_raw:
+                degrees[m.code] = "сырьё"
+        return degrees
 
     def upsert_listing(self, listing: Listing) -> None:
         with writer_transaction(self.conn) as c:
@@ -355,7 +408,9 @@ class FactRepo:
     def count_for_issuer_concept(self, issuer_id: str, concept: str) -> int:
         """Сколько фактов концепта у эмитента (для flag_parser)."""
         return self.conn.execute(
-            "SELECT COUNT(*) FROM fact WHERE issuer_id=? AND concept=?",
+            "SELECT COUNT(*) FROM fact"
+            " WHERE issuer_id=? AND concept=?"
+            " AND superseded_by IS NULL",
             (issuer_id, concept)).fetchone()[0]
 
     def mark_superseded(self, old_fact_id: str, new_fact_id: str) -> None:
@@ -364,6 +419,89 @@ class FactRepo:
                 "UPDATE fact SET superseded_by = ? WHERE fact_id = ?",
                 (new_fact_id, old_fact_id),
             )
+
+    def mark_superseded_rows(self, pairs: List[tuple]) -> int:
+        """Пакетное вытеснение по (old_fact_id, new_fact_id) — прогон
+        reparse помечает уже сохранённые дубли, которыми новое правило
+        дедупликации их считает (TASK-92 C1). Идемпотентно: строка, где
+        победитель уже записан такой же, не меняется и не считается."""
+        if not pairs:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany(
+                """UPDATE fact SET superseded_by = ?
+                   WHERE fact_id = ? AND superseded_by IS NOT ?""",
+                [(new, old, new) for old, new in pairs])
+            return self.conn.total_changes - before
+
+    def basis_by_pointer(self, source_ref: str) -> Dict[str, tuple]:
+        """{json_pointer: (fact_id, basis)} фактов одного сырого объекта —
+        сверка с повторным разбором (починка basis после регрессии ТЗ-78
+        Y2). fact_id — чтобы обновление шло по первичному ключу, а не
+        сканом таблицы по json_extract."""
+        rows = self.conn.execute(
+            "SELECT json_extract(locator, '$.json_pointer'), fact_id, basis "
+            "FROM fact WHERE source_ref = ?", (source_ref,)).fetchall()
+        return {p: (fid, b) for p, fid, b in rows if p is not None}
+
+    def update_basis(self, changes: List[tuple]) -> int:
+        """Меняет ТОЛЬКО basis по (fact_id, basis). Значение, период и
+        происхождение не трогаются. Возвращает число изменённых строк."""
+        if not changes:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany("UPDATE fact SET basis = ? WHERE fact_id = ?",
+                          [(basis, fid) for fid, basis in changes])
+            return self.conn.total_changes - before
+
+    def unmapped_concepts(self) -> List[tuple]:
+        """Различные теги фактов без канонического имени: (concept,
+        число фактов) — вход для `rusterm remap`."""
+        return [tuple(r) for r in self.conn.execute(
+            """SELECT concept, COUNT(*) FROM fact
+               WHERE canonical_concept IS NULL GROUP BY concept""")]
+
+    def fill_canonical(self, mapping: Dict[str, tuple]) -> int:
+        """Заполняет canonical_concept/concept_map_version ТОЛЬКО там, где
+        его нет (тег был вне карты на момент загрузки). Уже отображённые
+        факты не переназначаются; значение, период и происхождение не
+        трогаются. mapping: concept -> (canonical, map_version)."""
+        if not mapping:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany(
+                """UPDATE fact SET canonical_concept = ?,
+                          concept_map_version = ?
+                   WHERE concept = ? AND canonical_concept IS NULL""",
+                [(canon, version, concept)
+                 for concept, (canon, version) in mapping.items()])
+            return self.conn.total_changes - before
+
+    def companyfacts_objects(self) -> List[sqlite3.Row]:
+        """(sha256, instrument_id) ВСЕХ сохранённых companyfacts.
+
+        ТЗ-97 Q12 (6): прежняя выборка отдавала только те объекты, из
+        которых хоть один факт уже разобран, — то есть объект без единого
+        факта не разбирался никогда. Массовое же состояние базы
+        пользователя (замер 26.09 на копии: 7 объектов из 44 без
+        dei-строк, ответов от 21.09) пропускалось другим: прежний прогон
+        правил у сохранённых фактов только basis, а сбор не трогает ответ,
+        который уже скачан (дедупликация по sha256).
+        """
+        return self.conn.execute(
+            "SELECT r.sha256, r.instrument_id FROM raw_object r "
+            "WHERE r.provider = 'edgar' AND r.url LIKE '%/companyfacts/%' "
+            "ORDER BY r.sha256").fetchall()
+
+    def count_for_source(self, source_ref: str) -> int:
+        """Сколько фактов ссылается на сырой объект — нужно там, где
+        указатели в локаторах не работают (см. reparse)."""
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM fact WHERE source_ref = ?",
+            (source_ref,)).fetchone()[0]
 
 
 class SnapshotRepo:
@@ -418,11 +556,39 @@ class SnapshotRepo:
                 "status": row[7]}
 
     def latest_snapshot_id(self, instrument_id: str) -> Optional[str]:
+        """Последний ГОТОВЫЙ снапшот: строка версии, сборка которой ещё
+        идёт (или сорвалась), читателю не показывается (ТЗ-90 A3)."""
         row = self.conn.execute(
             """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
-               ORDER BY version DESC LIMIT 1""",
+               AND status='ready' ORDER BY version DESC LIMIT 1""",
             (instrument_id,)).fetchone()
         return row[0] if row else None
+
+    def set_status(self, snapshot_id: str, status: str) -> None:
+        """Единственная правка строки снапшота: building -> ready в
+        конце сборки (ТЗ-90 A3). snapshot.status без CHECK — миграция
+        не нужна."""
+        with writer_transaction(self.conn) as c:
+            c.execute("UPDATE snapshot SET status=? WHERE snapshot_id=?",
+                      (status, snapshot_id))
+
+    def delete_snapshot(self, snapshot_id: str) -> None:
+        """Полное удаление строк одной сборки: cascade в схеме нет
+        (db.py: snapshot_block/measure ссылаются без ON DELETE), а
+        measure_lineage ссылается на measure, поэтому порядок
+        фиксирован и всё уходит одной транзакцией (ТЗ-90 A3: сорванная
+        сборка не оставляет половину снапшота)."""
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                """DELETE FROM measure_lineage WHERE measure_id IN
+                   (SELECT measure_id FROM measure WHERE snapshot_id=?)""",
+                (snapshot_id,))
+            c.execute("DELETE FROM measure WHERE snapshot_id=?",
+                      (snapshot_id,))
+            c.execute("DELETE FROM snapshot_block WHERE snapshot_id=?",
+                      (snapshot_id,))
+            c.execute("DELETE FROM snapshot WHERE snapshot_id=?",
+                      (snapshot_id,))
 
     def max_version(self, instrument_id: str) -> int:
         row = self.conn.execute(
@@ -441,12 +607,121 @@ class SnapshotRepo:
         keys = ("instrument_id", "snapshot_id", "version", "as_of")
         return [dict(zip(keys, r)) for r in rows]
 
-    def previous_snapshot(self, instrument_id: str) -> Optional[str]:
-        """Предпоследняя версия: база для diff текущей сборки."""
-        row = self.conn.execute(
-            """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
-               ORDER BY version DESC LIMIT 1 OFFSET 1""",
-            (instrument_id,)).fetchone()
+    def snapshots_of_instrument(self, instrument_id: str) -> list:
+        """Все снапшоты инструмента по возрастанию версии: история мер
+        по годам (ТЗ-75 V1) идёт по ним, а не по одному последнему."""
+        rows = self.conn.execute(
+            """SELECT instrument_id, snapshot_id, version, as_of
+               FROM snapshot WHERE instrument_id=? ORDER BY version""",
+            (instrument_id,)).fetchall()
+        keys = ("instrument_id", "snapshot_id", "version", "as_of")
+        return [dict(zip(keys, r)) for r in rows]
+
+    def latest_annual_fact(self, issuer_id: str, canonical: str,
+                           min_days: int = 350, max_days: int = 380,
+                           as_of: Optional[str] = None) -> Optional[tuple]:
+        """ТЗ-69 P1: свежайший годовой факт по каноническим тегам входа,
+        любой честный basis (as_reported или restated). Знаменатель
+        поток-меры: квартальный поток в годовой мере — выдумка. SQL в слое
+        хранилища.
+
+        ТЗ-91 B4: «годовой» — коридор 350..380 дней, тот же, что у общего
+        годового периода (`_annual_common_period`, ТЗ-31 C2) и у
+        `rusterm.core.ttm.is_annual_window`, — а не «любое окно >= 300»:
+        двухлетний кумулятив давал знаменатель из двух лет при числителе
+        за один. Дверь `as_of`: период, кончившийся позже даты сборки, ещё
+        не закрыт (ТЗ-22 J3); без as_of фильтр не ставится — то же
+        соглашение, что у первого прохода."""
+        import datetime as _dt
+        # каноническое имя входа живёт в canonical_concept (карта
+        # концептов применяется при разборе), а не в сыром теге
+        rows = self.conn.execute(
+            """SELECT value, period_end, currency, fact_id, period_start
+               FROM fact WHERE issuer_id=? AND canonical_concept=?
+               AND status='ok' AND value IS NOT NULL
+               AND superseded_by IS NULL
+               AND (? IS NULL OR period_end <= ?)
+               ORDER BY period_end DESC LIMIT 200""",
+            (issuer_id, canonical, as_of, as_of)).fetchall()
+        best = None
+        for value, end, currency, fact_id, start in rows:
+            if not start or not end:
+                continue
+            try:
+                numeric = float(value)
+                length = (_dt.date.fromisoformat(end)
+                          - _dt.date.fromisoformat(start)).days
+            except (TypeError, ValueError):
+                continue
+            if not min_days <= length <= max_days:
+                continue
+            if best is None or end > best[1]:
+                best = (numeric, end, currency, fact_id, start, length)
+        return best
+
+    def annual_period_ends(self, issuer_id: str,
+                           concepts: tuple = ("revenue", "net_income"),
+                           min_days: int = 350,
+                           max_days: int = 380) -> list[str]:
+        """ТЗ-107 V1: концы финансовых лет эмитента — по годовым
+        (350..380 дней) потокам выручки и чистой прибыли, новые первыми.
+        Источник дат для пересборки истории по годам."""
+        import datetime as _dt
+        marks = ",".join("?" for _ in concepts)
+        rows = self.conn.execute(
+            f"""SELECT DISTINCT period_start, period_end FROM fact
+               WHERE issuer_id=? AND canonical_concept IN ({marks})
+               AND status='ok' AND value IS NOT NULL
+               AND superseded_by IS NULL
+               AND period_start IS NOT NULL AND period_end IS NOT NULL""",
+            (issuer_id, *concepts)).fetchall()
+        ends = set()
+        for start, end in rows:
+            try:
+                length = (_dt.date.fromisoformat(end)
+                          - _dt.date.fromisoformat(start)).days
+            except (TypeError, ValueError):
+                continue
+            if min_days <= length <= max_days:
+                ends.add(end)
+        return sorted(ends, reverse=True)
+
+    def duration_facts(self, issuer_id: str, canonical: str,
+                       limit: int = 200) -> list:
+        """Свежайшие факты-потоки по каноническому концепту, любой
+        честный basis: (value, period_start, period_end, currency,
+        fact_id), новые первыми. Сборка квартального TTM в ядре."""
+        return self.conn.execute(
+            """SELECT value, period_start, period_end, currency, fact_id
+               FROM fact WHERE issuer_id=? AND canonical_concept=?
+               AND status='ok' AND value IS NOT NULL
+               AND superseded_by IS NULL
+               AND period_start IS NOT NULL
+               ORDER BY period_end DESC, ingested_at DESC LIMIT ?""",
+            (issuer_id, canonical, limit)).fetchall()
+
+    def previous_snapshot(self, instrument_id: str,
+                          before_version: Optional[int] = None) -> Optional[str]:
+        """Предпоследняя ГОТОВАЯ версия: база для diff текущей сборки.
+
+        before_version — версия идущей сборки: её строка к этому
+        моменту уже в базе (со статусом building, ТЗ-90 A3), поэтому
+        «предыдущая» выбирается по номеру, а не OFFSET 1 — иначе через
+        строку сборки перескок уехал бы на готовую версию раньше.
+        Без версии (вызов вне сборки) прежнее OFFSET 1 по ready-строкам.
+        """
+        if before_version is not None:
+            row = self.conn.execute(
+                """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
+                   AND status='ready' AND version<?
+                   ORDER BY version DESC LIMIT 1""",
+                (instrument_id, before_version)).fetchone()
+        else:
+            row = self.conn.execute(
+                """SELECT snapshot_id FROM snapshot WHERE instrument_id=?
+                   AND status='ready' ORDER BY version DESC
+                   LIMIT 1 OFFSET 1""",
+                (instrument_id,)).fetchone()
         return row[0] if row else None
 
     def restated_revisions(self, issuer_id: str) -> list:
@@ -456,11 +731,14 @@ class SnapshotRepo:
         должно)."""
         return self.conn.execute(
             """SELECT f.concept, f.period_end FROM fact f
-               WHERE f.issuer_id=? AND f.basis='restated' AND EXISTS (
+               WHERE f.issuer_id=? AND f.basis='restated'
+                 AND f.superseded_by IS NULL
+                 AND EXISTS (
                      SELECT 1 FROM fact a
                      WHERE a.issuer_id=f.issuer_id AND a.concept=f.concept
                        AND a.period_end=f.period_end
-                       AND a.basis='as_reported')""",
+                       AND a.basis='as_reported'
+                       AND a.superseded_by IS NULL)""",
             (issuer_id,)
         ).fetchall()
 
@@ -483,6 +761,40 @@ class SnapshotRepo:
         return [dict(zip(("instrument_id", "ex_date", "kind", "role"),
                          r)) for r in rows]
 
+    def period_marks(self, measure_id: str) -> List[str]:
+        """Пометки базы периода меры (ТЗ-97 Q10, ADR-0025): роли строк
+        lineage, помеченных годовым запасным вместо TTM. Выборка идёт по
+        period_basis, а не по подстроке роли: текст пометки — дело ядра,
+        а ограничение схемы — факт, который нельзя перевести и потерять.
+        Панель окна и `rusterm snapshot` показывают входные документы, а
+        «мера считана годовым» живёт только здесь."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT role FROM measure_lineage
+               WHERE measure_id=?
+                 AND period_basis='annual_fallback' ORDER BY role""",
+            (measure_id,)).fetchall()
+        return [r[0] for r in rows]
+
+    def percentile_base_concept(self, measure_id: str) -> Optional[str]:
+        """К какой мере относится строка перцентиля: концепт мер пиров
+        из её lineage. Строка «percentile» без этого имени в окне
+        повторялась восемь раз подряд и ничего не говорила."""
+        row = self.conn.execute(
+            """SELECT m.concept FROM measure_lineage l
+               JOIN measure m ON m.measure_id = l.peer_measure_id
+               WHERE l.measure_id=? AND l.peer_measure_id IS NOT NULL
+               LIMIT 1""", (measure_id,)).fetchone()
+        return row[0] if row else None
+
+    def lineage_roles(self, measure_id: str) -> List[str]:
+        """Все роли строк lineage меры. ТЗ-97 Q8: пометка «пир вне окна
+        периодов» живёт именно в роли — у читателя отказа перцентиля
+        должно быть имя и период, а не догадка о составе набора."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT role FROM measure_lineage WHERE measure_id=?"
+            " ORDER BY role", (measure_id,)).fetchall()
+        return [r[0] for r in rows]
+
     def instruments_for_fact(self, fact_id: str) -> List[str]:
         """Инструменты, чьи снапшоты содержат меры с lineage,
         ссылающимся на факт (процесс 5, узел recompute)."""
@@ -493,6 +805,23 @@ class SnapshotRepo:
                JOIN snapshot s ON s.snapshot_id = m.snapshot_id
                WHERE ml.fact_id = ?""",
             (fact_id,)).fetchall()
+        return [r[0] for r in rows]
+
+    def unmapped_current_investments(self, issuer_id: str,
+                                     period_end: str) -> List[str]:
+        """Теги без канонического имени на дату баланса, похожие на
+        текущие вложения (…Investments…Current, MarketableSecurities…,
+        AvailableForSale…Current): страж правила нулевых вложений."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT concept FROM fact
+               WHERE issuer_id=? AND period_end=? AND status='ok'
+                 AND canonical_concept IS NULL
+                 AND ((concept LIKE '%Investments%Current%'
+                       AND concept NOT LIKE '%Noncurrent%')
+                      OR concept LIKE '%MarketableSecurities%Current%'
+                      OR (concept LIKE '%AvailableForSale%Current%'
+                          AND concept NOT LIKE '%Noncurrent%'))""",
+            (issuer_id, period_end)).fetchall()
         return [r[0] for r in rows]
 
     def as_reported_facts(self, issuer_id: str, concepts: tuple) -> list:
@@ -506,8 +835,41 @@ class SnapshotRepo:
                        period_end, canonical_concept
                 FROM fact
                 WHERE issuer_id=? AND basis='as_reported' AND status='ok'
+                  AND superseded_by IS NULL
                   AND canonical_concept IN ({placeholders})
                 ORDER BY period_end DESC, ingested_at DESC""",
+            (issuer_id, *concepts)).fetchall()
+
+    def dominant_filing_currency(self, issuer_id: str) -> Optional[str]:
+        """ТЗ-104 P2: доминирующая валюта подачи эмитента — той же
+        выборкой пользуется и presentation мер, и
+        `issuer.reporting_currency` (см. модульную
+        `dominant_filing_currency`)."""
+        return dominant_filing_currency(self.conn, issuer_id)
+
+    def restated_stock_facts(self, issuer_id: str, concepts: tuple) -> list:
+        """Мгновенные факты сток-концептов в базисе restated — вместе с
+        подачей, из которой они прочитаны (ТЗ-102 M3).
+
+        Годовой баланс эмитент повторяет в следующем отчёте сравнительной
+        колонкой, и разборщик ставит повторенному факту basis='restated'
+        (`determine_basis`: период документа позже периода факта) — поэтому
+        на годовых границах TTM-окна as_reported-стока ровно на его дату и
+        нет. Отбор по дате делает вызывающий, а не SQL: подстановка другой
+        даты запрещена правилом M3, и пусть эта граница останется одной
+        строкой в коде."""
+        placeholders = ",".join("?" * len(concepts))
+        return self.conn.execute(
+            f"""SELECT f.concept, f.value, f.fact_id, f.unit,
+                       f.period_start, f.period_end, f.canonical_concept,
+                       r.url
+                FROM fact f
+                LEFT JOIN raw_object r ON r.sha256 = f.source_ref
+                WHERE f.issuer_id=? AND f.basis='restated'
+                  AND f.status='ok' AND f.period_type='instant'
+                  AND f.superseded_by IS NULL
+                  AND f.canonical_concept IN ({placeholders})
+                ORDER BY f.period_end DESC, f.ingested_at DESC""",
             (issuer_id, *concepts)).fetchall()
 
     def insert_measure(self,
@@ -545,13 +907,28 @@ class SnapshotRepo:
         решает страж (смешение записанной валюты с пустотой — отказ).
         ТЗ-23 K4/K6: у оценочных мер (market_cap_total, ev) цена не
         факт, валюта живёт в unit меры — трёхбуквенный unit добавляется
-        к набору тем же правилом currency_of_unit."""
+        к набору тем же правилом currency_of_unit.
+        ТЗ-104 P5: пустоту в набор несёт только тот вход, у которого
+        валюта бывает по единице (unit — три буквы), то есть денежный
+        факт, потерявший `currency`. Факт числа акций (`shares`), доля
+        (`pure`), котировка на акцию (`USD/shares`) валюты не имеют
+        вовсе — их пустая `currency` не сторона валютного спора. До
+        этого строка меры с ценой отказывала на собственных акциях:
+        `currency_mismatch: USD, (blank)`."""
         rows = self.conn.execute(
-            """SELECT DISTINCT f.currency FROM measure_lineage l
+            """SELECT DISTINCT f.currency, f.unit FROM measure_lineage l
                JOIN fact f ON f.fact_id = l.fact_id
-               WHERE l.measure_id = ?""", (measure_id,)).fetchall()
-        out = {(r[0] or "") for r in rows}
+               WHERE l.measure_id = ?
+                 AND f.superseded_by IS NULL""", (measure_id,)).fetchall()
         from rusterm.core.fact import currency_of_unit
+        out: set[str] = set()
+        for currency, fact_unit in rows:
+            if currency:
+                out.add(currency)
+            elif currency_of_unit(fact_unit):
+                # денежный вход без записанной валюты — пустая сторона
+                # смешения (ТЗ-22 J1.0), а не «вход без отношения»
+                out.add("")
         unit = self.conn.execute(
             "SELECT unit FROM measure WHERE measure_id=?",
             (measure_id,)).fetchone()
@@ -639,6 +1016,15 @@ class SnapshotRepo:
                  measure.get("method_version"), null_reason,
                  measure.get("peer_set_version")))
             for l in lineage:
+                # ADR-0029: отрезок ряда цен — своя таблица (миграция 48)
+                if l.get("price_instrument_id") is not None:
+                    c.execute(
+                        """INSERT INTO measure_lineage_price(measure_id,
+                          instrument_id, date_from, date_to, role)
+                          VALUES (?, ?, ?, ?, ?)""",
+                        (measure["measure_id"], l["price_instrument_id"],
+                         l["date_from"], l["date_to"], l["role"]))
+                    continue
                 # ТЗ-32 D6: period_basis (ttm|annual) — база периода
                 # входа, NULL для прямого однопериодного
                 if l.get("ca_instrument_id") is not None:
@@ -784,7 +1170,8 @@ class PeerSetRepo:
                JOIN instrument i ON i.instrument_id = m.instrument_id
                JOIN fact f ON f.issuer_id = i.issuer_id
                WHERE m.peer_set_version_id=?
-                 AND f.currency IS NOT NULL""",
+                 AND f.currency IS NOT NULL
+                 AND f.superseded_by IS NULL""",
             (peer_set_version_id,)).fetchall()})
         return {"markets": markets, "currencies": currencies,
                 "members": sorted(members),
@@ -808,6 +1195,38 @@ class PeerSetRepo:
             entry.update(self.composition(row[0]))
             out.append(entry)
         return out
+
+    def open_version(self, peer_set_id: str) -> Optional[dict]:
+        """Действующая версия набора (valid_to IS NULL) с составом —
+        чтобы новая версия закрывала старую, а не накрывала ту же дату
+        (координатор, ТЗ-73 T2)."""
+        row = self.conn.execute(
+            """SELECT peer_set_version_id, version, valid_from, origin,
+                      approved_by_user
+               FROM peer_set_version
+               WHERE peer_set_id=? AND valid_to IS NULL
+               ORDER BY version DESC LIMIT 1""", (peer_set_id,)).fetchone()
+        if row is None:
+            return None
+        members = {r[0] for r in self.conn.execute(
+            "SELECT instrument_id FROM peer_set_member "
+            "WHERE peer_set_version_id=?", (row[0],))}
+        return {"peer_set_version_id": row[0], "version": row[1],
+                "valid_from": row[2], "origin": row[3],
+                "approved": bool(row[4]), "members": members}
+
+    def max_version_of(self, peer_set_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT MAX(version) FROM peer_set_version WHERE peer_set_id=?",
+            (peer_set_id,)).fetchone()
+        return int(row[0] or 0)
+
+    def close_version(self, peer_set_version_id: str, valid_to: str) -> None:
+        with writer_transaction(self.conn) as c:
+            c.execute(
+                "UPDATE peer_set_version SET valid_to=? "
+                "WHERE peer_set_version_id=? AND valid_to IS NULL",
+                (valid_to, peer_set_version_id))
 
     def version_at(self, peer_set_id: str, as_of: str) -> Optional[dict]:
         """Версия, чей интервал [valid_from, valid_to) покрывает дату
@@ -1014,17 +1433,22 @@ class WatchlistRepo:
 
     def copy_members_except(self, source_version_id: str,
                             target_version_id: str,
-                            instrument_id: str) -> int:
-        """Полный новый состав без одного инструмента (удаление из
-        состава — тоже новая версия). Возвращает число перенесённых."""
+                            instrument_id: str | list[str]) -> int:
+        """Полный новый состав без перечисленных инструментов (ТЗ-62
+        G2: одна дверь для одиночного и массового удаления — строка
+        или список). Возвращает число перенесённых."""
+        excluded = ([instrument_id] if isinstance(instrument_id, str)
+                    else list(instrument_id))
+        placeholders = ",".join("?" * len(excluded))
         with writer_transaction(self.conn) as c:
             cur = c.execute(
-                """INSERT INTO watchlist_member(watchlist_version_id,
+                f"""INSERT INTO watchlist_member(watchlist_version_id,
                   instrument_id, note, added_at)
                   SELECT ?, instrument_id, note, added_at
                   FROM watchlist_member
-                  WHERE watchlist_version_id=? AND instrument_id <> ?""",
-                (target_version_id, source_version_id, instrument_id))
+                  WHERE watchlist_version_id=?
+                    AND instrument_id NOT IN ({placeholders})""",
+                (target_version_id, source_version_id, *excluded))
             return cur.rowcount
 
     def create_version_with_members(self, watchlist_id: str,
@@ -1228,6 +1652,92 @@ class JobRepo:
         return {"status": row[0], "reason": row[1]}
 
 
+def dominant_filing_currency(conn: sqlite3.Connection,
+                             issuer_id: str) -> Optional[str]:
+    """ТЗ-104 P2: валюта подачи эмитента — unit с наибольшим числом
+    денежных фактов; при равенстве — наименьшая по алфавиту (Disputed
+    5/23).
+
+    Денежным считается факт с unit из трёх заглавных букв — то же
+    правило, что у `core.fact.currency_of_unit` (`^[A-Z]{3}$`), поэтому
+    `shares`, `pure` и `USD/shares` в голосе не участвуют. По колонке
+    `currency` не считаем: у строк, разобранных до J1.0, он пуст, а
+    подавались они в своей валюте. Базис не фильтруется: повтор периода
+    сравнительной колонкой — тоже подача в той же валюте, а починка
+    basis (пересборка) валюту строки не меняет, и доминирующая валюта не
+    обязана подпрыгивать от того, что пересборка передвинула строку
+    между базами.
+    """
+    row = conn.execute(
+        """SELECT unit FROM fact
+           WHERE issuer_id=? AND status='ok'
+             AND superseded_by IS NULL
+             AND unit GLOB '[A-Z][A-Z][A-Z]'
+           GROUP BY unit ORDER BY COUNT(*) DESC, unit ASC LIMIT 1""",
+        (issuer_id,)).fetchone()
+    return row[0] if row else None
+
+
+def _apply_reporting_currency(c, issuer_id: str) -> None:
+    """Записать эмитенту доминирующую валюту подачи. Курсор, а не
+    соединение: функция вызывается изнутри уже открытой транзакции, а
+    `writer_transaction` вложенным не бывает."""
+    dominant = dominant_filing_currency(c, issuer_id)
+    if dominant is None:
+        # Денежных фактов нет — выдуманную валюту не пишем: остаётся то,
+        # чем эмитента завели в реестре.
+        return
+    c.execute("""UPDATE issuer SET reporting_currency=?
+                 WHERE issuer_id=? AND reporting_currency<>?""",
+              (dominant, issuer_id, dominant))
+
+
+def refresh_reporting_currency(conn: sqlite3.Connection,
+                               issuer_id: str) -> None:
+    """ТЗ-104 P2: перевыбрать `issuer.reporting_currency` для эмитента,
+    которого прогон не трогал.
+
+    `persist_ingestion_results` обновляет колонку вместе с фактами, то
+    есть только когда факты есть. На базе, где всё разобрано прежним
+    разборщиком, пересборка не дописывает ни строки — и колонка
+    навсегда остаётся той, чем эмитента завели в реестре (Disputed 23:
+    KSPI с 568 KZT-фактами на копии — USD). Прогон идемпотентен: второй
+    раз `UPDATE` не находит что менять.
+    """
+    with writer_transaction(conn) as c:
+        _apply_reporting_currency(c, issuer_id)
+
+
+def link_superseded(fact_dicts: list[dict],
+                    known: Optional[dict] = None) -> int:
+    """Проигравшим дедупликации ставит `superseded_by` = fact_id победителя.
+
+    Победитель ищется по json_pointer локатора: внутри одного разбора
+    указатель уникален. `known` — {указатель: fact_id} строк, которые уже
+    лежат в базе (прогон reparse связывает новый факт с тем, что
+    сохранено раньше, и наоборот). Строка без победителя остаётся живой:
+    выдумывать ему победителя разбор не вправе (TASK-92 C1).
+
+    У локаторов других разборщиков (`xbrl`, `table`) json_pointer нет и не
+    бывало — такие строки проходят мимо: они не проигравшие.
+    """
+    by_pointer = dict(known or {})
+    for f in fact_dicts:
+        pointer = (f.get("locator") or {}).get("json_pointer")
+        if pointer:
+            by_pointer[pointer] = f["fact_id"]
+    linked = 0
+    for f in fact_dicts:
+        pointer = (f.get("superseded_by_locator") or {}).get("json_pointer")
+        if not pointer:
+            continue
+        winner = by_pointer.get(pointer)
+        if winner and winner != f["fact_id"]:
+            f["superseded_by"] = winner
+            linked += 1
+    return linked
+
+
 def persist_ingestion_results(conn: sqlite3.Connection,
                               fact_dicts: list[dict],
                               coverage_rows: list[tuple]) -> None:
@@ -1236,10 +1746,24 @@ def persist_ingestion_results(conn: sqlite3.Connection,
     полусостояний не остаётся.
 
     fact_dicts — словари факта по data-model.md §3 (как их отдаёт парсер,
-    с добавленным fact_id). coverage_rows — (instrument_id, block, status, reason).
+    с добавленным fact_id). coverage_rows — (instrument_id, block, status,
+    reason).
+
+    Порядок вставки — живые строки первыми: `superseded_by` ссылается на
+    `fact(fact_id)` (FK включён в `open_connection`), а проигравший и его
+    победитель прилетают из одного разбора в произвольном порядке
+    (TASK-92 C1).
+
+    ТЗ-104 P2: здесь же обновляется `issuer.reporting_currency` — тем же
+    правилом, которым снапшот выбирает presentation мер (Disputed 23:
+    KSPI на копии — 568 KZT-фактов при USD в реестре, потому что колонку
+    писал запуск `watch add` и больше её никто не пересчитывал).
     """
     with writer_transaction(conn) as c:
-        for f in fact_dicts:
+        # Живые первыми: на проигравшем висит FK на строку победителя.
+        ordered = sorted(fact_dicts,
+                         key=lambda f: bool(f.get("superseded_by")))
+        for f in ordered:
             c.execute(
                 """INSERT INTO fact(fact_id, issuer_id, listing_id, concept,
                   period_start, period_end, period_type, value, unit, currency,
@@ -1263,6 +1787,9 @@ def persist_ingestion_results(conn: sqlite3.Connection,
                      status=excluded.status, last_update=excluded.last_update,
                      reason=excluded.reason""",
                 (instrument_id, block, status, time.time(), reason))
+        for issuer_id in sorted({f.get("issuer_id") for f in fact_dicts
+                                 if f.get("issuer_id")}):
+            _apply_reporting_currency(c, issuer_id)
 
 
 # Блоки покрытия и их статусы — ровно эти восемь и пять
@@ -1520,6 +2047,21 @@ class MetricsRepo:
         return self.conn.execute(
             "SELECT ts, name, provider, value FROM metric_sample"
             " ORDER BY name").fetchall()
+
+    def requests_used_today(self) -> int:
+        """Сумма провайдерских запросов за местные сегодня (ТЗ-61 F1:
+        агрегат живёт в хранилище, а не в слое окна; rusterm status и
+        шапка окна читают одно число из одной двери)."""
+        import datetime
+        today = datetime.date.today().isoformat()
+        used = 0
+        for ts, name, _provider, value in self.samples():
+            if name != "provider_requests_used":
+                continue
+            day = datetime.datetime.fromtimestamp(ts).date().isoformat()
+            if day == today:
+                used += int(value or 0)
+        return used
 
 
 # Параметры запроса, которые никогда не попадают в журнал (T13):
@@ -1992,6 +2534,17 @@ class ChatTranscriptRepo:
              "tool_calls": json.loads(t[4] or "[]"),
              "rejected": bool(t[5])} for t in turns]
         return session
+
+    def list_sessions(self) -> list:
+        """Перечень прошлых разговоров, свежие сверху (ТЗ-C7.1). При
+        равном started_at порядок задаёт вставка: rowid DESC — иначе два
+        разговора, записанные в один тик часов, меняются местами от
+        прогона к прогону."""
+        return [{"session_id": r[0], "model": r[1],
+                 "instrument_id": r[2], "started_at": r[3],
+                 "calls": r[4]} for r in self.conn.execute(
+            """SELECT session_id, model, instrument_id, started_at, calls
+               FROM chat_transcript ORDER BY started_at DESC, rowid DESC""")]
 
     def calls_totals(self) -> dict:
         """Вызовы по моделям и всего (ТЗ-36 H3): сумма по сессиям."""

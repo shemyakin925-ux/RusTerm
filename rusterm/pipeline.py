@@ -25,7 +25,8 @@ from rusterm.normalize.concepts import (
 )
 from rusterm.providers.base import ProviderError
 from rusterm.providers.disclosures import FetchedDocument, IndexRecord
-from rusterm.store.repos import RepoRegistry, persist_ingestion_results
+from rusterm.store.repos import (RepoRegistry, link_superseded,
+                                 persist_ingestion_results)
 
 # Блок конвейера по типу документа индекса.
 _BLOCK_BY_DOC_TYPE = {
@@ -96,14 +97,15 @@ def _validate_fact(fact: dict, getter: Callable[[str], bytes]) -> list[str]:
 
 def apply_concept_map(fact: dict) -> int:
     """Заполнить canonical_concept/concept_map_version у словаря факта
-    (TASK-9 V0; TASK-18 G3/G4). Возвращает 1, если тег не отобразился
-    (факт остаётся, каноническое имя — NULL: считается, а не
-    выбрасывается). Таксономия берётся из префикса концепта факта
-    (us-gaap/ifrs-full/cvm-dfp — свои карты и свои версии карт)."""
+    (TASK-9 V0; TASK-18 G3/G4; ТЗ-56 Z2; ТЗ-78 Y2). Возвращает 1, если
+    тег не отобразился (факт остаётся, каноническое имя — NULL:
+    считается, а не выбрасывается). Таксономия берётся из префикса
+    концепта факта (us-gaap / ifrs-full / cvm-dfp / dei — свои карты и
+    свои версии карт)."""
     taxonomy, local = strip_taxonomy(fact.get("concept", ""))
     effective = taxonomy or "us-gaap"
     canonical = canonical_for(local, effective) \
-        if effective in ("us-gaap", "ifrs-full", "cvm-dfp") else None
+        if effective in ("us-gaap", "ifrs-full", "cvm-dfp", "dei") else None
     if canonical is not None:
         fact["canonical_concept"] = canonical
         fact["concept_map_version"] = map_version(effective)
@@ -256,7 +258,7 @@ class IngestionPipeline:
         fact_dicts: list[dict] = []
         suspects = 0
         unmapped = 0
-        for f in parsed.facts:
+        for f in parsed.all_facts:
             fact = dict(f)
             fact["fact_id"] = str(uuid4())
             if _validate_fact(fact, getter):
@@ -264,6 +266,9 @@ class IngestionPipeline:
                 suspects += 1
             unmapped += apply_concept_map(fact)
             fact_dicts.append(fact)
+        # ТЗ-92 C1: проигравшие дедупликации — тоже разобранные факты;
+        # они пишутся и указывают на победителя, а не исчезают.
+        link_superseded(fact_dicts)
         result.unmapped_concepts += unmapped
 
         # ── Узел 8: persist — факты + coverage одной транзакцией ──

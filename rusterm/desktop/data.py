@@ -19,13 +19,16 @@ import csv
 import datetime
 import io
 import json
+import os
+import shlex
 import sqlite3
 import uuid
 from pathlib import Path
 from typing import Optional
 
 from rusterm.core.export import snapshot_to_csv, snapshot_to_md
-from rusterm.store.db import current_schema_version, open_connection
+from rusterm.store.db import (_SCHEMA_VERSION, current_schema_version,
+                              has_table, open_connection)
 from rusterm.store.paths import AppPaths
 from rusterm.tui import model as tui_model
 
@@ -35,9 +38,15 @@ NO_DATA = "нет данных"
 # Инструменты без peer set группируются честно названной строкой
 NO_SECTOR = "без отрасли"
 
-# Минимум годовых колонок; сколько показать сверх того, решает
-# ширина окна (C1.2)
-MIN_YEAR_COLUMNS = 4
+# Сколько годовых колонок просит окно по умолчанию: это ПОТОЛОК, а не
+# минимум (ТЗ-81 B2) — пустую колонку рисовать нельзя. Сверх этого
+# число решает ширина окна (C1.2)
+DEFAULT_YEAR_COLUMNS = 4
+
+# Разговоры живут в таблице, добавленной миграцией 45 (ТЗ-36 H1). В базе,
+# отставшей от кода, её нет — двери разговоров отвечают словами, а не
+# исключением (ТЗ-95 F1).
+TRANSCRIPT_TABLE = "chat_transcript"
 
 
 def open_readonly(root: str | Path) -> tuple[AppPaths, Optional[sqlite3.Connection]]:
@@ -68,22 +77,35 @@ def header_info(repos) -> dict:
     """Шапка окна: версия схемы и запросы провайдеров за сегодня.
 
     Схема — та же дверь, что у rusterm status (current_schema_version,
-    БЕЗ тихой миграции: окно читает). «Запросов сегодня» — сумма
-    сэмплов provider_requests_used, записанных после местной полуночи
-    (сэмпл пишет cmd_ingest по факту сбора; сэмплов нет — честный 0).
+    БЕЗ тихой миграции: окно читает). «Запросов сегодня» — агрегат
+    хранилища (requests_used_today, ТЗ-61 F1): одно число из одной
+    двери для окна и rusterm status, окно не суммирует само.
+
+    «schema_notice» (ТЗ-95 F1) — одна строка словами, когда база в этом
+    каталоге отстала от программы: окно не мигрирует (ADR-0023), поэтому
+    называет команду, которой пользователю поднять схему. Актуальная база
+    — None: это строка про отставание, а не постоянная подпись шапки.
     """
-    today = datetime.date.today().isoformat()
-    requests_today = 0
-    for sample in repos.metrics.samples():
-        ts, name, _provider, value = sample[0], sample[1], sample[2], sample[3]
-        if name != "provider_requests_used":
-            continue
-        day = datetime.datetime.fromtimestamp(ts).date().isoformat()
-        if day == today:
-            requests_today += int(value or 0)
-    return {"schema_version": current_schema_version(repos.conn)
-            if hasattr(repos, "conn") else None,
-            "requests_today": requests_today}
+    schema = (current_schema_version(repos.conn)
+              if hasattr(repos, "conn") else None)
+    return {"schema_version": schema,
+            "requests_today": repos.metrics.requests_used_today(),
+            "schema_notice": _stale_schema_notice(repos, schema)}
+
+
+def _stale_schema_notice(repos, observed: Optional[int]) -> Optional[str]:
+    """Что сказать об отставшей базе (ТЗ-95 F1).
+
+    Команда с явным `--root`: окно открыло каталог по одному из четырёх
+    правил (ТЗ-90 A5), и опустить его здесь значило бы предложить
+    пользователю поднять не ту базу, которую он видит.
+    """
+    if observed is None or observed >= _SCHEMA_VERSION:
+        return None
+    root = str(repos.paths.root)
+    return (f"база в {root} — схема {observed}, программе нужна "
+            f"{_SCHEMA_VERSION}; обновите: rusterm --root "
+            f"{shlex.quote(root)} init")
 
 
 # ── Левая колонка: поиск и дерево отраслей (C1.1) ────────────────────────
@@ -114,6 +136,44 @@ def sidebar_companies(repos, watchlist_id: Optional[str] = None) -> list[dict]:
             "peer_status": row["peer_status"],
         })
     return rows
+
+
+NO_WATCHLISTS_HINT = ("соберите список одной командой: "
+                      "rusterm watchlist create main --name main")
+
+
+def all_instruments(repos) -> list[dict]:
+    """ТЗ-75 S4: списков наблюдения нет — те же строки боковой панели
+    по ВСЕМ инструментам базы (форма как у sidebar_companies), окно
+    показывает инструменты, а не пустоту."""
+    rows = []
+    for iid in repos.instrument.list_instruments():
+        instrument = repos.instrument.get_instrument(iid)
+        name = None
+        if instrument is not None:
+            issuer = repos.instrument.get_issuer(instrument.issuer_id)
+            name = issuer.name if issuer else None
+        peer = repos.peer_set.peer_set_for_instrument(iid)
+        ref = repos.instrument.ticker_for_instrument(iid, _today())
+        rows.append({
+            "instrument_id": iid,
+            "ticker": (ref or {}).get("ticker") if isinstance(ref, dict)
+            else None,
+            "market": (ref or {}).get("market") if isinstance(ref, dict)
+            else None,
+            "name": name,
+            "sector": peer["peer_set_id"] if peer else None,
+            "peer_status": None,
+        })
+    return rows
+
+
+def empty_base_instruments_message() -> str:
+    """ТЗ-75 S4: инструментов нет вовсе — первая команда целиком, с
+    подстановкой, без многоточий (как в ТЗ-61 F4)."""
+    return ("в базе нет инструментов: создайте демо-базу одной "
+            "командой rusterm demo или добавьте первую бумагу: "
+            "rusterm add --ticker AAPL --market US")
 
 
 def matches_query(company: dict, query: str) -> bool:
@@ -162,72 +222,246 @@ def expanded_sectors(tree: list[dict], query: str,
 
 # ── Центр: таблица «сейчас плюс годы истории» (C1.2) ─────────────────────
 
-def format_value(value) -> str:
-    """Число для ячейки таблицы: 4 знака после точки, без хвостов.
+# Доли, которые читаются в процентах; прочие безразмерные — кратные (×).
+# Так показывают аналоги (Yahoo, Finviz, Koyfin): 0,43 %, 18,3×, 11,2 млрд
+PERCENT_CONCEPTS = frozenset({
+    "div_yield", "drawdown", "effective_tax", "fcf_yield", "gross_margin",
+    "net_margin", "operating_margin", "roe", "roe_incl_nci", "roic",
+    "total_return", "percentile"})
+MULTIPLE_CONCEPTS = frozenset({
+    "pe", "pb", "ps", "ev_ebitda", "net_debt_ebitda", "interest_coverage",
+    "asset_turnover"})
 
-    Не число (текст меры) показывается как есть; полный precision
-    остаётся в панели источника и экспорте — здесь только отображение.
+
+def _group(number: float, digits: int) -> str:
+    """Число с узким пробелом между тысячами и запятой."""
+    text = f"{number:,.{digits}f}".replace(",", "\u202f")
+    return text.replace(".", ",")
+
+
+def format_value(value, concept: str | None = None,
+                 unit: str | None = None) -> str:
+    """Число для ячейки таблицы.
+
+    Как у аналогов: доли — проценты (0.0043 → «0,43 %»),
+    мультипликаторы — «×», денежные суммы от миллиона — млн/млрд/трлн
+    с валютой. Остальное (без концепта, мера вне словаря, сумма меньше
+    миллиона) — прежние 4 знака после точки. Полный
+    precision остаётся в панели источника и экспорте — здесь только
+    отображение; не число (текст меры) показывается как есть.
     """
     if value is None:
         return NO_DATA
     try:
-        return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
+        number = float(value)
     except (TypeError, ValueError):
         return str(value)
+    legacy = f"{number:.4f}".rstrip("0").rstrip(".") or "0"
+    if concept in PERCENT_CONCEPTS:
+        return f"{_group(number * 100, 2)} %"
+    if concept in MULTIPLE_CONCEPTS:
+        return f"{_group(number, 2)}×"
+    # деньги — только у меры в валюте (трёхбуквенный код) и от миллиона:
+    # меньшие суммы и меры вне словаря остаются в виде полосы C
+    # (4 знака, ТЗ-60 E5 / ТЗ-61 F1 — ячейка не теряет значения)
+    is_money = bool(unit) and len(unit) == 3 and unit.isalpha() \
+        and unit.isupper()
+    if is_money:
+        for limit, word in ((1e12, "трлн"), (1e9, "млрд"), (1e6, "млн")):
+            if abs(number) >= limit:
+                return f"{_group(number / limit, 2)} {word} {unit}"
+    return legacy
 
 
-def history_years(card: dict, count: int = MIN_YEAR_COLUMNS) -> list[str]:
-    """Годовые колонки: от свежайшего периода мер вниз, минимум четыре.
+def history_years(card: dict, count: int = DEFAULT_YEAR_COLUMNS,
+                  history: dict | None = None) -> list[str]:
+    """Годовые колонки: только те годы, где хотя бы одна мера имеет значение.
 
-    Периодов нет вовсе — якорем текущий год: колонки есть и честно
-    говорят «нет данных», окно не схлопывается.
+    ТЗ-81 B2: правило ТЗ-72 Д1 («пустую колонку не рисуют») распространено
+    на частично пустую таблицу. Прежняя версия выдавала ровно `count`
+    колонок от года самого свежего периода вниз и додумывала текущий год,
+    когда периодов нет вовсе, — на живой базе пользователя это четыре
+    колонки, из них заполнена одна.
+
+    `count` — потолок (окно считает его из ширины), а не минимум: один год
+    законен, четыре пустых — нет. Значений нет ни в одном году — колонок
+    нет, и вызывающий обязан сказать это словами (`suggestion`).
     """
-    periods = [m.get("period") for m in card.get("measures", [])
-               if m.get("period")]
-    try:
-        anchor = max(periods)[:4]
-        anchor_year = int(anchor)
-    except (ValueError, TypeError):
-        anchor_year = datetime.date.today().year
-    count = max(count, MIN_YEAR_COLUMNS)
-    return [str(anchor_year - i) for i in range(count)]
+    concepts = {m.get("concept") for m in card.get("measures", [])}
+    filled = [year for year, cells in (history or {}).items()
+              if any(concept in concepts for concept in cells)]
+    return sorted(filled, reverse=True)[: max(count, 1)]
 
 
-def measure_history(repos, instrument_id: str) -> dict[str, dict]:
-    """История мер по годам. Пусто — и это честно: двери нет.
+def snapshot_span(repos, instrument_id: str) -> Optional[tuple[str, str]]:
+    """Границы дат снапшотов бумаги — через дверь store (I10: SQL живёт
+    в rusterm/store, здесь только чтение её результата)."""
+    dates = sorted({s["as_of"] for s in
+                    repos.snapshot.snapshots_of_instrument(instrument_id)
+                    if s["as_of"]})
+    return (dates[0], dates[-1]) if dates else None
 
-    tui/model.py истории не отдаёт (снапшот хранит свежайший период
-    меры), а своей выборки окно не пишет (C1.2). Координатору —
-    Disputed: нужна функция модели поверх билдера снапшотов.
+
+def last_snapshot_date(repos, instrument_id: str) -> Optional[str]:
+    """Дата данных (as_of) последнего ГОТОВОГО снапшота (ТЗ-109 R4) —
+    та, что окно называет в строке «нет сети — данные от <дата>».
+    None — готовых снапшотов нет, и строка честно говорит «данных
+    пока нет» вместо даты."""
+    snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)
+    if snapshot_id is None:
+        return None
+    snapshot = repos.snapshot.get_snapshot(snapshot_id)
+    return snapshot["as_of"] if snapshot else None
+
+
+def _years_word(n: int) -> str:
+    """Склонение числа лет: 1 год, 2 года, 5 лет; 11–14 — лет."""
+    if 11 <= n % 100 <= 14:
+        return "лет"
+    return {1: "год", 2: "года", 3: "года", 4: "года"}.get(n % 10, "лет")
+
+
+def year_gap_note(years: list[str]) -> Optional[str]:
+    """Какого года нет в видимом ряду (ТЗ-95 F3).
+
+    У MSFT на базе пользователя колонки 2026, 2024, 2023, 2022: четыре
+    колонки — потолок, и объяснения ТЗ-81 B2 тут нет (лет ровно
+    столько, сколько помещается). Молчащая щель между 2026 и 2024
+    выглядит как «данных нет ни у кого», хотя этого года в базе просто
+    нет. Называются только пропуски между видимыми колонками: год ниже
+    самой старой колонки — не разрыв, а граница истории.
     """
-    return {}
+    numbers = sorted({int(year) for year in years})
+    if len(numbers) < 2:
+        return None
+    gaps = [year for year in range(numbers[0] + 1, numbers[-1])
+            if year not in numbers]
+    if not gaps:
+        return None
+    listed = ", ".join(str(year) for year in gaps)
+    return (f"пропущен {listed} год" if len(gaps) == 1
+            else f"пропущены {listed} годы")
+
+
+def history_note(repos, instrument_id: str, shown_years: int) -> Optional[str]:
+    """Почему лет ровно столько, сколько видно (ТЗ-81 B2): число колонок и
+    границы снапшотов из самой базы, не константа. Даты сказать нечем —
+    строки нет."""
+    span = snapshot_span(repos, instrument_id)
+    if span is None:
+        return None
+    lo, hi = span
+    dates = (f"снапшот от {lo}" if lo == hi
+             else f"снапшоты с {lo} по {hi}")
+    return f"история за {shown_years} {_years_word(shown_years)}: {dates}"
+
+
+def measure_history(repos, instrument_id: str) -> dict[str, dict[str, float]]:
+    """ТЗ-72 Д1: та же дверь, что у CLI/TUI — не пустой заглушка.
+
+    Форма — ``{год: {концепт: значение}}`` (ТЗ-75 V1); ровно эту форму
+    читает measure_table_rows. Год ячейки — период меры, а не год
+    прогона (ТЗ-76 W3)."""
+    return tui_model.measure_history_by_year(repos, instrument_id)
+
+
+def measure_history_basis(repos, instrument_id: str) -> dict[str, dict[str, str]]:
+    """Основание года клетки истории: ``{год: {концепт: "period"|
+    "run_year"}}`` — та же форма, что у значений (ТЗ-76 W3)."""
+    return tui_model.measure_history_basis(repos, instrument_id)
+
+
+# Пометка клетки, отнесённой к году прогона, а не к году отчёта:
+# молча подставлять год запуска под столбец нельзя (ТЗ-76 W3)
+RUN_YEAR_MARK = " · год прогона"
+
+
+NO_HISTORY_HINT = ("истории мер нет: посчитайте ряд одной командой — "
+                   "rusterm snapshot --instrument {instrument_id}")
+
+
+# ТЗ-107 V4: отрасль из причины not_applicable — словами
+_SECTOR_WORDS = {"banks": "банкам"}
+
+
+def not_applicable_text(null_reason) -> Optional[str]:
+    """«не применимо к банкам» для причины `not_applicable: banks`;
+    прочие причины — None (ячейка остаётся «нет данных»)."""
+    if not null_reason or not str(null_reason).startswith("not_applicable"):
+        return None
+    sector = str(null_reason).partition(":")[2].strip()
+    word = _SECTOR_WORDS.get(sector, sector)
+    return f"не применимо к {word}" if word else "не применимо"
 
 
 def measure_table_rows(repos, instrument_id: str,
-                       year_count: int = MIN_YEAR_COLUMNS) -> dict:
+                       year_count: int = DEFAULT_YEAR_COLUMNS) -> dict:
     """Строки центральной таблицы из card_rows: сейчас + годы.
 
     Ячейка без значения — слова «нет данных», и в текущей колонке, и
     в исторических; причина (какой концепт не подан) — в панели
     источника по клику, не в ячейке.
-    """
+
+    История приходит формой ``{год: {концепт: значение}}`` — ячейка
+    года N читается как history[год][концепт] (ТЗ-75 V1), а год —
+    период меры (ТЗ-76 W3): ячейка, отнесённая к году прогона потому,
+    что у меры нет периода, помечена ``RUN_YEAR_MARK``. Годовые
+    колонки — только годы со значением хотя бы у одной меры (ТЗ-81 B2,
+    правило ТЗ-72 Д1 и для частично пустой таблицы); ``year_count`` —
+    потолок, а не минимум. Колонок нет вовсе — ``suggestion`` несёт
+    исполнимую строку «посчитать ряд одним действием»; колонок меньше
+    потолка — ``history_note`` говорит словами, почему; между колонками
+    нет года — там же назван пропущенный год (ТЗ-95 F3)."""
     card = tui_model.card_rows(repos, instrument_id)
-    years = history_years(card, year_count)
     history = measure_history(repos, instrument_id)
+    basis = measure_history_basis(repos, instrument_id)
+    years = history_years(card, year_count, history)
+    suggestion = None if years else NO_HISTORY_HINT.format(
+        instrument_id=instrument_id)
+    note = (history_note(repos, instrument_id, len(years))
+            if years and len(years) < max(year_count, 1) else None)
+    # ТЗ-95 F3: щель между колонками — на той же строке. Колонок может
+    # быть ровно потолок, и тогда объяснения ТЗ-81 B2 нет, а год потерян.
+    gap = year_gap_note(years)
+    note = f"{note}; {gap}" if note and gap else (note or gap)
+    summary = tui_model.measure_summary(
+        [(m.get("value"), m.get("null_reason"))
+         for m in card["measures"]])
+    summary_line = (tui_model.measure_summary_line(summary)
+                    if summary else None)
     rows = []
     for measure in card["measures"]:
         current = measure["value"]
         has_value = current is not None and current != tui_model.NULL_MARK
+        empty = not_applicable_text(measure.get("null_reason")) or NO_DATA
         year_cells = {}
+        year_values = {}
         for year in years:
-            point = history.get(measure["concept"], {}).get(year)
-            year_cells[year] = (format_value(point["value"])
-                                if point else NO_DATA)
+            point = history.get(year, {}).get(measure["concept"])
+            year_values[year] = point
+            if point is None:
+                year_cells[year] = empty
+                continue
+            cell = format_value(point, measure["concept"],
+                                measure.get("unit"))
+            if (basis.get(year, {}).get(measure["concept"])
+                    == tui_model.HISTORY_BASIS_RUN_YEAR):
+                cell += RUN_YEAR_MARK
+            year_cells[year] = cell
         period_end = measure.get("period") or ""
+        base = measure.get("percentile_of")
         rows.append({
             "concept": measure["concept"],
-            "current": format_value(current) if has_value else NO_DATA,
+            "label": (f"перцентиль {base}" if base
+                      else measure["concept"]),
+            "current": (format_value(current, measure["concept"],
+                                     measure.get("unit"))
+                        if has_value else empty),
+            # сырое число — для диаграмм и сравнений; «current» — текст
+            "value": current if has_value else None,
             "years": year_cells,
+            # сырые числа лет — для диаграмм: текст ячейки форматирован
+            "year_values": year_values,
             "has_value": has_value,
             "null_reason": measure.get("null_reason"),
             "unit": measure.get("unit"),
@@ -247,6 +481,10 @@ def measure_table_rows(repos, instrument_id: str,
         "measures": rows,
         "years": years,
         "card": card,
+        "suggestion": suggestion,
+        "history_note": note,
+        "summary": summary,
+        "summary_line": summary_line,
     }
 
 
@@ -302,20 +540,32 @@ def _series_spec(kind: str, table: dict,
                  concept: str | None = None) -> dict:
     """Линия/столбики выбранной меры: год со значением — точка, год
     без значения — None (разрыв, не ноль). Истории нет — все None, и
-    спецификация честно сообщает «нет данных»."""
+    спецификация честно сообщает «нет данных».
+
+    Пометка «год прогона» — аннотация отображения: клетка с ней
+    остаётся значением и рисуется точкой (ТЗ-76 W3), пометка не
+    отнимает данных."""
     concepts = [row["concept"] for row in table["measures"]]
     if not concepts:
         return {"kind": "message", "text": "нет данных"}
     concept = concept if concept in concepts else concepts[0]
     row = chosen_measure_table_row(table, concept)
+    raw = (row or {}).get("year_values")
     history = row["years"] if row else {}
     years, values = [], []
     for year in table["years"]:
-        text = history.get(year, NO_DATA)
         years.append(int(year))
+        if raw is not None:
+            # сырые числа строки: текст ячейки уже «20,43 %», не float
+            point = raw.get(year)
+            values.append(None if point is None else float(point))
+            continue
+        text = history.get(year, NO_DATA)
         if text == NO_DATA:
             values.append(None)
             continue
+        if text.endswith(RUN_YEAR_MARK):
+            text = text[:-len(RUN_YEAR_MARK)]
         try:
             values.append(float(text))
         except ValueError:
@@ -362,7 +612,7 @@ def _radar_spec(table: dict) -> dict:
         if row["unit"] != RATIO_UNIT or not row["has_value"]:
             continue
         axes.append({"concept": row["concept"],
-                     "value": float(row["current"])})
+                     "value": float(row["value"])})
     if not axes:
         return {"kind": "message",
                 "text": "нет данных: нет безразмерных мер со значением"}
@@ -386,13 +636,71 @@ def chat_unavailable_reason(client) -> Optional[str]:
 
 # ── Peer set и отрасль (TASK-C3) ────────────────────────────────────────
 
+# ТЗ-97 Q1 (ТЗ-73 `T1`, правило P8): подсказка обязана быть целой
+# командой, которую разбирает парсер CLI. Сектор — единственное, чем его
+# подставить нечем: отрасль бумаге в базе не назначена (своего источника
+# сектора нет до ТЗ-73 `T2`), а выдуманное имя сектора и было бы той
+# догадкой, которую отчётность ядра запрещает. Рынок и тикеры — из базы.
+PEER_SET_SECTOR_SLOT = "<сектор>"
+
+# Сколько тикеров подсказка успевает назвать: строка должна читаться с
+# одной строки вкладки, полный состав набирает тот, кто её исполняет.
+PEER_SET_HINT_TICKERS = 5
+
+
+def _peers_set_command(sector: str, tickers: list[str], market: str,
+                       approve: bool) -> str:
+    """Команда `rusterm peers set` целой строкой: происхождение manual,
+    `--approve` только там, где подтверждать уже есть что."""
+    return (f"rusterm peers set {sector} "
+            f"--tickers {','.join(tickers)} --market {market} "
+            "--origin manual" + (" --approve" if approve else ""))
+
+
+def _market_prefix(instrument_id: str) -> str:
+    """Код рынка из id инструмента: id устроен как «РЫНОК-ТИКЕР»."""
+    return (instrument_id or "").split("-", 1)[0]
+
+
+def peer_set_hint(repos, instrument_id: str,
+                  as_of: Optional[str] = None) -> str:
+    """Что набрать, чтобы «Отрасль» наполнилась у бумаги без набора:
+    своя бумага и соседи по рынку из базы."""
+    from rusterm.markets import get_market
+    own = repos.instrument.ticker_for_instrument(
+        instrument_id, as_of or _today())
+    own_ticker = own["ticker"] if own else None
+    own_market = own["market"] if own else None
+    # строка репозитория отдаёт площадку ("unknown", когда листинг не
+    # измерен); команде нужен код рынка из реестра, иначе — префикс id
+    market = (own_market if get_market(own_market or "")
+              else _market_prefix(instrument_id))
+    tickers = [own_ticker] if own_ticker else []
+    for row in all_instruments(repos):
+        if len(tickers) >= PEER_SET_HINT_TICKERS:
+            break
+        if row["instrument_id"] == instrument_id \
+                or _market_prefix(row["instrument_id"]) != market:
+            continue
+        if row.get("ticker") and row["ticker"] not in tickers:
+            tickers.append(row["ticker"])
+    if not tickers:
+        tickers = [instrument_id]
+    return ("что делать: наберите аналогов и подтвердите сами — "
+            + _peers_set_command(PEER_SET_SECTOR_SLOT, tickers, market,
+                                 False))
+
+
 def peer_screen(repos, instrument_id: str,
                 as_of: Optional[str] = None) -> dict:
     """Peer set выбранной компании с правилом отбора словами (C3.1).
 
     Слова правила собираются из констант и evaluate() ядра
     (rusterm/core/peers.py) — пороги импортируются, не копируются.
-    Компании без набора — слова об этом, не пустота.
+    Компании без набора — слова об этом, не пустота, и целая команда,
+    которой набор заводится (ТЗ-97 Q1): `hint` несёт её в обеих
+    развилках — без набора (подтверждать нечего) и на неподтверждённом
+    наборе (то же действие с `--approve`).
     """
     from rusterm.core import peers as peers_core
     peer = repos.peer_set.peer_set_for_instrument(instrument_id)
@@ -400,7 +708,8 @@ def peer_screen(repos, instrument_id: str,
         return {"has_peer_set": False,
                 "message": ("у компании нет peer set — сравнение с "
                             "конкурентами недоступно; наборы появляются "
-                            "вручную или классификатором (ADR-0002)")}
+                            "вручную или классификатором (ADR-0002)"),
+                "hint": peer_set_hint(repos, instrument_id, as_of)}
     composition = repos.peer_set.composition(peer["peer_set_version_id"])
     status = peers_core.evaluate(peer["origin"], peer["approved"],
                                  [], composition["members"])
@@ -425,7 +734,17 @@ def peer_screen(repos, instrument_id: str,
             "currencies": composition["currencies"],
             "rule": rule,
             "members": members,
-            "verified": status.verified}
+            "verified": status.verified,
+            # ТЗ-97 Q1: на неподтверждённом наборе нет ни перцентилей,
+            # ни агрегата, и вкладка обязана назвать то единственное
+            # действие, которое его подтверждает.
+            "hint": None if status.verified else (
+                "что делать: подтвердите набор одним действием — "
+                + _peers_set_command(
+                    peer["peer_set_id"],
+                    [m["ticker"] for m in members] or [instrument_id],
+                    (composition["markets"]
+                     or [_market_prefix(instrument_id)])[0], True))}
 
 
 def industry_table_rows(screen: dict) -> list[dict]:
@@ -437,6 +756,12 @@ def industry_table_rows(screen: dict) -> list[dict]:
     """
     rows = []
     for r in screen.get("rows", []):
+        # ТЗ-97 Q8: диапазон периодов и внеоконные участники — в пометке
+        # строки, чтобы вкладка «Отрасль» говорила то же, что экран
+        # `rusterm industry`, а не молча показывала пустые числа.
+        # ТЗ-102 M4: там же и «участников N, значение меры есть у K»
+        note = "; ".join(p for p in (r.get("shortfall_note"),
+                                     r.get("period_note")) if p)
         if r.get("null_reason"):
             counts = ", ".join(f"{k}={v}" for k, v
                                in sorted(r.get("reason_counts", {})
@@ -444,15 +769,22 @@ def industry_table_rows(screen: dict) -> list[dict]:
             mark = f"отказ: {r['null_reason']}"
             if counts:
                 mark += f" ({counts})"
+            if note:
+                mark += f"; {note}"
             rows.append({"concept": r["concept"], "p25": NO_DATA,
                          "median": NO_DATA, "p75": NO_DATA, "n": r["n"],
                          "mark": mark, "refused": True})
         else:
+            # тот же вид, что на «Компании»: 16,28 %, 1,25×, 63,04 млрд USD;
+            # сырые квартили — рядом, для сравнений и тестов
+            fmt = (lambda v: format_value(v, r["concept"],
+                                          r.get("currency")))
             rows.append({"concept": r["concept"],
-                         "p25": format_value(r["p25"]),
-                         "median": format_value(r["median"]),
-                         "p75": format_value(r["p75"]), "n": r["n"],
-                         "mark": "", "refused": False})
+                         "p25": fmt(r["p25"]),
+                         "median": fmt(r["median"]),
+                         "p75": fmt(r["p75"]), "n": r["n"],
+                         "median_value": r["median"],
+                         "mark": note, "refused": False})
     return rows
 
 
@@ -483,9 +815,17 @@ def industry_chart_spec(screen: dict,
     if chosen.get("null_reason"):
         return {"kind": "message",
                 "text": f"нет данных: {chosen['null_reason']}"}
+    # квартили приходят из ядра строками (repr квантилей, ТЗ-22 J7);
+    # полотно считает по числам — находка S1: живой агрегат ронял
+    # отрисовку TypeError (str - str)
+    def _num(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
     return {"kind": "box", "concept": chosen["concept"],
-            "p25": chosen["p25"], "median": chosen["median"],
-            "p75": chosen["p75"], "n": chosen["n"]}
+            "p25": _num(chosen["p25"]), "median": _num(chosen["median"]),
+            "p75": _num(chosen["p75"]), "n": chosen["n"]}
 
 
 def radar_vs_group_spec(table: dict, industry_screen: dict | None) -> dict:
@@ -515,7 +855,7 @@ def radar_vs_group_spec(table: dict, industry_screen: dict | None) -> dict:
             base["excluded_group"] += 1
             continue
         axes.append({"concept": row["concept"],
-                     "value": float(row["current"]),
+                     "value": float(row["value"]),
                      "median": float(g["median"])})
     if not axes:
         return {"kind": "message",
@@ -540,31 +880,16 @@ def export_snapshot_measures(repos, instrument_id: str) -> Optional[list]:
     return repos.snapshot.get_measures(sid)
 
 
+def source_cell(facts: list, shape: str = "table") -> str:
+    """ТЗ-62 G3 -> ТЗ-64 J2: делегация единой реализации ядра."""
+    from rusterm.core.export import format_source_cell
+    return format_source_cell(facts, shape=shape)
+
+
 def _source_cell(repos, measure_row) -> str:
-    """Колонка источника (C4.3): канал или документ, локатор входного
-    факта, хэш сохранённого ответа, конец периода. У меры без входов
-    ячейка пуста — значения без источника не бывает."""
-    cells = []
-    for fact_id in repos.snapshot.lineage_fact_ids(measure_row[0]):
-        fact = repos.fact.get_fact(fact_id)
-        if fact is None:
-            continue
-        locator = fact["locator"]
-        if isinstance(locator, str):
-            try:
-                locator = json.loads(locator)
-            except ValueError:
-                locator = {"locator": locator}
-        kind = fact.get("source_kind") or "provider"
-        if kind == "manual":
-            where = (locator or {}).get("locator", "") or "файл"
-        else:
-            where = ((locator or {}).get("endpoint")
-                     or (locator or {}).get("locator", ""))
-        sha = (fact.get("source_ref") or "")[:12]
-        period = fact["period_end"] or ""
-        cells.append(f"{kind} {where} #{sha} {period}".strip())
-    return "; ".join(cells)
+    """ТЗ-64 J2: делегация единой реализации ядра."""
+    from rusterm.core.export import source_lineage_cell
+    return source_lineage_cell(repos, measure_row)
 
 
 def export_table_csv(repos, instrument_id: str) -> Optional[str]:
@@ -602,7 +927,9 @@ def export_table_md(repos, instrument_id: str) -> Optional[str]:
 
 def chart_caption(table: dict, concept: str, period: str = "",
                   exported_at: str | None = None) -> str:
-    """Подпись png (C4.2): эмитент, мера, период, дата выгрузки."""
+    """Подпись png (C4.2): эмитент, мера, период, дата выгрузки.
+    Форма без источника: подпись не называет документ и хэш — для них
+    в ней нет места (ТЗ-62 G3)."""
     who = " · ".join(part for part in (table.get("ticker"),
                                        table.get("name")) if part)
     return (f"{who} — {concept}; период {period or '—'}; "
@@ -634,6 +961,16 @@ def _next_version_full(repos, watchlist_id: str, action: str) -> str:
     return version_id
 
 
+def parse_add_request(text: str) -> tuple[str, str]:
+    """«NVDA» → ("NVDA", "US"); «cnq tsx» → ("CNQ", "TSX"). Рынок по
+    умолчанию — US, как у `rusterm follow`: без него поиск получал
+    пустой рынок и не находил ничего."""
+    parts = text.split()
+    ticker = parts[0].upper() if parts else ""
+    market = parts[1].upper() if len(parts) > 1 else "US"
+    return ticker, market
+
+
 def add_instrument(repos, watchlist_id: str, ticker: str, market: str,
                    as_of: str | None = None) -> dict:
     """C5.2: добавление бумаги тем же путём, что CLI watchlist add:
@@ -643,9 +980,14 @@ def add_instrument(repos, watchlist_id: str, ticker: str, market: str,
     candidates = repos.instrument.resolve_ticker_candidates(
         ticker, market, as_of or _today())
     if not candidates:
-        return {"ok": False,
-                "message": (f"инструмента {ticker}.{market} нет — "
-                            "добавьте бумагу через rusterm add")}
+        # missing=True: окно может предложить найти и собрать бумагу
+        # командой ядра `follow` (ADR-0027), а не только сказать словами
+        return {"ok": False, "missing": True,
+                "instrument_id": f"{market}-{ticker.upper()}",
+                "message": (f"инструмента {ticker}.{market} нет в базе — "
+                            f"добавьте бумагу командой "
+                            f"rusterm add --ticker {ticker} "
+                            f"--market {market}")}
     if len(candidates) > 1:
         return {"ok": False,
                 "message": f"тикер {ticker!r} неоднозначен: "
@@ -686,10 +1028,11 @@ def remove_instruments(repos, watchlist_id: str,
     version_id = repos.watchlist.new_version(
         str(uuid.uuid4()), watchlist_id, current["version"] + 1,
         "edit", None)
-    remaining = [iid for iid in current_members
-                 if iid not in instrument_ids]
-    for iid in remaining:
-        repos.watchlist.add_member(version_id, iid, None)
+    # ТЗ-62 G2: одна дверь переноса состава — та же, что у
+    # одиночного удаления в CLI (copy_members_except), строка или
+    # список
+    repos.watchlist.copy_members_except(
+        current["watchlist_version_id"], version_id, instrument_ids)
     if len(instrument_ids) == 1:
         repos.audit.log("watchlist_remove", watchlist_id,
                         {"instrument": instrument_ids[0]}, True, "ok")
@@ -706,22 +1049,50 @@ def remove_instruments(repos, watchlist_id: str,
 def raw_object_location(paths: AppPaths, sha256: str) -> dict:
     """C6.2: где лежит сохранённый ответ и есть ли он. raw/store/<2>/<sha>;
     файла нет — exists=False, окно скажет словами, а не упадёт."""
-    from rusterm.store.raw_store import object_path
+    from rusterm.store.raw_store import (GZIP_EXTENSION, ZSTD_EXTENSION,
+                                         object_path)
     path = object_path(paths.raw_store, sha256)
-    return {"path": str(path), "exists": path.exists()}
+    # ТЗ-107 V3: ответ свыше 64 КБ лежит сжатым (<sha>.gz | <sha>.zst);
+    # проверка одного имени без суффикса писала «сырья нет» про файл,
+    # который на месте (скриншот пользователя 30.09, BAC)
+    for candidate in (path, path.with_name(path.name + ZSTD_EXTENSION),
+                      path.with_name(path.name + GZIP_EXTENSION)):
+        if candidate.exists():
+            return {"path": str(candidate), "exists": True}
+    return {"path": str(path), "exists": False}
 
 
-def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
+def source_panel_view(repos, paths: AppPaths, measure_row: dict,
+                      instrument_id: str | None = None,
+                      stale_detail: bool = False) -> dict:
     """C6.1/C6.3: панель источника целиком из source_panel модели и
-    репозиториев — ничего не досчитано. Строки: концепт, метод,
-    единица, документ с хэшем сохранённого ответа, период входного
-    факта, путь к сырью; для отказа — причина и неподаанный концепт
-    по имени. open_target — путь к сырью первой записи, если файл
-    есть; иначе None (окно скажет словами)."""
+    репозиториев — ничего не досчитано. Строки: концепт, значение,
+    метод, единица, документ с хэшем сохранённого ответа, период
+    входного факта, путь к сырью; для отказа — причина и неподанный
+    концепт по имени, плюс совет действия теми же словами, что в CLI
+    (ТЗ-64 J3). Устаревшие входы свёрнуты в одну строку с числом
+    (ТЗ-72 Д4); перечень целиком — только по stale_detail=True.
+    open_target — путь к сырью первой записи, если файл есть; иначе
+    None (окно скажет словами). stale_count — число устаревших входов."""
+    from rusterm.core.export import refusal_advice
     panel = tui_model.source_panel(repos, measure_row["measure"])
+    value_text = measure_row.get("current")
+    if value_text is None:
+        value_text = format_value(
+            (measure_row.get("measure") or {}).get("value"))
     lines = [f"источник {panel['concept']}"
              f" ({panel['method_version']})",
+             f"значение: {value_text}",
              f"единица: {measure_row.get('unit') or '—'}"]
+    # ТЗ-97 Q10: «в окне … пометка». Мера, прочитанная годовым вместо
+    # трейлинга, обязана сказать это вслух: в панели она выглядела бы
+    # как последние двенадцать месяцев.
+    marks = repos.snapshot.period_marks(
+        (measure_row.get("measure") or {}).get("measure_id"))
+    for mark in marks:
+        tail = mark.split("TTM не собран: ", 1)
+        lines.append(f"годовой, TTM не собран: {tail[1]}"
+                     if len(tail) > 1 else mark)
     if measure_row["null_reason"]:
         lines.append(f"причина: {measure_row['null_reason']}")
         tail = measure_row["null_reason"].split(":", 1)[1].strip() \
@@ -729,6 +1100,10 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
         if tail:
             lines.append(f"не подан: {tail} — подстановки нет: "
                          "значение строится только из поданных фактов")
+        advice = (refusal_advice(tail, instrument_id or "")
+                  if instrument_id and tail else None)
+        if advice:
+            lines.append(f"что делать: {advice}")
     open_target = None
     for source in panel["sources"]:
         sha = str(source["document"])
@@ -743,21 +1118,30 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict) -> dict:
                      + (f" (период входа {period})" if period else ""))
         if loc["exists"] and open_target is None:
             open_target = loc["path"]
-    for stale in panel["stale"]:
-        lines.append(f"{stale['marker']} ({stale['source_tag']})")
+    stale = panel["stale"]
+    if stale and not stale_detail:
+        freshest = max(s["period_end"] for s in stale)
+        lines.append(f"устаревших входов: {len(stale)}, "
+                     f"самый свежий {freshest}")
+    else:
+        for entry in stale:
+            lines.append(f"{entry['marker']} ({entry['source_tag']})")
     return {"text": "\n".join(lines), "open_target": open_target,
-            "panel": panel}
+            "panel": panel, "stale_count": len(stale)}
 
 
 # ── Разговор (TASK-C7): расшифровки и счётчики из тех же мест ───────────
 
-def chat_sessions(repos) -> Optional[list]:
-    """C7.1: перечень прошлых разговоров. Двери в store НЕТ
-    (ChatTranscriptRepo.list_sessions отсутствует), а прямые SQL вне
-    rusterm/store запрещены инвариантом I10 — поэтому функция
-    честно отвечает None, и окно говорит это словами. Дверь добавит
-    координатор (Disputed REPORT-C7/C10)."""
-    return None
+def chat_sessions(repos) -> list[dict]:
+    """C7.1: прошлые разговоры, свежие сверху — через дверь перечня
+    ChatTranscriptRepo.list_sessions: SQL живёт в rusterm/store, а не
+    здесь (инвариант I10). Таблица та же, что читает
+    rusterm export --chat."""
+    if not has_table(repos.conn, TRANSCRIPT_TABLE):
+        # ТЗ-95 F1: в отставшей базе таблицы разговоров ещё нет — пустой
+        # перечень, а не исключение: про отставание говорит строка шапки.
+        return []
+    return repos.chat_transcript.list_sessions()
 
 
 def chat_transcript_lines(repos, session_id: str) -> list[str]:
@@ -780,6 +1164,10 @@ def llm_usage_line(repos) -> str:
     """C7.2: вызовы — из calls_totals(), того же места, что
     rusterm status. Ключ модели не показывается никогда: в строке
     только счётчики."""
+    if not has_table(repos.conn, TRANSCRIPT_TABLE):
+        # ТЗ-95 F1: та же деградация, что у перечня: прочерк — то же
+        # слово, что окно говорит без базы вовсе.
+        return "вызовы: —"
     totals = repos.chat_transcript.calls_totals()
     per = ", ".join(f"{model}: {calls}" for model, calls
                     in sorted(totals["per_model"].items()))
@@ -792,23 +1180,15 @@ def llm_usage_line(repos) -> str:
 
 def measure_coverage(repos, instrument_id: str) -> dict:
     """C8.1: сколько мер зелёные из скольких и чем красные красны —
-    из тех же строк снапшота, из которых rusterm coverage --json
-    считает measure_reason_counts; число совпадает с CLI по
-    построению. Снапшота нет — has_snapshot False, не пустота."""
+    счётчик один на все лица (tui_model.measure_reason_counts,
+    ТЗ-61 F1): rusterm coverage --json и окно считают одним кодом.
+    Снапшота нет — has_snapshot False, не пустота."""
     sid = repos.snapshot.latest_snapshot_id(instrument_id)
-    if sid is None:
-        return {"has_snapshot": False, "green": 0, "total": 0,
-                "reasons": {}}
-    measures = repos.snapshot.get_measures(sid)
-    reasons: dict[str, int] = {}
-    green = 0
-    for m in measures:
-        if m[4] is not None:
-            green += 1
-            continue
-        token = (m[10] or "missing_data").split(":", 1)[0]
-        reasons[token] = reasons.get(token, 0) + 1
-    return {"has_snapshot": True, "green": green, "total": len(measures),
+    reasons = tui_model.measure_reason_counts(repos, sid)
+    total = (len(repos.snapshot.get_measures(sid)) if sid else 0)
+    return {"has_snapshot": bool(sid),
+            "green": total - sum(reasons.values()),
+            "total": total,
             "reasons": reasons}
 
 
@@ -834,15 +1214,41 @@ def staleness_mark(period_end: str, as_of: str | None = None) -> str:
 def governance_view(card: dict) -> dict:
     """C8.3: governance — пять отдельных показателей, каждый со своим
     цветом без свёртки; цвет и расшифровка серых причин берутся из
-    ядра (GREY_REASONS), окно цвет не вычисляет."""
-    from rusterm.core.governance import GREY_REASONS
+    ядра (GREY_REASONS), окно цвет не вычисляет.
+
+    ТЗ-97 Q2 (ТЗ-73 T3, правило P8): к слову причины добавлена дверь —
+    команда, которой строка закрывается. Слова берёт `grey_reason_text`,
+    а не `GREY_REASONS.get`: ядро печатает причины с префиксами
+    (`no_data:`, `stale:`), и прямой `.get` на базе пользователя давал
+    пустую ячейку рядом со словом gray — ровно то, что P8 запрещает.
+    """
+    from rusterm.core.governance import grey_closing, grey_reason_text
     rows = []
+    instrument_id = card.get("instrument_id") or ""
     for g in card.get("governance", []):
+        reason = g.get("reason") or ""
         rows.append({"indicator": g["indicator"], "color": g["color"],
-                     "reason": g.get("reason") or "",
-                     "note": GREY_REASONS.get(g.get("reason") or "", ""),
+                     "reason": reason,
+                     "note": grey_reason_text(reason) if reason else "",
+                     "closing": grey_closing(g["indicator"], instrument_id,
+                                             reason),
                      "lineage_ref": g.get("lineage_ref") or ""})
     return {"rows": rows}
+
+
+def governance_hint(instrument_id: str) -> str:
+    """ТЗ-97 Q1 (P8): чем закрывается серый governance — целая команда
+    канала владения Forms 3/4/5. `ingest --source ownership` в CLI уже
+    есть (`cmd_ingest`), поэтому строка исполнима, а не нарисована."""
+    return ("что делать: владение (Forms 3/4/5) — rusterm ingest "
+            f"--source ownership --instrument {instrument_id}")
+
+
+def governance_needs_hint(view: dict) -> bool:
+    """Подсказка нужна, когда наполнения нет: строк governance нет вовсе
+    или все они серые. Хоть один не-серый цвет — вкладка наполнена, и
+    подсказка была бы шумом."""
+    return all(row["color"] == "gray" for row in view.get("rows") or [])
 
 
 # ── Настройки (TASK-C9): ключи без значений, лимиты, каталог ────────────
@@ -854,7 +1260,42 @@ KEY_PURPOSE = {
     "RUSTERM_LLM_API_KEY": "разговор с моделью",
     "RUSTERM_LLM_MODEL": "какая модель отвечает",
     "RUSTERM_TWELVEDATA_KEY": "котировки twelvedata",
+    # ТЗ-81 B3: каталог данных приезжает тем же каналом, что и ключи
+    # (двойной щелчок — запуск без шелла), и показан тем же списком:
+    # имя и происхождение, значения наружу нет
+    "RUSTERM_DATA": "какой каталог данных открыло окно; без него — "
+                    "ступень 4 (~/EquityLab/data)",
+    # ТЗ-90 A4: обе переменные приехали в ENV_NAMES — панель обязана
+    # называть, что теряется без них (ряд без назначения молчит)
+    "RUSTERM_DART_KEY": "раскрытия Кореи (DART): поиск документов и "
+                        "их тела без ключа недоступны",
+    "RUSTERM_LLM_BASE_URL": "куда ходят запросы модели; без него — "
+                            "OpenRouter (ADR-0018)",
+    # ADR-0029: yahoo — котировки, сплиты и дивиденды без ключа
+    "RUSTERM_PRICE_SOURCE": "откуда котировки: yahoo — без ключа, "
+                            "twelvedata — по ключу; без него — twelvedata",
 }
+
+
+def channel_degrees(repos) -> dict:
+    """ТЗ-60 E4 + ТЗ-61 F4: степень канала по рынку — считает
+    репозиторий из того, что канал произвёл в этой базе; канал, которого
+    нет без ключа, а ключа нет — «нет ключа» (те же слова, что у
+    `rusterm markets`). Каталога нет — пустой словарь, окно молча
+    показывает «—»."""
+    from rusterm.markets import (MARKETS, channel_degree_label,
+                                 provider_channel)
+    from rusterm.providers import channel_key_env
+    if repos is None:
+        return {}
+    produced = repos.instrument.channel_degrees()
+    out: dict = {}
+    for m in MARKETS:
+        key_env = channel_key_env(m.provider)
+        out[m.code] = channel_degree_label(
+            m.provider, produced.get(m.code), key_env,
+            bool(os.environ.get(key_env or "")))
+    return out
 
 
 def keys_view() -> dict:
@@ -874,7 +1315,7 @@ def keys_view() -> dict:
 
 def host_limits_view(paths: AppPaths) -> dict:
     """C9.2: потолки по хостам из реестра провайдеров плюс оверрайды
-    из того же config.toml, который читает ядро (load_config)."""
+    из конфигурации ядра — та же дверь load_config."""
     from rusterm.providers import all_host_limits
     from rusterm.store.config import load_config
     config = load_config(paths.config_path)
@@ -890,35 +1331,11 @@ def host_limits_view(paths: AppPaths) -> dict:
 
 def set_host_rate_limit(paths: AppPaths, host: str,
                         per_second: float) -> dict:
-    """C9.2: правка лимита — в тот же config.toml, который читает
-    ядро load_config; правка проверяется обратным чтением."""
-    text = paths.config_path.read_text(encoding="utf-8") \
-        if paths.config_path.exists() else ""
-    # хост с точкой — не TOML-ключ: только в кавычках это строка,
-    # иначе "sec.gov = 0.5" читается как вложенная таблица sec.gov
-    line = f'"{host}" = {per_second}'
-    if "[provider_rate_limit]" in text:
-        lines = text.splitlines()
-        start = lines.index("[provider_rate_limit]")
-        end = len(lines)
-        for i in range(start + 1, len(lines)):
-            if lines[i].startswith("["):
-                end = i
-                break
-        block = lines[start + 1:end]
-        block = [ln for ln in block
-                 if ln.split("=")[0].strip().strip('"') != host]
-        block.append(line)
-        lines[start + 1:end] = [""] + block
-        new_text = "\n".join(lines) + "\n"
-    else:
-        new_text = (text.rstrip("\n") + "\n\n[provider_rate_limit]\n"
-                    + line + "\n" if text.strip()
-                    else "[provider_rate_limit]\n" + line + "\n")
-    paths.config_path.write_text(new_text, encoding="utf-8")
-    from rusterm.store.config import load_config
-    applied = load_config(paths.config_path).provider_rate_limit.get(host)
-    return {"ok": applied == per_second, "applied": applied}
+    """C9.2 -> ТЗ-62 G1: правка лимита через дверь слоя конфигурации
+    (set_provider_rate_limit) — окно про имя файла не знает. Битый
+    конфиг: отказ причиной от двери, молчаливой перезаписи нет."""
+    from rusterm.store.config import set_provider_rate_limit
+    return set_provider_rate_limit(paths.config_path, host, per_second)
 
 
 def catalog_view(paths: AppPaths) -> dict:
@@ -934,11 +1351,39 @@ def catalog_view(paths: AppPaths) -> dict:
     return view
 
 
+SQLITE_HEADER = b"SQLite format 3\x00"
+
+
+def db_header_reason(db_path) -> str | None:
+    """ТЗ-97 Q3 (ТЗ-73 T4): «битый путь» — файл на месте, но это не база.
+    Проверка читает первые 16 байт: ничего не открывается, ничего не
+    пишется, чужой каталог остаётся нетронутым. Пустой файл битым не
+    считается — SQLite принимает его как новую базу."""
+    try:
+        with open(db_path, "rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        return "файл базы в выбранном каталоге не читается"
+    if head and head != SQLITE_HEADER:
+        return "файл rusterm.db в выбранном каталоге — не база данных SQLite"
+    return None
+
+
 def catalog_switch_decision(candidate_root: str) -> dict:
     """C9.3: решение о смене каталога. Каталога данных нет —
     существует=False: окно обязано СПРОСИТЬ, молчаливого создания
-    нет (B35/B40)."""
+    нет (B35/B40). Файл есть, но базой не является — usable=False:
+    спрашивать «создать?» тут нельзя, окно отказывает словом и называет
+    команду, которой отказ закрывается (ТЗ-97 Q3, правило P8)."""
     from rusterm.store.paths import AppPaths
     db = AppPaths.from_root(candidate_root).db_path
-    return {"candidate_root": str(candidate_root),
-            "exists": db.exists()}
+    exists = db.exists()
+    decision = {"candidate_root": str(candidate_root), "exists": exists,
+                "usable": exists, "reason": None, "closing": None}
+    if exists:
+        broken = db_header_reason(db)
+        if broken:
+            decision["usable"] = False
+            decision["reason"] = broken
+            decision["closing"] = f"rusterm --root {candidate_root} init"
+    return decision

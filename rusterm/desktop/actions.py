@@ -4,9 +4,10 @@
 `IngestionPipeline` (rusterm/pipeline.py) с тем же синтетическим
 провайдером, что у `rusterm ingest` по умолчанию, и тот же
 `SnapshotBuilder` с теми же крючками, что у `rusterm snapshot`.
-Сбор РЕАЛЬНЫХ источников (edgar/twelvedata/cvm/asx/ownership) телом
-живёт в приватных функциях CLI и из окна недоступен без копии —
-Disputed в REPORT-C2 с именами функций; окно называет команду CLI.
+Реальные источники окно собирает дверью `follow_instrument` — тем же
+`cli.cmd_follow`, который зовёт терминал (ТЗ-97 Q12 строка 2): аргумент-
+вектор разбирает настоящий парсер, стадии приходят колбэком, отмена
+читается на границе стадий. Копии тел CLI в окне нет ни для одной стадии.
 
 Поток: действия открывают СВОЁ соединение с базой (sqlite-соединение
 не переезжает между потоками), UI-поток не блокируется (ADR-0004 §3).
@@ -17,7 +18,9 @@ sha256, снапшот — один атомарный вызов ядра; по
 from __future__ import annotations
 
 import datetime
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Optional
 
 from rusterm.pipeline import IngestionPipeline
@@ -68,6 +71,10 @@ class CollectOutcome:
     jobs_done: int = 0
     snapshot_id: Optional[str] = None
     snapshot_version: Optional[int] = None
+    # ТЗ-109 R4: по пути прошла строка с транспортным отказом
+    # (`source_unreachable:transport…`) — окно называет «нет сети»
+    # словами и показывает дату данных, а не немую старину
+    offline: bool = False
 
 
 @dataclass
@@ -93,26 +100,10 @@ def _synthetic_providers() -> dict:
 
 
 def _snapshot_builder(repos):
-    """Тот же строитель, что у cmd_snapshot: те же крючки отраслевых
-    метрик и governance, те же репозитории."""
-    from rusterm.core.governance import (governance_inputs_from_records,
-                                         insider_net_inputs_from_store,
-                                         produce_assessments)
-    from rusterm.core.industry.inputs import industry_metrics_for
-    from rusterm.core.snapshot import SnapshotBuilder
-    as_of = _today()
-    return SnapshotBuilder(
-        repos.snapshot, repos.peer_set,
-        coverage_repo=repos.coverage,
-        price_repo=repos.price,
-        corp_action_repo=repos.corp_action,
-        industry=lambda iid, _issuer: industry_metrics_for(repos, iid),
-        governance=lambda iid, issuer: produce_assessments(
-            repos.governance, iid, as_of,
-            {**governance_inputs_from_records(repos.manual_extraction,
-                                              issuer),
-             **insider_net_inputs_from_store(repos, iid, issuer,
-                                             as_of)}))
+    """Тот же строитель, что у cmd_snapshot: одна фабрика ядра (ТЗ-97
+    Q6, ТЗ-94 `E1`), а не копия её аргументов."""
+    from rusterm.core.snapshot import make_snapshot_builder
+    return make_snapshot_builder(repos, _today())
 
 
 def collect_synthetic(root, instrument_id: str,
@@ -144,6 +135,20 @@ def collect_synthetic(root, instrument_id: str,
             on_stage(name)
 
     as_of = as_of or _today()
+    # ТЗ-65 K3: KR без ключа — отказ канала с инструкцией, те же
+    # слова, что у rusterm ingest (ТЗ-61 F4), не синтетика
+    from rusterm.markets import get_market, provider_channel
+    from rusterm.providers import channel_key_env
+    market = get_market(instrument_id.split("-", 1)[0])
+    key_env = channel_key_env(market.provider) if market else None
+    if (market is not None
+            and provider_channel(market.provider) is None
+            and key_env and not os.environ.get(key_env)):
+        from rusterm.providers.dart import dart_key_instruction
+        return CollectOutcome(
+            ok=False, reason="dart_key_unset",
+            detail=(f"сбор недоступен: dart_key_unset — "
+                    f"{dart_key_instruction()}"))
     if instrument_id != demo_instrument_id():
         return CollectOutcome(
             ok=False,
@@ -213,15 +218,126 @@ def collect_synthetic(root, instrument_id: str,
                                   reason=f"unexpected_error:{e}",
                                   detail="снапшот не построен; база "
                                          "осталась целой")
+        # ТЗ-64 J5: те же входы — честное «без изменений» в итоге
+        from rusterm.core.snapshot import snapshot_measures_identical
+        prev_id = repos.snapshot.previous_snapshot(instrument_id)
+        unchanged = (prev_id is not None
+                     and snapshot_measures_identical(
+                         repos.snapshot.get_measures(built.snapshot_id),
+                         repos.snapshot.get_measures(prev_id)))
         return CollectOutcome(
             ok=True, facts_stored=result.facts_stored,
             jobs_done=result.jobs_done,
             snapshot_id=built.snapshot_id,
             snapshot_version=built.version,
             detail=(f"фактов {result.facts_stored}; снапшот "
-                    f"v{built.version}"))
+                    f"v{built.version}"
+                    + ("; без изменений" if unchanged else "")))
     finally:
         conn.close()
+
+
+def _live_ticker(root, instrument_id: str) -> Optional[str]:
+    """Тикер — из двери магазина, а не из разбиения `instrument_id`.
+
+    Идентификатор строится как `РЫНОК-ТИКЕР`, и у бумаги с дефисом в
+    тикере («US-BRK-B») наивный split даёт «BRK»: окно пошло бы собирать
+    в базу пользователя чужую бумагу. Дверь `ticker_for_instrument`
+    отвечает действующим тикером на сегодня и заодно различает
+    переименованные бумаги. Если базы ещё нет — ответа нет, и зовущий
+    берёт суффикс идентификатора: `follow` создаёт каталог сам на стадии
+    1/6, и тогда инструмента в магазине ещё нет по определению.
+    """
+    paths = AppPaths.from_root(root)
+    if not Path(paths.db_path).exists():
+        return None
+    conn = open_connection(paths)
+    try:
+        apply_migrations(conn)
+        from rusterm.store.repos import RepoRegistry
+        row = RepoRegistry(conn, paths).instrument.ticker_for_instrument(
+            instrument_id, _today())
+    finally:
+        conn.close()
+    return row["ticker"] if row else None
+
+
+def follow_instrument(root, instrument_id: str,
+                      cancel: Optional[CancelFlag] = None,
+                      on_stage: Optional[Callable[[str], None]] = None
+                      ) -> CollectOutcome:
+    """ТЗ-97 Q12 (строка 2): собрать живую бумагу = `rusterm follow`.
+
+    Это та же команда, что человек набрал бы в терминале: аргумент-вектор
+    разбирает настоящий парсер CLI, путь делает `cli.cmd_follow`, и тело
+    ни одной стадии в окно не переезжает. Окно получает два крючка:
+    `on_stage` — строка стадии в момент, когда она напечатана (значит,
+    прогресс виден во время пути, а не только итог), и `cancel` — флаг,
+    который `cmd_follow` читает на границе стадий.
+
+    Итог — тот же `CollectOutcome`, что у демо-сбора, чтобы окно отвечало
+    одними словами: отказ стадии несёт `follow_failed` и последнюю строку
+    пути — а последней у `follow` бывает строка «совет: rusterm …», то
+    есть исполнимая команда (правило P8), а не описание проблемы.
+    Всё тело под `try`: трассировка из воркера окну не ответ, а без него
+    окно осталось бы с активной кнопкой отмены и без итогого слова.
+    """
+    from rusterm import cli
+
+    if cancel is None:
+        # не `cancel or CancelFlag()`: свежий флаг falsy, и `or`
+        # подменил бы объект вызывателя — его cancel() не дошёл бы
+        cancel = CancelFlag()
+    market, _, ticker = instrument_id.partition("-")
+    lines: list[str] = []
+
+    def emit(line: str) -> None:
+        lines.append(line)
+        if on_stage is not None:
+            on_stage(line)
+
+    try:
+        live = _live_ticker(root, instrument_id)
+        if live:
+            ticker = live
+        args = cli._build_parser().parse_args(
+            ["--root", str(root), "follow", ticker, "--market", market])
+        rc = cli.cmd_follow(args, emit=emit, cancel=cancel)
+    except Exception as e:  # трассировка — не ответ окна
+        return CollectOutcome(ok=False, reason=f"unexpected_error:{e}",
+                              detail="путь прерван ошибкой; база осталась "
+                                     "целой")
+    if rc == cli.FOLLOW_CANCELLED:
+        # стадия не начата: половины пути нет, записанное до отмены
+        # честно и переживёт повтор
+        return CollectOutcome(cancelled=True,
+                              detail=lines[-1] if lines else
+                              "отменено до первой стадии")
+    # ТЗ-109 R4: транспортный отказ виден в строках пути — и в строке
+    # «пропущено» необязательной стадии (R1), и в отказе ребёнка,
+    # который follow теперь передаёт в emit; окно называет его словами
+    offline = any("source_unreachable:transport" in line for line in lines)
+    if rc != 0:
+        return CollectOutcome(ok=False, reason="follow_failed",
+                              detail=lines[-1] if lines else f"код {rc}",
+                              offline=offline)
+
+    paths = AppPaths.from_root(root)
+    conn = open_connection(paths)
+    try:
+        from rusterm.store.repos import RepoRegistry
+        repos = RepoRegistry(conn, paths)
+        snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)
+        row = (repos.snapshot.get_snapshot(snapshot_id)
+               if snapshot_id else None)
+    finally:
+        conn.close()
+    version = row["version"] if row else None
+    return CollectOutcome(
+        ok=True, snapshot_id=snapshot_id, snapshot_version=version,
+        offline=offline,
+        detail=("путь пройден"
+                + (f"; снапшот v{version}" if version is not None else "")))
 
 
 # ── C2.3: бюджет — тот же источник, что rusterm budget ─────────────────
@@ -251,26 +367,18 @@ def _snapshot_measures(repos, instrument_id: str):
 
 
 def _lineage_facts(repos, measures) -> dict:
-    """measure_id -> входные факты (FactRepo.get_fact) — та же цепочка,
-    которую панель источника показывает по клику."""
-    lineage: dict = {}
-    for m in measures:
-        facts = [repos.fact.get_fact(fid)
-                 for fid in repos.snapshot.lineage_fact_ids(m[0])]
-        lineage[m[0]] = [f for f in facts if f is not None]
-    return lineage
+    """ТЗ-64 J2: делегация единой реализации ядра."""
+    from rusterm.core.export import lineage_facts
+    return lineage_facts(repos, measures)
 
 
 def _source_cell(facts: list) -> str:
     """Ячейка источника: вид источника, хэш ответа (укороченный),
-    дата периода факта. Строка со значением без источника уйти не
+    дата периода факта. Реализация одна (data.source_cell, форма
+    'export') — ТЗ-62 G3; строка со значением без источника уйти не
     должна — это проверяет тест."""
-    parts = []
-    for f in facts:
-        kind = f.get("source_kind") or "provider"
-        parts.append(f"{kind}:{str(f.get('source_ref'))[:12]}"
-                     f"@{f.get('period_end')}")
-    return "; ".join(parts)
+    from rusterm.desktop.data import source_cell
+    return source_cell(facts, shape="export")
 
 
 def export_snapshot_csv(repos, instrument_id: str) -> str:
@@ -320,7 +428,9 @@ def export_snapshot_json(repos, instrument_id: str) -> str:
 
 def chart_caption(table: dict, concept: str | None) -> str:
     """Подпись под картинкой (C4.2): эмитент, мера, период, дата
-    выгрузки — из данных таблицы, без досчёта."""
+    выгрузки — из данных таблицы, без досчёта. Форма без источника:
+    подпись не называет документ и хэш — для них в ней нет места
+    (ТЗ-62 G3)."""
     years = table.get("years") or []
     period = f"{years[-1]}–{years[0]}" if years else "—"
     return (f"{table.get('ticker', '—')} · {table.get('name') or '—'}"
