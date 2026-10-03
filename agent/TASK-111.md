@@ -45,6 +45,14 @@ user-visible string containing «rusterm » except the source panel.
 combos — removed or replaced by working state.
 **Done when:** look.py report: none of these strings on any tab.
 
+## U5. Terminal output is a summary, not a dump
+`rusterm snapshot --watchlist peers` (user, 03.10) printed thousands of
+«ревизии: us-gaap:… за …» items in one line (`cli/__init__.py`
+`print("ревизии: " …)`). Print «ревизии: N фактов (топ-5 концептов …);
+полный список: --verbose». Same rule for any list > 20 items.
+**Done when:** test — 1000 revisions → output line < 300 chars with the
+count; `--verbose` prints all.
+
 ## Do not
 
 - Touch `acceptance.sh`, `selfcheck.sh`, `p1_rule.sh`, `p6_rule.sh`,
