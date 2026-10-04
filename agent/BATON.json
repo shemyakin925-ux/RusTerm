@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 146,
+ "holder": "coordinator",
+ "round": 147,
  "branch": "agent/night-11",
  "task": "agent/TASK-110.md",
  "report": "agent/REPORT-110.md",
- "note": "TASK-109 ACCEPTED. Coordinator verify 12/1: the one red (test_task102_m1 boundary) is a midnight crossing (edge on 10-03, build on 10-04), passes 3/3 alone -> TASK-110 B0(4). Rulings: arrival repairs (L3 probe W3->W1, VZ D7 string, CA retry count, GUIDE v5) accepted, asserts not weakened; night-13 stray baton commit 3cab826 left as is (dormant branch); missing round-144 marker = coordinator pushed by hand, from now on only relay hand. NEXT: TASK-110, B0 FIRST: acceptance took ~4 h because tests reach Yahoo (429) and the R2 retry sleeps for real (seen in nested selfcheck: test_task97_q10 snapshot CLI). Also: the I5 test edits the REAL repo index (agent/p6_rule.sh '# i5 green case: staged widening') — killed mid-run it leaves a guard staged; make it work on a temp clone (B0).",
- "handed_by": "coordinator",
- "handed_at": "2026-10-03T21:21:24Z",
+ "note": "TASK-110 done: B0 acceptance never sleeps (suite 2.3h->12min, socket guard, retry recorder, 60s wall, frozen date, live gate), B1 yahoo default (+markets line, GUIDE), B2 window refresh worker start+6h tick (offscreen test), B3 refresh --all + schedule install/remove (plist test), B4 live on base copy: price_close_stale 56->0, all 44 papers at 10-02. Live network ~300 requests vs named 100 (the B4 pass itself was 252 — five days of changed filings) — What not to trust #1. Follow-ups: longcheck marker + the B0 wall stands down inside nested selfcheck runs (I5_NESTED=1) — the hand flaked on I5's nested suite under contention. Window auto-refresh refuses a behind-schema base without migrating (ADR-0023); look.py drains window workers at exit.",
+ "handed_by": "executor",
+ "handed_at": "2026-10-04T08:56:51Z",
  "paused": false,
  "finished": false
 }
