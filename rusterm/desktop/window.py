@@ -39,7 +39,7 @@ from rusterm.tui import model as tui_model
 if QT_AVAILABLE:  # без PySide6 имя не существует, окно честно откажет
     from rusterm.desktop.charts import ChartArea
 
-    from PySide6.QtCore import QThread
+    from PySide6.QtCore import QThread, QTimer
     from PySide6.QtCore import Signal as _QtSignal
 
     class _MainWindow(QMainWindow):
@@ -50,16 +50,20 @@ if QT_AVAILABLE:  # без PySide6 имя не существует, окно ч
         def __init__(self):
             super().__init__()
             self._worker = None
+            self._refresh_worker = None
 
         def set_worker(self, worker) -> None:
             self._worker = worker
 
         def closeEvent(self, event) -> None:
-            worker = self._worker
-            if worker is not None and worker.isRunning():
-                worker.cancel_flag.cancel()
-                worker.wait(10000)
+            for worker in (self._worker, self._refresh_worker):
+                if worker is not None and worker.isRunning():
+                    worker.cancel_flag.cancel()
+                    worker.wait(10000)
             event.accept()
+
+        def set_refresh_worker(self, worker) -> None:
+            self._refresh_worker = worker
 
     class _CollectWorker(QThread):
         """Сбор в рабочем потоке (ADR-0004 §3): UI не мёрзнет, стадии
@@ -98,6 +102,19 @@ if QT_AVAILABLE:  # без PySide6 имя не существует, окно ч
         def run(self) -> None:
             outcome = desktop_actions.follow_instrument(
                 self._root, self._instrument_id,
+                cancel=self.cancel_flag,
+                on_stage=self.stage.emit)
+            self.finished_run.emit(outcome)
+
+    class _RefreshWorker(_CollectWorker):
+        """ТЗ-110 B2: фоновый проход «обновить всё» — тот же рабочий
+        поток, тело — `desktop_actions.refresh_pass` (дверь `rusterm
+        refresh --all`). Отмена — на границе бумаги, сигнал итога несёт
+        строку «обновлено HH:MM · N бумаг · M запросов»."""
+
+        def run(self) -> None:
+            outcome = desktop_actions.refresh_pass(
+                self._root,
                 cancel=self.cancel_flag,
                 on_stage=self.stage.emit)
             self.finished_run.emit(outcome)
@@ -145,6 +162,12 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     offline_notice.setWordWrap(True)
     offline_notice.setVisible(False)
     root_layout.addWidget(offline_notice)
+    # ТЗ-110 B2: строка фонового прохода «обновлено HH:MM · N бумаг ·
+    # M запросов»; до первого итога честно «ещё не обновлялось»
+    refresh_status = QLabel(objectName="refresh_status")
+    refresh_status.setWordWrap(True)
+    refresh_status.setText("ещё не обновлялось")
+    root_layout.addWidget(refresh_status)
 
     body = QSplitter(Qt.Orientation.Horizontal)
     root_layout.addWidget(body, 1)
@@ -359,7 +382,8 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
              "watchlist": watchlist_id, "open_raw_target": None,
              "industry": None, "peer": None, "pinned": set(),
              "session": None, "chat_reason": None, "worker": None,
-             "source_measure_row": None, "stale_detail": False}
+             "source_measure_row": None, "stale_detail": False,
+             "refresh_worker": None}
 
     collect_button.setText("Собрать")
     cancel_button.setText("Отменить")
@@ -1147,6 +1171,39 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     if state["chat_reason"]:
         question_line.setPlaceholderText(
             f"модель недоступна: {state['chat_reason']}")
+
+    # ── ТЗ-110 B2: фоновое обновление ────────────────────────────────
+    # Старт при открытии окна и каждые 6 часов; воркер — тот же
+    # QThread-паттерн, что у «Собрать»; отмена при закрытии окна.
+    def on_refresh_done(outcome) -> None:
+        state["refresh_worker"] = None
+        window.set_refresh_worker(None)
+        if outcome.cancelled:
+            refresh_status.setText("обновление остановлено")
+        elif outcome.ok:
+            refresh_status.setText(outcome.detail)
+        else:
+            refresh_status.setText(f"обновление не удалось: "
+                                   f"{outcome.detail}")
+
+    def start_refresh_pass() -> None:
+        if state["refresh_worker"] is not None or repos is None:
+            return
+        worker = _RefreshWorker(paths.root, "", parent=window)
+        window.set_refresh_worker(worker)
+        state["refresh_worker"] = worker
+        worker.stage.connect(refresh_status.setText)
+        worker.finished_run.connect(on_refresh_done)
+        worker.start()
+
+    refresh_timer = QTimer(window)
+    refresh_timer.setInterval(6 * 60 * 60 * 1000)
+    refresh_timer.timeout.connect(start_refresh_pass)
+    refresh_timer.start()
+    start_refresh_pass()
+    # тестам (ТЗ-110 B2): тик таймера вручную и проверка интервала
+    window.refresh_tick = start_refresh_pass
+    window.refresh_timer = refresh_timer
     return window
 
 

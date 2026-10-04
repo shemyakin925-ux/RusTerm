@@ -944,13 +944,29 @@ def _ingest_edgar_ownership(repos, instrument_id: str, issuer_id: str,
     return 0
 
 
-def cmd_refresh(args) -> int:
+def cmd_refresh(args, emit=None, cancel=None) -> int:
     """Инкрементальный проход по списку наблюдения (TASK-13 Z4).
     Одну команду ставят в cron; демона, службы и фонового потока в
-    проекте нет. --dry-run печатает план, не делая ни одного запроса."""
+    проекте нет. --dry-run печатает план, не делая ни одного запроса.
+    ТЗ-110 B2/B3: `--all` — тот же проход, что у окна, по всем бумагам
+    базы: цены инкрементально (только недостающие дни), отчётность —
+    только изменившаяся, снапшот — где что-то приехало; emit/cancel —
+    те же крючки, что у follow (окно зовёт эту команду в рабочем
+    потоке, отмена читается на границе бумаги)."""
+    def out(line: str, err: bool = False) -> None:
+        if emit is None:
+            print(line, file=sys.stderr if err else sys.stdout)
+        else:
+            emit(line)
+
     paths, conn = _open(args.root)
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
+
+    if getattr(args, "all", False):
+        rc = _refresh_all(args, repos, conn, out, cancel)
+        conn.close()
+        return rc
 
     # TASK-15 C3: команда, которой нечего делать, обязана это сказать.
     # Неизвестный id — ошибка (stderr + код 1); пустой, но существующий
@@ -958,7 +974,7 @@ def cmd_refresh(args) -> int:
     # расширяется: ошибка живёт в существующей форме results.
     if repos.watchlist.current_version(args.watchlist) is None:
         reason = f"список наблюдения {args.watchlist!r} не найден"
-        print(reason, file=sys.stderr)
+        out(reason, err=True)
         if args.json:
             print(json.dumps({
                 "watchlist_id": args.watchlist,
@@ -1013,7 +1029,7 @@ def cmd_refresh(args) -> int:
             confirmed=False,
             result="ok" if errors == 0 else "errors")
         if file_error:
-            print(file_error, file=sys.stderr)
+            out(file_error, err=True)
     conn.close()
     if args.json:
         print(json.dumps({
@@ -1034,14 +1050,67 @@ def cmd_refresh(args) -> int:
         return 0
     for r in results:
         if r.action == "updated":
-            print(f"{r.instrument_id}: обновлён (фактов {r.facts})")
+            out(f"{r.instrument_id}: обновлён (фактов {r.facts})")
         elif r.action == "unchanged":
-            print(f"{r.instrument_id}: не изменилось ({r.reason}; "
-                  f"последняя отчётность {r.last_filing_date})")
+            out(f"{r.instrument_id}: не изменилось ({r.reason}; "
+                f"последняя отчётность {r.last_filing_date})")
         elif r.action == "planned":
-            print(f"{r.instrument_id}: запланировано ({r.reason})")
+            out(f"{r.instrument_id}: запланировано ({r.reason})")
         else:
-            print(f"{r.instrument_id}: ошибка ({r.reason})")
+            out(f"{r.instrument_id}: ошибка ({r.reason})")
+    return 0 if errors == 0 else 1
+
+
+def _refresh_all(args, repos, conn, out, cancel) -> int:
+    """ТЗ-110 B2/B3: проход «--all» по всем бумагам базы — то же, что
+    фоновый проход окна: цены инкрементально (только недостающие дни;
+    свежая лента не тратит ни одного запроса), отчётность — только
+    изменившаяся (refresh_instruments), снапшот пересобирается у бумаги,
+    у которой что-то приехало. Отмена — на границе бумаги (код 130,
+    как у follow)."""
+    from rusterm.core.refresh import refresh_instruments
+    as_of = args_as_of_default()
+    instrument_ids = list(repos.instrument.list_instruments())
+    builder = make_snapshot_builder(repos, as_of)
+    gate = RequestGate()
+
+    def provider_factory(cik: int):
+        provider = get_provider("edgar", gate=gate)
+        if isinstance(provider, ConfigError):
+            return provider
+        provider.cik = cik
+        return provider
+
+    errors = 0
+    for instrument_id in instrument_ids:
+        if cancel is not None and cancel:
+            out(f"{instrument_id}: отменено — проход остановлен")
+            return FOLLOW_CANCELLED
+        # цены: свежей ленте запрос не нужен вовсе
+        dates = repos.price.dates(instrument_id)
+        rows_before = len(dates)
+        start = dates[-1] if dates else None
+        if start is None or start < as_of:
+            _ingest_twelvedata_prices(repos, instrument_id, as_of,
+                                      start=start)
+        price_changed = len(repos.price.dates(instrument_id)) > rows_before
+        # отчётность: только изменившаяся; снапшот здесь один раз —
+        # у бумаги, у которой приехали цены или факты
+        results = refresh_instruments(repos, provider_factory,
+                                      [instrument_id], as_of,
+                                      builder=None, cancel=cancel)
+        if cancel is not None and cancel:
+            out(f"{instrument_id}: отменено — проход остановлен")
+            return FOLLOW_CANCELLED
+        result = results[0] if results else None
+        if result is not None:
+            errors += 1 if result.action == "error" else 0
+        if result is not None and (result.action == "updated"
+                                   or price_changed):
+            builder.build(instrument_id, result.issuer_id, as_of)
+
+    spent = _requests_used(args.root)
+    out(f"обновлено: {len(instrument_ids)} бумаг; запросов: {spent}")
     return 0 if errors == 0 else 1
 
 
@@ -2262,6 +2331,35 @@ def cmd_doctor(args) -> int:
     return 0 if report["ok"] else 1
 
 
+def cmd_schedule(args) -> int:
+    """Ежедневный проход launchd (ТЗ-110 B3): `schedule install` пишет
+    plist (refresh --all в 07:00, путь базы явный) и зовёт launchctl
+    load; `schedule remove` разгружает и удаляет. --dir — каталог
+    агентов (тесты и нестандартные установки); без load/unload —
+    --no-launchctl: только файл."""
+    from pathlib import Path as _Path
+
+    from rusterm.core.schedule import install, plist_path, remove
+    from rusterm.store.paths import resolve_root
+    # путь базы в plist — явный: агент запускается без шелла и без
+    # окружения, правило выбора то же, что у всякой двери (ТЗ-90 A5)
+    root_path, _rule = resolve_root(args.root)
+    target_dir = _Path(args.dir) if getattr(args, "dir", None) else None
+    run = not getattr(args, "no_launchctl", False)
+    if args.action == "install":
+        path = install(str(root_path), target_dir=target_dir,
+                       run_launchctl=run)
+        print(f"schedule: агент записан: {path}; "
+              f"каждый день в 07:00 — rusterm refresh --all")
+        return 0
+    existed = remove(target_dir=target_dir, run_launchctl=run)
+    if existed:
+        print("schedule: агент разгружен и удалён")
+        return 0
+    print(f"schedule: агента нет ({plist_path(target_dir)})", file=sys.stderr)
+    return 1
+
+
 def cmd_backup(args) -> int:
     """Резервная копия (ТЗ-22 J4): база, манифесты и объекты raw-хранилища
     в один zip с MANIFEST.json (sha256 на члена, версия схемы).
@@ -3016,9 +3114,22 @@ def _build_parser() -> argparse.ArgumentParser:
     p_desk.add_argument("--watchlist", default=None)
     p_ref = sub.add_parser("refresh",
                            help="инкрементальный проход по списку наблюдения (для cron)")
-    p_ref.add_argument("--watchlist", required=True)
+    p_ref.add_argument("--watchlist")
+    p_ref.add_argument("--all", action="store_true",
+                       help="проход по всем бумагам базы: цены + "
+                            "отчётность + снапшоты (ТЗ-110 B3)")
     p_ref.add_argument("--dry-run", dest="dry_run", action="store_true")
     p_ref.add_argument("--json", action="store_true")
+    p_sched = sub.add_parser(
+        "schedule",
+        help="ежедневный проход launchd: install/remove (ТЗ-110 B3)")
+    p_sched.add_argument("action", choices=("install", "remove"))
+    p_sched.add_argument("--dir", dest="dir", default=None,
+                         help="каталог агентов (по умолчанию "
+                              "~/Library/LaunchAgents)")
+    p_sched.add_argument("--no-launchctl", dest="no_launchctl",
+                         action="store_true",
+                         help="только файл, без launchctl load/unload")
     p_ops = sub.add_parser(
         "ops",
         help="массовая операция: предложение -> показ -> подтверждение")
@@ -3100,6 +3211,7 @@ def main(argv: list[str] | None = None) -> int:
         "chat": cmd_chat,
         "demo": cmd_demo,
         "watchlist": cmd_watchlist, "coverage": cmd_coverage,
+        "schedule": cmd_schedule,
         "peers": cmd_peers,
         "metrics": cmd_metrics, "budget": cmd_budget,
         "status": cmd_status, "tui": cmd_tui, "add": cmd_add,

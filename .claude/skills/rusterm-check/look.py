@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(_code).expanduser() if _code else
 
 from PySide6.QtWidgets import (QApplication, QLabel, QTableWidget,  # noqa
                                QTabWidget, QTreeWidget, QComboBox)
-from PySide6.QtCore import qInstallMessageHandler  # noqa
+from PySide6.QtCore import QThread, qInstallMessageHandler  # noqa
 
 from rusterm import env as _env  # noqa
 _env.load_env()
@@ -132,6 +132,25 @@ def main():
     report["qt_log"] = QT_LOG[-50:]
     (out / "report.json").write_text(json.dumps(report, ensure_ascii=False,
                                                 indent=1))
+    # ТЗ-110 B2: окно запускает фоновый проход при старте — выход без
+    # закрытия окон ронял процесс (QThread destroyed while running,
+    # exit 134). Закрыть окна и дождаться воркеров перед выходом.
+    for w in list(QApplication.allWidgets()):
+        try:
+            w.close()
+        except RuntimeError:
+            pass  # C++-объект уже удалён — питонья обёртка пережила его
+    deadline = __import__("time").time() + 10
+    while __import__("time").time() < deadline:
+        try:
+            busy = [th for w in QApplication.allWidgets()
+                    for th in w.findChildren(QThread) if th.isRunning()]
+        except RuntimeError:
+            break
+        if not busy:
+            break
+        for th in busy:
+            th.wait(100)
     import rusterm
     print(f"code: {Path(rusterm.__file__).parent.parent}")
     print(f"shots: {len(report['shots'])}  dir: {out}")

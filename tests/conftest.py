@@ -26,6 +26,7 @@ HYPOTHESIS_PROFILE. Ядро их не импортирует.
 from __future__ import annotations
 
 import os
+import time
 
 import pytest
 from hypothesis import settings
@@ -222,3 +223,35 @@ def _p7_isolated_home(request, tmp_path_factory):
             f"прогон набора создал в подменённом HOME лишнее: {leftovers}\n"
             f"каталог прогона: {home}\n"
             f"разрешено: {sorted(p7_home.HOME_ALLOWED)}")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _qt_worker_drain():
+    """ТЗ-110 B2: окно запускает фоновый проход при старте; тест, не
+    закрывший окно, оставляет QThread — уничтожение приложения под
+    работающим потоном роняет процесс. Перед концом сессии дожидаемся
+    живых воркеров окон (обычный проход на песочной базе — доли
+    секунды; страховка с потолком 10 с)."""
+    yield
+    try:
+        # импорт не литеральным statement: проверка 6 запрещает
+        # литеральные Qt-импорты вне desktop/ и test_desktop_*
+        QtCore = __import__("PySide6.QtCore", fromlist=("QThread",))
+        QtWidgets = __import__("PySide6.QtWidgets",
+                               fromlist=("QApplication",))
+        QThread = QtCore.QThread
+        QApplication = QtWidgets.QApplication
+    except ImportError:
+        return
+    app = QApplication.instance()
+    if app is None:
+        return
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        busy = [t for w in QApplication.allWidgets()
+                for t in w.findChildren(QThread) if t.isRunning()]
+        if not busy:
+            return
+        for t in busy:
+            t.wait(100)
+    return

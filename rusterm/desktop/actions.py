@@ -340,6 +340,81 @@ def follow_instrument(root, instrument_id: str,
                 + (f"; снапшот v{version}" if version is not None else "")))
 
 
+# ── ТЗ-110 B2: фоновый проход окна — та же команда, что у cron ──────────
+
+def refresh_pass(root, cancel: Optional[CancelFlag] = None,
+                 on_stage: Optional[Callable[[str], None]] = None
+                 ) -> CollectOutcome:
+    """Один проход `rusterm refresh --all` (цены инкрементально,
+    отчётность — изменившаяся, снапшоты — где приехало) дверью CLI:
+    аргумент-вектор разбирает настоящий парсер, тело в окно не
+    переезжает. Итог несёт строку «обновлено HH:MM · N бумаг ·
+    M запросов» — дату ставит момент завершения, бумаги и запросы
+    считает база, а не слова воркера. cancel читается командой на
+    границе бумаги; всё тело под try: трассировка из воркера окну
+    не ответ."""
+    from rusterm import cli
+
+    if cancel is None:
+        cancel = CancelFlag()
+    # ADR-0023: окно не мигрирует базу — фоновый проход тоже. Отставшая
+    # схема названа словами с командой обновления, проход не начинается
+    # (cmd_refresh открыл бы базу пишущей дверью и наделал миграций).
+    import sqlite3
+    from rusterm.store.db import _SCHEMA_VERSION, current_schema_version
+    paths0 = AppPaths.from_root(root)
+    if Path(paths0.db_path).exists():
+        ro = sqlite3.connect(f"file:{paths0.db_path}?mode=ro", uri=True)
+        try:
+            observed = current_schema_version(ro)
+        finally:
+            ro.close()
+        if observed is not None and observed != _SCHEMA_VERSION:
+            return CollectOutcome(
+                ok=False, reason="schema_stale",
+                detail=(f"база в {root} — схема {observed}, программе "
+                        f"нужна {_SCHEMA_VERSION}; обновите: "
+                        f"rusterm --root {root} init"))
+    lines: list[str] = []
+
+    def emit(line: str) -> None:
+        lines.append(line)
+        if on_stage is not None:
+            on_stage(line)
+
+    try:
+        before = cli._requests_used(str(root))
+        args = cli._build_parser().parse_args(
+            ["--root", str(root), "refresh", "--all"])
+        rc = cli.cmd_refresh(args, emit=emit, cancel=cancel)
+    except Exception as e:  # трассировка — не ответ окна
+        return CollectOutcome(ok=False, reason=f"unexpected_error:{e}",
+                              detail="проход прерван ошибкой; база "
+                                     "осталась целой")
+    if rc == cli.FOLLOW_CANCELLED:
+        return CollectOutcome(cancelled=True,
+                              detail=lines[-1] if lines else
+                              "проход остановлен")
+    if rc != 0:
+        return CollectOutcome(ok=False, reason="refresh_failed",
+                              detail=lines[-1] if lines else f"код {rc}")
+
+    n = 0
+    paths = AppPaths.from_root(root)
+    conn = open_connection(paths)
+    try:
+        from rusterm.store.repos import RepoRegistry
+        repos = RepoRegistry(conn, paths)
+        n = len(list(repos.instrument.list_instruments()))
+    finally:
+        conn.close()
+    spent = cli._requests_used(str(root)) - before
+    stamp = datetime.datetime.now().strftime("%H:%M")
+    return CollectOutcome(
+        ok=True, detail=(f"обновлено {stamp} · {n} бумаг · "
+                         f"{spent} запросов"))
+
+
 # ── C2.3: бюджет — тот же источник, что rusterm budget ─────────────────
 
 def budget_view(repos) -> dict:

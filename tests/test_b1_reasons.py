@@ -137,6 +137,11 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     # ТЗ-97 Q12 (строка 2): «Собрать» на живой бумаге = rusterm follow;
     # отказ стадии — не null_reason меры, а слово окна + строка совета
     "follow_failed": "desktop follow refusal (desktop/actions.py)",
+    # ТЗ-110 B2: фоновый проход окна = rusterm refresh --all; та же
+    # природа — слово окна, не null_reason меры
+    "refresh_failed": "desktop refresh refusal (desktop/actions.py)",
+    "schema_stale": "desktop refresh refusal on a behind-schema base "
+                    "(desktop/actions.py, ADR-0023: окно не мигрирует)",
     # расширенная перепись (сканер возвратов-пар и f-строк)
     "asx_bad_url": "provider channel refusal (providers/asx.py)",
     "dart_bad_url": "provider channel refusal (providers/dart.py)",
