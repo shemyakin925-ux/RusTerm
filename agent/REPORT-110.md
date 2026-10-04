@@ -161,3 +161,10 @@ Questions for the coordinator:
    still refreshing their prices — is a dedicated "skipped registry"
    action wanted?
 NOW: TASK-110 complete, step 6 — handing back
+- **Follow-up (this commit)**: the B0 60 s wall caught its own kind —
+  `test_i5_staged_and_authorised_widening_is_green` runs a FULL nested
+  selfcheck (22 min solo) and was wall-failed at teardown. New marker
+  `longcheck` (pyproject) exempts a test whose JOB is the full guard
+  run; the two I5 nested-selfcheck tests carry it. One red under
+  concurrent acceptance load was contention, not code — the pair is
+  green solo (4 passed).

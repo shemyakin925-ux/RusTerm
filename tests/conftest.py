@@ -97,7 +97,12 @@ def _acceptance_never_sleeps_setup(request, monkeypatch):
     monkeypatch.setattr(_socket, "create_connection",
                         _no_create_connection)
     # (3) стена времени: тест дольше 60 с — красный, даже если ассерты
-    # зелёные (парковка в sleep подпроцессом — та же красная)
+    # зелёные (парковка в sleep подпроцессом — та же красная). Исключение
+    # — longcheck: тест, чья работа и ЕСТЬ полный прогон стража
+    # (вложенный selfcheck в I5), его стенка не судит.
+    if request.node.get_closest_marker("longcheck"):
+        yield frozen
+        return
     started = _time.perf_counter()
     yield frozen
     took = _time.perf_counter() - started

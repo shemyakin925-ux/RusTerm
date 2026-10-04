@@ -202,6 +202,7 @@ def _demonstration_ran():
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
+@pytest.mark.longcheck  # ТЗ-110 B0.3: внутри — полный selfcheck, не 60 с
 def test_i5_working_tree_widening_is_red_and_named(tmp_path):
     editmsg = None
     editmsg_saved = None
@@ -227,6 +228,7 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
+@pytest.mark.longcheck  # ТЗ-110 B0.3: внутри — полный selfcheck, не 60 с
 def test_i5_staged_and_authorised_widening_is_green(tmp_path):
     editmsg = None
     editmsg_saved = None
