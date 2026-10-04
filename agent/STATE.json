@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-110.md",
  "report": "agent/REPORT-110.md",
- "item": "B0-B4 complete + longcheck marker (266036d), handing back",
- "step": "ROUND 146 — TASK-110 complete: B0 db51e3e (acceptance never sleeps; suite 2.3h->12min), B1 dddfb71 (yahoo default + markets line + GUIDE), B2/B3/B4 c78c205 (window refresh worker start+6h tick with tests, refresh --all + schedule install/remove, live measurement on base copy: price_close_stale 56->0, all 44 papers at the 2026-10-02 close). Live network ~300 requests of a named 100 — recorded in What not to trust #1 of REPORT-110. look.py on the copy: 38 companies, 0 errors. Follow-up 266036d: longcheck marker — the B0 60s wall exempted nothing for I5's nested full selfcheck (22 min); the two I5 nested-selfcheck tests carry it; I5 pair green solo. Handing back.",
+ "item": "B0-B4 complete + nested-wall fix (d2282c7), handing back",
+ "step": "ROUND 146 — TASK-110 complete: B0 db51e3e (acceptance never sleeps; suite 2.3h->12min), B1 dddfb71 (yahoo default + markets line + GUIDE), B2/B3/B4 c78c205 (window refresh worker start+6h tick with tests, refresh --all + schedule install/remove, live measurement on base copy: price_close_stale 56->0, all 44 papers at the 2026-10-02 close). Live network ~300 requests of a named 100 — recorded in What not to trust #1 of REPORT-110. look.py on the copy: 38 companies, 0 errors. Follow-up 266036d: longcheck marker — the B0 60s wall exempted nothing for I5's nested full selfcheck (22 min); the two I5 nested-selfcheck tests carry it; I5 pair green solo. Handing back. Follow-up 2 d2282c7: the B0 wall stands down inside nested selfcheck runs (I5_NESTED=1) — the hand flaked on I5's nested suite under contention. Handing back.",
  "status": "working",
- "last_commit": "266036d",
+ "last_commit": "d2282c7",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM (zai individual coding plan) via ZCode",
- "updated_at": "2026-10-04T05:41:30Z"
+ "updated_at": "2026-10-04T07:47:00Z"
 }
