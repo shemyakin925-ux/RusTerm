@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-110.md",
  "report": "agent/REPORT-110.md",
- "item": "B0 B1 B2 B3 B4 complete, committing",
- "step": "ROUND 146 — B0 db51e3e (acceptance never sleeps: sockets, retry recorder, 60s wall, frozen date, live gate; suite 2.3h->29.5min->12min), B1 dddfb71 (yahoo default + markets line + GUIDE), B2/B3/B4 this commit (window refresh worker start+6h tick, refresh --all + schedule install/remove, live measurement on base copy: price_close_stale 56->0). Live network ~300 requests of a named 100 — recorded in What not to trust #1. look.py on copy: 38 companies, 0 errors.",
+ "item": "B0-B4 complete (committed), handing back",
+ "step": "ROUND 146 — TASK-110 complete: B0 db51e3e (acceptance never sleeps; suite 2.3h->12min), B1 dddfb71 (yahoo default + markets line + GUIDE), B2/B3/B4 c78c205 (window refresh worker start+6h tick with tests, refresh --all + schedule install/remove, live measurement on base copy: price_close_stale 56->0, all 44 papers at the 2026-10-02 close). Live network ~300 requests of a named 100 — recorded in What not to trust #1 of REPORT-110. look.py on the copy: 38 companies, 0 errors.",
  "status": "working",
- "last_commit": "89ac5ed",
+ "last_commit": "c78c205",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM (zai individual coding plan) via ZCode",
- "updated_at": "2026-10-04T00:59:20Z"
+ "updated_at": "2026-10-04T02:09:04Z"
 }
