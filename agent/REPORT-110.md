@@ -168,3 +168,10 @@ NOW: TASK-110 complete, step 6 — handing back
   run; the two I5 nested-selfcheck tests carry it. One red under
   concurrent acceptance load was contention, not code — the pair is
   green solo (4 passed).
+- **Follow-up 2 (this commit)**: the I5 flake under the hand's
+  acceptance was the B0 wall judging the NESTED selfcheck's own suite
+  (I5_NESTED=1): the slowest test crossed 60 s under contention and
+  reddened the nested run, failing I5's `returncode == 0`. The wall
+  now stands down inside nested runs (env `I5_NESTED=1`); the primary
+  acceptance run judges every test as before. I5 green solo (reproduced
+  the hand's environment with the zstandard block: exit 0).
