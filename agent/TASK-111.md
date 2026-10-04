@@ -17,6 +17,17 @@ prints developer tokens (`period_mismatch`, `stale_data: st_investments:
 last 2019`, `concept_not_mapped`, «Disputed REPORT-C7») and sends the user
 to the terminal («обновите: rusterm init», «rusterm add …», import, peers).
 
+## U0. The I5 test never touches the real repository (first)
+Rounds 145–147: `tests/test_i5_guard_source.py` stages edits to
+`agent/p6_rule.sh` in the REAL index («# i5 green case: staged
+widening»); any interrupted or parallel run leaves a guard staged and the
+next acceptance goes red (seen twice by the coordinator, three hand
+attempts in round 147). Run it on a temp clone (`git clone --local` into
+tmp_path) with the hook path pointed there.
+**Done when:** test — after the I5 tests, `git -C <repo> status
+--porcelain agent/` is empty even if the test body raises midway
+(simulated); grep: no `git add` against the repo root in tests/.
+
 ## U1. Reason dictionary in words
 One table `rusterm/reasons_ru.py`: every reason token → short Russian
 phrase («нет данных за период», «показатель не раскрывается с 2019»,

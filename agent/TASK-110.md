@@ -1,6 +1,6 @@
 # TASK-110 — background refresh; Yahoo is the default price source
 
-- **Status: READY**
+- **Status: ACCEPTED (round 147)**
 - **Report:** `agent/REPORT-110.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Budgets:** network ≤ 100 requests (live check), LLM 0.

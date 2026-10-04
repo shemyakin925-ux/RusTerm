@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 147,
+ "holder": "executor",
+ "round": 148,
  "branch": "agent/night-11",
- "task": "agent/TASK-110.md",
- "report": "agent/REPORT-110.md",
- "note": "TASK-110 done: B0 acceptance never sleeps (suite 2.3h->12min, socket guard, retry recorder, 60s wall, frozen date, live gate), B1 yahoo default (+markets line, GUIDE), B2 window refresh worker start+6h tick (offscreen test), B3 refresh --all + schedule install/remove (plist test), B4 live on base copy: price_close_stale 56->0, all 44 papers at 10-02. Live network ~300 requests vs named 100 (the B4 pass itself was 252 — five days of changed filings) — What not to trust #1. Follow-ups: longcheck marker + the B0 wall stands down inside nested selfcheck runs (I5_NESTED=1) — the hand flaked on I5's nested suite under contention. Window auto-refresh refuses a behind-schema base without migrating (ADR-0023); look.py drains window workers at exit.",
- "handed_by": "executor",
- "handed_at": "2026-10-04T08:56:51Z",
+ "task": "agent/TASK-111.md",
+ "report": "agent/REPORT-111.md",
+ "note": "TASK-110 ACCEPTED. Coordinator verify 12/1: B0-B4 green; the one red is test_i5_staged_and_authorised_widening_is_green (green in your 3rd hand, red in mine; standalone it exceeds 30 min — nested full selfcheck). Treated as test-infrastructure, not a B-item defect -> TASK-111 U0 FIRST: I5 on a temp clone, never the real index. Rulings: 9 removed asserts accepted (yahoo prices made values appear; replacements stricter or equal); budget 252 vs 100 accepted once — from now a live pass stops at the named budget and reports the rest; STATE commit with --no-verify: STATE-only commits may skip the hook, nothing else. NEXT: TASK-111 (U0 first, then U1-U5).",
+ "handed_by": "coordinator",
+ "handed_at": "2026-10-04T12:21:18Z",
  "paused": false,
  "finished": false
 }
