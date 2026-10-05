@@ -30,6 +30,7 @@ from rusterm.core.export import snapshot_to_csv, snapshot_to_md
 from rusterm.store.db import (_SCHEMA_VERSION, current_schema_version,
                               has_table, open_connection)
 from rusterm.store.paths import AppPaths
+from rusterm.reasons_ru import reason_phrase
 from rusterm.tui import model as tui_model
 
 # Отказ ячейки таблицы: словами, не пустотой и не прочерком (C1.2)
@@ -433,7 +434,14 @@ def measure_table_rows(repos, instrument_id: str,
     for measure in card["measures"]:
         current = measure["value"]
         has_value = current is not None and current != tui_model.NULL_MARK
+        # ТЗ-111 U1: пустая мера — фраза словами в «сейчас»-ячейке
+        # (not_applicable несёт свою человеческую форму); годовые ячейки
+        # остаются компактными («нет данных»), сырой токен — в row
         empty = not_applicable_text(measure.get("null_reason")) or NO_DATA
+        current_empty = (
+            not_applicable_text(measure.get("null_reason"))
+            or reason_phrase(measure.get("null_reason"))
+            if measure.get("null_reason") else NO_DATA)
         year_cells = {}
         year_values = {}
         for year in years:
@@ -456,7 +464,7 @@ def measure_table_rows(repos, instrument_id: str,
                       else measure["concept"]),
             "current": (format_value(current, measure["concept"],
                                      measure.get("unit"))
-                        if has_value else empty),
+                        if has_value else current_empty),
             # сырое число — для диаграмм и сравнений; «current» — текст
             "value": current if has_value else None,
             "years": year_cells,
@@ -464,6 +472,9 @@ def measure_table_rows(repos, instrument_id: str,
             "year_values": year_values,
             "has_value": has_value,
             "null_reason": measure.get("null_reason"),
+            # ТЗ-111 U1: фраза для ячейки; сырой токен — в подсказку
+            "reason_phrase": (reason_phrase(measure.get("null_reason"))
+                              if measure.get("null_reason") else None),
             "unit": measure.get("unit"),
             "measure": measure,
             "stale_mark": staleness_mark(period_end),
@@ -763,10 +774,16 @@ def industry_table_rows(screen: dict) -> list[dict]:
         note = "; ".join(p for p in (r.get("shortfall_note"),
                                      r.get("period_note")) if p)
         if r.get("null_reason"):
-            counts = ", ".join(f"{k}={v}" for k, v
+            counts = ", ".join(f"{reason_phrase(k)}={v}" for k, v
                                in sorted(r.get("reason_counts", {})
                                          .items()))
-            mark = f"отказ: {r['null_reason']}"
+            # ТЗ-111 U1: фраза словами; продолжение (валюты, периоды)
+            # после двоеточия причины — детали, нужные пользователю
+            reason_raw = str(r.get("null_reason"))
+            head, _, rest = reason_raw.partition(":")
+            mark = f"отказ: {reason_phrase(head)}"
+            if rest.strip():
+                mark += f": {rest.strip()}"
             if counts:
                 mark += f" ({counts})"
             if note:

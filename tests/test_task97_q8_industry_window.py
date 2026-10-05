@@ -313,6 +313,8 @@ def test_qt_industry_tab_marks_range_and_excluded(env):
     refuse = {r["concept"]: r["mark"]
               for r in data.industry_table_rows(
                   industry_rows(repos, below, AS_OF))}["net_margin"]
-    assert refuse.startswith("отказ: peer_set_too_small"), refuse
+    # ТЗ-111 U1: пометка отказа — фразой словаря причин
+    assert refuse.startswith("отказ: слишком мало компаний в группе"), \
+        refuse
     assert "периоды от" in refuse, refuse
     assert "t-7 (2022-06-30)" in refuse, refuse

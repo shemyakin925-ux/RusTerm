@@ -197,16 +197,25 @@ def test_company_tab_shows_the_snapshot_numbers(hour):
     assert {"asset_turnover", "div_yield", "ebitda"} <= texts
 
     empty = desktop_data.NO_DATA
+    # ТЗ-111 U1: пустые меры показывают фразы словаря причин — считаем
+    # ценными только строки, чья ячейка не «нет данных» и не фраза
+    from rusterm.reasons_ru import REASONS_RU
+    phrases = set(REASONS_RU.values())
     valued = [r for r in range(table.rowCount())
-              if table.item(r, 1) and table.item(r, 1).text() != empty]
+              if table.item(r, 1)
+              and table.item(r, 1).text() != empty
+              and table.item(r, 1).text() not in phrases]
     assert len(valued) == VALUED_NOW
     # пустая мера показана словом, а не нулём и не молчанием (ТЗ-110 B1:
     # div_yield с дивидендами yahoo теперь считает — 0,32 %, не «нет»)
     assert table.item(next(
         r for r in range(table.rowCount())
         if table.item(r, 0).text() == "div_yield"), 1).text() == "0,32 %"
+    # ТЗ-111 U1: пустых мер нет как «нет данных» — они со фразами
+    from rusterm.reasons_ru import REASONS_RU
+    phrases = set(REASONS_RU.values())
     row = next(r for r in range(table.rowCount())
-               if table.item(r, 1) and table.item(r, 1).text() == empty)
+               if table.item(r, 1) and table.item(r, 1).text() in phrases)
     assert table.item(row, 0).text(), "пустых мер нет — зуб не сработал"
     row = next(r for r in range(table.rowCount())
                if table.item(r, 0).text() == "asset_turnover")

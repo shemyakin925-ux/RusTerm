@@ -41,8 +41,11 @@ def pump(app, n=5):
 
 
 def visible_labels(win):
+    # ТЗ-111 U1: панель источника — единственное место, где сырой токен
+    # причины живёт по заданию; её текст в проверку шаблонов не ходит
     return [w.text() for w in win.findChildren(QLabel)
-            if w.isVisible() and w.text().strip()]
+            if w.isVisible() and w.text().strip()
+            and w.objectName() != "source_panel"]
 
 
 def dump_tables(win):

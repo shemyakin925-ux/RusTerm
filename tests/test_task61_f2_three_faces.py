@@ -26,6 +26,7 @@ from rusterm.store.paths import AppPaths, ensure_app_dir  # noqa: E402
 from rusterm.store.repos import (Instrument, Issuer, RepoRegistry,  # noqa: E402
                                  SnapshotRepo)
 from rusterm.tui import model as tui_model  # noqa: E402
+from rusterm.reasons_ru import reason_phrase
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -113,7 +114,9 @@ def test_three_faces_agree(catalog, tmp_path):
                 assert _token(dsk["null_reason"]) == token, (
                     market, concept, "desktop", dsk["null_reason"], token)
                 assert mod["value"] == tui_model.NULL_MARK
-                assert dsk["current"] == desktop_data.NO_DATA
+                # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза
+                # словаря причин): лицо окна называет причину словами
+                assert dsk["current"] == reason_phrase(exp["null_reason"])
                 continue
             # модель = экспорт байт-в-байт
             assert mod["value"] == exp["value"], (
@@ -141,4 +144,5 @@ def test_refusal_token_named_across_faces(catalog, tmp_path):
     assert _token(model["null_reason"]) == token
     assert _token(dsk["null_reason"]) == token
     assert model["value"] == tui_model.NULL_MARK
-    assert dsk["current"] == desktop_data.NO_DATA
+    # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза словаря причин)
+    assert dsk["current"] == reason_phrase(reason)

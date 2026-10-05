@@ -25,6 +25,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 
 from rusterm.desktop import data as desktop_data  # noqa: E402
+from rusterm.reasons_ru import reason_phrase
 from rusterm.store.db import apply_migrations  # noqa: E402
 from rusterm.store.paths import AppPaths, ensure_app_dir  # noqa: E402
 from rusterm.store.repos import (Instrument, Issuer, RepoRegistry,  # noqa: E402
@@ -103,7 +104,10 @@ def test_window_cells_equal_export_byte_for_byte(catalog):
                 market, concept, row_period,
                 exported_row["period_end"])
             if exported_row["value"] is None:
-                assert row["current"] == desktop_data.NO_DATA, (
+                # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза
+                # словаря причин): ячейка окна называет причину словами
+                assert row["current"] == reason_phrase(
+                    exported_row["null_reason"]), (
                     market, concept, row["current"])
                 assert row["null_reason"] == exported_row["null_reason"], (
                     market, concept)
@@ -127,7 +131,10 @@ def test_refusal_names_concept_in_source_panel(catalog):
     _market, _issuer_id, iid, concept, reason = REFUSAL
     table = desktop_data.measure_table_rows(repos, iid)
     row = next(r for r in table["measures"] if r["concept"] == concept)
-    assert row["current"] == desktop_data.NO_DATA
+    # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза словаря причин):
+    # ячейка окна называет причину словами, панель источника — сырым
+    # токеном по заданию
+    assert row["current"] == reason_phrase(reason)
     assert row["null_reason"] == reason
     exported = _export_measures(paths.root, iid)
     assert exported[concept]["null_reason"] == reason

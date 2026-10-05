@@ -208,7 +208,11 @@ def test_measure_table_no_data_by_words_in_every_column(env):
     repos, _ = env
     table = data.measure_table_rows(repos, "US-AAA")
     rows = {r["concept"]: r for r in table["measures"]}
-    assert rows["roe"]["current"] == data.NO_DATA
+    # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза словаря причин):
+    # «сейчас»-ячейка называет причину словами, годы — компактное
+    # «нет данных»; информации в ячейке стало больше
+    from rusterm.reasons_ru import reason_phrase
+    assert rows["roe"]["current"] == reason_phrase("missing_prior_period")
     assert rows["roe"]["null_reason"] == "missing_prior_period"
     assert all(cell == data.NO_DATA
                for cell in rows["roe"]["years"].values())
@@ -450,7 +454,10 @@ def test_source_panel_collapses_stale_inputs(stale_env):
     view = data.source_panel_view(repos, paths, row)
     lines = view["text"].splitlines()
     assert len(lines) <= 12, "стена строк вернулась"
-    assert "значение: нет данных" in lines
+    # ТЗ-111 U1: пустая мера — фраза словами из словаря причин,
+    # выведенная из причины этой самой меры
+    from rusterm.reasons_ru import reason_phrase
+    assert ("значение: " + reason_phrase(row["null_reason"])) in lines, lines
     collapsed = [l for l in lines if l.startswith("устаревших входов")]
     assert collapsed == [
         "устаревших входов: 25, самый свежий 2009-12-31"]
@@ -557,7 +564,10 @@ def test_census_pair_cnq_roe_refuses_roe_incl_nci_counts(cnq):
     table = data.measure_table_rows(repos, "in-CNQ")
     rows = {r["concept"]: r for r in table["measures"]}
     roe = rows["roe"]
-    assert roe["current"] == data.NO_DATA
+    # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза словаря причин):
+    # «сейчас»-ячейка называет причину словами, годы — компактное «нет
+    # данных»; фраза несёт больше информации, чем прежний прочерк
+    assert roe["current"] == "нет данных за период"
     assert all(cell == data.NO_DATA for cell in roe["years"].values())
     assert roe["null_reason"], "причина отказа — из словаря"
     value = rows["roe_incl_nci"]["current"]

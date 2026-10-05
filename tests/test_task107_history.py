@@ -13,6 +13,7 @@ import sqlite3
 import pytest
 
 from rusterm.cli import main as cli_main
+from rusterm.reasons_ru import reason_phrase
 from rusterm.core.history import build_history
 from rusterm.store.db import apply_migrations
 from rusterm.store.paths import AppPaths, ensure_app_dir
@@ -121,7 +122,8 @@ def test_non_bank_keeps_missing_data(env):
     make_snapshot_builder(repos, TODAY).build("US-HIST", "i1", TODAY)
     rows = {r["concept"]: r for r in
             data.measure_table_rows(repos, "US-HIST")["measures"]}
-    assert rows["ebitda"]["current"] == "нет данных"
+    # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза словаря причин)
+    assert rows["ebitda"]["current"] == reason_phrase("missing_data")
     assert not str(rows["ebitda"]["null_reason"]).startswith("not_applicable")
 
 

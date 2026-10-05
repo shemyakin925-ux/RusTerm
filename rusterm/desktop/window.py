@@ -781,7 +781,10 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             coverage_label.setText("снапшота нет — качество мер не "
                                    "измерить; сначала rusterm ingest")
         else:
-            reasons = ", ".join(f"{token}: {count}" for token, count
+            # ТЗ-111 U1: категории отказов — фразами словаря причин
+            from rusterm.reasons_ru import reason_phrase
+            reasons = ", ".join(f"{reason_phrase(token)}: {count}"
+                                for token, count
                                 in sorted(coverage["reasons"].items()))
             tail = f"; отказы — {reasons}" if reasons else ""
             coverage_label.setText(

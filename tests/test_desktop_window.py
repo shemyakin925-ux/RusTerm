@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QLabel,  # noqa: E402
 from rusterm.desktop import actions as desktop_actions  # noqa: E402
 from rusterm.desktop import data as desktop_data  # noqa: E402
 from rusterm.desktop import window as desktop_window  # noqa: E402
+from rusterm.reasons_ru import reason_phrase
 from rusterm.desktop.charts import ChartArea  # noqa: E402
 from rusterm.store.db import apply_migrations  # noqa: E402
 from rusterm.store.paths import (AppPaths, ensure_app_dir,  # noqa: E402
@@ -314,7 +315,10 @@ def test_table_no_data_by_words_and_years(qapp, env):
                 for row in range(table.rowCount())]
     assert "net_margin" in concepts and "roe" in concepts
     roe_row = concepts.index("roe")
-    assert table.item(roe_row, 1).text() == desktop_data.NO_DATA
+    # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза словаря причин
+    # в «сейчас»-ячейке): годы остаются компактным «нет данных»
+    assert table.item(roe_row, 1).text() == reason_phrase(
+        "missing_prior_period")
     for column in range(2, table.columnCount()):
         assert table.item(roe_row, column).text() == desktop_data.NO_DATA
     nm_row = concepts.index("net_margin")
