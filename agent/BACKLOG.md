@@ -1,5 +1,17 @@
 # BACKLOG — pre-approved small tasks for idle executor time
 
+**06.10.2026 reset.** Items under «## Queue» below are FROZEN unless they
+serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
+
+- [ ] P1 — card: «сейчас» column for statement rows shows TTM from the
+  existing core TTM door (`rusterm/core/ttm.py`), not «—» — accept:
+  test on a fixture with 4 quarters; look.py DELL «Выручка» сейчас ≠ «—» — size: M
+- [ ] P2 — card: EPS / dividend per share carry the currency
+  («8,68 USD») — accept: test; look.py DELL — size: S
+- [ ] P3 — look.py: count «—» separately from section blanks in
+  `report.json` (`dash`, `section_blank`) — accept: test on a fixture
+  card — size: S
+
 Maintained by the coordinator (Claude). The executor pulls items
 top-down **only** when the main `agent/TASK-*.md` queue is empty, and
 reports each pulled item in its report file.

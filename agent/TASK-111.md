@@ -1,6 +1,6 @@
 # TASK-111 — the window speaks to the user, and does by click what now needs the terminal
 
-- **Status: READY**
+- **Status: SUPERSEDED — user 06.10.2026 approved `agent/PRODUCT.md`; queue is TASK-130…136. Do not take.**
 - **Report:** `agent/REPORT-111.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Budgets:** network 0, LLM 0.

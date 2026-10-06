@@ -1,6 +1,6 @@
 # TASK-113 — financial statements: income, balance, cash flow — years, quarters, TTM
 
-- **Status: READY**
+- **Status: SUPERSEDED — user 06.10.2026 approved `agent/PRODUCT.md`; queue is TASK-130…136. Do not take.**
 - **Report:** `agent/REPORT-113.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Budgets:** network 0, LLM 0.

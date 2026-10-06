@@ -1,5 +1,33 @@
 # CONTEXT — the project in one file
 
+**06.10.2026 — RESET. Read this block first; everything below is history.**
+- `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
+  scenarios С1–С6, control ten, fill ≥ 90 %, Yahoo match ≥ 95 % within 5 %.
+  Every task cites a scenario. Frozen: BR/KR/AU/OTC/MOEX, TUI,
+  «Качество», chat, portfolio, new guards.
+- The coordinator writes key product code by day again (user 06.10,
+  overrides the 24.09 line below). Card: `rusterm/desktop/card.py` —
+  sections, `LABELS`, `implausible`, statement rows from facts
+  (`SnapshotRepo.statement_facts`), «показать пустые показатели» toggle.
+- Executor's TASK-111 U0–U2 (`f511665`, `9e16aea`, `290460e`, unpushed
+  until 06.10) are merged under the card: `reasons_ru` / `measures_ru`
+  stay and feed the card; the U2 grouped table is replaced. U3 sat
+  STAGED in the main checkout — TASK-130 Step 0.
+- The commit hook runs the MAIN checkout's selfcheck on the main
+  checkout's tree (`core.hooksPath` is absolute): from a linked worktree
+  it judges someone else's tree. Coordinator runs
+  `bash agent/selfcheck.sh` in its own tree instead.
+- Executor model: GLM 5.3 (was GLM-5.3-Flash). Queue TASK-130…136 (130 = fill to 90 %, metric
+  `tools/card_fill.py`); TASK-111…123 SUPERSEDED.
+- Live check 06.10 (`agent/CHECK-2026-10-06.md`): before the card rework
+  the card was 24–54 % filled; DELL historical market cap pre-2021 looks
+  undercounted (FCF yield 33–38 %) — not yet checked against Yahoo.
+- Fill of the control ten (5 closed years): 62 % → 85 % on 06.10 via
+  `rusterm history --rebuild` (new) and `st_investments_never_reported`
+  zero for full us-gaap balances (`core/snapshot.py`).
+- The window's start-up refresh hits the network even offscreen
+  (look.py made 3–8 requests per run) — TASK-133 R1.
+
 Read this **instead of** re-reading `README.md`, `docs/` and old
 reports. It is maintained by the coordinator and updated at every
 acceptance. If it disagrees with the code, the code is right and this

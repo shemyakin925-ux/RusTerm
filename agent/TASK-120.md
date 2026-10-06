@@ -1,6 +1,6 @@
 # TASK-120 — ownership tables and filings feed
 
-- **Status: READY**
+- **Status: SUPERSEDED — user 06.10.2026 approved `agent/PRODUCT.md`; queue is TASK-130…136. Do not take.**
 - **Report:** `agent/REPORT-120.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Budgets:** network ≤ 100 requests, LLM 0.
