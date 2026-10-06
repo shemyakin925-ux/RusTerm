@@ -703,8 +703,13 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             ["мера", "p25", "медиана", "p75", "n", "отказ"])
         industry_table.setRowCount(len(rows))
         for row, r in enumerate(rows):
-            industry_table.setItem(row, 0, _sort_item(r["concept"],
-                                                      r["concept"]))
+            # ТЗ-111 U2: имя меры словами; сырой концепт — в UserRole.
+            # _sort_item здесь нельзя: его DisplayRole = ключ сортировки,
+            # и ячейка показывала сырой концепт вместо имени
+            name_item = QTableWidgetItem(r.get("concept_label")
+                                         or r["concept"])
+            name_item.setData(Qt.ItemDataRole.UserRole, r["concept"])
+            industry_table.setItem(row, 0, name_item)
             for column, key in ((1, "p25"), (2, "median"), (3, "p75")):
                 industry_table.setItem(
                     row, column,
@@ -796,8 +801,9 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             # ТЗ-97 Q2: слово причины и дверь считает ядро; окно печатает
             # как есть. Пустой «расшифровки» тут быть не может — у
             # строки без цвета всегда есть причина, а у неё слова.
-            for column, text in enumerate((g["indicator"], g["color"],
-                                           g["note"], g["closing"])):
+            for column, text in enumerate(
+                    (g.get("indicator_label", g["indicator"]), g["color"],
+                     g["note"], g["closing"])):
                 governance_table.setItem(
                     row, column, QTableWidgetItem(text))
         # ТЗ-97 Q1 (ТЗ-73 T1, P8): не-серого цвета нет — раздел не
@@ -933,7 +939,19 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         info = state["table"]
         if info is None or repos is None:
             return
-        state["source_measure_row"] = info["measures"][row]
+        # ТЗ-111 U2: строки-шапки разделов клик не выбирает — концепт
+        # берётся из UserRole ячейки, а не из позиции (шапки сдвигают
+        # нумерацию таблицы относительно мер)
+        item = table.item(row, 0)
+        concept = (item.data(Qt.ItemDataRole.UserRole)
+                   if item is not None else None)
+        if concept is None:
+            return
+        measure = next((m for m in info["measures"]
+                        if m["concept"] == concept), None)
+        if measure is None:
+            return
+        state["source_measure_row"] = measure
         state["stale_detail"] = False
         show_source_panel(False)
 
@@ -1233,20 +1251,56 @@ def _number_item(value, refused: bool):
 
 
 def _repaint_table(table, info: dict) -> None:
+    """ТЗ-111 U2: таблица сгруппирована разделами (жирные строки-шапки
+    на всю ширину), колонка 0 — человеческие имена мер, подсказка —
+    формула из словаря + единица; сырой концепт живёт в UserRole.
+    Причины — по ТЗ-111 U1: фраза в «сейчас»-ячейке, токен в подсказке."""
+    from rusterm.measures_ru import (measure_name, measure_section,
+                                     measure_tooltip, SECTION_ORDER)
     years = info["years"]
     table.setColumnCount(2 + len(years))
     table.setHorizontalHeaderLabels(["мера", "сейчас", *years])
-    table.setRowCount(len(info["measures"]))
-    for row, measure in enumerate(info["measures"]):
-        table.setItem(row, 0, QTableWidgetItem(
-            measure.get("label") or measure["concept"]))
-        cells = [measure["current"]] + [measure["years"][y] for y in years]
-        for column, text in enumerate(cells, start=1):
-            # числа — вправо, как в любой финансовой таблице
-            item = QTableWidgetItem(text)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignRight
-                                  | Qt.AlignmentFlag.AlignVCenter)
-            table.setItem(row, column, item)
+
+    groups: dict[str, list] = {}
+    for measure in info["measures"]:
+        groups.setdefault(
+            measure_section(measure["concept"]), []).append(measure)
+    sections = [s for s in (*SECTION_ORDER, "Прочее") if groups.get(s)]
+    table.setRowCount(len(info["measures"]) + len(sections))
+
+    def _section_header(row: int, name: str) -> None:
+        item = QTableWidgetItem(name)
+        bold = item.font()
+        bold.setBold(True)
+        item.setFont(bold)
+        table.setItem(row, 0, item)
+        table.setSpan(row, 0, 1, table.columnCount())
+
+    row = 0
+    for section in sections:
+        _section_header(row, section)
+        row += 1
+        for measure in groups[section]:
+            concept = measure["concept"]
+            name_item = QTableWidgetItem(measure_name(concept))
+            name_item.setData(Qt.ItemDataRole.UserRole, concept)
+            name_item.setToolTip(measure_tooltip(
+                concept, measure.get("unit")))
+            table.setItem(row, 0, name_item)
+            cells = [measure["current"]] + [
+                measure["years"][y] for y in years]
+            raw_reason = measure.get("null_reason")
+            for column, text in enumerate(cells, start=1):
+                # числа — вправо, как в любой финансовой таблице
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight
+                                      | Qt.AlignmentFlag.AlignVCenter)
+                if raw_reason:
+                    # ТЗ-111 U1: в ячейке — фраза словами, сырой токен —
+                    # в подсказке
+                    item.setToolTip(raw_reason)
+                table.setItem(row, column, item)
+            row += 1
     # все колонки — по содержимому (имя меры не обрезается «asset_turno…»),
     # последняя добирает остаток ширины
     header = table.horizontalHeader()

@@ -284,7 +284,11 @@ def test_stale_inputs_collapse_and_expand_on_click(qapp, tmp_path):
     assert target is not None, "US-S9 нет в дереве"
     tree.setCurrentItem(target)
     table = _widget(window, QTableWidget, "table")
-    concepts = [table.item(row, 0).text()
+    # ТЗ-111 U2: сырой концепт — в UserRole колонки 0 (шапки разделов
+    # его не несут); строки ищутся по концепту, не по имени
+    from PySide6.QtCore import Qt as _Qt
+    concepts = [(table.item(row, 0).data(_Qt.ItemDataRole.UserRole)
+                 if table.item(row, 0) else None)
                 for row in range(table.rowCount())]
     table.cellClicked.emit(concepts.index("net_margin"), 1)
     panel = _widget(window, QLabel, "source_panel")
@@ -311,7 +315,11 @@ def test_table_no_data_by_words_and_years(qapp, env):
     tree = _widget(window, QTreeWidget, "tree")
     tree.setCurrentItem(tree.topLevelItem(0).child(0))
     table = _widget(window, QTableWidget, "table")
-    concepts = [table.item(row, 0).text()
+    # ТЗ-111 U2: сырой концепт — в UserRole колонки 0 (шапки разделов
+    # его не несут); строки ищутся по концепту, не по имени
+    from PySide6.QtCore import Qt as _Qt
+    concepts = [(table.item(row, 0).data(_Qt.ItemDataRole.UserRole)
+                 if table.item(row, 0) else None)
                 for row in range(table.rowCount())]
     assert "net_margin" in concepts and "roe" in concepts
     roe_row = concepts.index("roe")
@@ -331,7 +339,11 @@ def test_cell_click_opens_source_panel_with_reason(qapp, env):
     tree = _widget(window, QTreeWidget, "tree")
     tree.setCurrentItem(tree.topLevelItem(0).child(0))
     table = _widget(window, QTableWidget, "table")
-    concepts = [table.item(row, 0).text()
+    # ТЗ-111 U2: сырой концепт — в UserRole колонки 0 (шапки разделов
+    # его не несут); строки ищутся по концепту, не по имени
+    from PySide6.QtCore import Qt as _Qt
+    concepts = [(table.item(row, 0).data(_Qt.ItemDataRole.UserRole)
+                 if table.item(row, 0) else None)
                 for row in range(table.rowCount())]
     table.cellClicked.emit(concepts.index("roe"), 1)
     panel = _widget(window, QLabel, "source_panel")
@@ -924,6 +936,11 @@ def test_one_year_table_is_straight_and_says_why(qapp, env):
                for c in range(table.columnCount())]
     assert headers == ["мера", "сейчас", "2024"], headers
     for row in range(table.rowCount()):
+        # ТЗ-111 U2: строка-шапка раздела несёт только колонку 0 (span
+        # на всю ширину); строки данных заполнены во всех колонках
+        if table.item(row, 1) is None:
+            assert table.item(row, 0) is not None, row
+            continue
         assert all(table.item(row, col) is not None
                    for col in range(table.columnCount())), row
     panel = _widget(window, QLabel, "source_panel")

@@ -140,9 +140,14 @@ def test_window_open_raw_button_opens_existing_file(cnq_env,
     tree = window.findChild(QTreeWidget, "tree")
     tree.setCurrentItem(tree.topLevelItem(0).child(0))
     table = window.findChild(QTableWidget, "table")
+    # ТЗ-111 U1: пустые меры показывают фразы словаря причин —
+    # ценная строка не «всё, что не „нет данных“»
+    from rusterm.reasons_ru import REASONS_RU
+    phrases = set(REASONS_RU.values())
     valued = next(r for r in range(table.rowCount())
                   if table.item(r, 1) is not None
-                  and table.item(r, 1).text() != "нет данных")
+                  and table.item(r, 1).text() != "нет данных"
+                  and table.item(r, 1).text() not in phrases)
     table.cellClicked.emit(valued, 1)
     button = window.findChild(QPushButton, "open_raw_button")
     assert button is not None and button.isEnabled()

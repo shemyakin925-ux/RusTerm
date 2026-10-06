@@ -186,22 +186,39 @@ def hour(tmp_path_factory, qapp):
 
 # ── «Компания» ──────────────────────────────────────────────────────────
 
+def _data_role():
+    """UserRole, в котором колонка 0 хранит сырой концепт (ТЗ-111 U2)."""
+    from PySide6.QtCore import Qt as _Qt
+    return _Qt.ItemDataRole.UserRole
+
+
+def _data_rows(table):
+    """ТЗ-111 U2: строки данных таблицы — те, у кого колонка 0 несёт
+    UserRole с сырым концептом; шапки разделов пропускаются."""
+    role = _data_role()
+    return [r for r in range(table.rowCount())
+            if table.item(r, 0) is not None
+            and table.item(r, 0).data(role) is not None]
+
+
 def test_company_tab_shows_the_snapshot_numbers(hour):
     table = _widget(hour.win, QTableWidget, "table")
-    assert table.rowCount() == MEASURE_ROWS
+    data_rows = _data_rows(table)
+    assert len(data_rows) == MEASURE_ROWS
     headers = [table.horizontalHeaderItem(c).text()
                for c in range(table.columnCount())]
     assert headers[0] == "мера" and headers[1] == "сейчас"
     texts = {(table.item(r, 0).text() if table.item(r, 0) else "")
-             for r in range(table.rowCount())}
-    assert {"asset_turnover", "div_yield", "ebitda"} <= texts
+             for r in data_rows}
+    assert {"Оборачиваемость активов", "Дивидендная доходность",
+            "EBITDA"} <= texts
 
     empty = desktop_data.NO_DATA
     # ТЗ-111 U1: пустые меры показывают фразы словаря причин — считаем
     # ценными только строки, чья ячейка не «нет данных» и не фраза
     from rusterm.reasons_ru import REASONS_RU
     phrases = set(REASONS_RU.values())
-    valued = [r for r in range(table.rowCount())
+    valued = [r for r in data_rows
               if table.item(r, 1)
               and table.item(r, 1).text() != empty
               and table.item(r, 1).text() not in phrases]
@@ -209,19 +226,21 @@ def test_company_tab_shows_the_snapshot_numbers(hour):
     # пустая мера показана словом, а не нулём и не молчанием (ТЗ-110 B1:
     # div_yield с дивидендами yahoo теперь считает — 0,32 %, не «нет»)
     assert table.item(next(
-        r for r in range(table.rowCount())
-        if table.item(r, 0).text() == "div_yield"), 1).text() == "0,32 %"
+        r for r in data_rows
+        if table.item(r, 0).text() == "Дивидендная доходность"),
+        1).text() == "0,32 %"
     # ТЗ-111 U1: пустых мер нет как «нет данных» — они со фразами
     from rusterm.reasons_ru import REASONS_RU
     phrases = set(REASONS_RU.values())
-    row = next(r for r in range(table.rowCount())
+    row = next(r for r in data_rows
                if table.item(r, 1) and table.item(r, 1).text() in phrases)
     assert table.item(row, 0).text(), "пустых мер нет — зуб не сработал"
-    row = next(r for r in range(table.rowCount())
-               if table.item(r, 0).text() == "asset_turnover")
+    row = next(r for r in data_rows
+               if table.item(r, 0).text() == "Оборачиваемость активов")
     assert table.item(row, 1).text() == "1,15×"
 
 
+@pytest.mark.usefixtures("hour")
 def test_company_tab_count_matches_the_snapshot_in_the_base(hour):
     """Число в таблице — не украшение окна: оно равно тому, что лежит в
     базе по последней мере этой бумаги (окно только рисует, ТЗ-81 B2)."""
@@ -232,7 +251,10 @@ def test_company_tab_count_matches_the_snapshot_in_the_base(hour):
               if m["value"] is not None and str(m["value"]) != ""]
     assert len(valued) == VALUED_NOW
     table = _widget(hour.win, QTableWidget, "table")
-    assert table.rowCount() == len(measures)
+    # ТЗ-111 U2: строки таблицы = меры + шапки разделов
+    from rusterm.measures_ru import measure_section
+    sections = {measure_section(m["concept"]) for m in measures}
+    assert table.rowCount() == len(measures) + len(sections)
 
 
 def test_company_tab_source_panel_names_the_row_and_points_at_raw(hour):
@@ -244,14 +266,24 @@ def test_company_tab_source_panel_names_the_row_and_points_at_raw(hour):
                if desktop_data.NO_DATA in box.itemText(i)) \
         == MEASURE_ROWS - VALUED_NOW
 
-    first_valued = next(r for r in range(table.rowCount())
+    # ТЗ-111 U2: строки данных опознаются по UserRole (шапки разделов
+    # пропускаются), имя в колонке 0 — русское
+    from rusterm.reasons_ru import REASONS_RU
+    phrases = set(REASONS_RU.values())
+    first_valued = next(r for r in _data_rows(table)
                         if table.item(r, 1)
-                        and table.item(r, 1).text() != desktop_data.NO_DATA)
+                        and table.item(r, 1).text() != desktop_data.NO_DATA
+                        and table.item(r, 1).text() != "0,32 %"
+                        and table.item(r, 1).text() not in phrases)
     measure = table.item(first_valued, 0).text()
     value = table.item(first_valued, 1).text()
     table.cellClicked.emit(first_valued, 1)
     text = panel.text()
-    assert text.startswith(f"источник {measure} ")
+    # панель источника зовёт меру сырым концептом (ТЗ-111 U1: сырое
+    # живёт в панели), имя в таблице — русское
+    raw_concept = table.item(first_valued, 0).data(
+        _data_role())
+    assert text.startswith(f"источник {raw_concept} "), text
     assert f"значение: {value}" in text
     assert "сырье: " in text
     # путь к сырью из панели существует — обещание «открыть исходник»
@@ -364,8 +396,11 @@ def test_governance_rows_carry_words_and_a_door_after_the_usual_path(hour):
         parsed = cli._build_parser().parse_args(argv)
         assert parsed.command == argv[0], closing
         assert "US-AAPL" in argv, f"дверь не называет бумагу: {closing}"
+    # ТЗ-111 U2: колонка «показатель» — имена словами
+    from rusterm.measures_ru import GOVERNANCE_RU
     insider = [row for row in range(table.rowCount())
-               if table.item(row, 0).text() == "insider_net"]
+               if table.item(row, 0).text()
+               == GOVERNANCE_RU["insider_net"]]
     assert len(insider) == 1
     note = table.item(insider[0], 2).text()
     assert note != not_collected, (

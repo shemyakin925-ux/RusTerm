@@ -30,6 +30,7 @@ from rusterm.core.export import snapshot_to_csv, snapshot_to_md
 from rusterm.store.db import (_SCHEMA_VERSION, current_schema_version,
                               has_table, open_connection)
 from rusterm.store.paths import AppPaths
+from rusterm.measures_ru import measure_name
 from rusterm.reasons_ru import reason_phrase
 from rusterm.tui import model as tui_model
 
@@ -788,7 +789,9 @@ def industry_table_rows(screen: dict) -> list[dict]:
                 mark += f" ({counts})"
             if note:
                 mark += f"; {note}"
-            rows.append({"concept": r["concept"], "p25": NO_DATA,
+            rows.append({"concept": r["concept"],
+                         "concept_label": measure_name(r["concept"]),
+                         "p25": NO_DATA,
                          "median": NO_DATA, "p75": NO_DATA, "n": r["n"],
                          "mark": mark, "refused": True})
         else:
@@ -797,6 +800,7 @@ def industry_table_rows(screen: dict) -> list[dict]:
             fmt = (lambda v: format_value(v, r["concept"],
                                           r.get("currency")))
             rows.append({"concept": r["concept"],
+                         "concept_label": measure_name(r["concept"]),
                          "p25": fmt(r["p25"]),
                          "median": fmt(r["median"]),
                          "p75": fmt(r["p75"]), "n": r["n"],
@@ -1244,7 +1248,13 @@ def governance_view(card: dict) -> dict:
     instrument_id = card.get("instrument_id") or ""
     for g in card.get("governance", []):
         reason = g.get("reason") or ""
-        rows.append({"indicator": g["indicator"], "color": g["color"],
+        # ТЗ-111 U2: показывается имя словами; сырой токен остаётся
+        # в поле indicator — им ключуются потребители
+        from rusterm.measures_ru import GOVERNANCE_RU
+        rows.append({"indicator": g["indicator"],
+                     "indicator_label": GOVERNANCE_RU.get(
+                         g["indicator"], g["indicator"]),
+                     "color": g["color"],
                      "reason": reason,
                      "note": grey_reason_text(reason) if reason else "",
                      "closing": grey_closing(g["indicator"], instrument_id,
