@@ -20,7 +20,7 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import (QApplication, QComboBox, QLabel,  # noqa: E402
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QLabel,  # noqa: E402
                                QLineEdit, QPushButton, QTableWidget,
                                QTreeWidget)
 
@@ -155,7 +155,9 @@ def test_expansion_survives_selection_and_search(qapp, env):
 
 def test_company_without_snapshot_is_offered_one_action_series(qapp, env):
     """ТЗ-75 V1: у бумаги без снапшотов годовых колонок нет, а под
-    таблицей — исполнимая строка «посчитать ряд одним действием»."""
+    таблицей — исполнимая строка «посчитать ряд одним действием».
+    PRODUCT.md С2: названия строк — в заголовке строк, поэтому колонка
+    одна — «сейчас»."""
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")
     tree = _widget(window, QTreeWidget, "tree")
@@ -167,7 +169,8 @@ def test_company_without_snapshot_is_offered_one_action_series(qapp, env):
     assert bbb is not None, "BBB нет в дереве"
     tree.setCurrentItem(bbb)
     table = _widget(window, QTableWidget, "table")
-    assert table.columnCount() == 2, "пустые годовые колонки запрещены"
+    assert table.columnCount() == 1, "пустые годовые колонки запрещены"
+    assert table.horizontalHeaderItem(0).text() == "сейчас"
     panel = _widget(window, QLabel, "source_panel")
     assert "rusterm snapshot --instrument US-BBB" in panel.text()
 
@@ -284,13 +287,12 @@ def test_stale_inputs_collapse_and_expand_on_click(qapp, tmp_path):
     assert target is not None, "US-S9 нет в дереве"
     tree.setCurrentItem(target)
     table = _widget(window, QTableWidget, "table")
-    # ТЗ-111 U2: сырой концепт — в UserRole колонки 0 (шапки разделов
-    # его не несут); строки ищутся по концепту, не по имени
-    from PySide6.QtCore import Qt as _Qt
-    concepts = [(table.item(row, 0).data(_Qt.ItemDataRole.UserRole)
-                 if table.item(row, 0) else None)
-                for row in range(table.rowCount())]
-    table.cellClicked.emit(concepts.index("net_margin"), 1)
+    # пустая мера скрыта (PRODUCT.md С2) — галочка возвращает её
+    assert "Чистая маржа" not in _card_labels(table)
+    window.findChild(QCheckBox, "show_empty_box").setChecked(True)
+    # «сейчас» — последняя колонка карточки (PRODUCT.md С2)
+    table.cellClicked.emit(_card_row(table, "net_margin"),
+                           table.columnCount() - 1)
     panel = _widget(window, QLabel, "source_panel")
     collapsed = [l for l in panel.text().splitlines()
                  if l.startswith("устаревших входов")]
@@ -310,44 +312,45 @@ def test_stale_inputs_collapse_and_expand_on_click(qapp, tmp_path):
 
 
 def test_table_no_data_by_words_and_years(qapp, env):
+    """PRODUCT.md С2: пусто — «—», а не «нет данных»; мера без единого
+    значения не показывается, но названа с причиной в подсказке."""
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")
     tree = _widget(window, QTreeWidget, "tree")
     tree.setCurrentItem(tree.topLevelItem(0).child(0))
     table = _widget(window, QTableWidget, "table")
-    # ТЗ-111 U2: сырой концепт — в UserRole колонки 0 (шапки разделов
-    # его не несут); строки ищутся по концепту, не по имени
-    from PySide6.QtCore import Qt as _Qt
-    concepts = [(table.item(row, 0).data(_Qt.ItemDataRole.UserRole)
-                 if table.item(row, 0) else None)
-                for row in range(table.rowCount())]
-    assert "net_margin" in concepts and "roe" in concepts
-    roe_row = concepts.index("roe")
-    # ТЗ-111 U1 (ЗАМЕНА-БУЛАВКИ: «нет данных» -> фраза словаря причин
-    # в «сейчас»-ячейке): годы остаются компактным «нет данных»
-    assert table.item(roe_row, 1).text() == reason_phrase(
-        "missing_prior_period")
-    for column in range(2, table.columnCount()):
-        assert table.item(roe_row, column).text() == desktop_data.NO_DATA
-    nm_row = concepts.index("net_margin")
-    assert table.item(nm_row, 1).text() == "20,43 %"
+    labels = _card_labels(table)
+    assert "Чистая маржа" in labels
+    assert "ROE" not in labels, "мера без значений скрыта"
+    texts = [table.item(r, c).text() for r in range(table.rowCount())
+             for c in range(table.columnCount()) if table.item(r, c)]
+    assert desktop_data.NO_DATA not in texts
+    nm_row = _card_row(table, "net_margin")
+    now = table.columnCount() - 1
+    assert table.horizontalHeaderItem(now).text() == "сейчас"
+    assert table.item(nm_row, now).text() == "20,43 %"
+    panel = _widget(window, QLabel, "source_panel")
+    assert "ROE: нет предыдущего периода для расчёта (missing_prior_period)" \
+        in panel.toolTip()
 
 
 def test_cell_click_opens_source_panel_with_reason(qapp, env):
+    """Клик по числу открывает панель источника этой меры; причина
+    скрытой меры — в подсказке под таблицей (PRODUCT.md С2/С3)."""
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")
     tree = _widget(window, QTreeWidget, "tree")
     tree.setCurrentItem(tree.topLevelItem(0).child(0))
     table = _widget(window, QTableWidget, "table")
-    # ТЗ-111 U2: сырой концепт — в UserRole колонки 0 (шапки разделов
-    # его не несут); строки ищутся по концепту, не по имени
-    from PySide6.QtCore import Qt as _Qt
-    concepts = [(table.item(row, 0).data(_Qt.ItemDataRole.UserRole)
-                 if table.item(row, 0) else None)
-                for row in range(table.rowCount())]
-    table.cellClicked.emit(concepts.index("roe"), 1)
     panel = _widget(window, QLabel, "source_panel")
-    assert "причина: missing_prior_period" in panel.text()
+    assert "причина: missing_prior_period" not in panel.text()
+    assert "ROE: нет предыдущего периода для расчёта (missing_prior_period)" \
+        in panel.toolTip()
+    before = panel.text()
+    table.cellClicked.emit(_card_row(table, "net_margin"),
+                           table.columnCount() - 1)
+    assert panel.text() != before, "клик не открыл панель источника"
+    assert "net_margin" in panel.text(), panel.text()
 
 
 def test_chart_kind_switches_without_restart(qapp, env):
@@ -370,26 +373,30 @@ def test_chart_kind_switches_without_restart(qapp, env):
     # год клетки был годом прогона (2026), колонка 2024 стояла пустой и
     # линия скатывалась в «нет данных».
     assert chart.current_text() == ""
-    # та же линия для меры без истории вовсе — «нет данных»;
-    # окно не перезапускалось между этими двумя состояниями
+    # мера без истории вовсе в переключатель не попадает (PRODUCT.md
+    # С2: пустую строку не показывают) — пустого графика не предложить;
+    # окно не перезапускалось между этими состояниями
     measure_box = _widget(window, QComboBox, "measure_box")
-    for index in range(measure_box.count()):
-        if measure_box.itemData(index) == "roe":
-            measure_box.setCurrentIndex(index)
-    assert chart.current_text() == desktop_data.NO_DATA
+    offered = [measure_box.itemData(i) for i in range(measure_box.count())]
+    assert "roe" not in offered and "net_margin" in offered
+    for index in range(kind_box.count()):
+        if kind_box.itemData(index) == "bars":
+            kind_box.setCurrentIndex(index)
+    assert chart.current_text() == ""
 
 
 def test_measure_without_data_marked_in_switcher(qapp, env):
+    """PRODUCT.md С2: переключатель графика — те же строки, что в
+    карточке, русскими именами; меры без данных в нём нет вовсе."""
     repos, paths = env
     window = desktop_window._build_window(repos, paths, "wl-1")
     tree = _widget(window, QTreeWidget, "tree")
     tree.setCurrentItem(tree.topLevelItem(0).child(0))
     box = _widget(window, QComboBox, "measure_box")
     labels = [box.itemText(i) for i in range(box.count())]
-    assert any("roe" in label and "нет данных" in label
-               for label in labels)
-    assert not any("net_margin" in label and "нет данных" in label
-                   for label in labels)
+    assert "Чистая маржа" in labels
+    assert not any("нет данных" in label for label in labels)
+    assert "roe" not in [box.itemData(i) for i in range(box.count())]
 
 
 def test_chat_without_key_speaks_reason_in_placeholder(qapp, env,
@@ -571,6 +578,22 @@ def test_collect_cancel_button_wires_flag(qapp, env):
 
 # ── C3: peer set и отрасль ──────────────────────────────────────────────
 
+def _card_row(table, concept):
+    """Строка карточки по концепту: подпись русская, концепт лежит в
+    данных заголовка строки (PRODUCT.md С2)."""
+    from PySide6.QtCore import Qt
+    for row in range(table.rowCount()):
+        head = table.verticalHeaderItem(row)
+        if head is not None and head.data(Qt.ItemDataRole.UserRole) == concept:
+            return row
+    raise AssertionError(f"{concept} нет в карточке")
+
+
+def _card_labels(table):
+    return [table.verticalHeaderItem(r).text() for r in range(table.rowCount())
+            if table.verticalHeaderItem(r) is not None]
+
+
 def _select(window, ticker):
     tree = _widget(window, QTreeWidget, "tree")
     for g in range(tree.topLevelItemCount()):
@@ -722,15 +745,13 @@ def test_s1_measure_switch_press_changes_chart(qapp, tmp_path):
     chart = window.findChild(ChartArea, "chart_area")
     idx_nm = next(i for i in range(box.count())
                   if box.itemData(i) == "net_margin")
-    idx_roe = next(i for i in range(box.count())
-                   if box.itemData(i) == "roe")
+    # roe без значений не предлагается вовсе (PRODUCT.md С2)
+    assert all(box.itemData(i) != "roe" for i in range(box.count()))
     box.setCurrentIndex(idx_nm)
     live = chart.current_text()
-    box.setCurrentIndex(idx_roe)
-    empty = chart.current_text()
     assert live == "", "мера с историей не рисует живую диаграмму"
-    assert empty == desktop_data.NO_DATA, (
-        "мера без значений не отвечает «нет данных»")
+    assert box.currentData() == "net_margin", (
+        "нажатие в переключателе не сменило меру графика")
 
 
 def _history_window_env(qapp, tmp_path):
@@ -931,10 +952,10 @@ def test_one_year_table_is_straight_and_says_why(qapp, env):
     window = desktop_window._build_window(repos, paths, "wl-1")
     _select(window, "AAA")
     table = _widget(window, QTableWidget, "table")
-    assert table.columnCount() == 3, "мера + сейчас + один год"
+    assert table.columnCount() == 2, "один год + сейчас"
     headers = [table.horizontalHeaderItem(c).text()
                for c in range(table.columnCount())]
-    assert headers == ["мера", "сейчас", "2024"], headers
+    assert headers == ["2024", "сейчас"], headers
     for row in range(table.rowCount()):
         # ТЗ-111 U2: строка-шапка раздела несёт только колонку 0 (span
         # на всю ширину); строки данных заполнены во всех колонках

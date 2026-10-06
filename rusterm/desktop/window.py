@@ -17,7 +17,8 @@ try:
 
     from PySide6.QtCore import QUrl, Qt
     from PySide6.QtGui import QDesktopServices
-    from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog,
+    from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
+                                   QFileDialog,
                                    QGroupBox, QHBoxLayout, QHeaderView,
                                    QInputDialog, QLabel, QLineEdit,
                                    QMainWindow, QMessageBox, QPushButton,
@@ -32,6 +33,7 @@ except ImportError:  # приёмка №1: ядро и тесты живут б
 from pathlib import Path as _Path
 
 from rusterm.desktop import actions as desktop_actions
+from rusterm.desktop import card as desktop_card
 from rusterm.desktop import data
 from rusterm.markets import MARKET_CODES
 from rusterm.tui import model as tui_model
@@ -269,6 +271,11 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     chart_split.setStretchFactor(1, 1)
     chart_split.setChildrenCollapsible(False)
     center_layout.addWidget(chart_split, 5)
+    # PRODUCT.md С2: пустые строки скрыты; галочка возвращает их — у
+    # пустой меры клик по «—» объясняет, почему пусто
+    show_empty_box = QCheckBox("показать пустые показатели",
+                               objectName="show_empty_box")
+    center_layout.addWidget(show_empty_box)
     source_panel = QLabel(objectName="source_panel")
     source_panel.setWordWrap(True)
     center_layout.addWidget(source_panel)
@@ -615,10 +622,12 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
 
     def load_company(company: dict) -> None:
         state["selected"] = company
-        width_years = max(4, table.width() // 90)
+        # PRODUCT.md С2: десять лет, как у аналогов; лишнее — прокруткой
         state["table"] = data.measure_table_rows(
-            repos, company["instrument_id"], width_years)
+            repos, company["instrument_id"], desktop_card.CARD_YEARS)
         info = state["table"]
+        state["card_view"] = desktop_card.card_view(
+            repos, info, show_empty=show_empty_box.isChecked())
         company_header.setText(
             f"{info['ticker']} · {info['name'] or '—'}"
             f" · {company['market']}")
@@ -628,8 +637,8 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         state["peer"] = data.peer_screen(repos,
                                          company["instrument_id"])
         state["card"] = info["card"]
-        _repaint_table(table, info)
-        _repaint_measures(measure_box, info)
+        _repaint_table(table, state["card_view"])
+        _repaint_measures(measure_box, state["card_view"])
         apply_chart()
         _repaint_industry()
         repaint_quality()
@@ -640,9 +649,12 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         # ТЗ-81 B2: колонок меньше запрошенных — словами почему
         source_panel.setText(info.get("suggestion")
                              or " · ".join(x for x in
-                                           (info.get("history_note"),
-                                            info.get("summary_line")) if x)
+                                           (state["card_view"]["hidden_note"],
+                                            "клик по числу — откуда оно")
+                                           if x)
                              or "клик по ячейке — панель источника")
+        source_panel.setToolTip(
+            desktop_card.hidden_tooltip(state["card_view"]))
         # ТЗ-72 Д4: панель источника новой бумаги — свёрнутая
         state["source_measure_row"] = None
         state["stale_detail"] = False
@@ -656,8 +668,17 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         if state["table"] is None:
             return
         kind = kind_box.currentData() or "line"
-        spec = data.chart_spec(kind, state["table"], state["industry"],
+        # линия и столбики — по строкам карточки (в т.ч. выручка из
+        # отчётности, годы от старых к новым); box и радар — по мерам
+        source = (desktop_card.chart_table(state["card_view"], state["table"])
+                  if kind in ("line", "bars") and state.get("card_view")
+                  else state["table"])
+        spec = data.chart_spec(kind, source, state["industry"],
                                measure_box.currentData())
+        if source is not state["table"]:
+            axis = desktop_card.axis_label(source, spec.get("concept"))
+            if axis:
+                spec["axis_label"] = axis
         chart_area.set_spec(spec)
 
     def apply_industry_chart() -> None:
@@ -935,23 +956,24 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             f"скрыть устаревшие входы: {count}" if detail
             else f"показать устаревшие входы: {count}")
 
-    def on_cell_clicked(row: int, _column: int) -> None:
+    def on_cell_clicked(row: int, column: int) -> None:
         info = state["table"]
-        if info is None or repos is None:
+        view = state.get("card_view")
+        if info is None or repos is None or view is None:
             return
-        # ТЗ-111 U2: строки-шапки разделов клик не выбирает — концепт
-        # берётся из UserRole ячейки, а не из позиции (шапки сдвигают
-        # нумерацию таблицы относительно мер)
-        item = table.item(row, 0)
-        concept = (item.data(Qt.ItemDataRole.UserRole)
-                   if item is not None else None)
-        if concept is None:
+        card_row = view["rows"][row]
+        if card_row["kind"] == "section":
             return
-        measure = next((m for m in info["measures"]
-                        if m["concept"] == concept), None)
-        if measure is None:
+        if card_row["kind"] == "fact":
+            years = view["columns"][:-1]
+            year = (years[column] if column < len(years)
+                    else max(card_row["fact_ids"], default=""))
+            source_panel.setText(
+                desktop_card.fact_source_text(repos, card_row, year))
+            open_raw_button.setEnabled(False)
+            stale_button.setVisible(False)
             return
-        state["source_measure_row"] = measure
+        state["source_measure_row"] = card_row["measure_row"]
         state["stale_detail"] = False
         show_source_panel(False)
 
@@ -1153,6 +1175,8 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         lambda _i: apply_industry_chart())
     table.cellClicked.connect(on_cell_clicked)
     stale_button.clicked.connect(on_toggle_stale)
+    show_empty_box.toggled.connect(
+        lambda _on: state["selected"] and load_company(state["selected"]))
     open_raw_button.clicked.connect(on_open_raw)
     question_line.returnPressed.connect(on_ask)
     chat_sessions_box.currentIndexChanged.connect(on_session_open)
@@ -1250,73 +1274,60 @@ def _number_item(value, refused: bool):
     return item
 
 
-def _repaint_table(table, info: dict) -> None:
-    """ТЗ-111 U2: таблица сгруппирована разделами (жирные строки-шапки
-    на всю ширину), колонка 0 — человеческие имена мер, подсказка —
-    формула из словаря + единица; сырой концепт живёт в UserRole.
-    Причины — по ТЗ-111 U1: фраза в «сейчас»-ячейке, токен в подсказке."""
-    from rusterm.measures_ru import (measure_name, measure_section,
-                                     measure_tooltip, SECTION_ORDER)
-    years = info["years"]
-    table.setColumnCount(2 + len(years))
-    table.setHorizontalHeaderLabels(["мера", "сейчас", *years])
-
-    groups: dict[str, list] = {}
-    for measure in info["measures"]:
-        groups.setdefault(
-            measure_section(measure["concept"]), []).append(measure)
-    sections = [s for s in (*SECTION_ORDER, "Прочее") if groups.get(s)]
-    table.setRowCount(len(info["measures"]) + len(sections))
-
-    def _section_header(row: int, name: str) -> None:
-        item = QTableWidgetItem(name)
-        bold = item.font()
-        bold.setBold(True)
-        item.setFont(bold)
-        table.setItem(row, 0, item)
-        table.setSpan(row, 0, 1, table.columnCount())
-
-    row = 0
-    for section in sections:
-        _section_header(row, section)
-        row += 1
-        for measure in groups[section]:
-            concept = measure["concept"]
-            name_item = QTableWidgetItem(measure_name(concept))
-            name_item.setData(Qt.ItemDataRole.UserRole, concept)
-            name_item.setToolTip(measure_tooltip(
-                concept, measure.get("unit")))
-            table.setItem(row, 0, name_item)
-            cells = [measure["current"]] + [
-                measure["years"][y] for y in years]
-            raw_reason = measure.get("null_reason")
-            for column, text in enumerate(cells, start=1):
-                # числа — вправо, как в любой финансовой таблице
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignRight
-                                      | Qt.AlignmentFlag.AlignVCenter)
-                if raw_reason:
-                    # ТЗ-111 U1: в ячейке — фраза словами, сырой токен —
-                    # в подсказке
-                    item.setToolTip(raw_reason)
-                table.setItem(row, column, item)
-            row += 1
-    # все колонки — по содержимому (имя меры не обрезается «asset_turno…»),
-    # последняя добирает остаток ширины
+def _repaint_table(table, view: dict) -> None:
+    """Карточка по разделам (PRODUCT.md С2). Названия показателей — в
+    заголовке строк: он не уезжает при прокрутке лет вбок. Строка
+    раздела — жирный заголовок с пустыми клетками; числа вправо;
+    подсказка — формула или причина «—»."""
+    columns = view["columns"]
+    table.setColumnCount(len(columns))
+    table.setHorizontalHeaderLabels(columns)
+    table.setRowCount(len(view["rows"]))
+    bold = table.font()
+    bold.setBold(True)
+    for row, entry in enumerate(view["rows"]):
+        if entry["kind"] == "section":
+            head = QTableWidgetItem(entry["title"])
+            head.setFont(bold)
+            table.setVerticalHeaderItem(row, head)
+            for column in range(len(columns)):
+                blank = QTableWidgetItem("")
+                blank.setFlags(Qt.ItemFlag.NoItemFlags)
+                table.setItem(row, column, blank)
+            continue
+        head = QTableWidgetItem(entry["label"])
+        head.setToolTip(entry["hint"])
+        # концепт строки — для кликов и тестов: подпись русская, ключ нет
+        head.setData(Qt.ItemDataRole.UserRole, entry["concept"])
+        table.setVerticalHeaderItem(row, head)
+        for column, cell in enumerate(entry["cells"]):
+            # числа — вправо, как в любой финансовой таблице
+            item = QTableWidgetItem(cell["text"])
+            item.setTextAlignment(Qt.AlignmentFlag.AlignRight
+                                  | Qt.AlignmentFlag.AlignVCenter)
+            if cell["tooltip"]:
+                item.setToolTip(cell["tooltip"])
+            table.setItem(row, column, item)
+    table.verticalHeader().setDefaultAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     header = table.horizontalHeader()
     for column in range(table.columnCount()):
         header.setSectionResizeMode(
             column, QHeaderView.ResizeMode.ResizeToContents)
-    header.setStretchLastSection(True)
+    header.setStretchLastSection(False)
+    # свежие годы и «сейчас» справа — видны сразу, старые — прокруткой
+    bar = table.horizontalScrollBar()
+    bar.setValue(bar.maximum())
 
 
-def _repaint_measures(box, info: dict) -> None:
+def _repaint_measures(box, view: dict) -> None:
+    """Список графика — те же строки, что в карточке, русскими именами;
+    первой — выручка (PRODUCT.md С2)."""
     box.blockSignals(True)
     box.clear()
-    for measure in info["measures"]:
-        mark = "" if measure["has_value"] else " · нет данных"
-        box.addItem(measure["concept"] + mark,
-                    userData=measure["concept"])
+    for entry in view["rows"]:
+        if entry["kind"] != "section":
+            box.addItem(entry["label"], userData=entry["concept"])
     box.blockSignals(False)
 
 

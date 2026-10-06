@@ -32,7 +32,8 @@ class HistoryResult:
 
 def build_history(repos, instrument_id: str, issuer_id: str,
                   years: int = DEFAULT_YEARS,
-                  today: Optional[str] = None) -> HistoryResult:
+                  today: Optional[str] = None,
+                  rebuild: bool = False) -> HistoryResult:
     from rusterm.core.snapshot import make_snapshot_builder
 
     today = today or _dt.date.today().isoformat()
@@ -42,7 +43,10 @@ def build_history(repos, instrument_id: str, issuer_id: str,
     ends = [e for e in repos.snapshot.annual_period_ends(issuer_id)
             if e <= today][:max(years, 0)]
     for end in sorted(ends):
-        if end in have:
+        # PRODUCT.md С2: rebuild пересобирает год текущим кодом — новая
+        # версия снапшота побеждает старую в истории (старшая версия
+        # года), снапшоты, собранные прежними правилами, не держат дыры
+        if end in have and not rebuild:
             result.skipped.append(end)
             continue
         make_snapshot_builder(repos, end).build(instrument_id, issuer_id,

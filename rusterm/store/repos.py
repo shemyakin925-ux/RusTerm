@@ -700,6 +700,20 @@ class SnapshotRepo:
                ORDER BY period_end DESC, ingested_at DESC LIMIT ?""",
             (issuer_id, canonical, limit)).fetchall()
 
+    def statement_facts(self, issuer_id: str, canonical: str) -> list:
+        """PRODUCT.md С2: строки отчётности карточки (выручка, прибыль,
+        долг…) — все живые факты канонического концепта, и потоки, и
+        остатки: (value, period_start, period_end, currency, fact_id),
+        новые периоды первыми, внутри периода — свежая подача первой.
+        Выбор года и окна делает слой отображения."""
+        return self.conn.execute(
+            """SELECT value, period_start, period_end, currency, fact_id
+               FROM fact WHERE issuer_id=? AND canonical_concept=?
+               AND status='ok' AND value IS NOT NULL
+               AND superseded_by IS NULL AND period_end IS NOT NULL
+               ORDER BY period_end DESC, ingested_at DESC""",
+            (issuer_id, canonical)).fetchall()
+
     def previous_snapshot(self, instrument_id: str,
                           before_version: Optional[int] = None) -> Optional[str]:
         """Предпоследняя ГОТОВАЯ версия: база для diff текущей сборки.

@@ -1588,7 +1588,7 @@ class SnapshotBuilder:
         rows = self._snapshots.as_reported_facts(issuer_id,
                                                  ("st_investments",))
         if not rows:
-            return None
+            return self._stinv_never_in_full_balance(issuer_id, cash_end)
         last = max(r[5] for r in rows)
         if last >= cash_end:
             return None
@@ -1596,6 +1596,23 @@ class SnapshotBuilder:
                                                         cash_end):
             return None
         return f"st_investments_discontinued: last {last}"
+
+    def _stinv_never_in_full_balance(self, issuer_id: str,
+                                     cash_end: str) -> Optional[str]:
+        """«Не подавалась никогда» — ноль только у полной us-gaap карты
+        (PRODUCT.md С2, 06.10.2026). Оговорка ТЗ-108 про тонкие карты
+        касалась IFRS (VALE): там отсутствие тега чаще неотображение.
+        У us-gaap эмитента, чей денежный блок подан us-gaap тегом и в
+        балансе нет неотображённых текущих вложений, строки вложений
+        нет потому, что их нет (AT&T, Alcoa, Oracle) — Yahoo и 10-K
+        считают чистый долг без них. Причина ноля — в lineage."""
+        cash_rows = self._snapshots.as_reported_facts(issuer_id, ("cash",))
+        if not cash_rows or not all(str(r[0]).startswith("us-gaap:")
+                                    for r in cash_rows):
+            return None
+        if self._snapshots.unmapped_current_investments(issuer_id, cash_end):
+            return None
+        return "st_investments_never_reported: us-gaap balance"
 
     def _nci_discontinued(self, issuer_id: str,
                           equity_end: Optional[str]) -> Optional[str]:

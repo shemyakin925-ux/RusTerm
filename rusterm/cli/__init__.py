@@ -1135,7 +1135,8 @@ def cmd_history(args) -> int:
         return 1
     for instrument_id, issuer_id in targets:
         res = build_history(repos, instrument_id, issuer_id,
-                            years=args.years)
+                            years=args.years,
+                            rebuild=getattr(args, "rebuild", False))
         if not res.built and not res.skipped:
             print(f"{instrument_id}: годовых периодов в базе нет — "
                   f"сначала rusterm follow {instrument_id}")
@@ -3008,6 +3009,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_hist.add_argument("--all", action="store_true",
                         help="все бумаги базы")
     p_hist.add_argument("--years", type=int, default=10)
+    p_hist.add_argument("--rebuild", action="store_true",
+                        help="пересобрать и уже собранные годы текущими "
+                             "правилами (новая версия снапшота)")
     p_exp = sub.add_parser("export", help="экспорт последнего снапшота")
     p_exp.add_argument("--instrument", required=False, default=None)
     p_exp.add_argument("--chat", default=None,

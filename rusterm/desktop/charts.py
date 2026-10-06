@@ -174,6 +174,8 @@ if QT_AVAILABLE:
                                 height=[p[1] for p in present],
                                 width=0.6, brush="w"))
                     self.setLabel("bottom", "год")
+                    if spec.get("axis_label"):
+                        self.setLabel("left", spec["axis_label"])
                     # ТЗ-107 V2: на оси только целые годы — иначе при
                     # узком ряде pyqtgraph подписывает дробные даты
                     ticks = sorted(set(years))

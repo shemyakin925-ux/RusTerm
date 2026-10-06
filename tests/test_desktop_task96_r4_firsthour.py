@@ -202,87 +202,81 @@ def _data_rows(table):
 
 
 def test_company_tab_shows_the_snapshot_numbers(hour):
+    """PRODUCT.md С2: карточка по разделам — годы от старых к новым,
+    «сейчас» последней колонкой, русские названия, пусто — «—»."""
     table = _widget(hour.win, QTableWidget, "table")
-    data_rows = _data_rows(table)
-    assert len(data_rows) == MEASURE_ROWS
     headers = [table.horizontalHeaderItem(c).text()
                for c in range(table.columnCount())]
-    assert headers[0] == "мера" and headers[1] == "сейчас"
-    texts = {(table.item(r, 0).text() if table.item(r, 0) else "")
-             for r in data_rows}
+    assert headers[-1] == "сейчас"
+    assert headers[:-1] == sorted(headers[:-1]), headers
+    labels = _labels(table)
     assert {"Оборачиваемость активов", "Дивидендная доходность",
-            "EBITDA"} <= texts
-
-    empty = desktop_data.NO_DATA
-    # ТЗ-111 U1: пустые меры показывают фразы словаря причин — считаем
-    # ценными только строки, чья ячейка не «нет данных» и не фраза
-    from rusterm.reasons_ru import REASONS_RU
-    phrases = set(REASONS_RU.values())
-    valued = [r for r in data_rows
-              if table.item(r, 1)
-              and table.item(r, 1).text() != empty
-              and table.item(r, 1).text() not in phrases]
-    assert len(valued) == VALUED_NOW
-    # пустая мера показана словом, а не нулём и не молчанием (ТЗ-110 B1:
-    # div_yield с дивидендами yahoo теперь считает — 0,32 %, не «нет»)
-    assert table.item(next(
-        r for r in data_rows
-        if table.item(r, 0).text() == "Дивидендная доходность"),
-        1).text() == "0,32 %"
-    # ТЗ-111 U1: пустых мер нет как «нет данных» — они со фразами
-    from rusterm.reasons_ru import REASONS_RU
-    phrases = set(REASONS_RU.values())
-    row = next(r for r in data_rows
-               if table.item(r, 1) and table.item(r, 1).text() in phrases)
-    assert table.item(row, 0).text(), "пустых мер нет — зуб не сработал"
-    row = next(r for r in data_rows
-               if table.item(r, 0).text() == "Оборачиваемость активов")
-    assert table.item(row, 1).text() == "1,15×"
+            "EBITDA"} <= set(labels)
+    texts = [table.item(r, c).text() for r in range(table.rowCount())
+             for c in range(table.columnCount()) if table.item(r, c)]
+    assert desktop_data.NO_DATA not in texts, "пусто — «—», не слова"
+    now = table.columnCount() - 1
+    # ТЗ-110 B1: div_yield с дивидендами yahoo считается — 0,32 %
+    assert table.item(_row(table, "div_yield"), now).text() == "0,32 %"
+    assert table.item(_row(table, "asset_turnover"), now).text() == "1,15×"
+    assert "—" in texts, "пустых клеток нет — зуб не сработал"
 
 
 @pytest.mark.usefixtures("hour")
 def test_company_tab_count_matches_the_snapshot_in_the_base(hour):
     """Число в таблице — не украшение окна: оно равно тому, что лежит в
-    базе по последней мере этой бумаги (окно только рисует, ТЗ-81 B2)."""
+    базе по последней мере этой бумаги (окно только рисует, ТЗ-81 B2).
+    Каждая мера со значением видна строкой; каждая пустая — либо видна
+    строкой с «—», либо названа с причиной в подсказке под таблицей."""
     snapshot_id = hour.repos.snapshot.latest_snapshot_id("US-AAPL")
     assert snapshot_id is not None
-    measures = hour.repos.snapshot.get_measures(snapshot_id)
-    valued = [m for m in measures
+    measures = [m for m in hour.repos.snapshot.get_measures(snapshot_id)
+                if not str(m["concept"]).startswith("percentile")]
+    valued = [m for m in hour.repos.snapshot.get_measures(snapshot_id)
               if m["value"] is not None and str(m["value"]) != ""]
     assert len(valued) == VALUED_NOW
     table = _widget(hour.win, QTableWidget, "table")
-    # ТЗ-111 U2: строки таблицы = меры + шапки разделов
-    from rusterm.measures_ru import measure_section
-    sections = {measure_section(m["concept"]) for m in measures}
-    assert table.rowCount() == len(measures) + len(sections)
+    shown = set(_concepts(table))
+    tooltip = _widget(hour.win, QLabel, "source_panel").toolTip()
+    from rusterm.desktop import card as desktop_card
+    # служебные меры (HHI, цена с поправкой) карточка не показывает, а
+    # дубли (капитализация класса = общей, ROE с долей = ROE) — молча
+    # опускает: это не пустота, а та же строка второй раз
+    redundant = desktop_card.DROPPED | {"market_cap", "roe_incl_nci"}
+    assert "hhi" not in shown and "price_adj" not in shown
+    for m in measures:
+        if m["concept"] in redundant:
+            continue
+        label = desktop_card.LABELS.get(m["concept"]) or \
+            desktop_card.OTHER_LABELS.get(m["concept"], m["concept"])
+        if m["value"] is not None and str(m["value"]) != "":
+            assert m["concept"] in shown, m["concept"]
+        else:
+            assert m["concept"] in shown or f"{label}:" in tooltip, \
+                (m["concept"], tooltip)
 
 
 def test_company_tab_source_panel_names_the_row_and_points_at_raw(hour):
     table = _widget(hour.win, QTableWidget, "table")
     panel = _widget(hour.win, QLabel, "source_panel")
     box = _widget(hour.win, QComboBox, "measure_box")
-    assert box.count() == MEASURE_ROWS
+    # переключатель графика — ровно строки карточки, без пустых
+    assert box.count() == len(_concepts(table))
     assert sum(1 for i in range(box.count())
-               if desktop_data.NO_DATA in box.itemText(i)) \
-        == MEASURE_ROWS - VALUED_NOW
+               if desktop_data.NO_DATA in box.itemText(i)) == 0
 
-    # ТЗ-111 U2: строки данных опознаются по UserRole (шапки разделов
-    # пропускаются), имя в колонке 0 — русское
-    from rusterm.reasons_ru import REASONS_RU
-    phrases = set(REASONS_RU.values())
-    first_valued = next(r for r in _data_rows(table)
-                        if table.item(r, 1)
-                        and table.item(r, 1).text() != desktop_data.NO_DATA
-                        and table.item(r, 1).text() != "0,32 %"
-                        and table.item(r, 1).text() not in phrases)
-    measure = table.item(first_valued, 0).text()
-    value = table.item(first_valued, 1).text()
-    table.cellClicked.emit(first_valued, 1)
+    now = table.columnCount() - 1
+    first_valued = next(r for r in range(table.rowCount())
+                        if _concept(table, r) in _measure_concepts(hour)
+                        and table.item(r, now).text() != "—")
+    measure = _concept(table, first_valued)
+    value = table.item(first_valued, now).text()
+    table.cellClicked.emit(first_valued, now)
     text = panel.text()
     # панель источника зовёт меру сырым концептом (ТЗ-111 U1: сырое
     # живёт в панели), имя в таблице — русское
-    raw_concept = table.item(first_valued, 0).data(
-        _data_role())
+    # концепт строки — в заголовке строки (PRODUCT.md С2)
+    raw_concept = measure
     assert text.startswith(f"источник {raw_concept} "), text
     assert f"значение: {value}" in text
     assert "сырье: " in text
@@ -292,6 +286,32 @@ def test_company_tab_source_panel_names_the_row_and_points_at_raw(hour):
     raw = raw.split(" (период входа ", 1)[0]
     assert os.path.isfile(raw), raw
     assert "период входа " in text
+
+
+def _concept(table, row):
+    head = table.verticalHeaderItem(row)
+    return head.data(Qt.ItemDataRole.UserRole) if head is not None else None
+
+
+def _concepts(table):
+    return [c for c in (_concept(table, r) for r in range(table.rowCount()))
+            if c]
+
+
+def _labels(table):
+    return [table.verticalHeaderItem(r).text()
+            for r in range(table.rowCount())
+            if table.verticalHeaderItem(r) is not None]
+
+
+def _row(table, concept):
+    return next(r for r in range(table.rowCount())
+                if _concept(table, r) == concept)
+
+
+def _measure_concepts(hour):
+    snapshot_id = hour.repos.snapshot.latest_snapshot_id("US-AAPL")
+    return {m["concept"] for m in hour.repos.snapshot.get_measures(snapshot_id)}
 
 
 # ── «Настройки» ─────────────────────────────────────────────────────────
