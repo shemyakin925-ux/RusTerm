@@ -215,7 +215,10 @@ EXPECTED = {
     "US-VALE": {"facts": 48, "fact_years": 6, "prices": 1000,
                 "price_years": 5, "valued": 13},
     "US-VZ": {"facts": 181, "fact_years": 20, "prices": 1000,
-              "price_years": 5, "valued": 15},
+              "price_years": 5,
+              # ТЗ-130 K2: карта v6 — Cost of services Verizon читается
+              # как cogs, gross_profit и gross_margin считаются
+              "valued": 17},
 }
 
 # Байты фикстур = запись живого ответа: повторная обрезка того же

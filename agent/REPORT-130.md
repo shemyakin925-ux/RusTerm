@@ -61,3 +61,25 @@ reachable; **every company ≥ 80 % is NOT reachable honestly for AA and
 ORCL** — evidence above, coordinator's call in Disputed.
 
 NOW: K1 done, step 5
+
+## HANDOFF (FINAL — пауза по приказу пользователя, 07.10)
+
+```
+Status:          PARTIAL (K1 done; K2 (1/2) committed; K2 (2/2) staged, tests green, hook commit not yet run)
+Arrival state:   selfcheck 13/0 at dcae6f6 (after STEP 0: U3 commit + rebase)
+Items done:      K1 (aeb6335); K2 1/2 (868da63: map us-gaap.v6 + stinv guard Noncurrent; reparse 1219 facts; fill 86%→89%, T 83, AA 65, ORCL 79)
+Items not done:  K2 2/2 STAGED (equity identity incl_nci−NCI; tests green incl. TЗ-56 Z2 pin; VZ replay pin updated; commit blocked only by the pending selfcheck hook — on resume: cp /tmp/commit-msg-k2c.txt .git/COMMIT_EDITMSG && git commit -F /tmp/commit-msg-k2c.txt, the files are already in the index). K3, K4, K5 — designed, not started. Reparse+rebuild+measure after K2 2/2, look.py pass, final fill paste.
+Acceptance:      last full hook run: Итог 11/2 (K2c blockers found: c2 map pin + GUIDE v5→v6 — fixed in 868da63; then 13/0 for K2 1/2). K2c selfcheck NOT run (user pause).
+Tests:           targeted green: test_task130_k2_equity_identity 4/4, test_task56_z2 7/7, test_task96_r3_replay green after pin, stinv/guard/map tests green
+Guards:          repos.py unmapped_current_investments — middle arm gained Noncurrent exclusion (stricter); snapshot.py _stinv/identity doors unchanged for all previously-green cases; no guard files touched
+Schema:          unchanged (48)
+Network:         0 of 0
+Model:           GLM 5.3
+Secrets:         no keys touched
+Pushed:          yes up to 868da63 (K2 1/2); K2c sits in the local index ONLY
+Questions for the coordinator:
+1. PRODUCT C2 gate "каждая компания ≥ 80%" недостижим честно для AA (~69%) и ORCL (~69%): в их 10-K нет строк operating income / pretax / COGS / dps — таблица доказательств в разделе K1. Предлагаю: либо считать их мерами «не применимо к этой отчётности» (скрыть, как у банков), либо принять потолок с причиной. Решение — за вами/пользователем.
+2. AA dps: тег CommonStockDividendsPerShareCashPaid подан годовыми окнами с квартальной ставкой (FY2023 = 0.10 при 4×0.10) — мапить нельзя (4× занижение). Оставил «—».
+```
+
+NOW: K2 (2/2) staged, awaiting user resume

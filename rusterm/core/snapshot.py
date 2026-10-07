@@ -98,6 +98,9 @@ _VALUATION_INPUT_CONCEPTS: tuple[str, ...] = (
     "shares_outstanding", "total_debt", "cash", "st_investments",
     "minority_interest", "preferred_equity", "dps_ttm",
     "invested_capital", "total_equity",
+    # ТЗ-130 K2: слагаемое тождества капитала (incl_nci − NCI) —
+    # запрашивается, чтобы собрать total_equity там, где прямого тега нет
+    "total_equity_incl_nci",
     "eps_diluted", "revenue",  # ТЗ-68 N1: pe и ps
 )
 
@@ -405,6 +408,9 @@ class SnapshotBuilder:
         # помнить про peer_inputs, иначе перцентили живут лишь в том
         # пути, кто о них не забыл.
         self._peer_for = peer_for
+        # ТЗ-130 K2: fact_id капитала, собранного тождеством
+        # (incl_nci − NCI), — lineage мер называет тождество ролью.
+        self._equity_identity_facts: set = set()
 
     def _price_measures(self, instrument_id: str, as_of: str) -> dict:
         """ADR-0029: total_return и drawdown за год до as_of по ряду с
@@ -882,6 +888,7 @@ class SnapshotBuilder:
                 "value": numeric, "fact_id": fact_id, "unit": unit,
                 "start": start, "end": end,
                 "rank": priority_rank(key, local, _taxonomy or "us-gaap"),
+                "taxonomy": _taxonomy or "us-gaap",
             })
 
         # ── Правило давности (TASK-12 Y2) ──
@@ -912,6 +919,15 @@ class SnapshotBuilder:
                 else:
                     stale[key] = max(r["end"] for r in by_concept[key])
                     del by_concept[key]
+
+        # ТЗ-130 K2: капитал материнской компании из тождества баланса —
+        # только когда прямого тега нет вовсе (T, AA подают одну колонку
+        # «Итого капитал» с НКД). Это НЕ подстановка ТЗ-56 Z1: та брала
+        # incl_nci ЦЕЛИКОМ (завышение на NCI), здесь NCI вычитается, и
+        # роль входа в lineage называет тождество.
+        self._synthesize_parent_equity(by_concept, issuer_id,
+                                       as_of=as_of,
+                                       anchor_date=anchor_date)
 
         def absent_reason(concepts: list[str]) -> str:
             """Отказ по отсутствующим входам: вычищенные давностью —
@@ -1120,10 +1136,14 @@ class SnapshotBuilder:
         def stock_role(row: dict, basis: str, why: str) -> str:
             """Роль стокового входа: база окна, дата границы и — если сток
             пришёл из restated-подачи — её отметка с именем подачи
-            (ТЗ-102 M3). Хвост про несобранный TTM прежний."""
+            (ТЗ-102 M3). Хвост про несобранный TTM прежний. ТЗ-130 K2:
+            капитал, собранный тождеством (incl_nci − NCI), несёт отметку
+            тождества — читатель видит, что число не прямой факт."""
             mark = (f" basis: restated ({row['filing']})"
                     if "filing" in row else "")
-            return (f"input:{basis} stock {row['end']}{mark}"
+            identity = (" (тождество: incl_nci − NCI)"
+                        if row.get("identity") else "")
+            return (f"input:{basis} stock {row['end']}{mark}{identity}"
                     + (f"; TTM не собран: {why}" if why else ""))
 
         # ── Двухпериодные: поток — окно TTM (или годовой запасной),
@@ -1214,9 +1234,11 @@ class SnapshotBuilder:
                 {"fact_id": flow_row["fact_id"], "peer_measure_id": None,
                  "role": "input"},
                 {"fact_id": cur_row["fact_id"], "peer_measure_id": None,
-                 "role": "input"},
+                 "role": "input" + (" (тождество: incl_nci − NCI)"
+                                    if cur_row.get("identity") else "")},
                 {"fact_id": prev_row["fact_id"], "peer_measure_id": None,
-                 "role": "input"},
+                 "role": "input" + (" (тождество: incl_nci − NCI)"
+                                    if prev_row.get("identity") else "")},
             ]
 
         # ── Цепочка: nopat = operating_income * (1 - effective_tax) ──
@@ -1405,6 +1427,34 @@ class SnapshotBuilder:
                 out[key] = best
             else:
                 stale[key] = max(row[1] for row in items)
+        # ТЗ-130 K2: капитал материнской компании из тождества баланса —
+        # us-gaap-эмитентам с одной колонкой «Итого капитал» (с НКД):
+        # total_equity = incl_nci − NCI. Не подстановка ТЗ-56 Z1 (та
+        # брала incl_nci целиком): NCI вычитается; на дате без строки
+        # NCI ноль требует свидетельства (_nci_never_reported /
+        # _nci_discontinued). fact_id входа — факт incl_nci, и он же
+        # помечен в _equity_identity_facts: lineage мер называет
+        # тождество ролью.
+        if ("total_equity" not in out
+                and "total_equity_incl_nci" in out
+                and any(str(t).startswith("us-gaap:") for t in (
+                    r[0] for r in rows if (r[6] or r[0])
+                    == "total_equity_incl_nci"))):
+            inc = out["total_equity_incl_nci"]
+            nci = out.get("minority_interest")
+            if nci is not None and nci[1] == inc[1]:
+                nci_value = nci[0]
+            elif nci is not None:
+                nci_value = None     # даты разошлись — тождества нет
+            elif (self._nci_never_reported(issuer_id)
+                    or self._nci_discontinued(issuer_id, inc[1])):
+                nci_value = 0.0
+            else:
+                nci_value = None
+            if nci_value is not None:
+                out["total_equity"] = (inc[0] - nci_value, inc[1],
+                                       inc[2], inc[3])
+                self._equity_identity_facts.add(inc[3])
         return out, stale
 
     def _fact_currency_by_id(self, fact_id: str) -> Optional[str]:
@@ -1514,6 +1564,31 @@ class SnapshotBuilder:
             scan(self._snapshots.restated_stock_facts(
                 issuer_id, tuple(missing)), restated=True)
 
+        # ТЗ-130 K2: тождество капитала на границе (см. комментарий в
+        # _latest_canonical); 8-й слот кортежа — отметка для lineage.
+        if ("total_equity" not in at
+                and "total_equity_incl_nci" in at
+                and any(str(r[0]).startswith("us-gaap:")
+                        for r in rows if (r[6] or r[0])
+                        == "total_equity_incl_nci")):
+            inc = at["total_equity_incl_nci"]
+            nci = at.get("minority_interest")
+            if nci is not None and nci[3] == inc[3]:
+                nci_value, nci_gap = nci[2], max(inc[0], nci[0])
+            elif nci is not None:
+                nci_value = None
+            elif (self._nci_never_reported(issuer_id)
+                    or self._nci_discontinued(issuer_id, inc[3])):
+                nci_value, nci_gap = 0.0, inc[0]
+            else:
+                nci_value = None
+            if nci_value is not None:
+                at["total_equity"] = (nci_gap, 1 << 30,
+                                      inc[2] - nci_value, inc[3], inc[4],
+                                      inc[5], inc[6],
+                                      " (тождество: incl_nci − NCI)")
+                self._equity_identity_facts.add(inc[4])
+
         needed = ("total_equity", "total_debt", "cash", "st_investments")
         # то же правило нулевых вложений, что в проходе оценки: денежный
         # блок границы есть, строки вложений к этой дате уже/ещё нет
@@ -1552,7 +1627,8 @@ class SnapshotBuilder:
                 {c[5] for c in picked if c[5]},
                 [{"fact_id": c[4], "peer_measure_id": None,
                   "role": f"input: capital at {c[3]}"
-                          + (f" basis: restated ({c[6]})" if c[6] else "")}
+                          + (f" basis: restated ({c[6]})" if c[6] else "")
+                          + (c[7] if len(c) > 7 and c[7] else "")}
                  for c in picked])
 
     def _latest_annual_input(self, issuer_id: str, canonical: str,
@@ -1639,6 +1715,67 @@ class SnapshotBuilder:
         rows = self._snapshots.as_reported_facts(
             issuer_id, ("minority_interest", "total_equity_incl_nci"))
         return not rows
+
+    def _synthesize_parent_equity(self, by_concept: dict,
+                                  issuer_id: str,
+                                  as_of: Optional[str] = None,
+                                  anchor_date: Optional[date] = None
+                                  ) -> None:
+        """ТЗ-130 K2: total_equity = total_equity_incl_nci −
+        minority_interest — тождество колонки «Итого капитал» баланса,
+        точное до цента, потому что incl_nci и есть «итого, включая
+        НКД» по определению us-gaap. Работает только по us-gaap
+        фактам (IFRS-эмитентам оставлен отказ ТЗ-56 Z1) и только когда
+        прямого входа total_equity нет вовсе; на каждую дату, где NCI
+        не подана, ноль требует свидетельства (_nci_never_reported /
+        _nci_discontinued — то же правило, что в invested_capital).
+        Строки помечаются "identity": True — stock_role называет
+        тождество в lineage. NCI запрашивается отдельно, когда её нет
+        среди базовых концептов прохода (у двухпериодных её нет)."""
+        if ("total_equity" in by_concept
+                or "total_equity_incl_nci" not in by_concept):
+            return
+        incl = [r for r in by_concept["total_equity_incl_nci"]
+                if r.get("taxonomy") == "us-gaap"]
+        if not incl:
+            return
+        minority = {(r["unit"], r["end"]): r
+                    for r in by_concept.get("minority_interest", [])}
+        if "minority_interest" not in by_concept:
+            for _concept, value, fact_id, unit, start, end, _canonical in \
+                    self._snapshots.as_reported_facts(
+                        issuer_id, ("minority_interest",)):
+                if as_of and end > as_of:
+                    continue
+                if (anchor_date is not None
+                        and not _eligible_input(end, anchor_date)):
+                    continue
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError):
+                    continue
+                minority.setdefault(
+                    (unit, end),
+                    {"value": numeric, "fact_id": fact_id, "unit": unit,
+                     "start": start, "end": end, "rank": 1 << 30,
+                     "taxonomy": strip_taxonomy(_concept)[0] or "us-gaap"})
+        out: list[dict] = []
+        for r in incl:
+            m = minority.get((r["unit"], r["end"]))
+            if m is not None:
+                nci_value, nci_fact = m["value"], m["fact_id"]
+            elif (self._nci_never_reported(issuer_id)
+                    or self._nci_discontinued(issuer_id, r["end"])):
+                nci_value, nci_fact = 0.0, None
+            else:
+                continue
+            out.append({"value": r["value"] - nci_value,
+                        "fact_id": r["fact_id"], "unit": r["unit"],
+                        "start": r["start"], "end": r["end"],
+                        "rank": 1 << 30, "taxonomy": "us-gaap",
+                        "identity": True})
+        if out:
+            by_concept["total_equity"] = out
 
     def _annual_common_period(self, issuer_id: str,
                               concepts: tuple,
@@ -2063,6 +2200,12 @@ class SnapshotBuilder:
                   "st_investments"):
             if inputs.get(c):
                 ic_lineage += self._fact_lineage(inputs[c][3])
+                if (c == "total_equity"
+                        and inputs[c][3] in self._equity_identity_facts):
+                    ic_lineage.append(
+                        {"fact_id": inputs[c][3], "peer_measure_id": None,
+                         "role": "total_equity = incl_nci − NCI "
+                                 "(тождество баланса, ТЗ-130 K2)"})
         # производный ноль меньшинства — не факт, а решение: свою роль в
         # lineage он получает от ветки, которая его вывела, как и в ev
         ic_lineage += nci_lineage + stinv_lineage
