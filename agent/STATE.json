@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-111.md",
  "report": "agent/REPORT-111.md",
- "item": "PAUSED by user (07.10) right after turn taken; TASK-130 setup only: base copied to /tmp/rt-task130, history --rebuild interrupted mid-run (scratch, rerun on resume)",
- "step": "Round 149, TASK-130 (C2 fill >=90%): nothing coded yet, no K-item started. Next on resume: rerun `python3 -m rusterm --root /tmp/rt-task130 history --all --rebuild`, then card_fill, then K1 gap->tag table into REPORT-130.",
- "status": "awaiting_review",
+ "item": "TASK-130 resumed: rebuild on copy, then K1 gap->tag table",
+ "step": "Round 149 continues. Next: rerun history --all --rebuild on /tmp/rt-task130, card_fill, K1 table into REPORT-130 (no code).",
+ "status": "working",
  "last_commit": "dcae6f6",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM (zai individual coding plan) via ZCode",
- "updated_at": "2026-10-07T07:16:34Z"
+ "updated_at": "2026-10-07T10:28:32Z"
 }
