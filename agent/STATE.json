@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-111.md",
  "report": "agent/REPORT-111.md",
- "item": "U3 partial committed (upgrade button + door + F1 repin); U3 dialogs / U4 / U5 superseded by user queue -> TASK-130 next",
- "step": "RESUMED 07.10: user ordered STEP 0 = commit staged U3, rebase, test, push, then queue TASK-130..136. U3 test renamed to tests/test_desktop_task111_u3_upgrade_button.py (Qt guard: PySide6 only in rusterm/desktop/ and tests/test_desktop_*). U3 remainder (ticker/import/peers/verify dialogs), U4, U5 NOT done - user marked TASK-111..123 SUPERSEDED; noted for report.",
- "status": "working",
- "last_commit": "d2282c7",
+ "item": "PAUSED by user (07.10) right after turn taken; TASK-130 setup only: base copied to /tmp/rt-task130, history --rebuild interrupted mid-run (scratch, rerun on resume)",
+ "step": "Round 149, TASK-130 (C2 fill >=90%): nothing coded yet, no K-item started. Next on resume: rerun `python3 -m rusterm --root /tmp/rt-task130 history --all --rebuild`, then card_fill, then K1 gap->tag table into REPORT-130.",
+ "status": "awaiting_review",
+ "last_commit": "dcae6f6",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM (zai individual coding plan) via ZCode",
- "updated_at": "2026-10-07T06:47:26Z"
+ "updated_at": "2026-10-07T07:16:34Z"
 }
