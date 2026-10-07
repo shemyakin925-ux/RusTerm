@@ -1,13 +1,13 @@
 {
  "task": "agent/TASK-130.md",
  "report": "agent/REPORT-130.md",
- "item": "K2 (1/2): map v6 + stinv guard fix staged",
- "step": "K2a: us-gaap.v6 (cogs <- CostOfGoodsAndServiceExcludingDDA [AA], OtherCostOfOperatingRevenue [T]); reparse on copy: 1219 facts remapped; rebuild+measure 86->89 (T 83, AA 65, ORCL 79). K2b: repos.py unmapped_current_investments middle arm + Noncurrent exclusion; tests green. Next: K2c equity identity, then re-measure; K3/K4/K5.",
+ "item": "K2 (2/2): equity identity done, tests green",
+ "step": "K2c: total_equity = incl_nci - NCI synthesized in _issuer_inputs (with minority subquery), _latest_canonical and _capital_at; us-gaap only (TЗ-56 Z2 pin survives); identity named in lineage. Next: K3 interest_coverage same-span windows, K4 BAC dps declarations, K5 share_classes_incomplete, then reparse+rebuild+measure, look.py, HANDOFF, hand.",
  "status": "working",
  "last_commit": "dcae6f6",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM (zai individual coding plan) via ZCode",
- "updated_at": "2026-10-07T11:28:27Z"
+ "updated_at": "2026-10-07T12:47:16Z"
 }
