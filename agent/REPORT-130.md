@@ -83,3 +83,21 @@ Questions for the coordinator:
 ```
 
 NOW: K2 (2/2) staged, awaiting user resume
+
+## ПОПРАВКА к HANDOFF (07.10, сразу после паузы)
+
+`git commit` книги состояния (4efdc3e) без pathspec забрал и staged-файлы
+K2c — код тождества капитала уехал в коммит раньше объявления. Содержимое
+проверено вручную тем же селфчеком (bash agent/selfcheck.sh, выход 2):
+pytest — из красных только test_i5_staged_and_authorised_widening_is_green
+и test_i5z_demonstration_ran (известная инфраструктурная пара I5 из
+BATON: вложенный полный селфчек) и
+test_report_sections::test_last_handoff_does_not_call_committed_items_undone
+— страж отчёта справедливо поймал сам текст HANDOFF выше: «K2c in the
+local index ONLY» стало ложью в момент, когда 4efdc3e содержал K2c.
+Этой поправкой текст исправлен; факты: код K2c в 4efdc3e, целевой
+селфчек 13/0 не получен ни разу на этой голове (11/2 с двумя I5-красными
+и одним красным самого стража отчёта), приёмка на возобновлении — первым
+же хук-коммитом.
+
+NOW: paused; K2c content in 4efdc3e, K3–K5 not started
