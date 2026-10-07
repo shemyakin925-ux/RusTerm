@@ -31,7 +31,7 @@ dei:EntityCommonStockSharesOutstanding (обложка 10-K, сущность в
 """
 from __future__ import annotations
 
-CONCEPT_MAP_VERSION = "us-gaap.v5"  # v5: + total_debt <- DebtLongtermAndShorttermCombinedAmount, st_investments <- AvailableForSaleSecuritiesDebtSecuritiesCurrent (ТЗ-108 W2/W3)
+CONCEPT_MAP_VERSION = "us-gaap.v6"  # v6: + cogs <- CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization (AA), OtherCostOfOperatingRevenue (T) — ТЗ-130 K2, payload-доказательства в REPORT-130
 
 CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "revenue": (
@@ -41,7 +41,15 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
         "SalesRevenueNet",
     ),
     "cogs": ("CostOfGoodsAndServicesSold", "CostOfRevenue",
-             "CostOfGoodsSold"),
+             "CostOfGoodsSold",
+             # ТЗ-130 K2: строка Alcoa «Cost of goods sold (exclusive of
+             # expenses shown separately below)» — FY2021 9 153 000 000 USD,
+             # 10-K; после прежних тегов — приоритет полных строк не тронут
+             "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization",
+             # ТЗ-130 K2: строка AT&T «Operating expenses: Cost of
+             # revenues» — FY2024 27 032 000 000 USD, 10-K; последним:
+             # у прочих эмитентов «Other cost…» бывает мелкой статьёй
+             "OtherCostOfOperatingRevenue"),
     "gross_profit": ("GrossProfit",),
     "opex": ("OperatingExpenses",),
     "operating_income": ("OperatingIncomeLoss",),

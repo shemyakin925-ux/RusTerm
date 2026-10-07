@@ -213,7 +213,7 @@ def test_the_map_tag_still_closes_where_it_is_filed():
     fact = {"concept": f"us-gaap:{MAP_TAG}"}
     assert apply_concept_map(fact) == 0
     assert fact["canonical_concept"] == "shares_outstanding"
-    assert fact["concept_map_version"] == CONCEPT_MAP_VERSION == "us-gaap.v5"
+    assert fact["concept_map_version"] == CONCEPT_MAP_VERSION == "us-gaap.v6"
 
 
 def test_shares_outstanding_facts_on_vz_go_from_zero_to_six(payload):

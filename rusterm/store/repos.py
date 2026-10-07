@@ -825,14 +825,19 @@ class SnapshotRepo:
                                      period_end: str) -> List[str]:
         """Теги без канонического имени на дату баланса, похожие на
         текущие вложения (…Investments…Current, MarketableSecurities…,
-        AvailableForSale…Current): страж правила нулевых вложений."""
+        AvailableForSale…Current): страж правила нулевых вложений.
+        ТЗ-130 K2: исключение Noncurrent — во ВСЕХ ветках; LIKE в SQLite
+        не различает регистр, «Noncurrent» кончается «current», и без
+        исключения нетекущая статья (MarketableSecuritiesNoncurrent у
+        Alcoa с 2024) блокировала законный ноль st_investments."""
         rows = self.conn.execute(
             """SELECT DISTINCT concept FROM fact
                WHERE issuer_id=? AND period_end=? AND status='ok'
                  AND canonical_concept IS NULL
                  AND ((concept LIKE '%Investments%Current%'
                        AND concept NOT LIKE '%Noncurrent%')
-                      OR concept LIKE '%MarketableSecurities%Current%'
+                      OR (concept LIKE '%MarketableSecurities%Current%'
+                          AND concept NOT LIKE '%Noncurrent%')
                       OR (concept LIKE '%AvailableForSale%Current%'
                           AND concept NOT LIKE '%Noncurrent%'))""",
             (issuer_id, period_end)).fetchall()
