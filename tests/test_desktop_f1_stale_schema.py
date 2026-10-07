@@ -112,19 +112,17 @@ def _argv_of(notice: str) -> list[str]:
 
 # ── 1. строка словами ────────────────────────────────────────────────────
 
-def test_the_notice_names_the_catalog_both_versions_and_the_command(
+def test_the_notice_names_the_catalog_both_versions_and_the_button(
         stale):
-    """Одна строка: каталог, заставшая схема, нужная программе и
-    исполнимая команда. Числа берутся из fixtures и из store, а не с
-    потолка: «44» здесь — схема базы, «_SCHEMA_VERSION» — число, которое
-    окно ждёт."""
+    """ТЗ-111 U3 (ЗАМЕНА-БУЛАВКИ: команда в строке -> кнопка
+    «Обновить базу»): одна строка называет каталог и обе схемы —
+    обновление делает кнопка дверью upgrade_stale_base (бэкап +
+    миграции), пользователю команда не нужна."""
     repos, _conn, paths = stale
     notice = desktop_data.header_info(repos)["schema_notice"]
     assert notice == (
         f"база в {paths.root} — схема 44, программе нужна "
-        f"{_SCHEMA_VERSION}; обновите: rusterm --root "
-        f"{shlex.quote(str(paths.root))} init")
-    assert _argv_of(notice) == ["--root", str(paths.root), "init"]
+        f"{_SCHEMA_VERSION}; обновите кнопкой «Обновить базу»")
 
 
 def test_a_current_base_has_nothing_to_say(qapp, tmp_path, monkeypatch):
@@ -224,16 +222,19 @@ def test_every_door_the_window_calls_at_startup_answers_without_raising(
 
 # ── 4. команда из строки исполнима и поднимает схему ────────────────────
 
-def test_the_command_the_window_names_is_parseable_and_updates_the_base(
-        stale, capsys):
-    """Строка ведёт себя как инструкция: команда разбирается парсером
-    CLI, её исполнение поднимает схему до нужной — и строка уходит."""
-    from rusterm.cli import _build_parser, main as cli_main
+def test_the_upgrade_button_door_updates_the_base(stale):
+    """ТЗ-111 U3: дверь кнопки «Обновить базу» поднимает схему до
+    нужной (бэкап перед миграциями) — и строка уходит."""
+    from rusterm.desktop import actions as desktop_actions
     repos, conn, paths = stale
-    argv = _argv_of(desktop_data.header_info(repos)["schema_notice"])
-    parsed = _build_parser().parse_args(argv)
-    assert (parsed.root, parsed.command) == (str(paths.root), "init")
-    assert cli_main(argv) == 0, capsys.readouterr().out
+    outcome = desktop_actions.upgrade_stale_base(str(paths.root))
+    assert outcome.ok, outcome.detail
+    assert outcome.cancelled is False
+    assert "бэкап" in outcome.detail, outcome.detail
+    assert "миграций: " in outcome.detail, outcome.detail
+    assert "схема 44 → 48" in outcome.detail, outcome.detail
+    backups = list((Path(str(paths.root)) / "backups").glob("*.zip"))
+    assert backups, "бэкап-файла нет"
     assert current_schema_version(conn) == _SCHEMA_VERSION
     assert desktop_data.header_info(repos)["schema_notice"] is None
 
@@ -242,10 +243,10 @@ def test_after_the_update_the_same_doors_read_transcripts(stale):
     """Зубья: «нет таблицы» и «таблица есть» — разные ответы. После
     команды из строки записанный разговор виден обеим дверям, т. е.
     гвард отставшей схемы не превратился в вечное «—»."""
-    from rusterm.cli import main as cli_main
+    from rusterm.desktop import actions as desktop_actions
     repos, _conn, paths = stale
-    assert cli_main(_argv_of(
-        desktop_data.header_info(repos)["schema_notice"])) == 0
+    assert desktop_actions.upgrade_stale_base(
+        str(paths.root)).ok is True
     repos.chat_transcript.create_session("s-f1", "fake-model", None,
                                          1000.0, 2)
     assert [s["session_id"] for s in desktop_data.chat_sessions(repos)] == \

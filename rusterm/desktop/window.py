@@ -158,6 +158,13 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     schema_notice.setWordWrap(True)
     schema_notice.setVisible(False)
     root_layout.addWidget(schema_notice)
+    # ТЗ-111 U3: базу обновляет кнопка «Обновить базу» (бэкап + миграции
+    # той же дверью, что rusterm init) — пользователю не нужно вводить
+    # команду; видна только на отставшей схеме
+    upgrade_base_button = QPushButton(objectName="upgrade_base_button")
+    upgrade_base_button.setText("Обновить базу")
+    upgrade_base_button.setVisible(False)
+    root_layout.addWidget(upgrade_base_button)
     # ТЗ-109 R4: сеть пропала — окно говорит об этом словами под шапкой
     # и называет дату показанных данных, вместо немой старины
     offline_notice = QLabel(objectName="offline_notice")
@@ -401,6 +408,7 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             status.setText("")
             schema_notice.setText("")
             schema_notice.setVisible(False)
+            upgrade_base_button.setVisible(False)
             return
         info = data.header_info(repos)
         budget = desktop_actions.budget_view(repos)
@@ -408,10 +416,39 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         notice = info["schema_notice"]
         schema_notice.setText(notice or "")
         schema_notice.setVisible(bool(notice))
+        # ТЗ-111 U3: кнопка обновления — ровно на отставшей схеме
+        stale = bool(notice) and schema is not None
+        upgrade_base_button.setVisible(stale)
+        upgrade_base_button.setEnabled(stale)
         status.setText(
             f"схема {schema if schema is not None else '—'}"
             f" · запросов сегодня {budget['used_today']}"
             f" · потолок {budget['ceiling_per_night']}")
+
+    def on_upgrade_base() -> None:
+        """ТЗ-111 U3: кнопка «Обновить базу» — бэкап, миграции той же
+        дверью, что rusterm init, затем перечитывание окна. Кнопка
+        гасится на время работы."""
+        upgrade_base_button.setEnabled(False)
+        schema_notice.setText("обновление базы…")
+        QApplication.processEvents()
+        outcome = desktop_actions.upgrade_stale_base(paths.root)
+        # перечитывание — ДО итогового слова: repaint_header на свежей
+        # базе сам прячет строку схемы, затем пишем итог щелчка
+        if repos is not None and state["selected"]:
+            load_company(state["selected"])
+        repaint_header()
+        if outcome.ok:
+            schema_notice.setText(outcome.detail)
+            schema_notice.setVisible(True)
+            upgrade_base_button.setVisible(False)
+        else:
+            schema_notice.setText(f"обновление не удалось: "
+                                  f"{outcome.detail}")
+            schema_notice.setVisible(True)
+            upgrade_base_button.setEnabled(True)
+
+    upgrade_base_button.clicked.connect(on_upgrade_base)
 
     def repaint_sidebar(query: str = "") -> None:
         tree.clear()

@@ -340,6 +340,49 @@ def follow_instrument(root, instrument_id: str,
                 + (f"; снапшот v{version}" if version is not None else "")))
 
 
+# ── ТЗ-111 U3: обновление отставшей базы кнопкой ────────────────────────
+
+def upgrade_stale_base(root) -> CollectOutcome:
+    """Кнопка «Обновить базу»: бэкап, затем миграции той же дверью, что
+    `rusterm --root DIR init` (apply_migrations). Миграция происходит
+    ТОЛЬКО по явному щелчку пользователя — до щелчка окно остаётся
+    только читателем (ADR-0023). Отказ бэкапа отменяет обновление."""
+    from rusterm.store.backup import BackupError, create_backup
+    from rusterm.store.db import (_SCHEMA_VERSION, apply_migrations,
+                                  current_schema_version)
+    paths = AppPaths.from_root(root)
+    conn = open_connection(paths)
+    try:
+        observed = current_schema_version(conn)
+        if observed is None:
+            return CollectOutcome(ok=False, reason="no_base",
+                                  detail="каталога данных нет")
+        if observed >= _SCHEMA_VERSION:
+            return CollectOutcome(
+                ok=True, detail=f"база уже актуальна (схема {observed})")
+        try:
+            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            archive = (Path(root) / "backups" /
+                       f"upgrade-{stamp}.zip")
+            summary = create_backup(paths, archive)
+        except BackupError as e:
+            return CollectOutcome(
+                ok=False, reason="backup_failed",
+                detail=f"бэкап не создался ({e.reason}); база не менялась")
+        applied = apply_migrations(conn)
+        after = current_schema_version(conn)
+        return CollectOutcome(
+            ok=True, detail=(f"бэкап: {summary.archive}; схема "
+                             f"{observed} → {after}; миграций: "
+                             f"{len(applied)}"))
+    except Exception as e:  # трассировка — не ответ окна
+        return CollectOutcome(ok=False, reason=f"unexpected_error:{e}",
+                              detail="обновление прервано; база "
+                                     "осталась целой")
+    finally:
+        conn.close()
+
+
 # ── ТЗ-110 B2: фоновый проход окна — та же команда, что у cron ──────────
 
 def refresh_pass(root, cancel: Optional[CancelFlag] = None,

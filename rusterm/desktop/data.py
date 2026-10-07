@@ -105,9 +105,11 @@ def _stale_schema_notice(repos, observed: Optional[int]) -> Optional[str]:
     if observed is None or observed >= _SCHEMA_VERSION:
         return None
     root = str(repos.paths.root)
+    # ТЗ-111 U3: команда больше не показывается — базу обновляет кнопка
+    # «Обновить базу» (бэкап + миграции, ADR-0023 не нарушается: миграция
+    # только по явному щелчку пользователя)
     return (f"база в {root} — схема {observed}, программе нужна "
-            f"{_SCHEMA_VERSION}; обновите: rusterm --root "
-            f"{shlex.quote(root)} init")
+            f"{_SCHEMA_VERSION}; обновите кнопкой «Обновить базу»")
 
 
 # ── Левая колонка: поиск и дерево отраслей (C1.1) ────────────────────────

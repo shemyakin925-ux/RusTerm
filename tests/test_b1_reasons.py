@@ -142,6 +142,9 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "refresh_failed": "desktop refresh refusal (desktop/actions.py)",
     "schema_stale": "desktop refresh refusal on a behind-schema base "
                     "(desktop/actions.py, ADR-0023: окно не мигрирует)",
+    # ТЗ-111 U3: кнопка «Обновить базу» — свои отказы окна
+    "no_base": "desktop upgrade refusal (desktop/actions.py)",
+    "backup_failed": "desktop upgrade refusal (desktop/actions.py)",
     # расширенная перепись (сканер возвратов-пар и f-строк)
     "asx_bad_url": "provider channel refusal (providers/asx.py)",
     "dart_bad_url": "provider channel refusal (providers/dart.py)",
