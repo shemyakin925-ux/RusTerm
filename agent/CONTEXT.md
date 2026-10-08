@@ -27,8 +27,14 @@
 - TASK-134 W1–W4 done by the coordinator 08.10: «Качество» tab hidden
   (setTabVisible), markets line and chat box hidden (`RUSTERM_CHAT=1` shows
   chat); no raw reason tokens in visible text (look.py over 38 papers).
-- Next for the executor: TASK-134 W5 (hints → buttons + q1 guard), 135, 136;
-  BACKLOG P4–P8.
+- 08.10 later: TASK-135 A1 (I5 paths, «before == after» teeth) and A3
+  (firsthour price fixture shifted to yesterday) done; full suite without
+  the I5 files 701 s. BACKLOG P1 (TTM «сейчас» for statement rows) and P5
+  (debt = LongTermDebt + commercial paper, `core/debt.py`) done; Yahoo
+  match 99 %. Year columns come only from year-end snapshots once history
+  is built. `follow` builds year history before the snapshot stage.
+- Next for the executor: TASK-134 W5, TASK-136 (Excel, user to confirm),
+  BACKLOG P4, P6–P8.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:

@@ -3,7 +3,7 @@
 **06.10.2026 reset.** Items under «## Queue» below are FROZEN unless they
 serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
 
-- [ ] P1 — card: «сейчас» column for statement rows shows TTM from the
+- [x] P1 — DONE 08.10 by the coordinator (38b9b23). card: «сейчас» column for statement rows shows TTM from the
   existing core TTM door (`rusterm/core/ttm.py`), not «—» — accept:
   test on a fixture with 4 quarters; look.py DELL «Выручка» сейчас ≠ «—» — size: M
 - [ ] P2 — card: EPS / dividend per share carry the currency
@@ -15,7 +15,7 @@ serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
   TASK-130 K5; text there) — accept: test on a two-class fixture; DELL
   2020 капитализация within 10 % of the 10-K cover or «—» with
   `share_classes_incomplete` — size: M
-- [ ] P5 — AAPL/MSFT total_debt 8–13 % below long-term + current debt
+- [x] P5 — DONE 08.10 by the coordinator (e08ad47, core/debt.py). AAPL/MSFT total_debt 8–13 % below long-term + current debt
   (was TASK-137 Y2; commercial paper / current portion) — accept:
   `tools/yahoo_check.py` no total_debt miss for AAPL/MSFT — size: M
 - [ ] P6 — RIO dual listing: market cap counts Rio Tinto plc shares only

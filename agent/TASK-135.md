@@ -1,6 +1,6 @@
 # TASK-135 — acceptance that finishes and never touches the real index
 
-- **Status: READY**
+- **Status: PARTIAL (08.10, coordinator) — A1, A2 (701 s without I5 files), A3 done; I5 nested run on e08ad47 pending verification.**
 - **Report:** `agent/REPORT-135.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Why it is in a frozen-guards queue:** PRODUCT.md allows fixing a
