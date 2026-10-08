@@ -30,6 +30,16 @@ the default run is < 15 min. Do not delete or weaken any assert.
 **Done when:** report lists before/after wall time; default run < 900 s;
 `git diff -- tests/ | grep '^-.*assert'` is empty.
 
+## A3. Firsthour tests are date-bound
+`tests/test_desktop_task96_r4_firsthour.py` — three tests fail on
+`f51c20e` without any coordinator change (08.10): VALUED_NOW 11 ≠ 20,
+`market_cap_total` absent («котировки»), governance insider row gray.
+Likely the fixture prices age past the staleness limit as the calendar
+moves. Pin the clock in the fixture (pass `as_of`/today explicitly) — never
+loosen the assertions.
+**Done when:** the module is green with the system clock set to any date
+in 2026-10…2027-12 (test that monkeypatches today).
+
 ## Do not
 Same list as `agent/TASK-131.md` «Do not». This task may edit tests and
 `pyproject.toml`/`conftest.py` only — not the guard scripts.

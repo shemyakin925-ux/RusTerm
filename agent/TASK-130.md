@@ -1,6 +1,6 @@
 # TASK-130 — С2: fill the control ten to ≥ 90 % (concept-map gaps)
 
-- **Status: READY**
+- **Status: ACCEPTED (08.10) — K1, K2, K2c by the executor; K3, K4, verdict on Disputed by the coordinator. K5 → BACKLOG P4.**
 - **Report:** `agent/REPORT-130.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С2 (fill ≥ 90 %). Queue rules:

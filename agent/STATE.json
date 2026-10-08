@@ -1,13 +1,13 @@
 {
- "task": "agent/TASK-130.md",
- "report": "agent/REPORT-130.md",
+ "task": "agent/TASK-131.md",
+ "report": "agent/REPORT-131.md",
  "item": "PAUSED: K2c content landed in 4efdc3e (accidental); selfcheck manual = 11/2 (2 known I5 infra reds + report-guard on stale HANDOFF text, corrected)",
  "step": "On resume: verify 13/0 (the two I5 reds are the documented infra pair; if hand refuses only on them - TASK-135 A1 first), then K3 (interest_coverage same-span windows), K4 (BAC dps declarations), K5 (share_classes_incomplete), reparse+rebuild+measure, look.py, final REPORT-130, hand.",
- "status": "awaiting_review",
+ "status": "handed",
  "last_commit": "4efdc3e",
  "requests": 0,
  "net_requests": 0,
  "llm_calls": 0,
  "model": "GLM (zai individual coding plan) via ZCode",
- "updated_at": "2026-10-07T14:41:26Z"
+ "updated_at": "2026-10-08T02:52:02Z"
 }

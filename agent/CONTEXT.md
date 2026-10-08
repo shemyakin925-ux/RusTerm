@@ -1,5 +1,19 @@
 # CONTEXT — the project in one file
 
+**08.10.2026 — TASK-130 and TASK-137 ACCEPTED (finished by the coordinator).**
+- Gates met on a copy: fill `tools/card_fill.py` 90 %, Yahoo
+  `tools/yahoo_check.py` 97 %. Concept map **us-gaap.v7** (+
+  InterestExpenseNonoperating, − OtherCostOfOperatingRevenue via
+  `WITHDRAWN_TAGS`; `reparse` clears withdrawn tags).
+- Core rules added 08.10: restated parent income beats as_reported
+  ProfitLoss for the same period; dividends declared as instants summed
+  (`core.ttm.declared_window`); history takes the latest snapshot version
+  per date and the fiscal-year-end snapshot per year; card «сейчас» older
+  than the last annual report is «—».
+- The user's real base needs once: reparse + `history --all --rebuild`
+  (backup in `~/EquityLab/backups/2026-10-07-before-history-rebuild`).
+- Next for the executor: TASK-131 (home table).
+
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
   scenarios С1–С6, control ten, fill ≥ 90 %, Yahoo match ≥ 95 % within 5 %.

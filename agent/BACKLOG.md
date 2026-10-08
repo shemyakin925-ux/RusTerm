@@ -11,6 +11,13 @@ serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
 - [ ] P3 — look.py: count «—» separately from section blanks in
   `report.json` (`dash`, `section_blank`) — accept: test on a fixture
   card — size: S
+- [ ] P4 — DELL market cap before 2022: one share class only? (was
+  TASK-130 K5; text there) — accept: test on a two-class fixture; DELL
+  2020 капитализация within 10 % of the 10-K cover or «—» with
+  `share_classes_incomplete` — size: M
+- [ ] P5 — AAPL/MSFT total_debt 8–13 % below long-term + current debt
+  (was TASK-137 Y2; commercial paper / current portion) — accept:
+  `tools/yahoo_check.py` no total_debt miss for AAPL/MSFT — size: M
 
 Maintained by the coordinator (Claude). The executor pulls items
 top-down **only** when the main `agent/TASK-*.md` queue is empty, and

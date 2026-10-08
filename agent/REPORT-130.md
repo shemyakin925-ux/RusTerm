@@ -101,3 +101,58 @@ local index ONLY» стало ложью в момент, когда 4efdc3e с�
 же хук-коммитом.
 
 NOW: paused; K2c content in 4efdc3e, K3–K5 not started
+
+
+## COORDINATOR — acceptance and completion (08.10.2026)
+
+The executor was paused by the user after K2c; the user said «доделывай
+сам». The coordinator finished the task on branch `agent/night-11`.
+
+- **K3 (interest coverage):** MSFT and AT&T switched to
+  `InterestExpenseNonoperating` (taxonomy 2024) → mapped in us-gaap.v7.
+  AAPL stopped disclosing interest expense after FY2023 — honest «—».
+- **K4 (BAC dividends):** declarations filed as instants →
+  `core.ttm.declared_window` / `declared_by_year`; `_dps_window` takes them
+  when fresher than the duration window. BAC dps 2016–2023 and div_yield
+  2016–2025 filled; a year with fewer declarations than usual is «—».
+- **Your K2 v6 tag `OtherCostOfOperatingRevenue` withdrawn (v7):** it is
+  only part of AT&T cost of revenues (equipment cost is an AT&T extension
+  tag we do not ingest) → gross profit 95 bn instead of ~73 bn (Yahoo
+  check). `WITHDRAWN_TAGS` + `FactRepo.withdraw_canonical`, run by
+  `reparse`. AT&T gross profit is now an honest «—».
+- **Found by the Yahoo check, fixed:** year column = fiscal year (not a
+  mid-year snapshot); NetIncomeLoss from a restated column beats ProfitLoss
+  as_reported (TASK-137 Y1); card statement rows honour tag rank; an old
+  snapshot version on the same date gives no cells; «сейчас» older than
+  the last annual report is «—».
+- **K5:** not done → BACKLOG P4.
+
+**Verdict on Disputed 1:** upheld in part. The denominator stays honest
+(no exclusions); the 80 % per-company gate is waived for AA and ORCL only,
+on the K1 evidence (`tools/card_fill.py` `WAIVED`). Disputed 2 (AA dps not
+mapped): upheld.
+
+**Measured on a copy (reparse + `history --rebuild` on the ten):**
+`tools/card_fill.py` 1467/1629 = **90 %**, exit 0;
+`tools/yahoo_check.py` 184/190 = **97 %** within 5 %, exit 0.
+
+## HANDOFF (FINAL — coordinator, 08.10)
+
+```
+Status:          DONE
+Arrival state:   f51c20e (executor paused after K2c); coordinator selfcheck in own tree
+Items done:      K1, K2, K2c (executor); K3, K4 (coordinator); Y1 of TASK-137 (coordinator)
+Items not done:  K5 -> BACKLOG P4 (DELL share classes); TASK-137 Y2 -> BACKLOG P5
+Acceptance:      known reds only — I5 linked-worktree tests (TASK-135 A1) and the
+                 three firsthour tests that fail on f51c20e as well (date-bound
+                 fixture prices) -> TASK-135 A3
+Tests:           new tests/test_coordinator_0810.py 7/7, test_product_card 11/11
+Guards:          none touched
+Schema:          unchanged (48); concept map us-gaap.v7
+Network:         10 requests to Yahoo (tools/yahoo_check.py, cached)
+Model:           coordinator (Claude), app llm_calls 0
+Secrets:         none
+Pushed:          yes
+Questions for the coordinator:
+1. none
+```
