@@ -34,6 +34,8 @@ import rusterm.cli as cli
 from rusterm.cli import _build_parser
 from rusterm.providers.edgar import EdgarProvider
 from rusterm.providers.twelvedata import TwelveDataProvider
+from rusterm.store.paths import AppPaths
+from rusterm.store.repos import RepoRegistry
 from tests.edgar_fixtures import ownership_body
 
 REPO = Path(__file__).resolve().parents[1]
@@ -324,16 +326,23 @@ def test_follow_finishes_the_path_and_builds_the_snapshot(tmp_path,
     assert "совет:" not in captured.out + captured.err, \
         "совет-повтор обещает то, что не может сработать"
 
+    # ТЗ-139 B1: снапшот здесь берёт та же дверь, что `rusterm export`
+    # (`latest_snapshot_id`: version DESC среди status='ready'). Прежний
+    # `ORDER BY snapshot_id DESC` сортировал случайные UUID: follow
+    # оставляет после себя годовые снапшоты истории, и «последним»
+    # оказывался случайный год — в базе упавшего прогона максимум по UUID
+    # держал снапшот 2018-09-29 с нулём мер со значением, когда настоящий
+    # текущий (2026-10-08, версия 11) сортировался иначе. Лотерея 1/11
+    # красила приёмку трижды за ночь 08.10.
+    paths = AppPaths.from_root(root)
     db = sqlite3.connect(f"file:{Path(root) / 'rusterm.db'}?mode=ro",
                          uri=True)
     try:
-        sid = db.execute(
-            "SELECT snapshot_id FROM snapshot WHERE instrument_id='US-AAPL' "
-            "ORDER BY snapshot_id DESC LIMIT 1").fetchone()
+        sid = RepoRegistry(db, paths).snapshot.latest_snapshot_id("US-AAPL")
         assert sid, "снапшота нет"
         valued = db.execute(
             "SELECT COUNT(*) FROM measure WHERE snapshot_id=? AND "
-            "value IS NOT NULL", (sid[0],)).fetchone()[0]
+            "value IS NOT NULL", (sid,)).fetchone()[0]
     finally:
         db.close()
     assert valued > 0, "снапшот пуст: ни одной меры со значением"

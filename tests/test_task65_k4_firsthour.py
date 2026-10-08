@@ -83,6 +83,13 @@ def test_first_hour_scenario(tmp_path, capsys):
            "RUSTERM_ENV_FILE": "/nonexistent/rusterm.env-for-tests",
            "QT_QPA_PLATFORM": "offscreen",
            "RUSTERM_APP_SMOKE": "1",
+           # ТЗ-139 B1: без этого ключа смоук-окно запускает проход
+           # обновления (ТЗ-133 R1), а YahooProvider подменой sitecustomize
+           # не накрыт — подпроцесс уходил в живой Yahoo вопреки
+           # «без сети» из докстринга; при медленном ответе воркер
+           # переживал закрытие окна, и returncode/`окно < 60` краснели
+           # случайно (красный пункта 11 у координатора 08.10).
+           "RUSTERM_NO_AUTO_REFRESH": "1",
            "PYTHONPATH": os.pathsep.join([str(stub), str(REPO),
                                           os.environ.get("PYTHONPATH", "")])}
 
