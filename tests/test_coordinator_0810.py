@@ -364,3 +364,38 @@ def test_statement_row_keeps_the_home_currency_of_the_filer(tmp_path):
     series = card.statement_series(repos, "i-F", "revenue", "flow")
     assert series["2024"][:2] == (869.0, "MXN")
     assert {s[1] for s in series.values()} == {"MXN"}
+
+
+# ── ТЗ-134 W5: подсказка-команда становится кнопкой ─────────────────────
+
+def test_split_hint_moves_window_command_to_argv():
+    from rusterm.desktop import actions, data
+    words, argv = actions.split_hint(
+        data.NO_HISTORY_HINT.format(instrument_id="US-X"))
+    assert argv == ["snapshot", "--instrument", "US-X"]
+    assert "rusterm" not in words and words.startswith("истории мер нет")
+    assert actions.button_title(argv) == "Посчитать ряд"
+
+
+def test_split_hint_keeps_text_of_commands_window_does_not_run():
+    from rusterm.desktop import actions
+    text = "что делать: владение — rusterm ingest --source ownership"
+    assert actions.split_hint(text) == (text, None)
+    assert actions.split_hint(None) == ("", None)
+
+
+def test_split_hint_approve_has_own_title():
+    from rusterm.desktop import actions
+    _, argv = actions.split_hint(
+        "x\nчто делать: подтвердите — rusterm peers set ps1 --tickers A "
+        "--market US --origin manual --approve")
+    assert argv[:3] == ["peers", "set", "ps1"]
+    assert actions.button_title(argv) == "Подтвердить группу аналогов"
+
+
+def test_run_core_command_refuses_commands_outside_window(tmp_path):
+    from rusterm.desktop import actions
+    out = actions.run_core_command(tmp_path, ["ingest", "--source", "edgar"])
+    assert not out.ok and out.reason == "not_a_window_command"
+    out = actions.run_core_command(tmp_path, ["peers", "--no-such-flag"])
+    assert not out.ok and out.reason == "bad_arguments"

@@ -313,6 +313,10 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     source_panel = QLabel(objectName="source_panel")
     source_panel.setWordWrap(True)
     center_layout.addWidget(source_panel)
+    # ТЗ-134 W5: команда подсказки — кнопкой, а не строкой для терминала
+    company_hint_button = QPushButton(objectName="company_hint_button")
+    company_hint_button.setVisible(False)
+    center_layout.addWidget(company_hint_button)
     stale_button = QPushButton(objectName="stale_button")
     stale_button.setText("показать устаревшие входы")
     stale_button.setVisible(False)
@@ -332,6 +336,13 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     peers_summary = QLabel(objectName="peers_summary")
     peers_summary.setWordWrap(True)
     outer_industry.addWidget(peers_summary)
+    peer_hint_label = QLabel(objectName="peer_hint_label")
+    peer_hint_label.setWordWrap(True)
+    peer_hint_label.setVisible(False)
+    outer_industry.addWidget(peer_hint_label)
+    peer_hint_button = QPushButton(objectName="peer_hint_button")
+    peer_hint_button.setVisible(False)
+    outer_industry.addWidget(peer_hint_button)
     peers_table = QTableWidget(objectName="peers_table")
     peers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     peers_table.setSelectionBehavior(
@@ -810,7 +821,10 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         # «посчитать ряд одним действием», а не стена пустых колонок;
         # ТЗ-72 S5: тонкий источник — слова вместо стены прочерков;
         # ТЗ-81 B2: колонок меньше запрошенных — словами почему
-        source_panel.setText(info.get("suggestion")
+        suggestion, suggestion_argv = desktop_actions.split_hint(
+            info.get("suggestion"))
+        _show_hint_button(company_hint_button, suggestion_argv)
+        source_panel.setText(suggestion
                              or " · ".join(x for x in
                                            (state["card_view"]["hidden_note"],
                                             "клик по числу — откуда оно")
@@ -826,6 +840,29 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         for button in (export_csv_button, export_md_button,
                        save_png_button):
             button.setEnabled(True)
+
+    def on_hint_button(button) -> None:
+        """ТЗ-134 W5: кнопка подсказки выполняет ту же команду ядра, что
+        называла строка (`desktop_actions.run_core_command`), затем
+        перечитывает компанию. Состав группы аналогов спрашивается
+        диалогом: имя сектора базе неизвестно (PEER_SET_SECTOR_SLOT)."""
+        argv = list(button.property("rusterm_argv") or [])
+        if not argv:
+            return
+        if argv[:2] == ["peers", "set"] and "--approve" not in argv:
+            argv = _ask_peer_group(window, argv)
+            if argv is None:
+                return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            outcome = desktop_actions.run_core_command(paths.root, argv)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not outcome.ok:
+            QMessageBox.warning(window, button.text(),
+                                outcome.detail or outcome.reason or "")
+        if state["selected"] is not None:
+            load_company(state["selected"])
 
     def apply_chart() -> None:
         if state["table"] is None:
@@ -863,8 +900,14 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         # ТЗ-97 Q1 (ТЗ-73 T1, P8): пустая вкладка не молчит — рядом с
         # причиной лежит целая команда, которой она наполняется (слова
         # считает слой данных, окно только рисует).
-        hint = (peer.get("hint") or "") if peer else ""
-        tail = ("\n" + hint) if hint else ""
+        # ТЗ-134 W5: команда подсказки уходит на кнопку над таблицей
+        # (свёрнутый «Подробно» её прятал), в строке — только слова
+        hint_words, hint_argv = desktop_actions.split_hint(
+            (peer.get("hint") or "") if peer else "")
+        _show_hint_button(peer_hint_button, hint_argv)
+        peer_hint_label.setText(hint_words if hint_argv else "")
+        peer_hint_label.setVisible(bool(hint_argv))
+        tail = ("\n" + hint_words) if hint_words else ""
         if peer is None or not peer["has_peer_set"]:
             peer_line.setText((peer["message"] if peer else
                                "у компании нет peer set") + tail)
@@ -1349,6 +1392,10 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     show_empty_box.toggled.connect(
         lambda _on: state["selected"] and load_company(state["selected"]))
     open_raw_button.clicked.connect(on_open_raw)
+    company_hint_button.clicked.connect(
+        lambda: on_hint_button(company_hint_button))
+    peer_hint_button.clicked.connect(
+        lambda: on_hint_button(peer_hint_button))
     question_line.returnPressed.connect(on_ask)
     chat_sessions_box.currentIndexChanged.connect(on_session_open)
     collect_button.clicked.connect(on_collect)
@@ -1432,6 +1479,39 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     window.refresh_tick = start_refresh_pass
     window.refresh_timer = refresh_timer
     return window
+
+
+def _show_hint_button(button, argv) -> None:
+    """ТЗ-134 W5: argv подсказки — свойство кнопки `rusterm_argv` (его
+    же читает страж ТЗ-97 Q1); нет argv — кнопки нет."""
+    button.setProperty("rusterm_argv", argv or [])
+    button.setVisible(bool(argv))
+    if argv:
+        button.setText(desktop_actions.button_title(argv))
+
+
+def _ask_peer_group(parent, argv: list[str]) -> list[str] | None:
+    """Имя группы и тикеры — диалогом, заготовка из подсказки; отказ
+    в любом из двух — None, ничего не запускается."""
+    name, ok = QInputDialog.getText(
+        parent, "Группа аналогов", "Название группы (например, banks):",
+        text="" if argv[2] == data.PEER_SET_SECTOR_SLOT else argv[2])
+    name = name.strip().replace(" ", "-")
+    if not ok or not name:
+        return None
+    at = argv.index("--tickers") + 1 if "--tickers" in argv else None
+    tickers, ok = QInputDialog.getText(
+        parent, "Группа аналогов", "Тикеры через запятую:",
+        text=argv[at] if at else "")
+    tickers = tickers.replace(" ", "").strip(",")
+    if not ok or not tickers:
+        return None
+    out = argv[:2] + [name] + argv[3:]
+    if at:
+        out[at] = tickers
+    else:
+        out += ["--tickers", tickers]
+    return out
 
 
 def _repaint_peers(table, summary, chart, repos, state) -> None:

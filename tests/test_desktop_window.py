@@ -172,7 +172,12 @@ def test_company_without_snapshot_is_offered_one_action_series(qapp, env):
     assert table.columnCount() == 1, "пустые годовые колонки запрещены"
     assert table.horizontalHeaderItem(0).text() == "сейчас"
     panel = _widget(window, QLabel, "source_panel")
-    assert "rusterm snapshot --instrument US-BBB" in panel.text()
+    # ТЗ-134 W5: команда — на кнопке, в надписи только слова
+    button = _widget(window, QPushButton, "company_hint_button")
+    assert button.property("rusterm_argv") == [
+        "snapshot", "--instrument", "US-BBB"]
+    assert not button.isHidden() and button.text() == "Посчитать ряд"
+    assert "rusterm" not in panel.text() and "истории мер нет" in panel.text()
 
 
 def test_watchlist_label_agrees_with_box(qapp, env):

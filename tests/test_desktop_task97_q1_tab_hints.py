@@ -184,6 +184,11 @@ def _tab_texts(page: QWidget) -> list[str]:
     позиции списков, подписи кнопок."""
     texts = [w.text() for w in page.findChildren(QLabel)]
     texts += [w.text() for w in page.findChildren(QPushButton)]
+    # ТЗ-134 W5: кнопка-подсказка несёт команду свойством `rusterm_argv`;
+    # она идёт в разбор парсером CLI тем же путём, что строка «rusterm …»
+    texts += ["rusterm " + shlex.join(w.property("rusterm_argv"))
+              for w in page.findChildren(QPushButton)
+              if w.property("rusterm_argv")]
     for table in page.findChildren(QTableWidget):
         texts += _table_cells(table)
     for box in page.findChildren(QComboBox):

@@ -383,6 +383,83 @@ def upgrade_stale_base(root) -> CollectOutcome:
         conn.close()
 
 
+# ── ТЗ-134 W5: подсказка-команда становится кнопкой ─────────────────────
+
+# Команды, которые окно запускает по кнопке-подсказке: без сети или с
+# явным согласием пользователя в диалоге; остальное — не из окна
+WINDOW_COMMANDS = frozenset({"snapshot", "history", "peers"})
+
+# подпись кнопки по команде подсказки; команда без подписи кнопкой не
+# становится — её строка остаётся в окне как была
+BUTTON_TITLES = {
+    "snapshot": "Посчитать ряд",
+    "history": "Собрать историю по годам",
+    "peers": "Создать группу аналогов…",
+}
+
+
+def split_hint(text: str | None) -> tuple[str, list[str] | None]:
+    """Подсказка слоя данных → (слова для надписи, argv для кнопки).
+    Строка «rusterm …» уходит из надписи на кнопку, если окно эту
+    команду запускает; иначе текст возвращается нетронутым."""
+    import shlex
+    if not text or "rusterm " not in text:
+        return text or "", None
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        at = line.find("rusterm ")
+        if at < 0:
+            continue
+        try:
+            argv = shlex.split(line[at:])[1:]
+        except ValueError:
+            return text, None
+        if not argv or argv[0] not in WINDOW_COMMANDS:
+            return text, None
+        head = line[:at].rstrip(" —:-").rstrip()
+        lines[i] = head
+        words = "\n".join(x for x in lines if x.strip())
+        return words, argv
+    return text, None
+
+
+def button_title(argv: list[str]) -> str:
+    """Подпись кнопки: подтверждение набора — своё слово."""
+    if argv[:2] == ["peers", "set"] and "--approve" in argv:
+        return "Подтвердить группу аналогов"
+    return BUTTON_TITLES[argv[0]]
+
+
+def run_core_command(root, argv: list[str]) -> CollectOutcome:
+    """Выполнить команду ядра, названную подсказкой окна, той же дверью,
+    что терминал (`rusterm.cli.main`, ADR-0027): argv разбирает настоящий
+    парсер, тело в окно не переезжает. Вывод команды — в detail итога;
+    трассировка окну не ответ."""
+    import contextlib
+    import io
+    from rusterm import cli
+
+    if not argv or argv[0] not in WINDOW_COMMANDS:
+        return CollectOutcome(ok=False, reason="not_a_window_command",
+                              detail=f"окно не запускает {argv[:1]}")
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            rc = cli.main(["--root", str(root), *argv])
+    except SystemExit as exc:      # парсер отказал: аргументы не те
+        return CollectOutcome(ok=False, reason="bad_arguments",
+                              detail=out.getvalue().strip()
+                              or f"код {exc.code}")
+    except Exception as e:  # трассировка — не ответ окна
+        return CollectOutcome(ok=False, reason=f"unexpected_error:{e}",
+                              detail="команда прервана; база осталась "
+                                     "целой")
+    lines = [line for line in out.getvalue().splitlines() if line.strip()]
+    return CollectOutcome(ok=rc == 0,
+                          reason=None if rc == 0 else "command_failed",
+                          detail=lines[-1] if lines else f"код {rc}")
+
+
 # ── ТЗ-110 B2: фоновый проход окна — та же команда, что у cron ──────────
 
 def refresh_pass(root, cancel: Optional[CancelFlag] = None,
