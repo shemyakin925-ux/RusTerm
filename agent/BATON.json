@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 155,
+ "holder": "coordinator",
+ "round": 156,
  "branch": "agent/night-11",
  "task": "agent/TASK-139.md",
  "report": "agent/REPORT-139.md",
- "note": "TASK-134 done by the coordinator (W5 7166518), BACKLOG P2/P3/P6 done (c899dc9). Acceptance 12/1 (item 11, firsthour without zstandard) = TASK-139 B1. NEXT: git pull --rebase; TASK-139, then TASK-140.",
- "handed_by": "coordinator",
- "handed_at": "2026-10-08T14:28:06Z",
+ "note": "B1 root-caused and fixed (snapshot-UUID lottery in Q12 test + live Yahoo in firsthour smoke window); verify 13/0. B2 five tickers via follow_instrument 2.4-14.1s, fill 97/98/0/70/100, Yahoo 90-100, dps successor tag fixed + tests, gaps named. B3 start median 1.2s. 6 questions in report.",
+ "handed_by": "executor",
+ "handed_at": "2026-10-08T20:49:29Z",
  "paused": false,
  "finished": false
 }
