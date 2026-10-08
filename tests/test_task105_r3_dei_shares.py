@@ -123,9 +123,14 @@ def test_governance_insider_net_still_names_the_missing_denominator(
     серым и указывает на тот же знаменатель."""
     root = tmp_path / "app"
     assert _run(root, ticker="AAPL") == 0
+    # ТЗ-133 R3: follow теперь собирает и годовые снапшоты — у каждого
+    # своя датированная оценка; проверяется текущая (последняя дата)
     rows = _rows(root, "SELECT color, reason FROM governance_assessment "
                        "WHERE indicator='insider_net' AND "
-                       "instrument_id='US-AAPL'")
+                       "instrument_id='US-AAPL' AND as_of=(SELECT "
+                       "MAX(as_of) FROM governance_assessment WHERE "
+                       "indicator='insider_net' AND "
+                       "instrument_id='US-AAPL')")
     assert len(rows) == 1, rows
     color, reason = rows[0]
     assert color == "gray", rows

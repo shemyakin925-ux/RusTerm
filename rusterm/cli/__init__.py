@@ -2265,6 +2265,8 @@ def cmd_follow(args, emit=None, cancel=None) -> int:
             if any(row["status"] == "missing" and row["reason"]
                    for row in rows.values()):
                 out(f"{instrument_id}: повтор: {name.split(' ', 1)[1]}")
+        if name.startswith("6/"):
+            _follow_history(args.root, instrument_id, out)
         before = _requests_used(args.root)
         child = parser.parse_args(["--root", str(args.root), *argv])
         if emit is None:
@@ -2305,24 +2307,6 @@ def cmd_follow(args, emit=None, cancel=None) -> int:
             out(f"совет: rusterm {' '.join(argv)}", err=True)
             return rc
 
-    # ТЗ-133 R3 (PRODUCT.md С5): у только что добавленной компании сразу
-    # карточка за 10 лет — годовые снапшоты из уже скачанных фактов, без
-    # сети; ошибка истории путь не роняет (снапшот «сейчас» уже есть)
-    try:
-        from rusterm.core.history import build_history
-        h_paths, h_conn = _open(args.root)
-        try:
-            h_repos = RepoRegistry(h_conn, h_paths)
-            instrument = h_repos.instrument.get_instrument(instrument_id)
-            if instrument is not None:
-                built = build_history(h_repos, instrument_id,
-                                      instrument.issuer_id)
-                out(f"{instrument_id}: история по годам — лет собрано: "
-                    f"{len(built.built)} (запросов 0)")
-        finally:
-            h_conn.close()
-    except Exception as e:  # история — довесок, не стадия пути
-        out(f"{instrument_id}: история по годам не собрана: {e}")
     out(f"{instrument_id}: путь пройден; всего запросов: {spent_total}")
     # ТЗ-97 Q2: governance больше не целиком вне пути — формы 3/4/5 на
     # стадии 4/6 кормят `insider_net`. Остальные четыре показателя живут
@@ -2332,6 +2316,30 @@ def cmd_follow(args, emit=None, cancel=None) -> int:
         f"на 4/6, остальные четыре показателя закрывает ручной импорт "
         f"прокси: rusterm import <файл> --issuer {instrument_id}")
     return 0
+
+
+def _follow_history(root, instrument_id: str, out) -> None:
+    """ТЗ-133 R3 (PRODUCT.md С5): у только что добавленной компании сразу
+    карточка за 10 лет — годовые снапшоты из уже скачанных фактов, без
+    сети, ДО стадии «снапшот»: текущий снапшот строится последним и
+    остаётся свежим, второго на ту же дату нет. Ошибка истории путь не
+    роняет — это довесок, не стадия."""
+    try:
+        from rusterm.core.history import build_history
+        h_paths, h_conn = _open(root)
+        try:
+            h_repos = RepoRegistry(h_conn, h_paths)
+            instrument = h_repos.instrument.get_instrument(instrument_id)
+            if instrument is not None:
+                built = build_history(h_repos, instrument_id,
+                                      instrument.issuer_id,
+                                      rebuild_current=False)
+                out(f"{instrument_id}: история по годам — лет собрано: "
+                    f"{len(built.built)} (запросов 0)")
+        finally:
+            h_conn.close()
+    except Exception as e:  # история — довесок, не стадия пути
+        out(f"{instrument_id}: история по годам не собрана: {e}")
 
 
 def cmd_doctor(args) -> int:

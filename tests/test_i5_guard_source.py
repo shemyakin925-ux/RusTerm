@@ -152,6 +152,9 @@ def _editmsg_read():
         ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
         cwd=ROOT, capture_output=True, text=True,
         check=True, env=_hermetic_env()).stdout.strip())
+    # ТЗ-135 A1: путь от git относителен к ROOT, а не к текущей папке
+    # процесса — в подключённом дереве `.git` там файл (NotADirectoryError)
+    path = path if path.is_absolute() else (ROOT / path)
     saved = path.read_text(encoding="utf-8") if path.exists() else None
     return path, saved
 

@@ -33,7 +33,8 @@ class HistoryResult:
 def build_history(repos, instrument_id: str, issuer_id: str,
                   years: int = DEFAULT_YEARS,
                   today: Optional[str] = None,
-                  rebuild: bool = False) -> HistoryResult:
+                  rebuild: bool = False,
+                  rebuild_current: bool = True) -> HistoryResult:
     from rusterm.core.snapshot import make_snapshot_builder
 
     today = today or _dt.date.today().isoformat()
@@ -52,7 +53,10 @@ def build_history(repos, instrument_id: str, issuer_id: str,
         make_snapshot_builder(repos, end).build(instrument_id, issuer_id,
                                                 end)
         result.built.append(end)
-    if result.built:
+    # rebuild_current=False — вызывающий сам строит текущий снапшот следом
+    # (follow: стадия «снапшот» идёт после истории, иначе два снапшота
+    # на одну дату и две датированные оценки governance)
+    if result.built and rebuild_current:
         make_snapshot_builder(repos, today).build(instrument_id, issuer_id,
                                                   today)
         result.current_rebuilt = True
