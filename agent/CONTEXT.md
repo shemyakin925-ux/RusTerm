@@ -54,7 +54,10 @@
   «cover counts one entity of a dual listing». Only RIO hits it on the
   real base. RIO 154 bn vs Yahoo 157 bn on a copy (after `ads-ratio`).
 - BACKLOG P2 (EPS/DPS show currency) and P3 (look.py `dash` / `section_blank`) done. BACKLOG P-list empty.
-- Next: TASK-136 (Excel, user to confirm).
+- Acceptance on c899dc9: 12/1 — item 11 (suite without zstandard) red on
+  test_task65_k4_firsthour, green alone → TASK-139 B1.
+- Next for the executor: TASK-139 (acceptance, С5 new tickers, С1 start
+  time), TASK-140 (С3 source of every cell). TASK-136 (Excel) waits for the user.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
