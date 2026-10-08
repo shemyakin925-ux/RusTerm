@@ -18,12 +18,14 @@ Partial, by the coordinator on 08.10.2026 (user: «продолжай ты»).
 ## Disputed
 ## Runs
 - desktop suite green except the known firsthour trio (TASK-135 A3).
+- W5 (08.10 evening, `7166518`): desktop suite fully green; q1 guard green
+  reading `rusterm_argv` of the buttons; look.py 38 papers: no «rusterm ».
 ## HANDOFF
 
 ```
-Status:          PARTIAL
-Items done:      W1, W2, W3, W4
-Items not done:  W5 (hints -> buttons, with the q1 guard) — for the executor
+Status:          DONE
+Items done:      W1, W2, W3, W4, W5
+Items not done:  none
 Acceptance:      known reds only (I5 linked-worktree, firsthour date-bound)
 Tests:           desktop suite green except firsthour trio
 Guards:          none touched

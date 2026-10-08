@@ -266,10 +266,14 @@ def statement_now(repos, issuer_id: str, concept: str,
         return None
 
 
-def format_number(value: float, concept: str, unit: Optional[str]) -> str:
+def format_number(value: float, concept: str, unit: Optional[str],
+                  home: Optional[str] = None) -> str:
     """Число карточки: деньги на акцию — 2 знака с валютой, прочее —
-    общим правилом окна."""
+    общим правилом окна. BACKLOG P2: факт «на акцию» подан единицей
+    «USD/shares» без валюты — тогда валюта основная валюта подачи
+    эмитента (`home`)."""
     if concept in PER_SHARE:
+        unit = (unit or "").split("/", 1)[0] or home
         suffix = f" {unit}" if unit else ""
         return f"{data._group(value, 2)}{suffix}"
     return data.format_value(value, concept, unit)
@@ -367,6 +371,8 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
     # долларами)
     from rusterm.tui import model as tui_model
     year_units = tui_model.measure_history_units(repos, info["instrument_id"])
+    home = (repos.snapshot.dominant_filing_currency(issuer_id)
+            if issuer_id else None)
     facts: dict[str, dict] = {}
     if issuer_id:
         for _title, items in SECTIONS:
@@ -454,7 +460,7 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                 why = implausible(concept, value,
                                   equity=year_value("total_equity", year),
                                   ebitda=year_value("ebitda", year))
-                text = format_number(value, concept, unit)
+                text = format_number(value, concept, unit, home)
                 if why:
                     cells.append(_cell(DASH, f"{why} (расчёт: {text})"))
                     continue
@@ -472,7 +478,8 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                 if now_fact is not None:
                     value_now, currency_now, tip_now = now_fact
                     cells.append(_cell(
-                        format_number(value_now, concept, currency_now),
+                        format_number(value_now, concept, currency_now,
+                                      home),
                         f"{hint}; {tip_now}", value_now))
                     section_rows.append({
                         "kind": "fact", "concept": concept,
@@ -487,7 +494,7 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                                           "строка отчёта — по годам")))
             else:
                 text = format_number(current, concept,
-                                     measure_row.get("unit"))
+                                     measure_row.get("unit"), home)
                 why = implausible(
                     concept, current,
                     equity=year_value("total_equity", columns[-1])

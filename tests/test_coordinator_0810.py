@@ -399,3 +399,65 @@ def test_run_core_command_refuses_commands_outside_window(tmp_path):
     assert not out.ok and out.reason == "not_a_window_command"
     out = actions.run_core_command(tmp_path, ["peers", "--no-such-flag"])
     assert not out.ok and out.reason == "bad_arguments"
+
+
+# ── BACKLOG P6: двойной листинг (RIO: plc + Ltd) ─────────────────────────
+
+def _cover_and_diluted(repos, sha, cover, diluted, diluted_end="2025-12-31"):
+    _fact(repos, sha, "rev", "Revenues", "revenue", "2025-01-01",
+          "2025-12-31", 100)
+    repos.fact.insert_fact(
+        "dei", "i-F", None, "dei:EntityCommonStockSharesOutstanding",
+        "2025-12-31", "2025-12-31", "instant", str(cover), "shares", None,
+        "as_reported", "extracted", sha, {"endpoint": "companyfacts"},
+        "t", canonical_concept="shares_outstanding")
+    repos.fact.insert_fact(
+        "dil", "i-F", None,
+        "us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding",
+        "2025-01-01", diluted_end, "duration", str(diluted), "shares", None,
+        "as_reported", "extracted", sha, {"endpoint": "companyfacts"},
+        "t", canonical_concept="shares_diluted")
+    repos.price.put_rows("US-F", "yahoo", [
+        {"date": "2026-02-27", "close": 10.0, "adjusted": 10.0,
+         "currency": "USD", "volume": 1}])
+    make_snapshot_builder(repos, "2026-03-02").build("US-F", "i-F",
+                                                     "2026-03-02")
+    sid = repos.snapshot.latest_snapshot_id("US-F")
+    return next(m for m in repos.snapshot.get_measures(sid)
+                if m[3] == "market_cap")
+
+
+def test_dual_listing_cover_gives_way_to_group_diluted_count(tmp_path):
+    """RIO: обложка 1 256 млн (plc), EPS посчитан на 1 638 млн (группа)
+    — капитализация берёт группу, lineage называет подмену."""
+    repos, sha = _repos(tmp_path)
+    cap = _cover_and_diluted(repos, sha, 1256, 1638)
+    assert float(cap[4]) == pytest.approx(16380.0)
+    assert repos.snapshot.lineage_fact_ids(cap[0]) == ["dil"]
+
+
+def test_buyback_sized_gap_keeps_the_cover_count(tmp_path):
+    """Разница меньше 20 % — обычный выкуп за год, обложка остаётся."""
+    repos, sha = _repos(tmp_path)
+    cap = _cover_and_diluted(repos, sha, 1000, 1150)
+    assert float(cap[4]) == pytest.approx(10000.0)
+    assert repos.snapshot.lineage_fact_ids(cap[0]) == ["dei"]
+
+
+def test_dual_listing_rule_needs_the_same_period(tmp_path):
+    """Разводнённое число другого года (дальше 120 дней) обложку не
+    подменяет: разрыв мог дать выпуск акций, а не второй листинг."""
+    repos, sha = _repos(tmp_path)
+    cap = _cover_and_diluted(repos, sha, 1000, 1638,
+                             diluted_end="2025-06-30")
+    assert float(cap[4]) == pytest.approx(10000.0)
+
+
+# ── BACKLOG P2: деньги на акцию — с валютой ──────────────────────────────
+
+def test_per_share_number_carries_currency():
+    from rusterm.desktop.card import format_number
+    assert format_number(8.68, "eps_diluted", None, "USD") == "8,68 USD"
+    assert format_number(8.68, "eps_diluted", "USD/shares") == "8,68 USD"
+    assert format_number(2.1, "dps", "MXN", "USD") == "2,10 MXN"
+    assert format_number(2.1, "dps", None) == "2,10"

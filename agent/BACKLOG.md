@@ -6,9 +6,9 @@ serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
 - [x] P1 — DONE 08.10 by the coordinator (38b9b23). card: «сейчас» column for statement rows shows TTM from the
   existing core TTM door (`rusterm/core/ttm.py`), not «—» — accept:
   test on a fixture with 4 quarters; look.py DELL «Выручка» сейчас ≠ «—» — size: M
-- [ ] P2 — card: EPS / dividend per share carry the currency
+- [x] P2 — DONE 08.10 by the coordinator: per-share facts filed as «USD/shares» get the issuer's main filing currency (DELL «8,68 USD»). card: EPS / dividend per share carry the currency
   («8,68 USD») — accept: test; look.py DELL — size: S
-- [ ] P3 — look.py: count «—» separately from section blanks in
+- [x] P3 — DONE 08.10 by the coordinator: look.py prints «— N | section M» per table, report.json has `dash` and `section_blank`. look.py: count «—» separately from section blanks in
   `report.json` (`dash`, `section_blank`) — accept: test on a fixture
   card — size: S
 - [x] P4 — DONE 08.10 by the coordinator: price × split factors after the date (core.prices.split_factor_after), Yahoo row preferred; AAPL 2019 cap 972 bn (was ~243), DELL 2020 36 bn (was 18). historical market cap uses dividend/spin-off-ADJUSTED closes
@@ -24,7 +24,7 @@ serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
 - [x] P5 — DONE 08.10 by the coordinator (e08ad47, core/debt.py). AAPL/MSFT total_debt 8–13 % below long-term + current debt
   (was TASK-137 Y2; commercial paper / current portion) — accept:
   `tools/yahoo_check.py` no total_debt miss for AAPL/MSFT — size: M
-- [ ] P6 — RIO dual listing: market cap counts Rio Tinto plc shares only
+- [x] P6 — DONE 08.10 by the coordinator: fresh diluted count of the same period > cover × 1.2 replaces the cover (RIO 154 bn vs Yahoo 157 bn on a copy). RIO dual listing: market cap counts Rio Tinto plc shares only
   (ADS = 1 plc share); the group cap needs plc + Ltd shares or «—» with a
   reason (was TASK-138 A3) — accept: `yahoo_check --all` RIO within 15 %
   or «—» with the reason — size: M

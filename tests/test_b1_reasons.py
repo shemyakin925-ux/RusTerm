@@ -145,6 +145,10 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     # ТЗ-111 U3: кнопка «Обновить базу» — свои отказы окна
     "no_base": "desktop upgrade refusal (desktop/actions.py)",
     "backup_failed": "desktop upgrade refusal (desktop/actions.py)",
+    # ТЗ-134 W5: кнопка-подсказка = команда ядра через cli.main
+    "not_a_window_command": "desktop hint-button refusal (desktop/actions.py)",
+    "bad_arguments": "desktop hint-button refusal (desktop/actions.py)",
+    "command_failed": "desktop hint-button refusal (desktop/actions.py)",
     # расширенная перепись (сканер возвратов-пар и f-строк)
     "asx_bad_url": "provider channel refusal (providers/asx.py)",
     "dart_bad_url": "provider channel refusal (providers/dart.py)",

@@ -63,8 +63,13 @@ def dump_tables(win):
                          for c in range(t.columnCount())])
         cells = [c for row in rows for c in row[1:]]
         empty = sum(1 for c in cells if c in ("", data.NO_DATA))
+        # BACKLOG P3: «—» (честный отказ клетки) отдельно от пустых клеток
+        # строк-разделов (вся строка пуста — это заголовок раздела)
+        section = [row for row in rows if not any(c.strip() for c in row)]
+        dash = sum(1 for row in rows for c in row if c == "—")
         out.append({"header": head, "rows": rows, "cells": len(cells),
-                    "empty_or_no_data": empty})
+                    "empty_or_no_data": empty, "dash": dash,
+                    "section_blank": sum(len(row) for row in section)})
     return out
 
 
@@ -165,7 +170,8 @@ def main():
             for tb in t["tables"]:
                 print(f"{c['item'][:30]:30} | {t['tab']:10} | rows "
                       f"{len(tb['rows'])} | empty {tb['empty_or_no_data']}/"
-                      f"{tb['cells']}")
+                      f"{tb['cells']} | — {tb['dash']}"
+                      f" | section {tb['section_blank']}")
     if QT_LOG:
         print("qt log:", *QT_LOG[-10:], sep="\n  ")
     return 0

@@ -142,6 +142,22 @@ _DPS_ANNUAL_STALE_DAYS = 550
 # «цена × 14-летнее число акций хуже честного отказа»).
 _SHARES_FRESH_DAYS = _DPS_ANNUAL_STALE_DAYS
 
+# BACKLOG P6 (08.10): обложка 20-F двойного листинга (RIO: plc + Ltd)
+# называет акции одной компании группы, а EPS в отчёте посчитан на акции
+# обеих. Разводнённое число того же периода больше обложки на столько —
+# обложка неполна; обратный выкуп за год такого разрыва не даёт
+_DUAL_LISTING_GAP = 1.2
+# «тот же период»: конец окна разводнённого числа не дальше от даты обложки
+_DUAL_LISTING_SAME_PERIOD_DAYS = 120
+
+
+def _days_apart(a: str, b: str) -> int:
+    """Дней между двумя датами ISO; неразборчивая дата — бесконечно далеко."""
+    try:
+        return (date.fromisoformat(a[:10]) - date.fromisoformat(b[:10])).days
+    except (TypeError, ValueError):
+        return 10 ** 6
+
 
 def _share_count_refusal(period_end: Optional[str],
                          as_of: Optional[str]) -> Optional[str]:
@@ -2340,6 +2356,16 @@ class SnapshotBuilder:
                 shares_fallback_role = (
                     "input: shares_diluted (weighted average) — cover "
                     "share count stale or missing")
+        elif (diluted := self._fresh_diluted_shares(issuer_id, as_of)) \
+                and diluted[0] > shares[0] * _DUAL_LISTING_GAP \
+                and abs(_days_apart(diluted[1], shares[1])) \
+                <= _DUAL_LISTING_SAME_PERIOD_DAYS:
+            # BACKLOG P6: обложка считает одну компанию двойного листинга
+            # (RIO: 1,256 млрд акций plc против 1,638 млрд группы в EPS)
+            shares = diluted
+            shares_fallback_role = (
+                "input: shares_diluted (weighted average) — cover counts "
+                "one entity of a dual listing")
         shares_cur = shares[2] if shares else None
         mcap_value = None
         mcap_reason = None

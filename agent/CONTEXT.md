@@ -48,7 +48,13 @@
   TASK-97 Q1 guard parses with the CLI parser. Hidden «Качество» keeps
   its text hint (frozen surface). look.py over 38 papers: no «rusterm »
   in visible labels.
-- Next: TASK-136 (Excel, user to confirm), BACKLOG P6 (RIO).
+- BACKLOG P6 done: the 20-F cover of a dual listing counts one entity
+  (RIO plc 1 256 m vs group 1 638 m in EPS); a fresh diluted count of the
+  same period (±120 days) above cover × 1.2 replaces it, lineage role
+  «cover counts one entity of a dual listing». Only RIO hits it on the
+  real base. RIO 154 bn vs Yahoo 157 bn on a copy (after `ads-ratio`).
+- BACKLOG P2 (EPS/DPS show currency) and P3 (look.py `dash` / `section_blank`) done. BACKLOG P-list empty.
+- Next: TASK-136 (Excel, user to confirm).
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
