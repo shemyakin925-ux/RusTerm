@@ -155,3 +155,49 @@ NOW: B1, step 6
   (the window scenario); a cold first add pays the imports.
 - PFE/XOM verdicts rest on today's EDGAR feed and XBRL contents; the
   feed can change under them.
+
+## HANDOFF (FINAL — TASK-139)
+Status:          DONE
+Arrival state:   acceptance 12/1 on c899dc9 per the baton note (item 11,
+                 firsthour); the same red family reproduced here 3× and
+                 root-caused before any commit (see Done)
+Items done:      B1 (46ca7a1), B2+B3 (406e3f9)
+Items not done:  (none)
+Acceptance:      `python3 agent/relay.py verify` on 46ca7a1 →
+                 «Итог: пройдено 13, провалено 0 / Принято.»,
+                 «код возврата приёмки: 0 (ПРИНЯТО)»; pre-commit hooks of
+                 both commits ran the same full selfcheck — «Принято.
+                 SELFCHECK OK» (the dps map change passed the whole suite
+                 incl. the coordinator 08.10 tests)
+Tests:           per suite ≈2028 passed, 4 xfailed, 0 failed (junit of
+                 the nested run); quoted single files: q12 12 passed,
+                 firsthour 1 passed, dps 3 passed
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         ≤ 74 of 300 (follows 45, Yahoo fundamentals 5, 2
+                 ticker-map probes, the rest — pre-fix suite-side live
+                 requests, ≤1 per firsthour run; LLM 0)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report, diffs and logs grepped for RUSTERM_* values —
+                 0 hits
+Pushed:          yes
+Questions for the coordinator:
+1. XOM: EDGAR's ticker feed points XOM at a fresh registrant (CIK
+   2115436) with no annuals; the classic CIK 34088 is absent from the
+   feed. Resolution policy is pinned (B17) — needs a decision (prefer a
+   registrant with filings? manual CIK hint for the user?).
+2. PFE total_debt: the ТЗ-31 C2 single-tag pin vs filers that split the
+   debt into LongTermDebtNoncurrent + Current since ~2017 (PFE; sum
+   would match Yahoo's own two-row total). Pin change = task item.
+3. WMT 2024 market cap ×3: P4's price split-factor meets K2's
+   restated-shares preference when the filing crosses a split (bases
+   mixed). Coordinator's 08.10 code; needs a base-matching rule.
+4. PFE revenue: map rank 0 (ASC-606 line) vs filers whose primary line
+   is "Revenues" — rank policy question.
+5. The item-11 lottery means some older green acceptances were partly
+   luck; consider one more acceptance re-run after this lands.
+6. The user's real base needs the one-off `rusterm reparse` after this
+   lands (dps successor tag); card rows pick it up live, no history
+   rebuild needed.
+
+NOW: B3, step 8
