@@ -132,6 +132,11 @@ BANK_HIDDEN = frozenset({
     "gross_profit", "gross_margin", "operating_income", "operating_margin",
     "ebitda", "nopat", "total_debt", "cash", "capex"})
 
+# Вид строки отчётности по концепту: поток (за год) или остаток (на дату)
+FACT_KINDS = {concept: kind for _title, items in SECTIONS
+              for concept, _label, _hint, kind in items
+              if kind != "measure"}
+
 # Меры-проценты среди фактов не встречаются; деньги на акцию — отдельно
 PER_SHARE = frozenset({"eps_diluted", "dps"})
 
@@ -200,6 +205,47 @@ def statement_series(repos, issuer_id: str, concept: str,
     for year, point in declared.items():
         series.setdefault(year, point)
     return series
+
+
+def statement_now(repos, issuer_id: str, concept: str,
+                  kind: str) -> Optional[tuple]:
+    """BACKLOG P1: «сейчас» строки отчётности — (значение, валюта,
+    подсказка) или None.
+
+    Поток — окно последних 12 месяцев ядра (`core.ttm.ttm_window`: четыре
+    квартала подряд или FY + YTD − YTD), только настоящий TTM, не
+    годовой запасной; остаток — последний поданный баланс (квартал).
+    Из фактов одного периода берётся лучший по рангу тег карты."""
+    from rusterm.core.ttm import TTM, ttm_window
+    if concept == "dps":
+        return None   # дивиденд «сейчас» — доходность, строкой ниже
+    rows = repos.snapshot.statement_facts(issuer_id, concept)
+    best: dict[tuple, tuple] = {}
+    for value, start, end, currency, fact_id, tag in rows:
+        taxonomy, local = strip_taxonomy(tag or "")
+        rank = priority_rank(concept, local, taxonomy or "us-gaap")
+        key = (start, end)
+        if key not in best or rank < best[key][0]:
+            best[key] = (rank, value, start, end, currency, fact_id)
+    if not best:
+        return None
+    if kind == "flow":
+        window = ttm_window([(v, s, e, f) for _r, v, s, e, _c, f
+                             in best.values() if s and s != e],
+                            datetime.date.today().isoformat(), concept)
+        if window is None or window.basis != TTM:
+            return None
+        currency = next((b[4] for b in best.values() if b[4]), None)
+        return (window.value, currency,
+                f"последние 12 месяцев: {window.start} — {window.end}")
+    instants = [b for b in best.values() if b[2] == b[3]]
+    if not instants:
+        return None
+    _rank, value, _s, end, currency, _f = max(instants, key=lambda b: b[3])
+    try:
+        return float(value), currency, f"баланс на {end}"
+    except (TypeError, ValueError):
+        return None
 
 
 def format_number(value: float, concept: str, unit: Optional[str]) -> str:
@@ -396,6 +442,20 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                     tip += "; * год отнесён по дате расчёта, у меры нет периода"
                 cells.append(_cell(text, tip, value))
             current = now_value(concept)
+            if current is None and concept in facts and issuer_id:
+                now_fact = statement_now(repos, issuer_id, concept,
+                                         FACT_KINDS.get(concept, "flow"))
+                if now_fact is not None:
+                    value_now, currency_now, tip_now = now_fact
+                    cells.append(_cell(
+                        format_number(value_now, concept, currency_now),
+                        f"{hint}; {tip_now}", value_now))
+                    section_rows.append({
+                        "kind": "fact", "concept": concept,
+                        "label": label, "hint": hint, "cells": cells,
+                        "measure_row": measure_row,
+                        "fact_ids": fact_ids})
+                    continue
             if current is None:
                 cells.append(_cell(DASH, (_empty_tooltip(measure_row)
                                           if measure_row is not None else
@@ -576,3 +636,19 @@ def fill_rate(view: dict) -> tuple[int, int, list[tuple[str, str]]]:
             else:
                 filled += 1
     return filled, applicable, gaps
+
+
+def fact_open_target(repos, paths, row: dict, year: str) -> Optional[str]:
+    """Путь к сохранённому документу факта строки отчётности (год; для
+    «сейчас» — последний год с фактом), если файл на месте, иначе None:
+    кнопка «открыть сохранённый ответ» работает и на строках отчётности."""
+    fact_ids = row.get("fact_ids", {})
+    fact_id = fact_ids.get(year) or (fact_ids[max(fact_ids)]
+                                     if fact_ids else None)
+    if not fact_id:
+        return None
+    fact = repos.fact.get_fact(fact_id) or {}
+    if not fact.get("source_ref"):
+        return None
+    location = data.raw_object_location(paths, fact["source_ref"])
+    return location["path"] if location["exists"] else None

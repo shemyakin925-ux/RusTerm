@@ -1139,7 +1139,9 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
                     else max(card_row["fact_ids"], default=""))
             source_panel.setText(
                 desktop_card.fact_source_text(repos, card_row, year))
-            open_raw_button.setEnabled(False)
+            state["open_raw_target"] = desktop_card.fact_open_target(
+                repos, paths, card_row, year)
+            open_raw_button.setEnabled(state["open_raw_target"] is not None)
             stale_button.setVisible(False)
             return
         state["source_measure_row"] = card_row["measure_row"]

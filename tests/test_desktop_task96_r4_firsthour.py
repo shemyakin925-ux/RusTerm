@@ -124,6 +124,31 @@ def _company_item(tree, ticker):
     return None
 
 
+def _chart_ending_yesterday(path) -> bytes:
+    """ТЗ-135 A3: ряд с диска кончается 2026-09-30, а цена старше
+    `_PRICE_STALE_DAYS` (7) — устаревшая: с 08.10.2026 тесты краснели от
+    календаря, а не от кода. Ряд сдвигается целиком так, чтобы последний
+    день был вчера; форма и значения те же."""
+    import datetime as _dt
+    import json as _json
+    payload = _json.loads(path.read_bytes())
+    result = payload["chart"]["result"][0]
+    last = _dt.date.fromtimestamp(result["timestamp"][-1])
+    shift = ((_dt.date.today() - _dt.timedelta(days=1)) - last).days * 86400
+    result["timestamp"] = [t + shift for t in result["timestamp"]]
+    for key in ("firstTradeDate", "regularMarketTime"):
+        if isinstance(result.get("meta", {}).get(key), int):
+            result["meta"][key] += shift
+    events = result.get("events", {})
+    for kind in events.values():
+        for stamp in list(kind):
+            item = kind.pop(stamp)
+            if isinstance(item.get("date"), int):
+                item["date"] += shift
+            kind[str(int(stamp) + shift)] = item
+    return _json.dumps(payload).encode()
+
+
 @pytest.fixture(scope="module")
 def hour(tmp_path_factory, qapp):
     """Час пользователя один на файл: путь R2, затем открытое окно с
@@ -152,7 +177,7 @@ def hour(tmp_path_factory, qapp):
             chart = _P(__file__).parent / "data/yahoo/chart_AAPL_trimmed.json"
             return YahooProvider(
                 gate=gate, transport=lambda url, headers:
-                    (200, chart.read_bytes(), {}))
+                    (200, _chart_ending_yesterday(chart), {}))
         return real(name, gate=gate)
 
     mp.setattr(cli, "get_provider", fake)
