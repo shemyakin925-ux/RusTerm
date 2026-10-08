@@ -66,3 +66,14 @@ Questions for the coordinator:
 1. (none yet — S2/S3 ahead)
 
 NOW: S1, step 4
+
+## Done (S2 continued)
+- S2 rule 1 (biggest group) — a YEAR cell of a measure row now shows the
+  measure of THAT YEAR: `data.measure_row_for_year` picks the year-end
+  snapshot by the same selection the history cells use
+  (`tui_model._history_walk`: year-end snapshots, highest version), and
+  `panel_for_cell` feeds it to the panel; «сейчас» and years without
+  their own measure keep the row's current measure. Test:
+  `test_year_cell_panel_reads_the_year_measure` — two year snapshots,
+  the 2022 cell's panel names the 2022 input period, «сейчас» names 2023.
+  Run on the copy: **11104/11814 = 94 %** (was 92 %).

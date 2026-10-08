@@ -1069,6 +1069,61 @@ def remove_instruments(repos, watchlist_id: str,
 
 # ── Панель источника (TASK-C6): только то, что отдаёт модель ────────────
 
+def measure_row_for_year(repos, instrument_id: str, concept: str,
+                         year: str) -> Optional[dict]:
+    """ТЗ-140 S2: мера ГОДА для панели годовой клетки.
+
+    Выбор снапшота тот же, что у истории клеток (tui_model._history_walk):
+    когда в фактах есть годовые концы, клетку даёт только снапшот конца
+    года, старшая версия на дату; мера — концепта, чей период (конец,
+    иначе начало, иначе as_of снапшота) попадает в год. Форма — та же,
+    что строит card_rows, чтобы source_panel_view не различал их. Года
+    или меры нет — None: вызывающий показывает текущую меру строки."""
+    from rusterm.tui import model as tui_model
+    instrument = repos.instrument.get_instrument(instrument_id)
+    ends = (set(repos.snapshot.annual_period_ends(instrument.issuer_id))
+            if instrument is not None else set())
+    snapshots = repos.snapshot.snapshots_of_instrument(instrument_id)
+    latest_at: dict = {}
+    for s in snapshots:
+        latest_at[s["as_of"]] = max(latest_at.get(s["as_of"], 0),
+                                    s["version"])
+    has_year_end = any(s["as_of"] in ends for s in snapshots)
+    found = None
+    for s in snapshots:
+        if has_year_end and (s["as_of"] not in ends
+                             or s["version"] != latest_at[s["as_of"]]):
+            continue
+        for m in repos.snapshot.get_measures(s["snapshot_id"]):
+            if m[3] != concept:
+                continue
+            m_year = (m[7] or m[6] or s["as_of"])[:4]
+            if m_year == year:
+                found = (s, m)  # снапшоты по возрастанию версии: позднейший перезаписывает
+    if found is None:
+        return None
+    _s, m = found
+    measure_id, _scope, _ref, _concept, value, unit, _start, end, \
+        _formula_id, method_version, null_reason, _psv = m
+    return {
+        "measure": {
+            "measure_id": measure_id,
+            "concept": concept,
+            "percentile_of": None,
+            "value": value if value is not None else tui_model.NULL_MARK,
+            "null_reason": null_reason if value is None else None,
+            "unit": unit,
+            "currency": repos.snapshot.measure_currency(measure_id, concept),
+            "period": end,
+            "method_version": method_version,
+            "issuer_id": instrument.issuer_id if instrument else None,
+        },
+        "current": None,
+        "unit": unit,
+        "null_reason": null_reason,
+    }
+
+
 def panel_for_cell(repos, paths: AppPaths, view: dict, row: dict,
                    column: int,
                    instrument_id: str | None = None) -> dict:
@@ -1090,9 +1145,14 @@ def panel_for_cell(repos, paths: AppPaths, view: dict, row: dict,
                                                      year),
                 "stale_count": 0, "measure_row": None,
                 "cell_kind": "fact"}
-    panel = source_panel_view(repos, paths, row["measure_row"],
+    measure_row = row["measure_row"]
+    if not is_now and measure_row is not None:
+        measure_row = (measure_row_for_year(repos, instrument_id,
+                                            row["concept"], years[column])
+                       or measure_row)
+    panel = source_panel_view(repos, paths, measure_row,
                               instrument_id=instrument_id)
-    panel["measure_row"] = (row["measure_row"]
+    panel["measure_row"] = (measure_row
                             if row["measure_row"] is not None else None)
     panel["cell_kind"] = "measure"
     return panel

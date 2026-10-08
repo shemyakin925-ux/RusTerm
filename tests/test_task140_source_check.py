@@ -77,3 +77,27 @@ def test_source_check_passes_and_fails_on_a_fixture_card(tmp_path):
     assert result["open_target"], result["open_target"]
 
 
+def test_year_cell_panel_reads_the_year_measure(tmp_path):
+    repos, paths, conn, sha = _repos(tmp_path)
+    _annual(repos, sha, "2022")
+    make_snapshot_builder(repos, "2022-12-31").build("US-SRC", "i-S",
+                                                     "2022-12-31")
+    _annual(repos, sha, "2023")
+    make_snapshot_builder(repos, "2023-12-31").build("US-SRC", "i-S",
+                                                     "2023-12-31")
+    info = data.measure_table_rows(repos, "US-SRC", card.CARD_YEARS)
+    view = card.card_view(repos, info)
+    years = view["columns"][:-1]
+    row = next(r for r in view["rows"]
+               if r.get("concept") == "net_margin")
+    column = years.index("2022")
+    panel = data.panel_for_cell(repos, paths, view, row, column,
+                                instrument_id="US-SRC")
+    assert "2022-12-31" in panel["text"], panel["text"]
+    now = data.panel_for_cell(repos, paths, view, row,
+                              len(view["columns"]) - 1,
+                              instrument_id="US-SRC")
+    assert "2023-12-31" in now["text"], now["text"]
+    assert now["text"] != panel["text"]
+
+
