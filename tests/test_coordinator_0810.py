@@ -221,3 +221,45 @@ def test_latest_ads_ratio_door_reads_the_fresh_fact(tmp_path):
             {"kind": "20-F", "quote": "each representing 20"},
             ads.PARSER_VERSION, canonical_concept=ads.CANONICAL)
     assert repos.snapshot.latest_ads_ratio("i-F") == (20.0, "r-new")
+
+
+def _stock(repos, sha, fid, tag, canonical, end, value):
+    _fact(repos, sha, fid, tag, canonical, end, end, value, kind="instant")
+
+
+def test_commercial_paper_is_added_to_long_term_debt(tmp_path):
+    """BACKLOG P5: AAPL 96,66 (LongTermDebt) + 9,97 (CommercialPaper) =
+    106,63 млрд, как в 10-K и у Yahoo; чистый долг считает всё."""
+    repos, sha = _repos(tmp_path)
+    _fact(repos, sha, "rev", "Revenues", "revenue", "2024-01-01",
+          "2024-12-31", 100)
+    _stock(repos, sha, "ltd", "LongTermDebt", "total_debt", "2024-12-31", 90)
+    _stock(repos, sha, "cp", "CommercialPaper", None, "2024-12-31", 10)
+    _stock(repos, sha, "cash", "CashAndCashEquivalentsAtCarryingValue",
+           "cash", "2024-12-31", 30)
+    make_snapshot_builder(repos, "2024-12-31").build("US-F", "i-F",
+                                                     "2024-12-31")
+    sid = repos.snapshot.latest_snapshot_id("US-F")
+    net_debt = next(m for m in repos.snapshot.get_measures(sid)
+                    if m[3] == "net_debt")
+    assert float(net_debt[4]) == pytest.approx(70.0), \
+        "долг 90 + бумаги 10 − деньги 30 (краткосрочных вложений нет)"
+    assert "cp" in repos.snapshot.lineage_fact_ids(net_debt[0])
+
+
+def test_combined_debt_tag_does_not_get_paper_twice(tmp_path):
+    repos, sha = _repos(tmp_path)
+    _fact(repos, sha, "rev", "Revenues", "revenue", "2024-01-01",
+          "2024-12-31", 100)
+    _stock(repos, sha, "all", "DebtLongtermAndShorttermCombinedAmount",
+           "total_debt", "2024-12-31", 100)
+    _stock(repos, sha, "cp", "CommercialPaper", None, "2024-12-31", 10)
+    _stock(repos, sha, "cash", "CashAndCashEquivalentsAtCarryingValue",
+           "cash", "2024-12-31", 30)
+    make_snapshot_builder(repos, "2024-12-31").build("US-F", "i-F",
+                                                     "2024-12-31")
+    sid = repos.snapshot.latest_snapshot_id("US-F")
+    net_debt = next(m for m in repos.snapshot.get_measures(sid)
+                    if m[3] == "net_debt")
+    assert float(net_debt[4]) == pytest.approx(70.0), \
+        "объединённый тег уже содержит бумаги"

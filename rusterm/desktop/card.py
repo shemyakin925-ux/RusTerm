@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
+from rusterm.core.debt import adds_short_term, short_term_at
 from rusterm.core.ttm import declared_by_year
 from rusterm.desktop import data
 from rusterm.measures_ru import measure_name
@@ -84,7 +85,9 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str, str]]]] = [
         ("total_assets", "Активы", "баланс на конец года", "stock"),
         ("total_equity", "Собственный капитал", "баланс на конец года",
          "stock"),
-        ("total_debt", "Долг", "баланс на конец года", "stock"),
+        ("total_debt", "Долг",
+         "долгосрочный с текущей частью + коммерческие бумаги и "
+         "краткосрочные займы, баланс на конец года", "stock"),
         ("cash", "Денежные средства", "баланс на конец года", "stock"),
         ("net_debt", "Чистый долг", "долг − денежные средства", "measure"),
         ("net_debt_ebitda", "Чистый долг / EBITDA", "чистый долг / EBITDA",
@@ -177,6 +180,7 @@ def statement_series(repos, issuer_id: str, concept: str,
     # NetIncomeLoss, а не ProfitLoss с долей меньшинства); среди равных
     # рангов побеждает свежий конец периода, затем свежая подача
     best: dict[str, tuple] = {}
+    tags = {r[4]: r[5] for r in rows}
     for value, start, end, currency, fact_id, tag in rows:
         if kind == "flow":
             if not start:
@@ -202,6 +206,14 @@ def statement_series(repos, issuer_id: str, concept: str,
                 or (rank == current[0] and end > current[1])):
             best[year] = (rank, end, (number, currency, fact_id))
     series = {year: entry[2] for year, entry in best.items()}
+    if concept == "total_debt":
+        # BACKLOG P5: тем же правилом ядра, что снапшот (core/debt.py)
+        short_rows = repos.snapshot.short_term_debt_facts(issuer_id)
+        for year, (rank, end, (value, currency, fact_id)) in best.items():
+            if adds_short_term(tags.get(fact_id)):
+                std = short_term_at(short_rows, end)
+                if std is not None:
+                    series[year] = (value + std[0], currency, fact_id)
     for year, point in declared.items():
         series.setdefault(year, point)
     return series

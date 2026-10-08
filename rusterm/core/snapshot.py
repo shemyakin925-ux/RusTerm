@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from rusterm.core.peers import (currency_guard, evaluate,
                                 percentile_share, period_window)
+from rusterm.core.debt import adds_short_term, short_term_at
 from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow, declared_window,
                               is_annual_window, ttm_window)
 from rusterm.formulas import (calculate_measure, effective_tax_rate,
@@ -1463,6 +1464,19 @@ class SnapshotBuilder:
                 out[key] = best
             else:
                 stale[key] = max(row[1] for row in items)
+        # BACKLOG P5: долг = долгосрочный (LongTermDebt, вместе с текущей
+        # частью) + краткосрочный (коммерческие бумаги) на ту же дату —
+        # AAPL 96,66 + 9,97 = 106,63 млрд, как в 10-K; объединённый тег
+        # краткосрочный долг уже содержит, к нему не прибавляется
+        debt = out.get("total_debt")
+        if debt is not None and adds_short_term(
+                self._snapshots.fact_tag(debt[3])):
+            std = short_term_at(
+                self._snapshots.short_term_debt_facts(issuer_id), debt[1])
+            if std is not None:
+                out["total_debt"] = (debt[0] + std[0], debt[1], debt[2],
+                                     debt[3])
+                out["short_term_debt"] = (std[0], debt[1], debt[2], std[1])
         # ТЗ-130 K2: капитал материнской компании из тождества баланса —
         # us-gaap-эмитентам с одной колонкой «Итого капитал» (с НКД):
         # total_equity = incl_nci − NCI. Не подстановка ТЗ-56 Z1 (та
@@ -1625,6 +1639,16 @@ class SnapshotBuilder:
                                       " (тождество: incl_nci − NCI)")
                 self._equity_identity_facts.add(inc[4])
 
+        # BACKLOG P5: краткосрочный долг на той же границе — в долг
+        # (тем же правилом, что в `_latest_canonical`)
+        if "total_debt" in at and adds_short_term(
+                self._snapshots.fact_tag(at["total_debt"][4])):
+            row = at["total_debt"]
+            std = short_term_at(
+                self._snapshots.short_term_debt_facts(issuer_id), row[3])
+            if std is not None:
+                at["total_debt"] = (row[0], row[1], row[2] + std[0],
+                                    *row[3:])
         needed = ("total_equity", "total_debt", "cash", "st_investments")
         # то же правило нулевых вложений, что в проходе оценки: денежный
         # блок границы есть, строки вложений к этой дате уже/ещё нет
@@ -2185,7 +2209,8 @@ class SnapshotBuilder:
         else:
             nd_value = (debt[0] - cash[0] - stinv[0])
         nd_lineage = []
-        for c in ("total_debt", "cash", "st_investments"):
+        for c in ("total_debt", "short_term_debt", "cash",
+                  "st_investments"):
             if inputs.get(c):
                 nd_lineage += self._fact_lineage(inputs[c][3])
         nd_lineage += stinv_lineage

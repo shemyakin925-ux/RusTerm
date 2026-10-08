@@ -561,8 +561,15 @@ def _history_walk(repos, instrument_id: str):
     for s in snapshots:
         latest_at[s["as_of"]] = max(latest_at.get(s["as_of"], 0),
                                     s["version"])
+    # когда годовые снапшоты собраны (`history`), колонки лет строятся
+    # только из них: снапшот посреди года — это «сейчас», и устаревший
+    # (AT&T 08.10: валовая прибыль по отозванному тегу в снапшоте от
+    # 2026-10-08 v30) не должен занимать колонку года
+    has_year_end = any(s["as_of"] in ends for s in snapshots)
     for s in snapshots:
         if s["as_of"] in ends and s["version"] != latest_at[s["as_of"]]:
+            continue
+        if has_year_end and s["as_of"] not in ends:
             continue
         run_year = _period_year(s["as_of"])
         at_year_end = s["as_of"] in ends

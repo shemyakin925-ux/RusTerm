@@ -884,6 +884,26 @@ class SnapshotRepo:
         `dominant_filing_currency`)."""
         return dominant_filing_currency(self.conn, issuer_id)
 
+    def short_term_debt_facts(self, issuer_id: str) -> list:
+        """Краткосрочный долг по тегу (BACKLOG P5, core/debt.py):
+        (value, period_end, currency, fact_id, concept) на даты баланса,
+        свежие первыми."""
+        return self.conn.execute(
+            """SELECT value, period_end, currency, fact_id, concept FROM fact
+               WHERE issuer_id=? AND concept IN ('us-gaap:ShortTermBorrowings',
+                                                 'us-gaap:CommercialPaper')
+                 AND status='ok' AND superseded_by IS NULL
+                 AND value IS NOT NULL AND period_start = period_end
+               ORDER BY period_end DESC, ingested_at DESC""",
+            (issuer_id,)).fetchall()
+
+    def fact_tag(self, fact_id: str) -> Optional[str]:
+        """Тег источника факта («us-gaap:LongTermDebt») — ядру, чтобы
+        различить, какой тег выбран входом (ТЗ BACKLOG P5)."""
+        row = self.conn.execute("SELECT concept FROM fact WHERE fact_id=?",
+                                (fact_id,)).fetchone()
+        return row[0] if row else None
+
     def latest_ads_ratio(self, issuer_id: str) -> Optional[tuple]:
         """(N, fact_id) — свежий коэффициент «ADS = N акций» эмитента
         (`rusterm ads-ratio`, ТЗ-138 A2), или None."""

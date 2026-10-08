@@ -177,6 +177,15 @@ def _temp_repo(tmp_path_factory):
     <настоящий> status --porcelain agent/` пуст, что бы ни случилось
     внутри модуля."""
     global ROOT, P6_GUARD, CONTEXT_MD
+    # ТЗ-135 A1: зуб — «модуль не тронул настоящий репозиторий», то есть
+    # состояние agent/ после равно состоянию ДО. Требование «пусто»
+    # краснело от чужих правок: во вложенном прогоне настоящий — это клон
+    # внешнего теста с нарочно застейдженным стражем, у координатора —
+    # незакоммиченные файлы agent/
+    before = subprocess.run(
+        ["git", "-C", str(ROOT_LIVE), "status", "--porcelain", "--",
+         "agent/"], capture_output=True, text=True,
+        env=_hermetic_env()).stdout
     clone = tmp_path_factory.mktemp("i5-clone") / "repo"
     subprocess.run(["git", "clone", "--quiet", "--local",
                     str(ROOT_LIVE), str(clone)],
@@ -191,8 +200,9 @@ def _temp_repo(tmp_path_factory):
         ["git", "-C", str(ROOT_LIVE), "status", "--porcelain", "--",
          "agent/"], capture_output=True, text=True,
         env=_hermetic_env()).stdout
-    assert leftover.strip() == "", (
-        f"ТЗ-111 U0: настоящий репозиторий тронут: {leftover!r}")
+    assert leftover == before, (
+        f"ТЗ-111 U0: настоящий репозиторий тронут: было {before!r}, "
+        f"стало {leftover!r}")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -348,7 +358,13 @@ def test_module_returns_guard_exactly_as_found():
 def test_a_raise_midway_leaves_the_real_repo_clean():
     """Done-when U0: правка стейджится в КЛОНЕ, тело падает посередине —
     настоящий репозиторий чист (agent/ пуст в porcelain), а правка осела
-    именно в клоне, не исчезла молча. Уборку делает фикстура ТЗ-45 M1."""
+    именно в клоне, не исчезла молча. Уборку делает фикстура ТЗ-45 M1.
+    ТЗ-135 A1: «чист» = не изменился (до == после), а не «пуст» — у
+    координатора в настоящем дереве бывают незакоммиченные agent/*."""
+    live_before = subprocess.run(
+        ["git", "-C", str(ROOT_LIVE), "status", "--porcelain", "--",
+         "agent/"], capture_output=True, text=True,
+        env=_hermetic_env()).stdout
     P6_GUARD.write_text(widened(ROOT), encoding="utf-8")
     _git("add", "agent/p6_rule.sh")
     with pytest.raises(RuntimeError, match="simulated interruption"):
@@ -357,7 +373,8 @@ def test_a_raise_midway_leaves_the_real_repo_clean():
         ["git", "-C", str(ROOT_LIVE), "status", "--porcelain", "--",
          "agent/"], capture_output=True, text=True,
         env=_hermetic_env()).stdout
-    assert live.strip() == "", f"настоящий репозиторий тронут: {live!r}"
+    assert live == live_before, (
+        f"настоящий репозиторий тронут: было {live_before!r}, стало {live!r}")
     staged = subprocess.run(
         ["git", "status", "--porcelain", "--", "agent/p6_rule.sh"],
         cwd=ROOT, capture_output=True, text=True,
