@@ -12,7 +12,10 @@
   than the last annual report is «—».
 - The user's real base needs once: reparse + `history --all --rebuild`
   (backup in `~/EquityLab/backups/2026-10-07-before-history-rebuild`).
-- Next for the executor: TASK-131 (home table).
+- TASK-131 (home table) done by the coordinator 08.10: `rusterm/desktop/home.py`,
+  tab «Все компании» first; `core.prices.year_change`; card dash rules now
+  also dash margins > 100 % and P/E or EV/EBITDA > 500.
+- Next for the executor: TASK-138 (ADR market cap: AMX ×20, BHP ×2), then 132…136.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:

@@ -1,6 +1,6 @@
 # TASK-131 — С1: the window opens on a table of all companies
 
-- **Status: READY**
+- **Status: ACCEPTED (08.10, done by the coordinator) — H1 home table (tab «Все компании», opens at start, 0.5 s for 38 papers), H2 search, H3 Russian group names.**
 - **Report:** `agent/REPORT-131.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С1. **Read PRODUCT.md first** — it is
