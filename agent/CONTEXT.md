@@ -33,8 +33,11 @@
   (debt = LongTermDebt + commercial paper, `core/debt.py`) done; Yahoo
   match 99 %. Year columns come only from year-end snapshots once history
   is built. `follow` builds year history before the snapshot stage.
+- **Acceptance 13/0 «Принято» in a linked worktree on d08fd92** (coordinator
+  08.10, 4 780 s incl. the I5 nested selfchecks). P7 done (diluted share
+  count fallback for multi-class issuers), P8 closed (price moved).
 - Next for the executor: TASK-134 W5, TASK-136 (Excel, user to confirm),
-  BACKLOG P4, P6–P8.
+  BACKLOG P4 (adjusted historical closes — see text), P6 (RIO).
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:

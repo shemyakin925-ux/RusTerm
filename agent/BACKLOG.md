@@ -11,10 +11,16 @@ serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
 - [ ] P3 — look.py: count «—» separately from section blanks in
   `report.json` (`dash`, `section_blank`) — accept: test on a fixture
   card — size: S
-- [ ] P4 — DELL market cap before 2022: one share class only? (was
-  TASK-130 K5; text there) — accept: test on a two-class fixture; DELL
-  2020 капитализация within 10 % of the 10-K cover or «—» with
-  `share_classes_incomplete` — size: M
+- [ ] P4 — historical market cap uses dividend/spin-off-ADJUSTED closes
+  (coordinator 08.10): old price rows come from Twelve Data, whose `close`
+  is back-adjusted — DELL 2020-01-31 close 24.72 vs ~50 actual (VMware
+  spin-off 2021). Adjusted close × actual share count of that date
+  undercounts every pre-event market cap (DELL 2017–2021 14–28 bn, P/E
+  2024 off 8.8 % vs Yahoo). Fix: market cap uses the actual close of the
+  date (split-adjusted to the share count of that date only), e.g. Yahoo
+  `close` + split events, preferring it over Twelve Data rows (ADR-0020 /
+  ADR-0029 machinery in core/prices.py). — accept: test on a fixture with a
+  spin-off; `tools/yahoo_check.py` DELL pe 2024 within 5 % — size: L
 - [x] P5 — DONE 08.10 by the coordinator (e08ad47, core/debt.py). AAPL/MSFT total_debt 8–13 % below long-term + current debt
   (was TASK-137 Y2; commercial paper / current portion) — accept:
   `tools/yahoo_check.py` no total_debt miss for AAPL/MSFT — size: M
@@ -22,10 +28,10 @@ serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
   (ADS = 1 plc share); the group cap needs plc + Ltd shares or «—» with a
   reason (was TASK-138 A3) — accept: `yahoo_check --all` RIO within 15 %
   or «—» with the reason — size: M
-- [ ] P7 — shares outstanding stale for CHTR (2016), CMCSA (2009, two
+- [x] P7 — DONE 08.10 by the coordinator (d08fd92: fresh diluted count as fallback). shares outstanding stale for CHTR (2016), CMCSA (2009, two
   classes), WDAY (2018): find the current cover tag / class axis — accept:
   `yahoo_check --all` shows a cap for them within 15 % — size: M
-- [ ] P8 — ADBE cap 22 % below Yahoo on the 08.10 copy: price date vs
+- [x] P8 — CLOSED 08.10: not a defect — ours uses the 07.10 close 232.77, Yahoo the 31.08 cap (≈298); price fell ~22 %. ADBE cap 22 % below Yahoo on the 08.10 copy: price date vs
   quarter date, or a real defect — accept: named in a report line — size: S
 
 Maintained by the coordinator (Claude). The executor pulls items
