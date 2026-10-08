@@ -2276,6 +2276,13 @@ class SnapshotBuilder:
         elif shares_cur and price_currency \
                 and shares_cur != price_currency:
             mcap_reason = mismatch([shares_cur, price_currency])
+        elif self._snapshots.files_mainly_ifrs(issuer_id):
+            # 08.10: цена за расписку × обыкновенные акции — завышение в N
+            # раз (AMX ×20, BHP ×2 против Yahoo). Коэффициент «ADS = N
+            # акций» как факт с источником — ТЗ-138 A2; до него честный
+            # отказ лучше выдуманного числа
+            mcap_reason = ("adr_ratio_unknown: price per ADS, shares are "
+                           "ordinary")
         else:
             m = calculate_measure(
                 "market_cap", price_close=price_value,

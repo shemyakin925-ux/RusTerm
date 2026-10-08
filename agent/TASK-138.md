@@ -22,6 +22,12 @@ against Yahoo `quarterlyMarketCap` for all 38 papers:
 
 All others within ±15 %.
 
+**Coordinator's interim guard (08.10, `e…` see git log):** an issuer that
+files mainly IFRS (`SnapshotRepo.files_mainly_ifrs`) gets market cap
+refused with `adr_ratio_unknown` — AMX/BHP/RIO/VOD/KSPI/TECK show «—»
+instead of ×20 / ×2. A2 lifts the guard per issuer once the ratio is a
+fact; TECK and KSPI (ratio 1) should come back first.
+
 ## A1. Name the cause per paper (first, no code)
 For each row above: the 20-F/40-F cover (ADS ratio, share classes), our
 `market_cap_total` lineage (price fact, shares fact, class), and the fix.

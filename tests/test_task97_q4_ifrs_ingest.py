@@ -87,9 +87,11 @@ AS_OF = "2026-09-28"
 # test_pe_and_ps_on_kspi_refuse_the_off_rate_quotient). gross_margin —
 # ТЗ-104 P4: мера читает посчитанную gross_profit, поэтому KSPI, который
 # GrossProfit не подаёт, получил и маржу.
+# 08.10: капитализации нет — эмитент IFRS, цена за расписку, коэффициент
+# «ADS = N акций» ещё не факт (adr_ratio_unknown, ТЗ-138 A2 вернёт её)
 KSPI_VALUED = {
     "asset_turnover", "effective_tax", "gross_margin", "gross_profit",
-    "market_cap", "market_cap_total", "net_margin", "roe", "roe_incl_nci",
+    "net_margin", "roe", "roe_incl_nci",
     # ADR-0029: ценовые меры по ряду с реинвестированием дивидендов
     "total_return", "drawdown",
 }
@@ -460,10 +462,15 @@ def test_pe_and_ps_on_kspi_refuse_the_off_rate_quotient(kspi_sandbox):
         "SELECT DISTINCT currency FROM price")}
     db.close()
     assert fact_cur == {"KZT"} and price_cur == {"USD"}
+    # 08.10: раньше валютного спора pe/ps останавливает отсутствие
+    # капитализации (adr_ratio_unknown); сам валютный отказ pe/ps закреплён
+    # в tests/test_task104_p1_price_side_vs_filing_currency.py
+    cap_value, cap_reason = kspi_sandbox["measures"]["market_cap_total"]
+    assert cap_value is None and cap_reason.startswith("adr_ratio_unknown")
     for concept in ("pe", "ps"):
         value, reason = kspi_sandbox["measures"][concept]
         assert value is None, f"{concept} всё ещё делит USD на KZT"
-        assert reason == "currency_mismatch: KZT, USD", (concept, reason)
+        assert reason == "missing_data: market_cap_total", (concept, reason)
 
 
 def test_trim_tool_keeps_both_sections_and_the_20f_form():

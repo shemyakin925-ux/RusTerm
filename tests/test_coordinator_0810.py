@@ -160,3 +160,26 @@ def test_now_value_older_than_last_annual_report_is_a_dash(tmp_path):
     now = row["cells"][-1]
     assert now["text"] == card.DASH
     assert "старше последнего годового отчёта" in now["tooltip"]
+
+
+def test_ifrs_filer_gets_no_market_cap_without_the_ads_ratio(tmp_path):
+    """Сверка 08.10: AMX — 60 млрд обыкновенных акций × цена расписки
+    (1 ADS = 20 акций) давали 1,34 трлн против 67 млрд у Yahoo. Пока
+    коэффициента нет (ТЗ-138 A2), капитализация — честный отказ."""
+    repos, sha = _repos(tmp_path)
+    for i in range(3):
+        repos.fact.insert_fact(
+            f"ifrs-{i}", "i-F", None, f"ifrs-full:Revenue{i}", "2024-01-01",
+            "2024-12-31", "duration", "1", "USD", "USD", "as_reported",
+            "extracted", sha, {"endpoint": "companyfacts", "kind": "20-F"},
+            "t")
+    assert repos.snapshot.files_mainly_ifrs("i-F") is True
+    _fact(repos, sha, "a", "Revenues", "revenue", "2024-01-01",
+          "2024-12-31", 1)
+    _fact(repos, sha, "b", "Revenues", "revenue", "2023-01-01",
+          "2023-12-31", 1)
+    _fact(repos, sha, "c", "Revenues", "revenue", "2022-01-01",
+          "2022-12-31", 1)
+    _fact(repos, sha, "d", "Revenues", "revenue", "2021-01-01",
+          "2021-12-31", 1)
+    assert repos.snapshot.files_mainly_ifrs("i-F") is False

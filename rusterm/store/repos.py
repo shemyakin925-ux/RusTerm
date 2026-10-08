@@ -884,6 +884,17 @@ class SnapshotRepo:
         `dominant_filing_currency`)."""
         return dominant_filing_currency(self.conn, issuer_id)
 
+    def files_mainly_ifrs(self, issuer_id: str) -> bool:
+        """Эмитент подаёт отчётность в основном по IFRS (форма 20-F/40-F):
+        фактов ifrs-full больше, чем us-gaap. Признак иностранного
+        эмитента, чья цена на американской бирже — за расписку (08.10)."""
+        row = self.conn.execute(
+            """SELECT SUM(concept LIKE 'ifrs-full:%'),
+                      SUM(concept LIKE 'us-gaap:%')
+               FROM fact WHERE issuer_id=?""", (issuer_id,)).fetchone()
+        ifrs, gaap = (row[0] or 0), (row[1] or 0)
+        return ifrs > gaap
+
     def restated_duration_facts(self, issuer_id: str,
                                 concepts: tuple) -> list:
         """Потоковые факты в базисе restated той же формой, что

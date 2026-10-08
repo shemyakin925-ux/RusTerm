@@ -13,6 +13,10 @@ coordinator's offscreen look.py runs made 3–8 real requests each and wrote
 to the user's base. Start refresh only if the last refresh is older than
 6 h **and** the window is shown on screen (not offscreen /
 `QT_QPA_PLATFORM=offscreen`). look.py must never hit the network.
+Note (coordinator 08.10): `tests/test_desktop_task110_b2_refresh.py`
+expects a refresh on start offscreen with fake providers — keep it: add an
+explicit switch (`RUSTERM_NO_AUTO_REFRESH=1`, set by look.py and by tests
+that do not test refresh) instead of sniffing the Qt platform.
 **Done when:** test — offscreen build makes 0 provider calls (counted via
 the request gate); look.py run → «запросов сегодня» unchanged.
 
