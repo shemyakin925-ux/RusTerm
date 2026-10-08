@@ -480,6 +480,22 @@ class FactRepo:
                  for concept, (canon, version) in mapping.items()])
             return self.conn.total_changes - before
 
+    def withdraw_canonical(self, withdrawn: Dict[str, str],
+                           version: str) -> int:
+        """Снимает каноническое имя с фактов отозванного тега (карта
+        us-gaap.v7): тег → концепт, который у него больше не верен.
+        Значение, период и происхождение не трогаются."""
+        if not withdrawn:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany(
+                """UPDATE fact SET canonical_concept = NULL,
+                          concept_map_version = ?
+                   WHERE concept = ? AND canonical_concept = ?""",
+                [(version, tag, canon) for tag, canon in withdrawn.items()])
+            return self.conn.total_changes - before
+
     def companyfacts_objects(self) -> List[sqlite3.Row]:
         """(sha256, instrument_id) ВСЕХ сохранённых companyfacts.
 
@@ -703,11 +719,13 @@ class SnapshotRepo:
     def statement_facts(self, issuer_id: str, canonical: str) -> list:
         """PRODUCT.md С2: строки отчётности карточки (выручка, прибыль,
         долг…) — все живые факты канонического концепта, и потоки, и
-        остатки: (value, period_start, period_end, currency, fact_id),
-        новые периоды первыми, внутри периода — свежая подача первой.
+        остатки: (value, period_start, period_end, currency, fact_id,
+        concept), новые периоды первыми, внутри периода — свежая подача
+        первой. Ранг тега выбирает слой отображения.
         Выбор года и окна делает слой отображения."""
         return self.conn.execute(
-            """SELECT value, period_start, period_end, currency, fact_id
+            """SELECT value, period_start, period_end, currency, fact_id,
+                      concept
                FROM fact WHERE issuer_id=? AND canonical_concept=?
                AND status='ok' AND value IS NOT NULL
                AND superseded_by IS NULL AND period_end IS NOT NULL
@@ -865,6 +883,24 @@ class SnapshotRepo:
         `issuer.reporting_currency` (см. модульную
         `dominant_filing_currency`)."""
         return dominant_filing_currency(self.conn, issuer_id)
+
+    def restated_duration_facts(self, issuer_id: str,
+                                concepts: tuple) -> list:
+        """Потоковые факты в базисе restated той же формой, что
+        `as_reported_facts` (ТЗ-137 Y1). Нужны выбору входов, когда
+        предпочтительный тег периода (NetIncomeLoss) подан только
+        сравнительной колонкой следующего отчёта, а as_reported есть
+        лишь у тега другого смысла (ProfitLoss с долей меньшинства)."""
+        placeholders = ",".join("?" * len(concepts))
+        return self.conn.execute(
+            f"""SELECT concept, value, fact_id, unit, period_start,
+                       period_end, canonical_concept
+                FROM fact
+                WHERE issuer_id=? AND basis='restated' AND status='ok'
+                  AND period_type='duration' AND superseded_by IS NULL
+                  AND canonical_concept IN ({placeholders})
+                ORDER BY period_end DESC, ingested_at DESC""",
+            (issuer_id, *concepts)).fetchall()
 
     def restated_stock_facts(self, issuer_id: str, concepts: tuple) -> list:
         """Мгновенные факты сток-концептов в базисе restated — вместе с

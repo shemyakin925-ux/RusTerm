@@ -1858,11 +1858,17 @@ def cmd_reparse(args) -> int:
     # ТЗ-108 W2/W3: тег, вошедший в карту позже загрузки (us-gaap.v5),
     # получает каноническое имя у уже сохранённых фактов — только там,
     # где его не было; отображённые факты не переназначаются
+    from rusterm.normalize.concepts import WITHDRAWN_TAGS, map_version
+    withdrawn = repos.fact.withdraw_canonical(WITHDRAWN_TAGS,
+                                              map_version("us-gaap"))
+    if withdrawn:
+        print(f"каноническое имя снято с фактов отозванных тегов: "
+              f"{withdrawn}")
     remapped = fill_canonical_from_map(repos)
     print(f"каноническое имя дописано фактам: {remapped}")
     print(f"состояние сбора восстановлено эмитентам: "
           f"{res.states_restored}")
-    if res.added or res.changed or remapped:
+    if res.added or res.changed or remapped or withdrawn:
         print("дальше: пересчитайте снапшоты — rusterm snapshot "
               "--watchlist <id> (или --ticker T --market M)")
     return 0 if not res.unreadable else 1

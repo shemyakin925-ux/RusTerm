@@ -218,3 +218,25 @@ def test_stinv_never_reported_is_zero_only_for_full_us_gaap_balance():
                          unmapped=["us-gaap:ShortTermInvestmentsCurrent"])
     assert SnapshotBuilder._stinv_absent_from_balance(
         hidden, "i", "2024-12-31") is None
+
+
+def test_year_column_is_the_fiscal_year_not_a_mid_year_snapshot(tmp_path):
+    """Сверка с Yahoo 07.10: у DELL «2026» показывало капитализацию
+    октября (344 млрд) вместо конца FY2026 (75 млрд). Снапшот на конец
+    финансового года побеждает снапшот посреди года, а клетка позже
+    последнего закрытого года — это «сейчас», а не год."""
+    repos = _base(tmp_path)
+    # годовой конец 2024-12-31 есть в фактах (выручка); снапшот посреди
+    # 2024 и снапшот после закрытия года — старше по версии
+    for version, (sid, as_of, value) in enumerate(
+            (("s-mid-2024", "2024-07-31", "0.99"),
+             ("s-2025-now", "2025-03-31", "0.77")), start=10):
+        repos.snapshot.create_snapshot(sid, "US-AAA", version, as_of,
+                                       None, None, "ready")
+        repos.snapshot.insert_measure(
+            f"m-nm-{sid}", sid, "issuer", "i-AAA", "net_margin", value,
+            "ratio", f"{as_of[:4]}-01-01", as_of, "f", "v1", None, None)
+    history = data.measure_history(repos, "US-AAA")
+    assert history["2024"]["net_margin"] == pytest.approx(0.2), \
+        "снапшот на конец года (2024-12-31) побеждает июльский"
+    assert "2025" not in history, "после последнего закрытого года — «сейчас»"

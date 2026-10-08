@@ -17,8 +17,10 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
+from rusterm.core.ttm import declared_by_year
 from rusterm.desktop import data
 from rusterm.measures_ru import measure_name
+from rusterm.normalize.concepts import priority_rank, strip_taxonomy
 from rusterm.reasons_ru import reason_phrase
 
 DASH = "—"
@@ -149,10 +151,28 @@ def statement_series(repos, issuer_id: str, concept: str,
     финансового года эмитента (`annual_period_ends`). В пределах года
     побеждает свежий конец периода и свежая подача (порядок двери)."""
     rows = repos.snapshot.statement_facts(issuer_id, concept)
+    declared: dict[str, tuple] = {}
+    if concept == "dps":
+        # ТЗ-130 K4: объявления, поданные датами (BAC с 2020), — сумма за
+        # год тем же правилом ядра, что окно дивиденда (core.ttm); год с
+        # годовым периодом берёт годовой факт
+        currency = next((r[3] for r in rows if r[3]), None)
+        by_year = declared_by_year([(r[0], r[1], r[2], r[4]) for r in rows])
+        # год, где объявлений меньше обычного (подан не весь год), — не
+        # годовой дивиденд: у BAC 2024 = 0,48 из двух объявлений из четырёх
+        counts = [len(ids) for _total, ids in by_year.values()]
+        usual = max(set(counts), key=counts.count) if counts else 0
+        declared = {year: (total, currency, ids[-1])
+                    for year, (total, ids) in by_year.items()
+                    if len(ids) >= usual}
     year_ends = (set(repos.snapshot.annual_period_ends(issuer_id))
                  if kind == "stock" else set())
-    series: dict[str, tuple] = {}
-    for value, start, end, currency, fact_id in rows:
+    # год → (ранг тега, конец периода, (значение, валюта, fact_id)):
+    # ТЗ-137 Y1 — смысл тега важнее базиса и свежести подачи (у FCX
+    # NetIncomeLoss, а не ProfitLoss с долей меньшинства); среди равных
+    # рангов побеждает свежий конец периода, затем свежая подача
+    best: dict[str, tuple] = {}
+    for value, start, end, currency, fact_id, tag in rows:
         if kind == "flow":
             if not start:
                 continue
@@ -169,7 +189,16 @@ def statement_series(repos, issuer_id: str, concept: str,
             number = float(value)
         except (TypeError, ValueError):
             continue
-        series.setdefault(_year(end), (number, currency, fact_id))
+        taxonomy, local = strip_taxonomy(tag or "")
+        rank = priority_rank(concept, local, taxonomy or "us-gaap")
+        year = _year(end)
+        current = best.get(year)
+        if (current is None or rank < current[0]
+                or (rank == current[0] and end > current[1])):
+            best[year] = (rank, end, (number, currency, fact_id))
+    series = {year: entry[2] for year, entry in best.items()}
+    for year, point in declared.items():
+        series.setdefault(year, point)
     return series
 
 
@@ -257,6 +286,11 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                     facts[concept] = statement_series(
                         repos, issuer_id, concept, kind)
 
+    # «сейчас» не старше последнего годового отчёта: у AT&T «валовая
+    # прибыль сейчас» была кварталом 2023 года из одинокой подстатьи
+    # себестоимости — значение без срока годности выдавалось за текущее
+    last_annual = max(repos.snapshot.annual_period_ends(issuer_id),
+                      default=None) if issuer_id else None
     years = set(info["years"])
     for series in facts.values():
         years.update(series)
@@ -357,6 +391,11 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                     ebitda=now_value("ebitda"))
                 period = (measure_row["measure"].get("period")
                           or "период не указан")
+                if (not why and last_annual and period[:1].isdigit()
+                        and period < last_annual):
+                    why = (f"значение за период до {period} старше "
+                           f"последнего годового отчёта ({last_annual}) — "
+                           f"это не текущее значение")
                 cells.append(_cell(DASH, f"{why} (расчёт: {text})")
                              if why else _cell(text, f"{hint}; период {period}",
                                                current))
@@ -467,6 +506,30 @@ def chart_table(view: dict, info: dict) -> dict:
 FILL_YEARS = 5
 
 
+def undisclosed_rows(view: dict) -> list[str]:
+    """Строки, пустые во всём окне FILL_YEARS закрытых лет — подсказка,
+    что чинить, а не исключение из метрики: в такой список попадают и
+    нераскрытые строки (операционная прибыль Alcoa), и наши дефекты
+    (дивиденды BAC, капитал AT&T). Вердикт 08.10 по ТЗ-130 Disputed 1:
+    знаменатель честный, порог 80 % на бумагу снят только для AA и ORCL
+    по доказательствам REPORT-130 K1 (`card_fill.WAIVED`)."""
+    years = view["columns"][:-1]
+    window = _fill_window(view)
+    index = [years.index(y) for y in window]
+    return [row["concept"] for row in view["rows"]
+            if row["kind"] != "section" and index
+            and all(row["cells"][i]["value"] is None for i in index)]
+
+
+def _fill_window(view: dict) -> list[str]:
+    years = view["columns"][:-1]
+    revenue = next((r for r in view["rows"]
+                    if r.get("concept") == "revenue"), None)
+    closed = [y for i, y in enumerate(years)
+              if revenue is None or revenue["cells"][i]["value"] is not None]
+    return closed[-FILL_YEARS:]
+
+
 def fill_rate(view: dict) -> tuple[int, int, list[tuple[str, str]]]:
     """(заполнено, применимо, [(концепт, год) пустых]) клеток карточки за последние FILL_YEARS
     закрытых лет — метрика PRODUCT.md С2.
@@ -476,12 +539,7 @@ def fill_rate(view: dict) -> tuple[int, int, list[tuple[str, str]]]:
     в знаменателе: прочерк по бессмысленному значению (отрицательный
     капитал) и строки, которые карточка скрыла как неприменимые."""
     years = view["columns"][:-1]
-    revenue = next((r for r in view["rows"]
-                    if r.get("concept") == "revenue"), None)
-    closed = [y for i, y in enumerate(years)
-              if revenue is None or revenue["cells"][i]["value"] is not None]
-    window = closed[-FILL_YEARS:]
-    index = [years.index(y) for y in window]
+    index = [years.index(y) for y in _fill_window(view)]
     filled = applicable = 0
     gaps: list[tuple[str, str]] = []
     for row in view["rows"]:

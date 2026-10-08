@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from rusterm.core.peers import (currency_guard, evaluate,
                                 percentile_share, period_window)
-from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow,
+from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow, declared_window,
                               is_annual_window, ttm_window)
 from rusterm.formulas import (calculate_measure, effective_tax_rate,
                               invested_capital, measure_unit, nopat)
@@ -890,6 +890,42 @@ class SnapshotBuilder:
                 "rank": priority_rank(key, local, _taxonomy or "us-gaap"),
                 "taxonomy": _taxonomy or "us-gaap",
             })
+
+        # ── ТЗ-137 Y1: смысл тега важнее базиса подачи ──
+        # У FCX за 2024 год NetIncomeLoss подан только сравнительной
+        # колонкой следующего 10-K (restated), а as_reported есть лишь у
+        # ProfitLoss — прибыли вместе с долей меньшинства (4,4 млрд против
+        # 1,9). Выбор по рангу тега видел только as_reported и брал тег
+        # другого смысла: маржа, ROE и P/E расходились с 10-K вдвое.
+        # Restated-факт добавляется к периоду, который уже есть среди
+        # as_reported, и только если его тег лучше лучшего as_reported
+        # тега этого периода: новых периодов и подглядывания нет.
+        best_rank: dict[tuple, int] = {}
+        for key, rows_of in by_concept.items():
+            for r in rows_of:
+                span = (key, r["unit"], r["start"], r["end"])
+                best_rank[span] = min(best_rank.get(span, 1 << 31),
+                                      r["rank"])
+        for _concept, value, fact_id, unit, start, end, canonical in \
+                self._snapshots.restated_duration_facts(
+                    issuer_id, tuple(sorted(base_concepts))):
+            key = canonical or _concept
+            span = (key, unit, start, end)
+            if span not in best_rank or (as_of and end > as_of):
+                continue
+            _taxonomy, local = strip_taxonomy(_concept)
+            rank = priority_rank(key, local, _taxonomy or "us-gaap")
+            if rank >= best_rank[span]:
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            best_rank[span] = rank
+            by_concept[key].append({
+                "value": numeric, "fact_id": fact_id, "unit": unit,
+                "start": start, "end": end, "rank": rank,
+                "taxonomy": _taxonomy or "us-gaap"})
 
         # ── Правило давности (TASK-12 Y2) ──
         # anchor — самый свежий period_end среди as_reported фактов
@@ -1848,6 +1884,14 @@ class SnapshotBuilder:
         currency_by_fact = {r[4]: r[3] for r in rows}
         window = ttm_window([(r[0], r[1], r[2], r[4]) for r in rows],
                             as_of, "dps")
+        # ТЗ-130 K4: объявления, поданные датами (BAC с 2020), — сумма за
+        # 365 дней; берётся, если окна нет или оно старее объявлений (у BAC
+        # годовой период кончается 2018-м и давал stale_data всем годам)
+        declared = declared_window([(r[0], r[1], r[2], r[4]) for r in rows],
+                                   as_of)
+        if declared is not None and (window is None
+                                     or declared.end > window.end):
+            window = declared
         if window is None:
             return None
         currencies = {currency_by_fact.get(c.fact_id)

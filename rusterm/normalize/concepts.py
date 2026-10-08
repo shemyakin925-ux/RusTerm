@@ -31,7 +31,19 @@ dei:EntityCommonStockSharesOutstanding (обложка 10-K, сущность в
 """
 from __future__ import annotations
 
-CONCEPT_MAP_VERSION = "us-gaap.v6"  # v6: + cogs <- CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization (AA), OtherCostOfOperatingRevenue (T) — ТЗ-130 K2, payload-доказательства в REPORT-130
+CONCEPT_MAP_VERSION = "us-gaap.v7"  # v7: + interest_expense <- InterestExpenseNonoperating (MSFT, T с 2024); − OtherCostOfOperatingRevenue из cogs (частичная строка AT&T: без себестоимости оборудования валовая прибыль завышена на ~20 млрд; сверка с Yahoo 08.10)
+# v6: + cogs <- CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization (AA), OtherCostOfOperatingRevenue (T) — ТЗ-130 K2, payload-доказательства в REPORT-130
+
+# Отозванные теги: были в карте, оказались не тем концептом. reparse
+# снимает с их фактов каноническое имя (дописывание имени само этого не
+# сделает — оно трогает только неотображённые факты).
+# us-gaap.v7: OtherCostOfOperatingRevenue — у AT&T это «прочая»
+# себестоимость (27,0 млрд за 2024) без строки оборудования, которую
+# AT&T подаёт собственным тегом-расширением; как cogs она давала валовую
+# прибыль 95 млрд против ~73 млрд по полной себестоимости.
+WITHDRAWN_TAGS: dict[str, str] = {
+    "us-gaap:OtherCostOfOperatingRevenue": "cogs",
+}
 
 CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "revenue": (
@@ -45,11 +57,7 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
              # ТЗ-130 K2: строка Alcoa «Cost of goods sold (exclusive of
              # expenses shown separately below)» — FY2021 9 153 000 000 USD,
              # 10-K; после прежних тегов — приоритет полных строк не тронут
-             "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization",
-             # ТЗ-130 K2: строка AT&T «Operating expenses: Cost of
-             # revenues» — FY2024 27 032 000 000 USD, 10-K; последним:
-             # у прочих эмитентов «Other cost…» бывает мелкой статьёй
-             "OtherCostOfOperatingRevenue"),
+             "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"),
     "gross_profit": ("GrossProfit",),
     "opex": ("OperatingExpenses",),
     "operating_income": ("OperatingIncomeLoss",),
@@ -65,7 +73,10 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
     ),
     "tax_expense": ("IncomeTaxExpenseBenefit",),
-    "interest_expense": ("InterestExpense", "InterestExpenseDebt"),
+    "interest_expense": ("InterestExpense", "InterestExpenseDebt",
+                         # us-gaap.v7: преемник с таксономии 2024 — MSFT и
+                         # AT&T подают процентные расходы им с FY2024/2024
+                         "InterestExpenseNonoperating"),
     "eps_diluted": ("EarningsPerShareDiluted",),
     "shares_diluted": ("WeightedAverageNumberOfDilutedSharesOutstanding",),
     "ocf": ("NetCashProvidedByUsedInOperatingActivities",

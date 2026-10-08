@@ -265,3 +265,57 @@ def ttm_window(rows, as_of: str, concept: str = "") -> Optional[TtmWindow]:
             components=tuple(comps), missing=())
 
     return _annual_fallback(periods, concept, missing)
+
+
+def declared_window(rows, as_of: str, days: int = 365) -> Optional[TtmWindow]:
+    """ТЗ-130 K4: окно по ОБЪЯВЛЕНИЯМ дивиденда, поданным датами.
+
+    BAC подаёт `CommonStockDividendsPerShareDeclared` с началом периода,
+    равным концу, — по факту на каждое объявление (2023: 0,22 / 0,22 /
+    0,24 / 0,24). Квартального окна из таких строк не собрать, а сумма
+    объявленного за последние `days` дней и есть дивиденд за 12 месяцев.
+    rows — (value, start, end, fact_id); берутся только мгновенные
+    (start == end), одна дата — одно объявление (первая строка: вызывающий
+    отдаёт свежую подачу первой). Ни одного объявления в окне — None."""
+    try:
+        anchor = date.fromisoformat(as_of)
+    except (TypeError, ValueError):
+        return None
+    seen: dict[str, tuple] = {}
+    for value, start, end, fact_id in rows:
+        if not end or start != end or end in seen:
+            continue
+        try:
+            day, amount = date.fromisoformat(end), float(value)
+        except (TypeError, ValueError):
+            continue
+        if anchor - timedelta(days=days) < day <= anchor:
+            seen[end] = (amount, fact_id)
+    if not seen:
+        return None
+    first, last = min(seen), max(seen)
+    components = tuple(
+        Component(role="declared", fact_id=fact_id, start=end, end=end,
+                  sign=1, value=amount)
+        for end, (amount, fact_id) in sorted(seen.items()))
+    return TtmWindow(value=sum(a for a, _f in seen.values()), start=first,
+                     end=last, basis=TTM, components=components, missing=())
+
+
+def declared_by_year(rows) -> dict[str, tuple[float, list[str]]]:
+    """Сумма объявлений дивиденда по календарному году даты объявления:
+    {год: (сумма, [fact_id])} — строка «Дивиденд на акцию» карточки для
+    эмитента, который подаёт объявления датами (см. declared_window)."""
+    seen: dict[str, tuple] = {}
+    for value, start, end, fact_id in rows:
+        if not end or start != end or end in seen:
+            continue
+        try:
+            seen[end] = (float(value), fact_id)
+        except (TypeError, ValueError):
+            continue
+    out: dict[str, tuple[float, list[str]]] = {}
+    for end, (amount, fact_id) in sorted(seen.items()):
+        total, ids = out.get(end[:4], (0.0, []))
+        out[end[:4]] = (total + amount, ids + [fact_id])
+    return out

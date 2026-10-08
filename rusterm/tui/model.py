@@ -539,8 +539,33 @@ def _history_walk(repos, instrument_id: str):
     перезаписывает клетку."""
     values: dict[str, dict[str, float]] = {}
     basis: dict[str, dict[str, str]] = {}
-    for s in repos.snapshot.snapshots_of_instrument(instrument_id):
+    # PRODUCT.md С2 (06.10, сверка с Yahoo): колонка года — финансовый
+    # год. Снапшот на конец года (`history`) побеждает снапшот, снятый
+    # посреди года, а клетка позже последнего закрытого года — это
+    # «сейчас», не год: у DELL «2026» показывало капитализацию октября
+    # (344 млрд) вместо конца FY2026 (75 млрд). Без годовых концов в
+    # фактах (фикстуры, демо) правило молчит — прежний порядок версий.
+    instrument = repos.instrument.get_instrument(instrument_id)
+    ends = (set(repos.snapshot.annual_period_ends(instrument.issuer_id))
+            if instrument is not None else set())
+    last_closed = _period_year(max(ends)) if ends else None
+    year_end_cell: dict[str, dict[str, bool]] = {}
+    snapshots = repos.snapshot.snapshots_of_instrument(instrument_id)
+    # пересборка (`history --rebuild`) кладёт новую версию снапшота на
+    # КОНЕЦ ГОДА: старая версия той же даты не даёт ни одной клетки, иначе
+    # мера, которую новые правила честно не считают, доживала бы из старых
+    # (AT&T: валовая прибыль по отозванному тегу себестоимости, 08.10).
+    # Снапшоты посреди года не трогаются: один прогон законно кладёт на
+    # одну дату снапшоты разных периодов (ТЗ-76 W3)
+    latest_at = {}
+    for s in snapshots:
+        latest_at[s["as_of"]] = max(latest_at.get(s["as_of"], 0),
+                                    s["version"])
+    for s in snapshots:
+        if s["as_of"] in ends and s["version"] != latest_at[s["as_of"]]:
+            continue
         run_year = _period_year(s["as_of"])
+        at_year_end = s["as_of"] in ends
         for m in repos.snapshot.get_measures(s["snapshot_id"]):
             if m[4] is None:
                 continue
@@ -560,8 +585,14 @@ def _history_walk(repos, instrument_id: str):
                 year, why = run_year, HISTORY_BASIS_RUN_YEAR
             if year is None:
                 continue
+            if last_closed and not at_year_end and year > last_closed:
+                continue
+            if (year_end_cell.get(year, {}).get(m[3])
+                    and not at_year_end):
+                continue
             values.setdefault(year, {})[m[3]] = val
             basis.setdefault(year, {})[m[3]] = why
+            year_end_cell.setdefault(year, {})[m[3]] = at_year_end
     return values, basis
 
 

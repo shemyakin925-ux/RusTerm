@@ -42,7 +42,7 @@ def _payload(name: str) -> dict:
 def test_c2_map_grew_from_task_start():
     """Преемник булавки «карта байт-в-байт» (test_ifrs_map, xfail):
     карта TASK-18 (237a7) — подмножество текущей; дельта РОВНО
-    посылки ТЗ-31 C2 и ТЗ-108 W2/W3; версия us-gaap.v6."""
+    посылки ТЗ-31 C2 и ТЗ-108 W2/W3; версия us-gaap.v7."""
     old_src = subprocess.run(
         ["git", "show", "23737a7:rusterm/normalize/concepts.py"],
         capture_output=True, text=True, check=True).stdout
@@ -66,12 +66,12 @@ def test_c2_map_grew_from_task_start():
     # total_debt (новый в дельте) растёт только хвостом: W2 SMCI
     assert CONCEPT_MAP["total_debt"] == (
         "LongTermDebt", "DebtLongtermAndShorttermCombinedAmount")
-    assert CONCEPT_MAP_VERSION == "us-gaap.v6"
+    assert CONCEPT_MAP_VERSION == "us-gaap.v7"
     # новый тег штампует канонический концепт и версию карты
     fact = {"concept": "us-gaap:CommonStockSharesOutstanding"}
     apply_concept_map(fact)
     assert fact["canonical_concept"] == "shares_outstanding"
-    assert fact["concept_map_version"] == "us-gaap.v6"
+    assert fact["concept_map_version"] == "us-gaap.v7"
 
 
 # ── золотой тест шести мер на реальных значениях ───────────────────────
