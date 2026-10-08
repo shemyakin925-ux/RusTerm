@@ -159,3 +159,26 @@ def year_change(price_repo, instrument_id: str,
             change = pair[0] / pair[1] - 1
     return {"date": last["date"], "close": last["close"],
             "currency": last["currency"], "change": change}
+
+
+def split_factor_after(events: list[dict], day: str) -> float:
+    """BACKLOG P4 (08.10): во сколько раз цена ряда на дату `day` меньше
+    фактической цены того дня.
+
+    Ряды котировок задним числом делят старые цены на последующие сплиты
+    (AAPL 31.12.2019: 73,41 в ряду при фактических 293,6 — сплит 4:1 в
+    2020-м), а у DELL так же оформлено выделение VMware (1,973 в 2021-м).
+    Капитализация на дату = фактическая цена × число акций той даты,
+    значит цену ряда надо умножить на произведение коэффициентов сплитов
+    ПОСЛЕ этой даты. Одна дата — один коэффициент: событие, записанное
+    двумя источниками, не умножается дважды."""
+    factors: dict[str, float] = {}
+    for event in events:
+        if event.get("kind") != "split" or not event.get("factor"):
+            continue
+        if event["ex_date"] > day:
+            factors.setdefault(event["ex_date"], float(event["factor"]))
+    result = 1.0
+    for factor in factors.values():
+        result *= factor
+    return result

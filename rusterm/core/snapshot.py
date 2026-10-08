@@ -15,6 +15,7 @@ from uuid import uuid4
 from rusterm.core.peers import (currency_guard, evaluate,
                                 percentile_share, period_window)
 from rusterm.core.debt import adds_short_term, short_term_at
+from rusterm.core.prices import split_factor_after
 from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow, declared_window,
                               is_annual_window, ttm_window)
 from rusterm.formulas import (calculate_measure, effective_tax_rate,
@@ -2083,6 +2084,12 @@ class SnapshotBuilder:
             price_reason = None
             price_value = price["close"]
             price_currency = price["currency"]
+            # BACKLOG P4: ряд делит старые цены на последующие сплиты —
+            # капитализация и мультипликаторы на прошлую дату берут
+            # фактическую цену того дня (AAPL 2019 ×4, DELL 2020 ×1,973)
+            if self._corp_actions is not None:
+                price_value *= split_factor_after(
+                    self._corp_actions.all(instrument_id), price["date"])
 
         inputs, stale_inputs = self._latest_canonical(issuer_id, as_of)
 

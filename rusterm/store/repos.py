@@ -2510,7 +2510,7 @@ class PriceRepo:
         row = self.conn.execute(
             """SELECT date, close, adjusted, currency FROM price
                WHERE instrument_id=? AND date<=?
-               ORDER BY date DESC LIMIT 1""",
+               ORDER BY date DESC, (source = 'yahoo') DESC LIMIT 1""",
             (instrument_id, as_of)).fetchone()
         if row is None:
             return None

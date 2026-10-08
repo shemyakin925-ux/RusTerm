@@ -127,7 +127,7 @@ def derived(theirs: dict[str, dict[str, float]]) -> dict[str, dict]:
     return {"roe": roe, "pe": pe}
 
 
-def compare(mine: dict, theirs: dict) -> list[tuple]:
+def compare(mine: dict, theirs: dict, years: int = YEARS) -> list[tuple]:
     """[(концепт, год, наше, их, отклонение)] за последние YEARS лет."""
     rows = []
     reference = {concept: theirs.get(kind, {})
@@ -139,7 +139,7 @@ def compare(mine: dict, theirs: dict) -> list[tuple]:
     reference.update(derived(theirs))
     for concept, their_years in reference.items():
         my_years = mine.get(concept, {})
-        common = sorted(set(my_years) & set(their_years))[-YEARS:]
+        common = sorted(set(my_years) & set(their_years))[-years:]
         for year in common:
             a, b = my_years[year], their_years[year]
             if concept in ABSOLUTE:
@@ -216,6 +216,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--cache", default=None)
+    parser.add_argument("--years", type=int, default=YEARS,
+                        help="сколько последних лет сравнивать")
     parser.add_argument("--all", action="store_true",
                         help="капитализация всех бумаг против Yahoo")
     parser.add_argument("instruments", nargs="*")
@@ -234,7 +236,8 @@ def main(argv=None) -> int:
     misses, info = [], []
     for instrument_id in args.instruments or CONTROL_TEN:
         symbol = instrument_id.split("-", 1)[1]
-        every = compare(ours(repos, instrument_id), fetch(symbol, cache))
+        every = compare(ours(repos, instrument_id), fetch(symbol, cache),
+                        args.years)
         info += [(instrument_id, *r) for r in every
                  if r[0] not in SCORED and r[4] > TOLERANCE]
         rows = [r for r in every if r[0] in SCORED]

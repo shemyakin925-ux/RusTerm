@@ -296,3 +296,48 @@ def test_stale_cover_shares_fall_back_to_fresh_diluted_count(tmp_path):
     assert float(cap[4]) == pytest.approx(500.0), \
         "квартальное разводнённое число (50) × цена 10"
     assert repos.snapshot.lineage_fact_ids(cap[0]) == ["dil-q"]
+
+
+def test_split_factor_after_counts_each_date_once():
+    """BACKLOG P4: AAPL 2019 — цена ряда 73,41 при фактических 293,6
+    (сплит 4:1 в 2020); событие двух источников не умножается дважды."""
+    from rusterm.core.prices import split_factor_after
+    events = [
+        {"kind": "split", "ex_date": "2014-06-09", "factor": 7.0},
+        {"kind": "split", "ex_date": "2020-08-31", "factor": 4.0},
+        {"kind": "split", "ex_date": "2020-08-31", "factor": 4.0},
+        {"kind": "dividend", "ex_date": "2021-01-01", "factor": None},
+    ]
+    assert split_factor_after(events, "2019-12-31") == 4.0
+    assert split_factor_after(events, "2013-12-31") == 28.0
+    assert split_factor_after(events, "2021-01-01") == 1.0
+
+
+def test_price_as_of_prefers_the_yahoo_row_of_the_same_day(tmp_path):
+    repos, _sha = _repos(tmp_path)
+    repos.price.put_rows("US-F", "twelvedata", [
+        {"date": "2024-12-31", "close": 9.5, "currency": "USD"}])
+    repos.price.put_rows("US-F", "yahoo", [
+        {"date": "2024-12-31", "close": 10.0, "currency": "USD"}])
+    assert repos.price.price_as_of("US-F", "2025-01-02")["close"] == 10.0
+
+
+def test_past_market_cap_uses_the_actual_price_of_that_day(tmp_path):
+    repos, sha = _repos(tmp_path)
+    _fact(repos, sha, "rev", "Revenues", "revenue", "2019-01-01",
+          "2019-12-31", 100)
+    repos.fact.insert_fact(
+        "sh", "i-F", None, "dei:EntityCommonStockSharesOutstanding",
+        "2019-12-31", "2019-12-31", "instant", "100", "shares", None,
+        "as_reported", "extracted", sha, {"endpoint": "companyfacts"},
+        "t", canonical_concept="shares_outstanding")
+    repos.price.put_rows("US-F", "yahoo", [
+        {"date": "2019-12-31", "close": 25.0, "currency": "USD"}])
+    repos.corp_action.put("US-F", "2020-08-31", "split", 4.0, None,
+                               None, "yahoo")
+    make_snapshot_builder(repos, "2019-12-31").build("US-F", "i-F",
+                                                     "2019-12-31")
+    sid = repos.snapshot.latest_snapshot_id("US-F")
+    cap = next(m for m in repos.snapshot.get_measures(sid)
+               if m[3] == "market_cap")
+    assert float(cap[4]) == pytest.approx(25.0 * 4 * 100)

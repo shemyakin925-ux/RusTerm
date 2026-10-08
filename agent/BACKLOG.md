@@ -11,7 +11,7 @@ serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
 - [ ] P3 — look.py: count «—» separately from section blanks in
   `report.json` (`dash`, `section_blank`) — accept: test on a fixture
   card — size: S
-- [ ] P4 — historical market cap uses dividend/spin-off-ADJUSTED closes
+- [x] P4 — DONE 08.10 by the coordinator: price × split factors after the date (core.prices.split_factor_after), Yahoo row preferred; AAPL 2019 cap 972 bn (was ~243), DELL 2020 36 bn (was 18). historical market cap uses dividend/spin-off-ADJUSTED closes
   (coordinator 08.10): old price rows come from Twelve Data, whose `close`
   is back-adjusted — DELL 2020-01-31 close 24.72 vs ~50 actual (VMware
   spin-off 2021). Adjusted close × actual share count of that date
