@@ -113,7 +113,14 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",),
     "minority_interest": ("MinorityInterest",),
     "preferred_equity": ("PreferredStockValue",),
-    "dps": ("CommonStockDividendsPerShareDeclared",),
+    "dps": ("CommonStockDividendsPerShareDeclared",
+            # ТЗ-139 B2: преемник у KO — эмитент с 2018 подаёт в XBRL
+            # только выплаченное на акцию: Declared обрывается 2018-09-28,
+            # CashPaid живёт до сегодняшнего (KO: 2025 год = 2,04 USD,
+            # замер на копии базы; строка dps карточки пуста весь период).
+            # Ранг ниже Declared: подающий оба (BAC и прочие) получает
+            # прежнее объявленное значение
+            "CommonStockDividendsPerShareCashPaid"),
     "buyback_amount": ("PaymentsForRepurchaseOfCommonStock",),
 }
 
