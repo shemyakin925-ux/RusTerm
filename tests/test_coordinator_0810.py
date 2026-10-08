@@ -263,3 +263,36 @@ def test_combined_debt_tag_does_not_get_paper_twice(tmp_path):
                     if m[3] == "net_debt")
     assert float(net_debt[4]) == pytest.approx(70.0), \
         "объединённый тег уже содержит бумаги"
+
+
+def test_stale_cover_shares_fall_back_to_fresh_diluted_count(tmp_path):
+    """BACKLOG P7: у CMCSA обложка подаётся по классам, число акций
+    застряло в 2009-м; капитализация берёт свежее разводнённое число
+    акций, и lineage называет подмену."""
+    repos, sha = _repos(tmp_path)
+    _fact(repos, sha, "rev", "Revenues", "revenue", "2025-01-01",
+          "2025-12-31", 100)
+    repos.fact.insert_fact(
+        "dei-old", "i-F", None, "dei:EntityCommonStockSharesOutstanding",
+        "2009-12-31", "2009-12-31", "instant", "1000", "shares", None,
+        "as_reported", "extracted", sha, {"endpoint": "companyfacts"},
+        "t", canonical_concept="shares_outstanding")
+    for fid, start, value in (("dil-h", "2026-01-01", "40"),
+                              ("dil-q", "2026-04-01", "50")):
+        repos.fact.insert_fact(
+            fid, "i-F", None,
+            "us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding",
+            start, "2026-06-30", "duration", value, "shares", None,
+            "as_reported", "extracted", sha, {"endpoint": "companyfacts"},
+            "t", canonical_concept="shares_diluted")
+    repos.price.put_rows("US-F", "yahoo", [
+        {"date": "2026-09-29", "close": 10.0, "adjusted": 10.0,
+         "currency": "USD", "volume": 1}])
+    make_snapshot_builder(repos, "2026-09-30").build("US-F", "i-F",
+                                                     "2026-09-30")
+    sid = repos.snapshot.latest_snapshot_id("US-F")
+    cap = next(m for m in repos.snapshot.get_measures(sid)
+               if m[3] == "market_cap")
+    assert float(cap[4]) == pytest.approx(500.0), \
+        "квартальное разводнённое число (50) × цена 10"
+    assert repos.snapshot.lineage_fact_ids(cap[0]) == ["dil-q"]

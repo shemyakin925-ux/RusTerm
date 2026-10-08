@@ -1705,6 +1705,31 @@ class SnapshotBuilder:
 
     # ── ТЗ-31 C2: входы оценочных мер из реальных данных ────────────────
 
+    def _fresh_diluted_shares(self, issuer_id: str,
+                              as_of: Optional[str]) -> Optional[tuple]:
+        """(число, конец, валюта, fact_id) — средневзвешенное разводнённое
+        число акций с самым свежим концом периода (из окон с этим концом —
+        самое короткое: квартал ближе к числу на дату), не старше
+        `_SHARES_FRESH_DAYS` от as_of; иначе None (BACKLOG P7)."""
+        best = None
+        for row in self._snapshots.as_reported_facts(issuer_id,
+                                                     ("shares_diluted",)):
+            _tag, value, fact_id, _unit, start, end = row[:6]
+            if not end or (as_of and end > as_of):
+                continue
+            try:
+                number = float(value)
+                length = (date.fromisoformat(end)
+                          - date.fromisoformat(start)).days if start else 0
+            except (TypeError, ValueError):
+                continue
+            key = (end, -length)
+            if number > 0 and (best is None or key > best[0]):
+                best = (key, number, end, fact_id)
+        if best is None or _share_count_refusal(best[2], as_of):
+            return None
+        return (best[1], best[2], None, best[3])
+
     def _stinv_absent_from_balance(self, issuer_id: str,
                                    cash_end: Optional[str]) -> Optional[str]:
         """Почему st_investments можно взять нулём, или None.
@@ -2288,6 +2313,20 @@ class SnapshotBuilder:
 
         # market_cap (класс) = price_close * shares_outstanding
         shares = inputs.get("shares_outstanding")
+        # BACKLOG P7 (08.10): у эмитента с несколькими классами акций
+        # (CMCSA, WDAY, CHTR) обложка 10-K подаётся по классам, сводный
+        # companyfacts их не отдаёт — число акций застряло в 2009–2018 и
+        # честно отказывает по давности. Запасной вход — свежее
+        # средневзвешенное разводнённое число акций (все классы), роль в
+        # lineage называет подмену
+        shares_fallback_role = None
+        if shares is None or _share_count_refusal(shares[1], as_of):
+            diluted = self._fresh_diluted_shares(issuer_id, as_of)
+            if diluted is not None:
+                shares = diluted
+                shares_fallback_role = (
+                    "input: shares_diluted (weighted average) — cover "
+                    "share count stale or missing")
         shares_cur = shares[2] if shares else None
         mcap_value = None
         mcap_reason = None
@@ -2320,6 +2359,9 @@ class SnapshotBuilder:
                                     else shares[0]))
             mcap_value, mcap_reason = m.value, m.null_reason
         mcap_lineage = self._fact_lineage(shares[3] if shares else None)
+        if shares_fallback_role and mcap_lineage:
+            mcap_lineage = [dict(row, role=shares_fallback_role)
+                            for row in mcap_lineage]
         ratio_fact = (self._snapshots.latest_ads_ratio(issuer_id)
                       if mcap_value is not None
                       and self._snapshots.files_mainly_ifrs(issuer_id)
