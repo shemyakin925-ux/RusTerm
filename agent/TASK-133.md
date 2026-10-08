@@ -1,6 +1,6 @@
 # TASK-133 — С5: «Обновить» and «Добавить компанию» without the terminal
 
-- **Status: READY**
+- **Status: ACCEPTED (08.10, done by the coordinator) — R1, R2, R3. R4 moved to TASK-134 W5.**
 - **Report:** `agent/REPORT-133.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С5. Queue rules: `agent/TASK-131.md`.

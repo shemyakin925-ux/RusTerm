@@ -32,5 +32,16 @@ The chat input stays (frozen) but must not show errors or key names when
 no key: one grey line «вопросы к модели — позже».
 **Done when:** offscreen test without key — no exception, the line shown.
 
+## W5. Terminal commands become buttons (was TASK-133 R4)
+User-visible hints that tell the user to type `rusterm …` (data.py
+empty-base / no-watchlist / no-history / peers-set / governance hints,
+window.py coverage and catalog lines) become buttons that run the same
+core door, or disappear. **Conflict to resolve, not to dodge:**
+`tests/test_desktop_task97_q1_tab_hints.py` requires an *executable* hint
+on an empty tab — change that guard to accept «a button whose action is
+the same argv» (keep the argv check on the button), never delete it.
+**Done when:** grep over user-visible strings in `rusterm/desktop/`: no
+«rusterm » outside the source panel; the q1 guard green with buttons.
+
 ## Do not
 Same list as `agent/TASK-131.md` «Do not».

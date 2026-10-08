@@ -1,12 +1,12 @@
 {
  "holder": "executor",
- "round": 153,
+ "round": 154,
  "branch": "agent/night-11",
- "task": "agent/TASK-133.md",
- "report": "agent/REPORT-133.md",
- "note": "TASK-132 done by the coordinator (tab «Аналоги»). NEXT: git pull --rebase, TASK-133 (Обновить / Добавить компанию; R1 note on the auto-refresh switch), then 134…136; BACKLOG P4–P8.",
+ "task": "agent/TASK-134.md",
+ "report": "agent/REPORT-134.md",
+ "note": "TASK-133 R1–R3 done by the coordinator. NEXT: git pull --rebase, TASK-134 (clean screen; W5 = old R4 with the q1 guard change), then 135, 136; BACKLOG P4–P8.",
  "handed_by": "coordinator",
- "handed_at": "2026-10-08T03:32:29Z",
+ "handed_at": "2026-10-08T03:40:34Z",
  "paused": false,
  "finished": false
 }
