@@ -1009,7 +1009,13 @@ class SnapshotBuilder:
                 # пересоставленный факт не должен попасть в слагаемое
                 # вместо предпочтительного тега
                 span = (r["start"], r["end"])
-                if span not in best or r["rank"] < best[span]["rank"]:
+                # 08.10: при равном ранге — основная валюта подачи
+                # (у AMX в 20-F рядом с песо стоит пересчёт в USD, и
+                # первый попавшийся факт делал год то песо, то долларом)
+                if span not in best or r["rank"] < best[span]["rank"] or (
+                        r["rank"] == best[span]["rank"]
+                        and r["unit"] == presentation_unit
+                        and best[span]["unit"] != presentation_unit):
                     best[span] = r
             window = ttm_window(
                 [(r["value"], r["start"], r["end"], r["fact_id"])

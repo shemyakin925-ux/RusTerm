@@ -539,6 +539,7 @@ def _history_walk(repos, instrument_id: str):
     перезаписывает клетку."""
     values: dict[str, dict[str, float]] = {}
     basis: dict[str, dict[str, str]] = {}
+    units: dict[str, dict[str, str]] = {}
     # PRODUCT.md С2 (06.10, сверка с Yahoo): колонка года — финансовый
     # год. Снапшот на конец года (`history`) побеждает снапшот, снятый
     # посреди года, а клетка позже последнего закрытого года — это
@@ -599,8 +600,15 @@ def _history_walk(repos, instrument_id: str):
                 continue
             values.setdefault(year, {})[m[3]] = val
             basis.setdefault(year, {})[m[3]] = why
+            units.setdefault(year, {})[m[3]] = m[5]
             year_end_cell.setdefault(year, {})[m[3]] = at_year_end
-    return values, basis
+    return values, basis, units
+
+
+def measure_history_units(repos, instrument_id: str) -> dict[str, dict[str, str]]:
+    """Единица клетки истории — ``{год: {концепт: unit}}``: у эмитента,
+    подающего и песо, и пересчёт в доллары, валюта года — своя (08.10)."""
+    return _history_walk(repos, instrument_id)[2]
 
 
 def measure_history_by_year(repos, instrument_id: str) -> dict[str, dict[str, float]]:

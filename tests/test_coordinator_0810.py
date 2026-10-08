@@ -341,3 +341,26 @@ def test_past_market_cap_uses_the_actual_price_of_that_day(tmp_path):
     cap = next(m for m in repos.snapshot.get_measures(sid)
                if m[3] == "market_cap")
     assert float(cap[4]) == pytest.approx(25.0 * 4 * 100)
+
+
+def test_statement_row_keeps_the_home_currency_of_the_filer(tmp_path):
+    """08.10: в 20-F AMX рядом с песо стоит пересчёт последнего года в
+    USD — строка выручки не должна прыгать песо → доллар → песо."""
+    repos, sha = _repos(tmp_path)
+    for i, (start, end, value) in enumerate((
+            ("2022-01-01", "2022-12-31", "844"),
+            ("2023-01-01", "2023-12-31", "816"),
+            ("2024-01-01", "2024-12-31", "869"))):
+        repos.fact.insert_fact(
+            f"mxn-{i}", "i-F", None, "ifrs-full:Revenue", start, end,
+            "duration", value, "MXN", "MXN", "as_reported", "extracted",
+            sha, {"endpoint": "companyfacts"}, "t",
+            canonical_concept="revenue")
+    repos.fact.insert_fact(
+        "usd-24", "i-F", None, "ifrs-full:Revenue", "2024-01-01",
+        "2024-12-31", "duration", "43", "USD", "USD", "as_reported",
+        "extracted", sha, {"endpoint": "companyfacts"}, "t",
+        canonical_concept="revenue")
+    series = card.statement_series(repos, "i-F", "revenue", "flow")
+    assert series["2024"][:2] == (869.0, "MXN")
+    assert {s[1] for s in series.values()} == {"MXN"}

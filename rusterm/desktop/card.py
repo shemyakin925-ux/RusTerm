@@ -159,6 +159,10 @@ def statement_series(repos, issuer_id: str, concept: str,
     финансового года эмитента (`annual_period_ends`). В пределах года
     побеждает свежий конец периода и свежая подача (порядок двери)."""
     rows = repos.snapshot.statement_facts(issuer_id, concept)
+    # основная валюта подачи — первой: пересчёт для удобства (USD в 20-F
+    # AMX) не должен делать один год строки долларом, а соседний песо
+    home = repos.snapshot.dominant_filing_currency(issuer_id)
+    rows = sorted(rows, key=lambda r: r[3] != home)
     declared: dict[str, tuple] = {}
     if concept == "dps":
         # ТЗ-130 K4: объявления, поданные датами (BAC с 2020), — сумма за
@@ -203,7 +207,9 @@ def statement_series(repos, issuer_id: str, concept: str,
         year = _year(end)
         current = best.get(year)
         if (current is None or rank < current[0]
-                or (rank == current[0] and end > current[1])):
+                or (rank == current[0] and end > current[1])
+                or (rank == current[0] and end == current[1]
+                    and currency == home and current[2][1] != home)):
             best[year] = (rank, end, (number, currency, fact_id))
     series = {year: entry[2] for year, entry in best.items()}
     if concept == "total_debt":
@@ -356,6 +362,11 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
     instrument = repos.instrument.get_instrument(info["instrument_id"])
     issuer_id = instrument.issuer_id if instrument is not None else None
 
+    # единица клетки года — из меры того года (08.10: AMX 2022 в песо,
+    # 2024 — пересчёт в USD; одна единица на строку подписывала песо
+    # долларами)
+    from rusterm.tui import model as tui_model
+    year_units = tui_model.measure_history_units(repos, info["instrument_id"])
     facts: dict[str, dict] = {}
     if issuer_id:
         for _title, items in SECTIONS:
@@ -438,7 +449,8 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                     fact_ids[year] = fact_id
                     unit = currency
                 else:
-                    unit = measure_row.get("unit")
+                    unit = (year_units.get(year, {}).get(concept)
+                            or measure_row.get("unit"))
                 why = implausible(concept, value,
                                   equity=year_value("total_equity", year),
                                   ebitda=year_value("ebitda", year))
