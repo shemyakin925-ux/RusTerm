@@ -226,6 +226,12 @@ def implausible(concept: str, value: float,
             return "больше 500 % — капитал близок к нулю, показатель не имеет смысла"
     if concept == "pe" and value <= 0:
         return "убыток — P/E не имеет смысла"
+    if concept in ("pe", "ev_ebitda") and value > 500:
+        return "знаменатель близок к нулю — мультипликатор не имеет смысла"
+    if concept in ("gross_margin", "operating_margin", "net_margin") \
+            and abs(value) > 1:
+        return ("больше 100 % выручки — выручка, вероятно, подана не "
+                "полностью; маржа не имеет смысла")
     if concept == "pb" and value <= 0:
         return "собственный капитал отрицательный — P/B не имеет смысла"
     if concept == "ev_ebitda" and value <= 0:

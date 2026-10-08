@@ -131,3 +131,31 @@ def our_adjusted_series(
                                     abs(value) * TOLERANCE_REL):
             disagreements.append((date, value, float(other)))
     return ours, disagreements
+
+
+def year_change(price_repo, instrument_id: str,
+                days: int = 365) -> "dict | None":
+    """PRODUCT.md С1: последняя цена и изменение за год для стартовой
+    таблицы окна.
+
+    Изменение — по скорректированной цене (сплит не выглядит обвалом),
+    если она есть у обеих точек, иначе по цене закрытия. Точка «год
+    назад» — последняя цена не позже даты на `days` дней раньше; если её
+    нет или она старше на неделю (дыра в ряду), изменения нет — None в
+    поле, а не выдуманное число. Цен нет вовсе — None."""
+    from datetime import date as _date, timedelta as _td
+    last_day = price_repo.latest_date(instrument_id)
+    if not last_day:
+        return None
+    last = price_repo.price_as_of(instrument_id, last_day)
+    target = (_date.fromisoformat(last_day) - _td(days=days)).isoformat()
+    before = price_repo.price_as_of(instrument_id, target)
+    change = None
+    if before is not None and before["age_days"] <= 7:
+        pair = ((last["adjusted"], before["adjusted"])
+                if last["adjusted"] and before["adjusted"]
+                else (last["close"], before["close"]))
+        if pair[0] and pair[1]:
+            change = pair[0] / pair[1] - 1
+    return {"date": last["date"], "close": last["close"],
+            "currency": last["currency"], "change": change}

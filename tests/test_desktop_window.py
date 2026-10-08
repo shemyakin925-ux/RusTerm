@@ -976,8 +976,11 @@ def test_s1_tabs_switch_shows_industry(qapp, env):
     from PySide6.QtWidgets import QTabWidget
     tabs = window.findChild(QTabWidget, "tabs")
     assert tabs is not None and tabs.count() >= 2
-    tabs.setCurrentIndex(1)
-    assert tabs.currentIndex() == 1
+    # ТЗ-131 H1: первая вкладка — «Все компании»; «Отрасль» ищется по имени
+    industry_index = next(i for i in range(tabs.count())
+                          if tabs.tabText(i) == "Отрасль")
+    tabs.setCurrentIndex(industry_index)
+    assert tabs.currentIndex() == industry_index
     peer_line = _widget(window, QLabel, "peer_line")
     assert "peer set energy" in peer_line.text()
 

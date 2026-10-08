@@ -49,7 +49,7 @@ from tests.test_desktop_task96_r4_firsthour import (  # noqa: E402
 
 # Порядок и имена вкладок — часть контракта окна: новая вкладка обязана
 # попасть в страж, а не быть нарисованной мимо правила.
-TABS = ("Компания", "Отрасль", "Качество", "Настройки")
+TABS = ("Все компании", "Компания", "Отрасль", "Качество", "Настройки")
 
 
 def _open(root):
@@ -204,6 +204,18 @@ def _has_number_in_second_column(table: QTableWidget) -> bool:
 
 def _carries_data(tab: str, page: QWidget) -> bool:
     """Данные вкладки — по её назначению, а не по «что-то нарисовано»."""
+    if tab == "Все компании":
+        # ТЗ-131 H1: хоть одно число в числовых колонках (от
+        # «Капитализации» вправо), не «—» и не слова
+        table = _table_of(page, "home_table")
+        headers = [table.horizontalHeaderItem(c).text()
+                   for c in range(table.columnCount())]
+        first = headers.index("Капитализация")
+        return any(table.item(row, col) is not None
+                   and table.item(row, col).text() not in
+                   ("", "—", desktop_data.NO_DATA)
+                   for row in range(table.rowCount())
+                   for col in range(first, table.columnCount()))
     if tab == "Компания":
         return _has_number_in_second_column(_table_of(page, "table"))
     if tab == "Отрасль":

@@ -169,7 +169,7 @@ def test_window_settings_tab_shows_keys_and_asks_for_root(
         "US-X", "i-X", None, "common", "active", None))
     window = desktop_window._build_window(repos, paths, None)
     tabs = window.findChild(QTabWidget, "tabs")
-    assert tabs.count() == 4
+    assert tabs.count() == 5  # + «Все компании» (ТЗ-131 H1)
     keys_label = window.findChild(QLabel, "keys_label")
     assert "нет —" in keys_label.text()
     assert "sk-" not in keys_label.text()

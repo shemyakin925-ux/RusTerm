@@ -34,6 +34,7 @@ from pathlib import Path as _Path
 
 from rusterm.desktop import actions as desktop_actions
 from rusterm.desktop import card as desktop_card
+from rusterm.desktop import home as desktop_home
 from rusterm.desktop import data
 from rusterm.markets import MARKET_CODES
 from rusterm.tui import model as tui_model
@@ -224,6 +225,19 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
 
     # ── центр: вкладки «Компания» и «Отрасль» (C1.2/C1.3/C3) ───────
     tabs = QTabWidget(objectName="tabs")
+    # PRODUCT.md С1 (ТЗ-131 H1): первая вкладка — все компании сразу,
+    # открыта при запуске; двойной клик по строке — карточка компании
+    home_page = QWidget()
+    home_layout = QVBoxLayout(home_page)
+    home_summary = QLabel(objectName="home_summary")
+    home_layout.addWidget(home_summary)
+    home_table = QTableWidget(objectName="home_table")
+    home_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    home_table.setSelectionBehavior(
+        QTableWidget.SelectionBehavior.SelectRows)
+    home_table.verticalHeader().setVisible(False)
+    home_layout.addWidget(home_table)
+    tabs.addTab(home_page, "Все компании")
     center = QWidget()
     center_layout = QVBoxLayout(center)
     company_header = QLabel(objectName="company_header")
@@ -465,8 +479,10 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             f"совпадений: {matches}" if query_text
             else f"компаний: {len(state['companies'])}")
         for node in tree_data:
+            # ТЗ-131 H3: группа по-русски, код остаётся в данных строки
             sector_item = QTreeWidgetItem(
-                [f"▾ {node['sector']} · {len(node['companies'])}"])
+                [f"▾ {desktop_home.sector_name(node['sector'])} · "
+                 f"{len(node['companies'])}"])
             sector_item.setData(0, Qt.ItemDataRole.UserRole,
                                 ("sector", node["sector"]))
             tree.addTopLevelItem(sector_item)
@@ -490,6 +506,63 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             line += " · " + ", ".join(
                 f"{c} — {degrees[c]}" for c in with_degree)
         markets_line.setText(line)
+        repaint_home(query)
+
+    def repaint_home(query: str = "") -> None:
+        """ТЗ-131 H1/H2: стартовая таблица всех компаний; поиск сужает
+        её тем же правилом, что и дерево."""
+        if repos is None:
+            home_table.setRowCount(0)
+            return
+        if state.get("home_for") is not state["companies"]:
+            state["home_rows"] = desktop_home.home_rows(repos,
+                                                        state["companies"])
+            state["home_for"] = state["companies"]
+        rows = [r for r in state["home_rows"]
+                if desktop_home.matches(r, query)]
+        home_table.setSortingEnabled(False)
+        home_table.clear()
+        home_table.setColumnCount(len(desktop_home.COLUMNS))
+        home_table.setHorizontalHeaderLabels(
+            [title for _key, title in desktop_home.COLUMNS])
+        home_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            for column, (key, _title) in enumerate(desktop_home.COLUMNS):
+                cell = row["cells"][key]
+                if cell["value"] is not None:
+                    item = _HomeNumberItem(cell["text"], cell["value"])
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight
+                                          | Qt.AlignmentFlag.AlignVCenter)
+                else:
+                    item = QTableWidgetItem(cell["text"])
+                    if key not in ("ticker", "name", "group"):
+                        item.setTextAlignment(
+                            Qt.AlignmentFlag.AlignRight
+                            | Qt.AlignmentFlag.AlignVCenter)
+                if cell["tooltip"]:
+                    item.setToolTip(cell["tooltip"])
+                item.setData(Qt.ItemDataRole.UserRole, row["instrument_id"])
+                home_table.setItem(row_index, column, item)
+        home_table.setSortingEnabled(True)
+        home_table.resizeColumnsToContents()
+        query_text = (query or "").strip()
+        home_summary.setText(
+            f"совпадений: {len(rows)} · двойной клик — карточка компании"
+            if query_text else
+            f"компаний: {len(rows)} · клик по заголовку — сортировка · "
+            f"двойной клик — карточка компании")
+
+    def on_home_open(row: int, _column: int) -> None:
+        item = home_table.item(row, 0)
+        if item is None:
+            return
+        instrument_id = item.data(Qt.ItemDataRole.UserRole)
+        company = next((c for c in state["companies"]
+                        if c["instrument_id"] == instrument_id), None)
+        if company is None:
+            return
+        load_company(company)
+        tabs.setCurrentWidget(center)
 
     def repaint_watchlists() -> None:
         """C5.1: списки в переключателе, версия и состав видны."""
@@ -1284,9 +1357,26 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     refresh_timer.start()
     start_refresh_pass()
     # тестам (ТЗ-110 B2): тик таймера вручную и проверка интервала
+    home_table.cellDoubleClicked.connect(on_home_open)
+    tabs.setCurrentWidget(home_page)
     window.refresh_tick = start_refresh_pass
     window.refresh_timer = refresh_timer
     return window
+
+
+class _HomeNumberItem(QTableWidgetItem if QT_AVAILABLE else object):
+    """Клетка стартовой таблицы: показывает текст («11,21 млрд USD»),
+    сортируется по числу (ТЗ-131 H1); «—» уходит в конец."""
+
+    def __init__(self, text: str, value: float):
+        super().__init__(text)
+        self._value = value
+
+    def __lt__(self, other):
+        theirs = getattr(other, "_value", None)
+        if theirs is None:
+            return True
+        return self._value < theirs
 
 
 def _sort_item(text: str, sort_key: str):
