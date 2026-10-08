@@ -1069,6 +1069,35 @@ def remove_instruments(repos, watchlist_id: str,
 
 # ── Панель источника (TASK-C6): только то, что отдаёт модель ────────────
 
+def panel_for_cell(repos, paths: AppPaths, view: dict, row: dict,
+                   column: int,
+                   instrument_id: str | None = None) -> dict:
+    """ТЗ-140 S1: панель источника для КЛИКНУТОЙ клетки — одна дверь для
+    окна и машины (tools/source_check.py), те же функции, без Qt.
+
+    Строка фактов: документ выбранного года, «сейчас» — последний год с
+    фактом. Строка мер: панель меры строки — тот же вид, что окно
+    показывает из любого её столбца."""
+    from rusterm.desktop import card  # card импортирует data: локально
+    years = view["columns"][:-1]
+    is_now = column >= len(years)
+    if row["kind"] == "fact":
+        year = (max(row["fact_ids"], default="")
+                if is_now else years[column])
+        text = card.fact_source_text(repos, row, year)
+        return {"text": text,
+                "open_target": card.fact_open_target(repos, paths, row,
+                                                     year),
+                "stale_count": 0, "measure_row": None,
+                "cell_kind": "fact"}
+    panel = source_panel_view(repos, paths, row["measure_row"],
+                              instrument_id=instrument_id)
+    panel["measure_row"] = (row["measure_row"]
+                            if row["measure_row"] is not None else None)
+    panel["cell_kind"] = "measure"
+    return panel
+
+
 def raw_object_location(paths: AppPaths, sha256: str) -> dict:
     """C6.2: где лежит сохранённый ответ и есть ли он. raw/store/<2>/<sha>;
     файла нет — exists=False, окно скажет словами, а не упадёт."""
@@ -1135,9 +1164,11 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict,
         loc = raw_object_location(paths, sha)
         kind = (source["locator"].get("kind", "?")
                 if isinstance(source["locator"], dict) else "?")
+        label = (f"через меру {source['via_measure']}"
+                 if source.get("via_measure") else kind)
         where = "сырье: " + loc["path"] if loc["exists"] \
             else "сырья нет в хранилище"
-        lines.append(f"{kind}: {sha[:16]}… {where}"
+        lines.append(f"{label}: {sha[:16]}… {where}"
                      + (f" (период входа {period})" if period else ""))
         if loc["exists"] and open_target is None:
             open_target = loc["path"]

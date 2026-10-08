@@ -1176,20 +1176,19 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         card_row = view["rows"][row]
         if card_row["kind"] == "section":
             return
-        if card_row["kind"] == "fact":
-            years = view["columns"][:-1]
-            year = (years[column] if column < len(years)
-                    else max(card_row["fact_ids"], default=""))
-            source_panel.setText(
-                desktop_card.fact_source_text(repos, card_row, year))
-            state["open_raw_target"] = desktop_card.fact_open_target(
-                repos, paths, card_row, year)
-            open_raw_button.setEnabled(state["open_raw_target"] is not None)
-            stale_button.setVisible(False)
-            return
-        state["source_measure_row"] = card_row["measure_row"]
+        # ТЗ-140 S2: одна дверь для любой клетки — строка фактов отвечает
+        # документом выбранного года, годовая клетка строки мер — мерой
+        # года (годовой снапшот), «сейчас» — текущей мерой строки
+        panel = data.panel_for_cell(repos, paths, view, card_row, column,
+                                    instrument_id=info["instrument_id"])
+        source_panel.setText(panel["text"])
+        state["open_raw_target"] = panel.get("open_target")
+        open_raw_button.setEnabled(panel.get("open_target") is not None)
+        state["source_measure_row"] = panel.get("measure_row")
         state["stale_detail"] = False
-        show_source_panel(False)
+        count = panel.get("stale_count") or 0
+        stale_button.setVisible(count > 0)
+        stale_button.setText(f"показать устаревшие входы: {count}")
 
     def on_toggle_stale() -> None:
         state["stale_detail"] = not state.get("stale_detail")

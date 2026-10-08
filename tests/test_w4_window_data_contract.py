@@ -217,6 +217,14 @@ CONTRACTS: dict[str, list] = {
     "catalog_view": (lambda c: data.catalog_view(c["paths"]), "catalog"),
     "channel_degrees": (lambda c: data.channel_degrees(c["repos"]),
                         "degrees"),
+    "panel_for_cell": (
+        lambda c: data.panel_for_cell(
+            c["repos"], c["paths"],
+            {"columns": ["2022", "сейчас"]},
+            {"kind": "fact", "concept": "revenue", "label": "Выручка",
+             "fact_ids": {}, "measure_row": None}, 0,
+            instrument_id=c["instrument_id"]),
+        ["text", "open_target", "stale_count"]),
     "chart_caption": (
         lambda c: data.chart_caption(_table(c), "net_margin", ""), "str"),
     "chart_spec": (
