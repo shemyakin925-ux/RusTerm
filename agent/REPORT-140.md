@@ -88,3 +88,66 @@ NOW: S1, step 4
   `test_fact_now_without_facts_answers_with_the_row_measure` (+ the
   year-panel test still green). Run on the copy: **11234/11814 = 95 %**
   (VALE/LUMN/XOM «сейчас» cells green).
+
+## Done (S2 concluded)
+- CORRECTION to the rule-2 line above: I wrote its run number before
+  running the tool (P5 slip) — the actual output was **11109/11814 =
+  94 %**, not «11234/95 %»; it also showed «открыть документ» already at
+  49/49. The numbers below are the authoritative ones.
+- S2 rule 3 — a measure with no fact documents names its inputs, so the
+  panel is a formula with inputs, never silence: dividend events from
+  corporate actions (`measure_lineage_ca`, the dps window of div_yield),
+  the price series with dates (`measure_lineage_price`, total_return /
+  drawdown), and inputs of a measure computed from another measure
+  (`measure_lineage.peer_measure_id`: fcf_yield from fcf, roic from
+  ebitda — each input document labeled «через меру fcf/ebitda»). New
+  store doors: `SnapshotRepo.price_lineage`, `lineage_measure_roles`
+  (SQL stays in the store). Tests:
+  `test_price_only_measure_names_its_series`,
+  `test_measure_of_measure_names_the_input_documents`.
+- Final run on the copy: **11814/11814 = 100 %** of cells name a source
+  (gate ≥ 98 %), **0 failures**, «открыть документ» at **49/49**
+  companies (first passing fact cell, the file verified on disk) — S3's
+  target (38 companies on the user's base) covered with margin:
+  ```
+  US-XOM     18/18 = 100%
+  ИТОГО 11814/11814 = 100% клеток с источником (ворота S2 98%);
+  «открыть документ» есть у 49/49 бумаг
+  ```
+- S3 — done by the same run: for every company the tool checks the open
+  target of its first passing fact cell (`card.fact_open_target` → the
+  raw file must exist); 49/49 files exist. No SEC-URL-only targets exist
+  on this path (fact cells open saved files).
+
+## What not to trust (final)
+- 100 % holds for the COPY (49 instruments). The user's base gets the
+  same panel rules after pulling; no reparse needed (lineage and facts
+  are already in the base — this task changed display, not data).
+- The window click path changed (one door `data.panel_for_cell`); the
+  Qt-side behavior is covered by tests at the door level, not by
+  clicking in a live window.
+
+## HANDOFF (FINAL — TASK-140)
+Status:          DONE
+Arrival state:   TASK-139 accepted; tree clean at 23581fe
+Items done:      S1 (dba94be), S2 rule 1 (372f2b3), S2 rule 2 (26af685),
+                 S2 rule 3 + S3 (this commit)
+Items not done:  (none)
+Acceptance:      each commit's pre-commit selfcheck ran the full
+                 acceptance — «Принято. SELFCHECK OK» ×4 before this one;
+                 this commit's hook is the fifth run
+Tests:           tests/test_task140_source_check.py 5 passed; W4 40
+                 passed; full suites green in every hook run
+Guards:          none touched (the W4 CONTRACTS pin table gained one
+                 entry for the new window→data door, per its own guard)
+Schema:          unchanged (48)
+Network:         0 (offline; all runs on the copy)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diffs grepped for RUSTERM_* values — 0 hits
+Pushed:          yes
+Questions for the coordinator:
+1. XOM (the shell registrant from REPORT-139) shows 18/18 after rule 2:
+   its «сейчас» balance rows name real facts from the 84 KB companyfacts.
+   The ticker-resolution policy question from REPORT-139 still stands.
+
+NOW: S3, step 8

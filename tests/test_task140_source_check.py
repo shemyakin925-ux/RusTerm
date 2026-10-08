@@ -117,3 +117,61 @@ def test_fact_now_without_facts_answers_with_the_row_measure(tmp_path):
     assert "источник" in panel["text"]
 
 
+def test_price_only_measure_names_its_series(tmp_path):
+    repos, paths, conn, sha = _repos(tmp_path)
+    _annual(repos, sha, "2022")
+    make_snapshot_builder(repos, "2026-10-08").build("US-SRC", "i-S",
+                                                     "2026-10-08")
+    sid = repos.snapshot.latest_snapshot_id("US-SRC")
+    conn.execute(
+        """INSERT INTO measure(measure_id, snapshot_id, scope, scope_ref,
+           concept, value, unit, period_start, period_end, formula_id,
+           method_version, null_reason)
+           VALUES ('m-tr', ?, 'issuer', 'i-S', 'total_return', '0.1', '',
+                   '2026-10-08', '2026-10-08', 'total_return', 'v1',
+                   NULL)""", (sid,))
+    conn.execute(
+        """INSERT INTO measure_lineage_price(measure_id, instrument_id,
+           date_from, date_to, role)
+           VALUES ('m-tr', 'US-SRC', '2025-10-03', '2026-09-30',
+                   'price_series_total_return')""")
+    measure_row = {"measure": dict(conn.execute(
+        "SELECT * FROM measure WHERE measure_id='m-tr'").fetchone()),
+        "current": "0.1", "unit": "", "null_reason": None}
+    panel = data.source_panel_view(repos, paths, measure_row,
+                                   instrument_id="US-SRC")
+    assert "ценовой ряд" in panel["text"], panel["text"]
+    assert "2025-10-03 — 2026-09-30" in panel["text"], panel["text"]
+
+
+def test_measure_of_measure_names_the_input_documents(tmp_path):
+    """fcf_yield из fcf (роль from_fcf, peer_measure_id): панель называет
+    документы входов той меры — выручку и инвестиции из её родословной."""
+    repos, paths, conn, sha = _repos(tmp_path)
+    _annual(repos, sha, "2022")
+    make_snapshot_builder(repos, "2026-10-08").build("US-SRC", "i-S",
+                                                     "2026-10-08")
+    sid = repos.snapshot.latest_snapshot_id("US-SRC")
+    inner = dict(conn.execute(
+        "SELECT measure_id FROM measure WHERE snapshot_id=? AND "
+        "concept='fcf'", (sid,)).fetchone())
+    conn.execute(
+        """INSERT INTO measure(measure_id, snapshot_id, scope, scope_ref,
+           concept, value, unit, period_start, period_end, formula_id,
+           method_version, null_reason)
+           VALUES ('m-fy', ?, 'issuer', 'i-S', 'fcf_yield', '0.1', '',
+                   '2026-10-08', '2026-10-08', 'fcf_yield', 'v1', NULL)""",
+        (sid,))
+    conn.execute(
+        """INSERT INTO measure_lineage(measure_id, fact_id,
+           peer_measure_id, role)
+           VALUES ('m-fy', NULL, ?, 'from_fcf')""", (inner["measure_id"],))
+    measure_row = {"measure": dict(conn.execute(
+        "SELECT * FROM measure WHERE measure_id='m-fy'").fetchone()),
+        "current": "0.1", "unit": "", "null_reason": None}
+    panel = data.source_panel_view(repos, paths, measure_row,
+                                   instrument_id="US-SRC")
+    assert panel["panel"]["sources"], panel["text"]
+    assert all(s.get("via_measure") == "fcf"
+               for s in panel["panel"]["sources"])
+    assert "через меру fcf" in panel["text"], panel["text"]

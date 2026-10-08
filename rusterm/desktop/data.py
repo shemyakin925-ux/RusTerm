@@ -1127,21 +1127,21 @@ def measure_row_for_year(repos, instrument_id: str, concept: str,
 def panel_for_cell(repos, paths: AppPaths, view: dict, row: dict,
                    column: int,
                    instrument_id: str | None = None) -> dict:
-    """ТЗ-140 S1: панель источника для КЛИКНУТОЙ клетки — одна дверь для
-    окна и машины (tools/source_check.py), те же функции, без Qt.
+    """ТЗ-140 S2: панель источника для КЛИКНУТОЙ клетки — одна дверь для
+    окна и машины (tools/source_check.py).
 
     Строка фактов: документ выбранного года, «сейчас» — последний год с
-    фактом. Строка мер: панель меры строки — тот же вид, что окно
-    показывает из любого её столбца."""
-    from rusterm.desktop import card  # card импортирует data: локально
+    фактом; фактов в строке нет вовсе, а значение показывает мера, —
+    панель этой меры (VALE: total_debt «сейчас» из меры долга). Строка
+    мер: годовая клетка читает меру ГОДА (measure_row_for_year), «сейчас»
+    и клетки без годовой меры — текущую меру строки, как раньше."""
     years = view["columns"][:-1]
     is_now = column >= len(years)
     if row["kind"] == "fact":
+        from rusterm.desktop import card  # card импортирует data: локально
         year = (max(row["fact_ids"], default="")
                 if is_now else years[column])
         if not year and row.get("measure_row") is not None:
-            # ТЗ-140 S2 (правило 2): значение «сейчас» показывает мера
-            # строки — панель меры, а не «факта нет» (VALE: total_debt)
             panel = source_panel_view(repos, paths, row["measure_row"],
                                       instrument_id=instrument_id)
             panel["measure_row"] = None
@@ -1196,6 +1196,26 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict,
     None (окно скажет словами). stale_count — число устаревших входов."""
     from rusterm.core.export import refusal_advice
     panel = tui_model.source_panel(repos, measure_row["measure"])
+    if not panel["sources"]:
+        # ТЗ-140 S2: мера из другой меры того же снапшота (fcf_yield —
+        # из fcf, roic — из ebitda): peer_measure_id строки родословной
+        # называет ту меру, её входы — документы этой панели
+        measure_id = (measure_row.get("measure") or {}).get("measure_id")
+        extra = []
+        for role, peer_id in repos.snapshot.lineage_measure_roles(
+                measure_id):
+            for fid in repos.snapshot.lineage_fact_ids(peer_id):
+                fact = repos.fact.get_fact(fid)
+                if fact is None:
+                    continue
+                extra.append({
+                    "document": fact["source_ref"],
+                    "locator": fact["locator"], "fact_id": fid,
+                    "kind": fact.get("source_kind") or "provider",
+                    "source_tag": fact["concept"],
+                    "concept_map_version": fact.get("concept_map_version"),
+                    "via_measure": role.removeprefix("from_")})
+        panel["sources"] = extra
     value_text = measure_row.get("current")
     if value_text is None:
         value_text = format_value(
@@ -1240,6 +1260,20 @@ def source_panel_view(repos, paths: AppPaths, measure_row: dict,
                      + (f" (период входа {period})" if period else ""))
         if loc["exists"] and open_target is None:
             open_target = loc["path"]
+    if not panel["sources"]:
+        # ТЗ-140 S2: мера без фактов в родословной называет свои входы —
+        # это формула с входами, а не документ.
+        measure_id = (measure_row.get("measure") or {}).get("measure_id")
+        # окно дивиденда из корпоративных действий (миграция 42):
+        # события с датами, файла ответа у события нет
+        for ca in repos.snapshot.lineage_ca(measure_id):
+            lines.append(f"дивиденд (событие): {ca['ex_date']} "
+                         f"({ca['kind']})")
+        # ценовой ряд (total_return, drawdown): даты и роль
+        for role, date_from, date_to in repos.snapshot.price_lineage(
+                measure_id):
+            lines.append(f"ценовой ряд ({role}): "
+                         f"{date_from} — {date_to}")
     stale = panel["stale"]
     if stale and not stale_detail:
         freshest = max(s["period_end"] for s in stale)

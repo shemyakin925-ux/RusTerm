@@ -793,6 +793,34 @@ class SnapshotRepo:
         return [dict(zip(("instrument_id", "ex_date", "kind", "role"),
                          r)) for r in rows]
 
+    def price_lineage(self, measure_id: Optional[str]) -> List[tuple]:
+        """Ценовой ряд — вход меры (ТЗ-140 S2): (роль, дата с, дата по)
+        из measure_lineage_price. У ряда нет документа-ответа в lineage,
+        поэтому панель называет его формулой с входами, а не документом."""
+        if not measure_id:
+            return []
+        rows = self.conn.execute(
+            """SELECT role, date_from, date_to
+               FROM measure_lineage_price WHERE measure_id=?
+               ORDER BY date_from""",
+            (measure_id,)).fetchall()
+        return [tuple(r) for r in rows]
+
+    def lineage_measure_roles(self, measure_id: Optional[str]
+                              ) -> List[tuple]:
+        """Входы-меры в родословной (ТЗ-140 S2): [(роль, peer_measure_id)]
+        строк без факта — мера посчитана из другой меры того же снапшота
+        ('from_fcf', 'from_ebitda'), панель показывает документы входов
+        той меры."""
+        if not measure_id:
+            return []
+        rows = self.conn.execute(
+            """SELECT role, peer_measure_id FROM measure_lineage
+               WHERE measure_id=? AND fact_id IS NULL
+               AND peer_measure_id IS NOT NULL""",
+            (measure_id,)).fetchall()
+        return [tuple(r) for r in rows]
+
     def period_marks(self, measure_id: str) -> List[str]:
         """Пометки базы периода меры (ТЗ-97 Q10, ADR-0025): роли строк
         lineage, помеченных годовым запасным вместо TTM. Выборка идёт по
