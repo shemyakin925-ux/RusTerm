@@ -254,14 +254,19 @@ def statement_now(repos, issuer_id: str, concept: str,
         if window is None or window.basis != TTM:
             return None
         currency = next((b[4] for b in best.values() if b[4]), None)
+        # ТЗ-140 S2: последний вход окна — документ клика «сейчас»
+        fact_id = (window.components[-1].fact_id
+                   if window.components else None)
         return (window.value, currency,
-                f"последние 12 месяцев: {window.start} — {window.end}")
+                f"последние 12 месяцев: {window.start} — {window.end}",
+                fact_id)
     instants = [b for b in best.values() if b[2] == b[3]]
     if not instants:
         return None
-    _rank, value, _s, end, currency, _f = max(instants, key=lambda b: b[3])
+    _rank, value, _s, end, currency, fact_id = max(instants,
+                                                   key=lambda b: b[3])
     try:
-        return float(value), currency, f"баланс на {end}"
+        return float(value), currency, f"баланс на {end}", fact_id
     except (TypeError, ValueError):
         return None
 
@@ -476,11 +481,15 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                 now_fact = statement_now(repos, issuer_id, concept,
                                          FACT_KINDS.get(concept, "flow"))
                 if now_fact is not None:
-                    value_now, currency_now, tip_now = now_fact
+                    value_now, currency_now, tip_now, fact_now = now_fact
                     cells.append(_cell(
                         format_number(value_now, concept, currency_now,
                                       home),
                         f"{hint}; {tip_now}", value_now))
+                    if fact_now:
+                        # ТЗ-140 S2: у «сейчас» из последнего баланса/TTM
+                        # есть документ — клик по клетке показывает его
+                        fact_ids["сейчас"] = fact_now
                     section_rows.append({
                         "kind": "fact", "concept": concept,
                         "label": label, "hint": hint, "cells": cells,

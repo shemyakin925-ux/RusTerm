@@ -1139,6 +1139,14 @@ def panel_for_cell(repos, paths: AppPaths, view: dict, row: dict,
     if row["kind"] == "fact":
         year = (max(row["fact_ids"], default="")
                 if is_now else years[column])
+        if not year and row.get("measure_row") is not None:
+            # ТЗ-140 S2 (правило 2): значение «сейчас» показывает мера
+            # строки — панель меры, а не «факта нет» (VALE: total_debt)
+            panel = source_panel_view(repos, paths, row["measure_row"],
+                                      instrument_id=instrument_id)
+            panel["measure_row"] = None
+            panel["cell_kind"] = "measure_fallback"
+            return panel
         text = card.fact_source_text(repos, row, year)
         return {"text": text,
                 "open_target": card.fact_open_target(repos, paths, row,

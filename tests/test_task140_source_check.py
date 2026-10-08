@@ -101,3 +101,19 @@ def test_year_cell_panel_reads_the_year_measure(tmp_path):
     assert now["text"] != panel["text"]
 
 
+def test_fact_now_without_facts_answers_with_the_row_measure(tmp_path):
+    repos, paths, conn, sha = _repos(tmp_path)
+    measure_row = {
+        "measure": {"measure_id": "m-td", "concept": "total_debt",
+                    "value": "40.0", "null_reason": None,
+                    "issuer_id": "i-S"},
+        "current": "40.0", "unit": "", "null_reason": None}
+    view = {"columns": ["2025", "сейчас"]}
+    row = {"kind": "fact", "concept": "total_debt", "fact_ids": {},
+           "measure_row": measure_row}
+    panel = data.panel_for_cell(repos, paths, view, row, 1,
+                                instrument_id="US-SRC")
+    assert panel["cell_kind"] == "measure_fallback", panel
+    assert "источник" in panel["text"]
+
+

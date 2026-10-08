@@ -77,3 +77,14 @@ NOW: S1, step 4
   `test_year_cell_panel_reads_the_year_measure` — two year snapshots,
   the 2022 cell's panel names the 2022 input period, «сейчас» names 2023.
   Run on the copy: **11104/11814 = 94 %** (was 92 %).
+
+## Done (S2 continued)
+- S2 rule 2 — «сейчас» cells now carry their document: `statement_now`
+  returns the fact it used, `card_view` records it as
+  `fact_ids["сейчас"]` (the click shows that document; TTM rows name the
+  newest input of the window), and a «сейчас» value that comes from the
+  row's MEASURE with no facts behind it shows the measure's panel
+  instead of «факта нет» (VALE total_debt). Tests:
+  `test_fact_now_without_facts_answers_with_the_row_measure` (+ the
+  year-panel test still green). Run on the copy: **11234/11814 = 95 %**
+  (VALE/LUMN/XOM «сейчас» cells green).
