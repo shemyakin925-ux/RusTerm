@@ -150,3 +150,39 @@ def test_double_click_opens_the_company_card(qapp, base):
     assert "AAA" in window.findChild(QLabel, "company_header").text()
     tree = window.findChild(QTreeWidget, "tree")
     assert tree.topLevelItemCount() >= 1
+
+
+def test_no_auto_refresh_switch_and_the_refresh_button(qapp, base,
+                                                      monkeypatch):
+    """ТЗ-133 R1/R2: RUSTERM_NO_AUTO_REFRESH=1 — окно не ходит в сеть при
+    запуске (осмотр look.py, тесты не про обновление); кнопка «Обновить»
+    запускает тот же проход вручную и пишет итог строкой."""
+    from PySide6.QtWidgets import QPushButton
+    from rusterm.desktop import actions as desktop_actions
+    calls = []
+
+    def fake_pass(root, cancel=None, on_stage=None):
+        calls.append(root)
+        if on_stage:
+            on_stage("цены 1/3")
+        return desktop_actions.CollectOutcome(
+            ok=True, detail="обновлено 10:00 · 3 бумаги · 3 запроса")
+
+    monkeypatch.setattr(desktop_actions, "refresh_pass", fake_pass)
+    monkeypatch.setenv("RUSTERM_NO_AUTO_REFRESH", "1")
+    repos, paths = base
+    window = desktop_window._build_window(repos, paths, "wl-h")
+    assert calls == [], "при запуске прохода нет"
+    button = window.findChild(QPushButton, "refresh_button")
+    assert button is not None and button.isEnabled()
+    button.click()
+    import time
+    deadline = time.time() + 10
+    status = window.findChild(QLabel, "refresh_status")
+    while time.time() < deadline and not status.text().startswith(
+            "обновлено"):
+        QApplication.processEvents()
+        time.sleep(0.02)
+    assert len(calls) == 1, "кнопка запустила ровно один проход"
+    assert status.text().startswith("обновлено"), status.text()
+    assert button.isEnabled()

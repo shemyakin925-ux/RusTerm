@@ -14,6 +14,8 @@ import traceback
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# ТЗ-133 R1: осмотр не ходит в сеть и не пишет в базу — без автообновления
+os.environ.setdefault("RUSTERM_NO_AUTO_REFRESH", "1")
 # какой код смотреть: --code DIR (по умолчанию ~/EquityLab/app — то, что
 # реально запускает пользователь), иначе корень этого репозитория
 _code = next((sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1])

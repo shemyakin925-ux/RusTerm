@@ -241,6 +241,20 @@ def implausible(concept: str, value: float,
     return None
 
 
+# «сейчас» старше последнего годового отчёта больше чем на столько дней —
+# не текущее значение (AT&T: квартал 2023 года при отчёте за 2025-й).
+# Окно дивидендов законно кончается за месяц-другой до годового отчёта
+STALE_NOW_DAYS = 120
+
+
+def _days_between(earlier: str, later: str) -> int:
+    try:
+        return (datetime.date.fromisoformat(later[:10])
+                - datetime.date.fromisoformat(earlier[:10])).days
+    except ValueError:
+        return 0
+
+
 def _number(value) -> Optional[float]:
     """Значение меры числом; текст, который не число, — нет значения."""
     try:
@@ -398,7 +412,8 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
                 period = (measure_row["measure"].get("period")
                           or "период не указан")
                 if (not why and last_annual and period[:1].isdigit()
-                        and period < last_annual):
+                        and _days_between(period, last_annual)
+                        > STALE_NOW_DAYS):
                     why = (f"значение за период до {period} старше "
                            f"последнего годового отчёта ({last_annual}) — "
                            f"это не текущее значение")

@@ -175,10 +175,19 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     root_layout.addWidget(offline_notice)
     # ТЗ-110 B2: строка фонового прохода «обновлено HH:MM · N бумаг ·
     # M запросов»; до первого итога честно «ещё не обновлялось»
+    # ТЗ-133 R2: одна кнопка «Обновить» — тот же проход, что фоновый
+    # (цены, изменившаяся отчётность, пересборка снапшотов), с ходом
+    # работы и итоговой строкой рядом
+    refresh_row = QHBoxLayout()
+    refresh_button = QPushButton("Обновить", objectName="refresh_button")
+    refresh_button.setToolTip("цены всех компаний, новые отчёты SEC и "
+                              "пересчёт карточек")
+    refresh_row.addWidget(refresh_button)
     refresh_status = QLabel(objectName="refresh_status")
     refresh_status.setWordWrap(True)
     refresh_status.setText("ещё не обновлялось")
-    root_layout.addWidget(refresh_status)
+    refresh_row.addWidget(refresh_status, 1)
+    root_layout.addLayout(refresh_row)
 
     body = QSplitter(Qt.Orientation.Horizontal)
     root_layout.addWidget(body, 1)
@@ -196,7 +205,7 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     watchlist_buttons = QHBoxLayout()
     watchlist_add_button = QPushButton(
         objectName="watchlist_add_button")
-    watchlist_add_button.setText("+ бумага")
+    watchlist_add_button.setText("+ компания")
     watchlist_remove_button = QPushButton(
         objectName="watchlist_remove_button")
     watchlist_remove_button.setText("− выбранное")
@@ -639,8 +648,8 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
                                 "списков нет; " + data.NO_WATCHLISTS_HINT)
             return
         text, ok = QInputDialog.getText(
-            window, "добавить бумагу",
-            "тикер и рынок (например: CNQ TSX):")
+            window, "добавить компанию",
+            "тикер компании США (например: NVDA):")
         if not ok or not text.strip():
             return
         ticker, market = data.parse_add_request(text)
@@ -708,6 +717,12 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         repaint_sidebar("")
         repaint_watchlists()
         repaint_header()
+        # ТЗ-133 R3: новая компания сразу открыта карточкой
+        added_company = next((c for c in state["companies"]
+                              if c["ticker"] == ticker), None)
+        if added_company is not None:
+            load_company(added_company)
+            tabs.setCurrentWidget(center)
 
     def on_watchlist_remove() -> None:
         """C5.2: удаление выбранной бумаги; версия новая, старая
@@ -1367,6 +1382,7 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     def on_refresh_done(outcome) -> None:
         state["refresh_worker"] = None
         window.set_refresh_worker(None)
+        refresh_button.setEnabled(repos is not None)
         if outcome.cancelled:
             refresh_status.setText("обновление остановлено")
         elif outcome.ok:
@@ -1381,6 +1397,7 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         worker = _RefreshWorker(paths.root, "", parent=window)
         window.set_refresh_worker(worker)
         state["refresh_worker"] = worker
+        refresh_button.setEnabled(False)
         worker.stage.connect(refresh_status.setText)
         worker.finished_run.connect(on_refresh_done)
         worker.start()
@@ -1389,7 +1406,14 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     refresh_timer.setInterval(6 * 60 * 60 * 1000)
     refresh_timer.timeout.connect(start_refresh_pass)
     refresh_timer.start()
-    start_refresh_pass()
+    refresh_button.clicked.connect(start_refresh_pass)
+    refresh_button.setEnabled(repos is not None)
+    # ТЗ-133 R1: проверочный прогон (look.py) и тесты, которые не про
+    # обновление, выключают проход при запуске явно — без сети и без
+    # записи в базу; таймер и кнопка остаются
+    import os as _os
+    if not _os.environ.get("RUSTERM_NO_AUTO_REFRESH"):
+        start_refresh_pass()
     # тестам (ТЗ-110 B2): тик таймера вручную и проверка интервала
     home_table.cellDoubleClicked.connect(on_home_open)
     tabs.setCurrentWidget(home_page)

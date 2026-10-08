@@ -93,7 +93,8 @@ def _now_cells(repos, instrument_id: str,
         number = float(value)
         text = card.format_number(number, concept, unit)
         why = card.implausible(concept, number)
-        if not why and last_annual and end and end < last_annual:
+        if not why and last_annual and end and \
+                card._days_between(end, last_annual) > card.STALE_NOW_DAYS:
             why = f"значение за период до {end} старше годового отчёта"
         out[concept] = (_text(card.DASH, tip=f"{why} (расчёт: {text})")
                         if why else _text(text, value=number,
