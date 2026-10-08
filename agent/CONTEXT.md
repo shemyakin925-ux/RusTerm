@@ -36,8 +36,19 @@
 - **Acceptance 13/0 «Принято» in a linked worktree on d08fd92** (coordinator
   08.10, 4 780 s incl. the I5 nested selfchecks). P7 done (diluted share
   count fallback for multi-class issuers), P8 closed (price moved).
-- Next for the executor: TASK-134 W5, TASK-136 (Excel, user to confirm),
-  BACKLOG P4 (adjusted historical closes — see text), P6 (RIO).
+- 08.10 evening (coordinator): BACKLOG P4 done (historical cap uses the
+  actual close of that date × later split factors,
+  `core.prices.split_factor_after`); foreign filers: equal-rank tags pick
+  the main filing currency, the year cell's unit comes from that year's
+  measure (AMX pesos, not the USD convenience translation).
+- **TASK-134 ACCEPTED** (W5 `7166518`): hints «rusterm snapshot …» and
+  «rusterm peers set …» are buttons (`desktop_actions.split_hint`,
+  `run_core_command` — window runs only snapshot/history/peers through
+  `cli.main`); argv sits in the button property `rusterm_argv`, which the
+  TASK-97 Q1 guard parses with the CLI parser. Hidden «Качество» keeps
+  its text hint (frozen surface). look.py over 38 papers: no «rusterm »
+  in visible labels.
+- Next: TASK-136 (Excel, user to confirm), BACKLOG P6 (RIO).
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
