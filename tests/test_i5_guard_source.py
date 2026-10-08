@@ -136,12 +136,15 @@ def _marker_path() -> Path:
     другой рабочей копии на той же машине больше не перезаписывает
     его между тестом модуля и sentinel (гонка круга 56: верификация
     в соседнем connected-дереве красила sentinel чужим session)."""
+    # ТЗ-135 A1: дерево — настоящее (ROOT_LIVE), а не клон U0: после
+    # _temp_repo ROOT указывает на клон, маркер уходил туда, а sentinel
+    # (путь вычислен при импорте) читал старый маркер настоящего дерева
     out = subprocess.run(
         ["git", "rev-parse", "--git-path", "i5-demo-ran.json"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
+        cwd=ROOT_LIVE, capture_output=True, text=True, check=True,
         env=_hermetic_env())
     path = Path(out.stdout.strip())
-    return path if path.is_absolute() else (ROOT / path)
+    return path if path.is_absolute() else (ROOT_LIVE / path)
 
 
 def _editmsg_read():
