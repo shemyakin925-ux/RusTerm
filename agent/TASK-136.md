@@ -1,6 +1,6 @@
 # TASK-136 — С6: export to Excel
 
-- **Status: READY**
+- **Status: CANCELLED (user, 08.10.2026: «Excel отменить»). Do not take it.**
 - **Report:** `agent/REPORT-136.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С6. Queue rules: `agent/TASK-131.md`.

@@ -57,7 +57,7 @@
 - Acceptance on c899dc9: 12/1 — item 11 (suite without zstandard) red on
   test_task65_k4_firsthour, green alone → TASK-139 B1.
 - Next for the executor: TASK-139 (acceptance, С5 new tickers, С1 start
-  time), TASK-140 (С3 source of every cell). TASK-136 (Excel) waits for the user.
+  time), TASK-140 (С3 source of every cell). TASK-136 (Excel) CANCELLED by the user 08.10 — С6 dropped; done = С1–С5.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
