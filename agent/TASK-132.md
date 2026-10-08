@@ -1,6 +1,6 @@
 # TASK-132 — С4: peers as a table, one readable chart
 
-- **Status: READY**
+- **Status: ACCEPTED (08.10, done by the coordinator) — G1–G4.**
 - **Report:** `agent/REPORT-132.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С4. Queue rules: `agent/TASK-131.md`

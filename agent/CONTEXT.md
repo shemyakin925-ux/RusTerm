@@ -18,7 +18,10 @@
 - TASK-138 done by the coordinator 08.10: `rusterm ads-ratio` stores the
   ADS ratio from the 20-F cover as a fact; IFRS filers without it get
   `adr_ratio_unknown`. `tools/yahoo_check.py --all` checks every cap.
-- Next: TASK-132 (peers), then 133…136; BACKLOG P4–P8.
+- TASK-132 done by the coordinator 08.10: tab «Аналоги» (`desktop/peers.py`):
+  group table + median row (column needs ≥ 3 numbers), chart = place in
+  group 0–100; old distribution in a collapsed «Подробно».
+- Next: TASK-133 (Обновить / Добавить компанию), 134, 135, 136; BACKLOG P4–P8.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:

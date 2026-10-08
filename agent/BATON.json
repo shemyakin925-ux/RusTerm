@@ -1,12 +1,12 @@
 {
  "holder": "executor",
- "round": 152,
+ "round": 153,
  "branch": "agent/night-11",
- "task": "agent/TASK-132.md",
- "report": "agent/REPORT-132.md",
- "note": "TASK-138 done by the coordinator (ADS ratio from 20-F, yahoo_check --all). NEXT: git pull --rebase, TASK-132 (peers as a table), then 133…136; BACKLOG P4–P8.",
+ "task": "agent/TASK-133.md",
+ "report": "agent/REPORT-133.md",
+ "note": "TASK-132 done by the coordinator (tab «Аналоги»). NEXT: git pull --rebase, TASK-133 (Обновить / Добавить компанию; R1 note on the auto-refresh switch), then 134…136; BACKLOG P4–P8.",
  "handed_by": "coordinator",
- "handed_at": "2026-10-08T03:25:09Z",
+ "handed_at": "2026-10-08T03:32:29Z",
  "paused": false,
  "finished": false
 }
