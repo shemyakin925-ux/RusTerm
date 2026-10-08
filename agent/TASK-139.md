@@ -1,6 +1,6 @@
 # TASK-139 — acceptance 13/0 again; «add a company» works for new tickers (С5)
 
-- **Status: READY**
+- **Status: ACCEPTED (09.10, coordinator) — B1 46ca7a1, B2+B3 406e3f9; verify 13/0 (executor's hand). Questions answered in TASK-141.**
 - **Report:** `agent/REPORT-139.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С5 (add by ticker → card in a minute), С1.

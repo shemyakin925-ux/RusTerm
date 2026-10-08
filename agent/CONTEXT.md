@@ -54,10 +54,16 @@
   «cover counts one entity of a dual listing». Only RIO hits it on the
   real base. RIO 154 bn vs Yahoo 157 bn on a copy (after `ads-ratio`).
 - BACKLOG P2 (EPS/DPS show currency) and P3 (look.py `dash` / `section_blank`) done. BACKLOG P-list empty.
-- Acceptance on c899dc9: 12/1 — item 11 (suite without zstandard) red on
+- **TASK-139 ACCEPTED (09.10)**: item-11 red was a test lottery
+  (`ORDER BY snapshot_id` over random UUIDs) + live Yahoo in firsthour's
+  smoke window; both fixed, verify 13/0. Five new tickers via the window
+  door 2–14 s; dps successor tag `CommonStockDividendsPerShareCashPaid`
+  (map not re-versioned → TASK-141 D0). Window start median 1.2 s (С1).
+  Open: WMT 2024 cap ×3 (split basis), PFE debt pair, PFE revenue line,
+  XOM feed CIK → TASK-141.
+- (history) Acceptance on c899dc9: 12/1 — item 11 (suite without zstandard) red on
   test_task65_k4_firsthour, green alone → TASK-139 B1.
-- Next for the executor: TASK-139 (acceptance, С5 new tickers, С1 start
-  time), TASK-140 (С3 source of every cell). TASK-136 (Excel) CANCELLED by the user 08.10 — С6 dropped; done = С1–С5.
+- Next for the executor: TASK-140 (С3 source of every cell), TASK-141 (REPORT-139 rulings). TASK-136 (Excel) CANCELLED by the user 08.10 — С6 dropped; done = С1–С5.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
