@@ -2276,21 +2276,33 @@ class SnapshotBuilder:
         elif shares_cur and price_currency \
                 and shares_cur != price_currency:
             mcap_reason = mismatch([shares_cur, price_currency])
-        elif self._snapshots.files_mainly_ifrs(issuer_id):
+        elif self._snapshots.files_mainly_ifrs(issuer_id) \
+                and self._snapshots.latest_ads_ratio(issuer_id) is None:
             # 08.10: цена за расписку × обыкновенные акции — завышение в N
-            # раз (AMX ×20, BHP ×2 против Yahoo). Коэффициент «ADS = N
-            # акций» как факт с источником — ТЗ-138 A2; до него честный
-            # отказ лучше выдуманного числа
+            # раз (AMX ×20, BHP ×2 против Yahoo). Без коэффициента «ADS = N
+            # акций» (`rusterm ads-ratio`) — честный отказ
             mcap_reason = ("adr_ratio_unknown: price per ADS, shares are "
                            "ordinary")
         else:
+            # ТЗ-138 A2: у эмитента IFRS число акций переводится в число
+            # расписок делением на коэффициент с обложки 20-F
+            ads_ratio = (self._snapshots.latest_ads_ratio(issuer_id)
+                         if self._snapshots.files_mainly_ifrs(issuer_id)
+                         else None)
             m = calculate_measure(
                 "market_cap", price_close=price_value,
-                shares_outstanding=shares[0])
+                shares_outstanding=(shares[0] / ads_ratio[0] if ads_ratio
+                                    else shares[0]))
             mcap_value, mcap_reason = m.value, m.null_reason
+        mcap_lineage = self._fact_lineage(shares[3] if shares else None)
+        ratio_fact = (self._snapshots.latest_ads_ratio(issuer_id)
+                      if mcap_value is not None
+                      and self._snapshots.files_mainly_ifrs(issuer_id)
+                      else None)
+        if ratio_fact is not None:
+            mcap_lineage = mcap_lineage + self._fact_lineage(ratio_fact[1])
         write("market_cap", mcap_value, mcap_reason,
-              price_currency or "",
-              self._fact_lineage(shares[3] if shares else None))
+              price_currency or "", mcap_lineage)
 
         # market_cap_total = сумма по классам; класс один, если только
         # он раскрыт; неполная сумма запрещена формулой

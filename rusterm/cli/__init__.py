@@ -1114,6 +1114,89 @@ def _refresh_all(args, repos, conn, out, cancel) -> int:
     return 0 if errors == 0 else 1
 
 
+def cmd_ads_ratio(args) -> int:
+    """ТЗ-138 A2: коэффициент «ADS = N акций» с обложки 20-F — фактом с
+    источником (сырой документ + цитата в locator). Только эмитенты с
+    отчётностью в основном IFRS; остальным расписки не нужны. Один-два
+    запроса к SEC на эмитента. После — пересоберите снапшот."""
+    import uuid as _uuid
+    from rusterm.core import ads
+    from rusterm.providers.base import ProviderError as _PE
+    paths, conn = _open(args.root)
+    apply_migrations(conn)
+    repos = RepoRegistry(conn, paths)
+    if getattr(args, "all", False):
+        targets = []
+        for iid in repos.instrument.list_instruments():
+            inst = repos.instrument.get_instrument(iid)
+            if inst is not None:
+                targets.append((inst.instrument_id, inst.issuer_id))
+    else:
+        targets = _select_instruments(args, repos)
+    if targets is None:
+        conn.close()
+        return 1
+    gate = RequestGate()
+    found = 0
+    for instrument_id, issuer_id in targets:
+        if not repos.snapshot.files_mainly_ifrs(issuer_id):
+            continue
+        issuer = repos.instrument.get_issuer(issuer_id)
+        if issuer is None or not (issuer.registry_id or "").isdigit():
+            print(f"{instrument_id}: нет CIK — пропущено")
+            continue
+        provider = get_provider("edgar", gate=gate)
+        if isinstance(provider, ConfigError):
+            print(f"edgar-провайдер недоступен: {provider.reason}",
+                  file=sys.stderr)
+            conn.close()
+            return 1
+        provider.cik = int(issuer.registry_id)
+        docs = None
+        for form in ("20-F", "40-F", "20-F/A"):
+            listed = provider.list_documents(issuer_id, form)
+            if isinstance(listed, (_PE, ConfigError)):
+                print(f"{instrument_id}: список подач недоступен: "
+                      f"{listed.reason}")
+                docs = ()
+                break
+            if listed.documents:
+                docs = listed.documents
+                break
+        if not docs:
+            print(f"{instrument_id}: подач 20-F/40-F нет — коэффициента нет")
+            continue
+        latest = max(docs, key=lambda d: d.published_at or "")
+        body = provider.fetch_document(latest.url)
+        if not hasattr(body, "content"):
+            print(f"{instrument_id}: документ недоступен: "
+                  f"{getattr(body, 'reason', body)}")
+            continue
+        parsed = ads.parse_ads_ratio(body.content)
+        if parsed is None:
+            print(f"{instrument_id}: в {latest.doc_type} от "
+                  f"{latest.published_at} нет фразы «each ADS represents N» "
+                  f"— коэффициент не установлен")
+            continue
+        ratio, quote = parsed
+        raw = repos.raw.put(body.content, provider="edgar", url=latest.url)
+        day = latest.published_at or latest.period
+        repos.fact.insert_fact(
+            str(_uuid.uuid4()), issuer_id, None, ads.CONCEPT, day, day,
+            "instant", f"{ratio:g}", "pure", None, "as_reported",
+            "extracted", raw.sha256,
+            {"kind": latest.doc_type, "url": latest.url, "quote": quote},
+            ads.PARSER_VERSION, canonical_concept=ads.CANONICAL)
+        found += 1
+        print(f"{instrument_id}: 1 ADS = {ratio:g} акций "
+              f"({latest.doc_type} от {latest.published_at}): «{quote}»")
+    _record_gate_usage(repos, "edgar", gate)
+    print(f"коэффициентов записано: {found}; дальше — rusterm snapshot "
+          f"(или history --rebuild) по этим бумагам")
+    conn.close()
+    return 0
+
+
 def cmd_history(args) -> int:
     """ТЗ-107 V1: история мер по финансовым годам — по снапшоту на конец
     каждого года из уже скачанных фактов, без сети. Повтор ничего не
@@ -3006,6 +3089,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_snap.add_argument("--market", default=None)
     p_snap.add_argument("--watchlist", default=None)
     p_snap.add_argument("--as-of", default=None)
+    p_ads = sub.add_parser(
+        "ads-ratio", help="коэффициент депозитарной расписки из 20-F")
+    p_ads.add_argument("--instrument", default=None)
+    p_ads.add_argument("--ticker", default=None)
+    p_ads.add_argument("--market", default=None)
+    p_ads.add_argument("--watchlist", default=None)
+    p_ads.add_argument("--all", action="store_true",
+                       help="все бумаги базы с отчётностью IFRS")
     p_hist = sub.add_parser(
         "history", help="история мер по финансовым годам (без сети)")
     p_hist.add_argument("--instrument", default=None)
@@ -3216,6 +3307,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "init": cmd_init, "ingest": cmd_ingest, "snapshot": cmd_snapshot,
         "history": cmd_history,
+        "ads-ratio": cmd_ads_ratio,
         "export": cmd_export, "verify": cmd_verify, "doctor": cmd_doctor,
         "backup": cmd_backup, "restore": cmd_restore,
         "chat": cmd_chat,

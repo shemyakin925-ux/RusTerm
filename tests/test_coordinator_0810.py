@@ -183,3 +183,41 @@ def test_ifrs_filer_gets_no_market_cap_without_the_ads_ratio(tmp_path):
     _fact(repos, sha, "d", "Revenues", "revenue", "2021-01-01",
           "2021-12-31", 1)
     assert repos.snapshot.files_mainly_ifrs("i-F") is False
+
+
+@pytest.mark.parametrize("cover, ratio", [
+    (b"<td>American Depositary Shares, each representing 20 B Shares, "
+     b"without par value</td>", 20.0),
+    (b"American Depositary Shares (ADSs), with each ADS representing "
+     b"<b>two</b> ordinary shares of BHP Group Limited.", 2.0),
+    (b"American Depositary Shares (evidenced by American Depositary "
+     b"Receipts) each representing&#160;ten ordinary shares", 10.0),
+    (b"The ADRs evidence Rio Tinto plc ADSs, each representing one "
+     b"ordinary share.", 1.0),
+])
+def test_ads_ratio_is_read_from_the_20f_cover(cover, ratio):
+    """Фразы с настоящих обложек 20-F (AMX, BHP, VOD, RIO; 08.10)."""
+    from rusterm.core.ads import parse_ads_ratio
+    parsed = parse_ads_ratio(cover)
+    assert parsed is not None and parsed[0] == ratio
+    assert "each" in parsed[1]
+
+
+def test_no_ads_phrase_means_no_ratio():
+    from rusterm.core.ads import parse_ads_ratio
+    assert parse_ads_ratio(b"Class B subordinate voting shares, NYSE") is None
+    assert parse_ads_ratio(b"ADSs, each representing zero shares") is None
+
+
+def test_latest_ads_ratio_door_reads_the_fresh_fact(tmp_path):
+    from rusterm.core import ads
+    repos, sha = _repos(tmp_path)
+    assert repos.snapshot.latest_ads_ratio("i-F") is None
+    for fid, day, value in (("r-old", "2024-04-01", "10"),
+                            ("r-new", "2026-04-28", "20")):
+        repos.fact.insert_fact(
+            fid, "i-F", None, ads.CONCEPT, day, day, "instant", value,
+            "pure", None, "as_reported", "extracted", sha,
+            {"kind": "20-F", "quote": "each representing 20"},
+            ads.PARSER_VERSION, canonical_concept=ads.CANONICAL)
+    assert repos.snapshot.latest_ads_ratio("i-F") == (20.0, "r-new")

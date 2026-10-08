@@ -884,6 +884,22 @@ class SnapshotRepo:
         `dominant_filing_currency`)."""
         return dominant_filing_currency(self.conn, issuer_id)
 
+    def latest_ads_ratio(self, issuer_id: str) -> Optional[tuple]:
+        """(N, fact_id) — свежий коэффициент «ADS = N акций» эмитента
+        (`rusterm ads-ratio`, ТЗ-138 A2), или None."""
+        row = self.conn.execute(
+            """SELECT value, fact_id FROM fact
+               WHERE issuer_id=? AND canonical_concept='ads_ratio'
+                 AND status='ok' AND superseded_by IS NULL
+               ORDER BY period_end DESC, ingested_at DESC LIMIT 1""",
+            (issuer_id,)).fetchone()
+        if row is None:
+            return None
+        try:
+            return float(row[0]), row[1]
+        except (TypeError, ValueError):
+            return None
+
     def files_mainly_ifrs(self, issuer_id: str) -> bool:
         """Эмитент подаёт отчётность в основном по IFRS (форма 20-F/40-F):
         фактов ifrs-full больше, чем us-gaap. Признак иностранного

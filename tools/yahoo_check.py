@@ -150,6 +150,61 @@ def compare(mine: dict, theirs: dict) -> list[tuple]:
     return rows
 
 
+CAP_URL = ("https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/"
+           "finance/timeseries/{symbol}?type=quarterlyMarketCap"
+           "&period1=1735689600&period2={now}")
+CAP_TOLERANCE = 0.15
+
+
+def yahoo_cap(symbol: str, cache: Path | None) -> float | None:
+    """Свежая квартальная капитализация Yahoo — для --all."""
+    path = cache / f"{symbol}.cap.json" if cache else None
+    if path and path.is_file():
+        payload = json.loads(path.read_text())
+    else:
+        request = urllib.request.Request(
+            CAP_URL.format(symbol=symbol, now=int(time.time())),
+            headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read())
+        if path:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload))
+        time.sleep(1.0)
+    points = [(p["asOfDate"], p["reportedValue"]["raw"])
+              for r in payload.get("timeseries", {}).get("result") or []
+              for p in (r.get(r["meta"]["type"][0]) or []) if p]
+    return max(points)[1] if points else None
+
+
+def check_caps(repos, cache: Path | None) -> int:
+    """ТЗ-138 A4: капитализация «сейчас» каждой бумаги против Yahoo,
+    допуск ±15 % (даты цен расходятся на дни). Наше «—» печатается с
+    причиной — это не расхождение, а честный отказ."""
+    bad = 0
+    for instrument_id in repos.instrument.list_instruments():
+        snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)
+        mine = reason = None
+        for m in (repos.snapshot.get_measures(snapshot_id)
+                  if snapshot_id else []):
+            if m[3] == "market_cap_total":
+                mine, reason = (float(m[4]) if m[4] else None), m[10]
+        theirs = yahoo_cap(instrument_id.split("-", 1)[1], cache)
+        if mine is None:
+            print(f"{instrument_id:10} —  ({reason})")
+            continue
+        if not theirs:
+            print(f"{instrument_id:10} {_short(mine):>12}  Yahoo —")
+            continue
+        diff = abs(mine - theirs) / max(mine, theirs)
+        mark = "" if diff <= CAP_TOLERANCE else "   <<< расхождение"
+        bad += diff > CAP_TOLERANCE
+        print(f"{instrument_id:10} {_short(mine):>12}  Yahoo "
+              f"{_short(theirs):>12}  {diff:6.1%}{mark}")
+    print(f"вне ±{CAP_TOLERANCE:.0%}: {bad}")
+    return 0 if bad == 0 else 1
+
+
 def _short(value: float) -> str:
     for limit, word in ((1e12, "трлн"), (1e9, "млрд"), (1e6, "млн")):
         if abs(value) >= limit:
@@ -161,6 +216,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--cache", default=None)
+    parser.add_argument("--all", action="store_true",
+                        help="капитализация всех бумаг против Yahoo")
     parser.add_argument("instruments", nargs="*")
     args = parser.parse_args(argv)
     paths, conn = data.open_readonly(args.root)
@@ -169,6 +226,10 @@ def main(argv=None) -> int:
         return 1
     repos = RepoRegistry(conn, paths)
     cache = Path(args.cache) if args.cache else None
+    if args.all:
+        code = check_caps(repos, cache)
+        conn.close()
+        return code
     total = matched = 0
     misses, info = [], []
     for instrument_id in args.instruments or CONTROL_TEN:
