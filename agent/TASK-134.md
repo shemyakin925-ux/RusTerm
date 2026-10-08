@@ -1,6 +1,6 @@
 # TASK-134 — clean screen: words not tokens, hide what is frozen
 
-- **Status: READY**
+- **Status: PARTIAL (08.10, coordinator) — W1–W4 done (REPORT-134); W5 READY for the executor.**
 - **Report:** `agent/REPORT-134.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С2–С4 (presentation). Queue rules:

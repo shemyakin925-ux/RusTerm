@@ -24,7 +24,11 @@
 - TASK-133 R1–R3 done by the coordinator 08.10: button «Обновить» (same
   pass as the background one), `RUSTERM_NO_AUTO_REFRESH=1` (look.py sets
   it), «+ компания» opens the card; `follow` now builds year history.
-- Next: TASK-134 (incl. W5 = old R4), 135, 136; BACKLOG P4–P8.
+- TASK-134 W1–W4 done by the coordinator 08.10: «Качество» tab hidden
+  (setTabVisible), markets line and chat box hidden (`RUSTERM_CHAT=1` shows
+  chat); no raw reason tokens in visible text (look.py over 38 papers).
+- Next for the executor: TASK-134 W5 (hints → buttons + q1 guard), 135, 136;
+  BACKLOG P4–P8.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:

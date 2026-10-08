@@ -231,6 +231,9 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     left_layout.addWidget(tree, 1)
     markets_line = QLabel(objectName="markets_line")
     left_layout.addWidget(markets_line)
+    # ТЗ-134 W3: «1 из 6 рынков» — служебная строка; рынки вне US
+    # заморожены (PRODUCT.md), строка считается, но не показывается
+    markets_line.setVisible(False)
     body.addWidget(left)
 
     # ── центр: вкладки «Компания» и «Отрасль» (C1.2/C1.3/C3) ───────
@@ -397,6 +400,9 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
                                      .NoEditTriggers)
     quality_layout.addWidget(governance_table, 1)
     tabs.addTab(quality, "Качество")
+    # ТЗ-134 W2 (PRODUCT.md: «Качество» заморожено до готовности):
+    # вкладка остаётся в коде и в тестах, пользователю не показывается
+    tabs.setTabVisible(tabs.indexOf(quality), False)
 
     # ── вкладка «Настройки» (TASK-C9) ──────────────────────────────
     settings = QWidget()
@@ -442,6 +448,10 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     question_line.setPlaceholderText("спросить о том, что на экране…")
     chat_layout.addWidget(question_line)
     root_layout.addWidget(chat_box)
+    # ТЗ-134 W4 (PRODUCT.md: чат заморожен до готовности): строка вопроса
+    # и разговоры не показываются; включить — RUSTERM_CHAT=1
+    import os as _os_chat
+    chat_box.setVisible(bool(_os_chat.environ.get("RUSTERM_CHAT")))
 
     state = {"companies": [], "selected": None, "table": None,
              "watchlist": watchlist_id, "open_raw_target": None,
