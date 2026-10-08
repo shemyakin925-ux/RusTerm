@@ -13,9 +13,14 @@ AT&T. Стартовую таблицу (ТЗ-131) координатор тож
 двойной клик — карточка. Следующее для исполнителя — ТЗ-138: капитализация
 депозитарных расписок (у AMX завышена в 20 раз, у BHP почти в 2), затем 132…136.
 
-**Чтобы увидеть это на своей базе** (без сети; копия базы уже лежит в
+**Чтобы увидеть это на своей базе** (копия базы уже лежит в
 `~/EquityLab/backups/2026-10-07-before-history-rebuild`):
-`cd ~/EquityLab/app && git pull && python3 -m rusterm --root ~/EquityLab/data reparse && python3 -m rusterm --root ~/EquityLab/data history --all --rebuild`
+`cd ~/EquityLab/app && git pull && python3 -m rusterm --root ~/EquityLab/data reparse && python3 -m rusterm --root ~/EquityLab/data ads-ratio --all && python3 -m rusterm --root ~/EquityLab/data history --all --rebuild`
+(`ads-ratio` — 1–2 запроса к SEC на иностранного эмитента: коэффициент
+расписок AMX, BHP, VOD, KSPI, RIO; остальное без сети.)
+
+08.10, позже: ТЗ-138 закрыт — капитализация расписок по коэффициенту из
+20-F (AMX 67 млрд против 67 у Yahoo вместо 1,34 трлн). Дальше — ТЗ-132.
 
 ## 06.10: перезапуск по PRODUCT.md — очередь ТЗ-130…136
 

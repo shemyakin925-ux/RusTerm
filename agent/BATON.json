@@ -1,12 +1,12 @@
 {
  "holder": "executor",
- "round": 151,
+ "round": 152,
  "branch": "agent/night-11",
- "task": "agent/TASK-138.md",
- "report": "agent/REPORT-138.md",
- "note": "TASK-131 done by the coordinator (home table, tab «Все компании»). NEXT: git pull --rebase, then TASK-138 FIRST (ADR market cap: AMX x20, BHP x2, RIO x0.75 vs Yahoo), then TASK-132…136. Dash rules in card.implausible widened (margins > 100 %, P/E or EV/EBITDA > 500) — reuse them.",
+ "task": "agent/TASK-132.md",
+ "report": "agent/REPORT-132.md",
+ "note": "TASK-138 done by the coordinator (ADS ratio from 20-F, yahoo_check --all). NEXT: git pull --rebase, TASK-132 (peers as a table), then 133…136; BACKLOG P4–P8.",
  "handed_by": "coordinator",
- "handed_at": "2026-10-08T03:00:40Z",
+ "handed_at": "2026-10-08T03:25:09Z",
  "paused": false,
  "finished": false
 }

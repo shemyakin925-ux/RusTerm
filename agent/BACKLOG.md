@@ -18,6 +18,15 @@ serve a scenario of `agent/PRODUCT.md`. Idle-time items now:
 - [ ] P5 — AAPL/MSFT total_debt 8–13 % below long-term + current debt
   (was TASK-137 Y2; commercial paper / current portion) — accept:
   `tools/yahoo_check.py` no total_debt miss for AAPL/MSFT — size: M
+- [ ] P6 — RIO dual listing: market cap counts Rio Tinto plc shares only
+  (ADS = 1 plc share); the group cap needs plc + Ltd shares or «—» with a
+  reason (was TASK-138 A3) — accept: `yahoo_check --all` RIO within 15 %
+  or «—» with the reason — size: M
+- [ ] P7 — shares outstanding stale for CHTR (2016), CMCSA (2009, two
+  classes), WDAY (2018): find the current cover tag / class axis — accept:
+  `yahoo_check --all` shows a cap for them within 15 % — size: M
+- [ ] P8 — ADBE cap 22 % below Yahoo on the 08.10 copy: price date vs
+  quarter date, or a real defect — accept: named in a report line — size: S
 
 Maintained by the coordinator (Claude). The executor pulls items
 top-down **only** when the main `agent/TASK-*.md` queue is empty, and

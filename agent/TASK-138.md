@@ -1,7 +1,6 @@
 # TASK-138 — market cap of ADRs and dual listings (AMX ×20, BHP ×2)
 
-- **Status: READY** — take FIRST (before TASK-132): wrong numbers on the
-  home table are worse than a missing button.
+- **Status: ACCEPTED (08.10, done by the coordinator) — A1, A2, A4 done; A3 (RIO dual listing) → BACKLOG P6.**
 - **Report:** `agent/REPORT-138.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С1/С2 + Yahoo match. Queue rules:

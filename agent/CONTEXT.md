@@ -15,7 +15,10 @@
 - TASK-131 (home table) done by the coordinator 08.10: `rusterm/desktop/home.py`,
   tab «Все компании» first; `core.prices.year_change`; card dash rules now
   also dash margins > 100 % and P/E or EV/EBITDA > 500.
-- Next for the executor: TASK-138 (ADR market cap: AMX ×20, BHP ×2), then 132…136.
+- TASK-138 done by the coordinator 08.10: `rusterm ads-ratio` stores the
+  ADS ratio from the 20-F cover as a fact; IFRS filers without it get
+  `adr_ratio_unknown`. `tools/yahoo_check.py --all` checks every cap.
+- Next: TASK-132 (peers), then 133…136; BACKLOG P4–P8.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
