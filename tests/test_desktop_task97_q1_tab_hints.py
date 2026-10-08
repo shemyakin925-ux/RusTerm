@@ -49,7 +49,7 @@ from tests.test_desktop_task96_r4_firsthour import (  # noqa: E402
 
 # Порядок и имена вкладок — часть контракта окна: новая вкладка обязана
 # попасть в страж, а не быть нарисованной мимо правила.
-TABS = ("Все компании", "Компания", "Отрасль", "Качество", "Настройки")
+TABS = ("Все компании", "Компания", "Аналоги", "Качество", "Настройки")
 
 
 def _open(root):
@@ -218,7 +218,7 @@ def _carries_data(tab: str, page: QWidget) -> bool:
                    for col in range(first, table.columnCount()))
     if tab == "Компания":
         return _has_number_in_second_column(_table_of(page, "table"))
-    if tab == "Отрасль":
+    if tab == "Аналоги":
         return _has_number_in_second_column(_table_of(page, "industry_table"))
     if tab == "Качество":
         table = _table_of(page, "governance_table")
@@ -298,9 +298,9 @@ def test_guard_company_and_settings_still_carry_data(hour):
 def test_industry_hint_for_paper_without_a_set(hour):
     """Бумага без набора: `peers set` без `--approve` — набирать состав
     ещё нечего, подтверждать нечего."""
-    argvs = [argv for argv in _hints_of(hour, "Отрасль")
+    argvs = [argv for argv in _hints_of(hour, "Аналоги")
              if argv[1:3] == ["peers", "set"]]
-    assert argvs, _tab_texts(_tab_page(hour.win, "Отрасль"))
+    assert argvs, _tab_texts(_tab_page(hour.win, "Аналоги"))
     argv = argvs[0]
     assert "--approve" not in argv, argv
     flags = _flags(argv)

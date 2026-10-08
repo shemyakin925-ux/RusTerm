@@ -85,6 +85,13 @@ if QT_AVAILABLE:
             if spec.get("kind") == "message":
                 self._show_message(spec.get("text", "нет данных"))
                 return
+            if spec.get("kind") == "hbars" and self._backend != "pyqtgraph":
+                # QtCharts горизонтальные столбики не рисует этим видом —
+                # те же числа словами, а не пустое полотно
+                self._show_message("; ".join(
+                    f"{label}: {value:.0f}" for label, value in
+                    zip(spec["labels"], spec["values"])))
+                return
             self._label.hide()
             self._drop_view()
             self._view = (_PyqtgraphView(spec, self)
@@ -184,6 +191,24 @@ if QT_AVAILABLE:
                     if ticks:
                         self.setXRange(ticks[0] - 0.5, ticks[-1] + 0.5,
                                        padding=0)
+                elif kind == "hbars":
+                    # ТЗ-132 G2: компания против медианы группы — на сколько
+                    # процентов выше/ниже, по строке на показатель
+                    labels, values = spec["labels"], spec["values"]
+                    ys = list(range(len(values)))
+                    self.addItem(pg.BarGraphItem(
+                        x0=[0] * len(values), y=ys, height=0.6,
+                        width=values, brush="w"))
+                    self.addItem(pg.InfiniteLine(
+                        pos=spec.get("center", 0), angle=90,
+                        pen=pg.mkPen("y", width=1)))
+                    if spec.get("range"):
+                        self.setXRange(*spec["range"], padding=0.02)
+                    self.getAxis("left").setTicks(
+                        [[(y, label) for y, label in zip(ys, labels)]])
+                    self.setLabel("bottom", spec.get(
+                        "axis_label", "% к медиане группы"))
+                    self.invertY(True)
                 elif kind == "box":
                     box = pg.BarGraphItem(x=[0], height=[spec["p75"]
                                                         - spec["p25"]],

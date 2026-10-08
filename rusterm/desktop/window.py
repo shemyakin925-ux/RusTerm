@@ -35,6 +35,7 @@ from pathlib import Path as _Path
 from rusterm.desktop import actions as desktop_actions
 from rusterm.desktop import card as desktop_card
 from rusterm.desktop import home as desktop_home
+from rusterm.desktop import peers as desktop_peers
 from rusterm.desktop import data
 from rusterm.markets import MARKET_CODES
 from rusterm.tui import model as tui_model
@@ -312,7 +313,34 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
 
     # ── вкладка «Отрасль» (TASK-C3) ────────────────────────────────
     industry = QWidget()
-    industry_layout = QVBoxLayout(industry)
+    outer_industry = QVBoxLayout(industry)
+    # ТЗ-132 G1/G2: компании группы рядом с медианой и один график
+    # «компания против медианы»; прежнее распределение (p25/медиана/p75,
+    # box-plot, радар) — в свёрнутом разделе «Подробно»
+    peers_summary = QLabel(objectName="peers_summary")
+    peers_summary.setWordWrap(True)
+    outer_industry.addWidget(peers_summary)
+    peers_table = QTableWidget(objectName="peers_table")
+    peers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    peers_table.setSelectionBehavior(
+        QTableWidget.SelectionBehavior.SelectRows)
+    peers_table.verticalHeader().setVisible(False)
+    outer_industry.addWidget(peers_table, 3)
+    peers_chart = ChartArea()
+    peers_chart.setObjectName("peers_chart")
+    peers_chart.setMinimumHeight(180)
+    outer_industry.addWidget(peers_chart, 2)
+    details_box = QGroupBox("Подробно: распределение по отрасли",
+                            objectName="details_box")
+    details_box.setCheckable(True)
+    details_box.setChecked(False)
+    industry_layout = QVBoxLayout(details_box)
+    details_inner = QWidget()
+    industry_layout.addWidget(details_inner)
+    industry_layout = QVBoxLayout(details_inner)
+    details_box.toggled.connect(details_inner.setVisible)
+    details_inner.setVisible(False)
+    outer_industry.addWidget(details_box, 0)
     peer_line = QLabel(objectName="peer_line")
     peer_line.setWordWrap(True)
     industry_layout.addWidget(peer_line)
@@ -342,7 +370,7 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     excluded_label = QLabel(objectName="excluded_label")
     excluded_label.setWordWrap(True)
     industry_layout.addWidget(excluded_label)
-    tabs.addTab(industry, "Отрасль")
+    tabs.addTab(industry, "Аналоги")
 
     # ── вкладка «Качество» (TASK-C8) ───────────────────────────────
     quality = QWidget()
@@ -817,16 +845,22 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
                                "у компании нет peer set") + tail)
             members_line.setText("")
         else:
+            # ТЗ-132 G3: шапка словами; версия, рынок и правило отбора —
+            # в подсказке, а не в строке
             peer_line.setText(
+                f"Группа: {desktop_home.sector_name(peer['peer_set_id'])}"
+                f" · {len(peer['members'])} компаний" + tail)
+            peer_line.setToolTip(
                 f"peer set {peer['peer_set_id']} v{peer['version']}"
                 f" · {peer['scope']}"
-                f" ({', '.join(peer['markets']) or '—'})"
-                f" · {peer['rule']}" + tail)
+                f" ({', '.join(peer['markets']) or '—'}) · {peer['rule']}")
             members = ", ".join(
                 m["ticker"] + (" ← вы" if m["is_self"] else "")
                 for m in peer["members"])
             members_line.setText(f"участники ({len(peer['members'])}):"
                                  f" {members}")
+        _repaint_peers(peers_table, peers_summary, peers_chart, repos,
+                       state)
         rows = data.industry_table_rows(screen) if screen else []
         industry_table.setSortingEnabled(False)  # на время заполнения
         industry_table.setColumnCount(6)
@@ -1362,6 +1396,51 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     window.refresh_tick = start_refresh_pass
     window.refresh_timer = refresh_timer
     return window
+
+
+def _repaint_peers(table, summary, chart, repos, state) -> None:
+    """ТЗ-132: компании группы, медиана последней строкой, своя строка
+    жирная; график — отклонение компании от медианы."""
+    selected = state.get("selected")
+    view = (desktop_peers.peer_table(repos, selected["instrument_id"],
+                                     state.get("peer"))
+            if selected and repos is not None else None)
+    table.setSortingEnabled(False)
+    table.clear()
+    if view is None:
+        table.setRowCount(0)
+        table.setColumnCount(0)
+        summary.setText("у компании нет группы аналогов")
+        chart.set_spec(desktop_peers.compare_spec(None))
+        return
+    summary.setText(view["title"])
+    columns = view["columns"]
+    table.setColumnCount(2 + len(columns))
+    table.setHorizontalHeaderLabels(
+        ["Тикер", "Компания", *[title for _c, title in columns]])
+    rows = view["rows"] + [{"ticker": desktop_peers.MEDIAN_LABEL,
+                            "name": "", "is_self": False,
+                            "cells": view["median"], "median": True}]
+    table.setRowCount(len(rows))
+    bold = table.font()
+    bold.setBold(True)
+    for row_index, row in enumerate(rows):
+        texts = [(row["ticker"], None, ""), (row["name"], None, "")] + [
+            (row["cells"][c]["text"], row["cells"][c]["value"],
+             row["cells"][c]["tooltip"]) for c, _t in columns]
+        for column, (text, value, tip) in enumerate(texts):
+            item = (_HomeNumberItem(text, value) if value is not None
+                    else QTableWidgetItem(text))
+            if column >= 2:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight
+                                      | Qt.AlignmentFlag.AlignVCenter)
+            if tip:
+                item.setToolTip(tip)
+            if row.get("is_self") or row.get("median"):
+                item.setFont(bold)
+            table.setItem(row_index, column, item)
+    table.resizeColumnsToContents()
+    chart.set_spec(desktop_peers.compare_spec(view))
 
 
 class _HomeNumberItem(QTableWidgetItem if QT_AVAILABLE else object):

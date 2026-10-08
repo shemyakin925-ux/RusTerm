@@ -610,8 +610,10 @@ def test_industry_tab_shows_peer_set_with_rule(qapp, env):
     window = desktop_window._build_window(repos, paths, "wl-1")
     _select(window, "AAA")
     peer_line = _widget(window, QLabel, "peer_line")
-    assert "peer set energy" in peer_line.text()
-    assert "правило: происхождение manual" in peer_line.text()
+    # ТЗ-132 G3: шапка словами, техника (peer set, версия) — в подсказке
+    assert "Группа: energy" in peer_line.text()
+    assert "peer set energy" in peer_line.toolTip()
+    assert "правило: происхождение manual" in peer_line.toolTip()
     members = _widget(window, QLabel, "members_line")
     assert "AAA" in members.text() and "BBB" in members.text()
 
@@ -978,11 +980,13 @@ def test_s1_tabs_switch_shows_industry(qapp, env):
     assert tabs is not None and tabs.count() >= 2
     # ТЗ-131 H1: первая вкладка — «Все компании»; «Отрасль» ищется по имени
     industry_index = next(i for i in range(tabs.count())
-                          if tabs.tabText(i) == "Отрасль")
+                          if tabs.tabText(i) == "Аналоги")
     tabs.setCurrentIndex(industry_index)
     assert tabs.currentIndex() == industry_index
     peer_line = _widget(window, QLabel, "peer_line")
-    assert "peer set energy" in peer_line.text()
+    # ТЗ-132 G3: шапка словами, техника (peer set, версия) — в подсказке
+    assert "Группа: energy" in peer_line.text()
+    assert "peer set energy" in peer_line.toolTip()
 
 
 def test_s2_add_unknown_paper_names_ready_command(qapp, env, monkeypatch):
@@ -1112,3 +1116,19 @@ def test_add_unknown_paper_finds_and_collects_it(qapp, env, monkeypatch):
     assert counter.text() == "компаний: 5", "бумага не добавилась"
     status = _widget(window, QLabel, "collect_status").text()
     assert status.startswith("S1X: добавлена"), status
+
+
+def test_peers_tab_lists_the_group_with_a_median_row(qapp, env):
+    """ТЗ-132 G1: «Аналоги» — компании группы рядом, медиана последней
+    строкой, своя строка жирная; сырьё распределения — в «Подробно»."""
+    repos, paths = env
+    window = desktop_window._build_window(repos, paths, "wl-1")
+    _select(window, "AAA")
+    table = _widget(window, QTableWidget, "peers_table")
+    tickers = [table.item(r, 0).text() for r in range(table.rowCount())]
+    assert tickers[-1] == "Медиана группы"
+    assert {"AAA", "BBB"} <= set(tickers)
+    me = tickers.index("AAA")
+    assert table.item(me, 0).font().bold()
+    summary = _widget(window, QLabel, "peers_summary").text()
+    assert summary.startswith("Группа: energy")

@@ -71,7 +71,8 @@ def home_rows(repos, companies: list[dict]) -> list[dict]:
     return rows
 
 
-def _now_cells(repos, instrument_id: str) -> dict:
+def _now_cells(repos, instrument_id: str,
+               concepts: tuple = CARD_COLUMNS) -> dict:
     """Клетки «сейчас» четырёх мер из последнего снапшота — тем же
     правилом, что колонка «сейчас» карточки (`card.implausible`, срок
     годности по последнему годовому отчёту), но без истории по годам:
@@ -84,7 +85,7 @@ def _now_cells(repos, instrument_id: str) -> dict:
     out = {}
     for m in repos.snapshot.get_measures(snapshot_id) if snapshot_id else []:
         concept, value, unit, end, reason = m[3], m[4], m[5], m[7], m[10]
-        if concept not in CARD_COLUMNS:
+        if concept not in concepts:
             continue
         if value is None:
             out[concept] = _text(card.DASH, tip=card._reason_words(reason))
