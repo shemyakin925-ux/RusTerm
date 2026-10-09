@@ -109,7 +109,7 @@ def test_declared_dividends_sum_over_the_trailing_year():
 
 
 def test_map_v7_withdraws_partial_cogs_and_adds_interest_successor():
-    assert map_version("us-gaap") == "us-gaap.v7"
+    assert map_version("us-gaap") == "us-gaap.v8"
     assert canonical_for("OtherCostOfOperatingRevenue") is None
     assert WITHDRAWN_TAGS == {"us-gaap:OtherCostOfOperatingRevenue": "cogs"}
     assert canonical_for("InterestExpenseNonoperating") == "interest_expense"

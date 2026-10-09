@@ -13,7 +13,7 @@ from rusterm.store.repos import Issuer, RepoRegistry
 
 
 def test_v5_maps_successor_tags():
-    assert CONCEPT_MAP_VERSION == "us-gaap.v7"
+    assert CONCEPT_MAP_VERSION == "us-gaap.v8"
     assert canonical_for("DebtLongtermAndShorttermCombinedAmount") \
         == "total_debt"
     assert canonical_for("AvailableForSaleSecuritiesDebtSecuritiesCurrent") \
@@ -45,7 +45,7 @@ def test_fill_canonical_only_where_missing(tmp_path):
     assert fill_canonical_from_map(repos) == 1
     new = repos.fact.get_fact("f-new")
     assert new["canonical_concept"] == "total_debt"
-    assert new["concept_map_version"] == "us-gaap.v7"
+    assert new["concept_map_version"] == "us-gaap.v8"
     assert new["value"] == "4056148000"
     old = repos.fact.get_fact("f-old")
     assert old["canonical_concept"] == "other_concept"   # не переназначен

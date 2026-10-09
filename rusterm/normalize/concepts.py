@@ -31,7 +31,7 @@ dei:EntityCommonStockSharesOutstanding (обложка 10-K, сущность в
 """
 from __future__ import annotations
 
-CONCEPT_MAP_VERSION = "us-gaap.v7"  # v7: + interest_expense <- InterestExpenseNonoperating (MSFT, T с 2024); − OtherCostOfOperatingRevenue из cogs (частичная строка AT&T: без себестоимости оборудования валовая прибыль завышена на ~20 млрд; сверка с Yahoo 08.10)
+CONCEPT_MAP_VERSION = "us-gaap.v8"  # v8: + dps <- CommonStockDividendsPerShareCashPaid (KO: Declared обрывается 2018-09-28, paid живёт до сегодняшнего; ТЗ-139 B2). v7: + interest_expense <- InterestExpenseNonoperating (MSFT, T с 2024); − OtherCostOfOperatingRevenue из cogs (частичная строка AT&T: без себестоимости оборудования валовая прибыль завышена на ~20 млрд; сверка с Yahoo 08.10)
 # v6: + cogs <- CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization (AA), OtherCostOfOperatingRevenue (T) — ТЗ-130 K2, payload-доказательства в REPORT-130
 
 # Отозванные теги: были в карте, оказались не тем концептом. reparse

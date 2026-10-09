@@ -15,7 +15,7 @@ from rusterm.normalize.concepts import (CONCEPT_MAP_VERSION, WITHDRAWN_TAGS,
 
 
 def test_v7_keeps_alcoa_cogs_and_withdraws_the_partial_att_line():
-    assert CONCEPT_MAP_VERSION == "us-gaap.v7"
+    assert CONCEPT_MAP_VERSION == "us-gaap.v8"
     assert canonical_for(
         "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"
     ) == "cogs"

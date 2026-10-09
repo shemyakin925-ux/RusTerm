@@ -66,12 +66,12 @@ def test_c2_map_grew_from_task_start():
     # total_debt (новый в дельте) растёт только хвостом: W2 SMCI
     assert CONCEPT_MAP["total_debt"] == (
         "LongTermDebt", "DebtLongtermAndShorttermCombinedAmount")
-    assert CONCEPT_MAP_VERSION == "us-gaap.v7"
+    assert CONCEPT_MAP_VERSION == "us-gaap.v8"
     # новый тег штампует канонический концепт и версию карты
     fact = {"concept": "us-gaap:CommonStockSharesOutstanding"}
     apply_concept_map(fact)
     assert fact["canonical_concept"] == "shares_outstanding"
-    assert fact["concept_map_version"] == "us-gaap.v7"
+    assert fact["concept_map_version"] == "us-gaap.v8"
 
 
 # ── золотой тест шести мер на реальных значениях ───────────────────────
