@@ -445,6 +445,29 @@ class FactRepo:
             "FROM fact WHERE source_ref = ?", (source_ref,)).fetchall()
         return {p: (fid, b) for p, fid, b in rows if p is not None}
 
+    def locators_by_pointer(self, source_ref: str) -> Dict[str, tuple]:
+        """{json_pointer: (fact_id, locator_text)} фактов одного сырого
+        объекта — сверка локаторов с повторным разбором (ТЗ-141 D1:
+        парсер дописал в locator дату подачи, у сохранённых строк её
+        нет). fact_id — обновление по первичному ключу."""
+        rows = self.conn.execute(
+            """SELECT json_extract(locator, '$.json_pointer'), fact_id,
+                      locator FROM fact WHERE source_ref = ?""",
+            (source_ref,)).fetchall()
+        return {p: (fid, loc) for p, fid, loc in rows if p is not None}
+
+    def update_locators(self, changes: List[tuple]) -> int:
+        """Меняет ТОЛЬКО locator по (locator_json, fact_id). Значение,
+        период, basis и происхождение не трогаются. Возвращает число
+        изменённых строк."""
+        if not changes:
+            return 0
+        with writer_transaction(self.conn) as c:
+            before = self.conn.total_changes
+            c.executemany("UPDATE fact SET locator = ? WHERE fact_id = ?",
+                          changes)
+            return self.conn.total_changes - before
+
     def update_basis(self, changes: List[tuple]) -> int:
         """Меняет ТОЛЬКО basis по (fact_id, basis). Значение, период и
         происхождение не трогаются. Возвращает число изменённых строк."""
@@ -792,6 +815,28 @@ class SnapshotRepo:
             (measure_id,)).fetchall()
         return [dict(zip(("instrument_id", "ex_date", "kind", "role"),
                          r)) for r in rows]
+
+    def fact_filed_date(self, fact_id: Optional[str]) -> Optional[str]:
+        """Дата подачи факта из его локатора (ТЗ-141 D1): парсер кладёт
+        поле `filed` ответа companyfacts в locator. Нет факта/локатора/поля
+        — None: база счётчика акций считается неизвестной."""
+        if not fact_id:
+            return None
+        row = self.conn.execute(
+            "SELECT locator FROM fact WHERE fact_id=?", (fact_id,)).fetchone()
+        if not row:
+            return None
+        locator = row[0]
+        if isinstance(locator, str):
+            try:
+                import json
+                locator = json.loads(locator)
+            except ValueError:
+                return None
+        if isinstance(locator, dict):
+            filed = locator.get("filed")
+            return str(filed) if filed else None
+        return None
 
     def price_lineage(self, measure_id: Optional[str]) -> List[tuple]:
         """Ценовой ряд — вход меры (ТЗ-140 S2): (роль, дата с, дата по)

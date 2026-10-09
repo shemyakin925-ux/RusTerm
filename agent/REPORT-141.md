@@ -49,3 +49,23 @@ Questions for the coordinator:
 1. (none yet)
 
 NOW: D0, step 6
+
+## Done (D1 continued)
+- D1 — share count basis across a split. The companyfacts parser now
+  puts the fact's `filed` date into the locator; `reparse` aligns stored
+  locators with the fresh parse (new store doors
+  `FactRepo.locators_by_pointer` / `update_locators`; value, period,
+  basis and origin untouched; idempotent — second run changes nothing,
+  measured below); `core.prices.split_factor_between` returns the split
+  factors in (period_end, filing]; the market-cap path divides a share
+  count whose filing crossed a split and notes it in the lineage role;
+  a fact with no filing date stays as-is with a role saying the basis is
+  unknown. Test: `tests/test_task141_split_basis.py` — 3:1 split between
+  period end and filing → cap = actual close × count ÷ 4-equivalent
+  (`2 passed`), incl. the no-date case.
+  Runs on the copy: `reparse` → «локаторов выровнено: 565173»; history
+  rebuild; `yahoo_check.py US-WMT` → **21/21 = 100 %** (market_cap 2024
+  was 66.9 % off, now within 5 %); control ten `yahoo_check` →
+  **188/190 = 99 %** (gate ≥ 99 % holds; DELL pe 2024 8.8 % and
+  net_income 5.2 % remain — pre-existing, Yahoo line methodology);
+  `card_fill` control ten → **1490/1629 = 91 %** (gate ≥ 90).

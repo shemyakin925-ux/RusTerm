@@ -50,6 +50,8 @@ class ReparseResult:
     # ТЗ-92 C1: сколько сохранённых строк прогон помечает вытесненными
     # (новое правило дедупликации считает их проигравшими).
     superseded_marked: int = 0
+    # ТЗ-141 D1: локаторов выровнено (дата подачи дописана парсером)
+    locators_updated: int = 0
     # ТЗ-108 W4: эмитентов, чьё состояние сбора восстановлено из
     # сохранённого companyfacts (refresh больше не видит «первый сбор»)
     states_restored: int = 0
@@ -95,6 +97,7 @@ def rebuild_companyfacts(repos) -> ReparseResult:
         parsed = parser.parse(raw, {"issuer_id": issuer_id,
                                     "source_ref": sha})
         stored = repos.fact.basis_by_pointer(sha)
+        stored_locators = repos.fact.locators_by_pointer(sha)
         if not stored and repos.fact.count_for_source(sha):
             # Строки этого объекта есть, но ни в одной нет json_pointer:
             # сверить «что уже разобрано» нечем, и прогон удвоил бы каждую
@@ -128,6 +131,30 @@ def rebuild_companyfacts(repos) -> ReparseResult:
                     result.to_as_reported += 1
                 else:
                     result.to_restated += 1
+        # ТЗ-141 D1: локатор сохранённой строки выравнивается по
+        # нынешнему разбору — парсер дописывает в locator дату подачи
+        # (`filed`), база счётчика акций иначе никогда её не увидит.
+        # Значение, период, basis и происхождение не трогаются;
+        # идемпотентно: второй прогон сравнивает равные.
+        locator_changes = []
+        for fact in parsed.all_facts:
+            pointer = fact.get("locator", {}).get("json_pointer")
+            known = stored_locators.get(pointer)
+            if not known:
+                continue
+            fact_id, locator_text = known
+            try:
+                import json as _json
+                stored_locator = _json.loads(locator_text)
+            except ValueError:
+                continue
+            if stored_locator != fact.get("locator"):
+                import json as _json
+                locator_changes.append((_json.dumps(
+                    fact["locator"], ensure_ascii=False,
+                    sort_keys=True), fact_id))
+        result.locators_updated += repos.fact.update_locators(
+            locator_changes)
         # Указатели сохранённых строк — тоже кандидаты в победители:
         # проигравший мог приехать сейчас, а его победитель лежит в базе
         # с прошлого прогона, и наоборот.

@@ -76,6 +76,9 @@ class LocatorAPI:
     request_hash: str = ""
     json_pointer: str = ""
     value_snapshot: str = ""
+    # ТЗ-141 D1: дата подачи факта в ответе; у локаторов, записанных
+    # до D1, поля нет — база счётчика акций тогда считается неизвестной
+    filed: str = ""
     retrieved_at: float = 0.0
     schema: str = "api.v2"
 

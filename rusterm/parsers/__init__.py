@@ -458,6 +458,10 @@ class CompanyFactsParser:
                             "value_snapshot": str(value),
                             "retrieved_at": 0.0,
                             "schema": "api.v2",
+                            # ТЗ-141 D1: дата подачи факта — база счётчика
+                            # акций определяется сравнением с датами
+                            # сплитов
+                            "filed": filed,
                         }
                         fact = {
                             "issuer_id": context.get("issuer_id"),

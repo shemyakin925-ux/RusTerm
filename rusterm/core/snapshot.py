@@ -15,7 +15,8 @@ from uuid import uuid4
 from rusterm.core.peers import (currency_guard, evaluate,
                                 percentile_share, period_window)
 from rusterm.core.debt import adds_short_term, short_term_at
-from rusterm.core.prices import split_factor_after
+from rusterm.core.prices import (split_factor_after,
+                                 split_factor_between)
 from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow, declared_window,
                               is_annual_window, ttm_window)
 from rusterm.formulas import (calculate_measure, effective_tax_rate,
@@ -2366,6 +2367,28 @@ class SnapshotBuilder:
             shares_fallback_role = (
                 "input: shares_diluted (weighted average) — cover counts "
                 "one entity of a dual listing")
+        # ТЗ-141 D1: счётчик, поданный ПОСЛЕ сплита о периоде ДО него,
+        # уже в новой базе акций; цену ряда правило P4 привело к
+        # фактической базе того дня — делим счётчик на факторы сплитов
+        # между концом периода и датой подачи факта. Даты подачи нет —
+        # база неизвестна, роль lineage называет это
+        shares_base_note = None
+        if shares is not None:
+            filed = self._snapshots.fact_filed_date(shares[3])
+            if filed:
+                factor = split_factor_between(
+                    self._corp_actions.all(instrument_id)
+                    if self._corp_actions is not None else [],
+                    shares[1], filed)
+                if factor != 1:
+                    shares = (shares[0] / factor, shares[1], shares[2],
+                              shares[3])
+                    shares_base_note = (
+                        f"input: share count divided by split factor "
+                        f"{factor:g} (period {shares[1]}, filed {filed})")
+            else:
+                shares_base_note = ("input: share count basis unknown — "
+                                    "the fact carries no filing date")
         shares_cur = shares[2] if shares else None
         mcap_value = None
         mcap_reason = None
@@ -2398,9 +2421,10 @@ class SnapshotBuilder:
                                     else shares[0]))
             mcap_value, mcap_reason = m.value, m.null_reason
         mcap_lineage = self._fact_lineage(shares[3] if shares else None)
-        if shares_fallback_role and mcap_lineage:
-            mcap_lineage = [dict(row, role=shares_fallback_role)
-                            for row in mcap_lineage]
+        if mcap_lineage and (shares_fallback_role or shares_base_note):
+            role = "; ".join(r for r in (shares_fallback_role,
+                                         shares_base_note) if r)
+            mcap_lineage = [dict(row, role=role) for row in mcap_lineage]
         ratio_fact = (self._snapshots.latest_ads_ratio(issuer_id)
                       if mcap_value is not None
                       and self._snapshots.files_mainly_ifrs(issuer_id)

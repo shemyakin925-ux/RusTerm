@@ -1928,6 +1928,7 @@ def cmd_reparse(args) -> int:
           f"{res.unmapped})")
     print(f"basis исправлен у {res.changed}: в as_reported "
           f"{res.to_as_reported}, в restated {res.to_restated}")
+    print(f"локаторов выровнено: {res.locators_updated}")
     if res.ownerless:
         print(f"пропущено объектов без эмитента: {res.ownerless} — "
               f"факту некому принадлежать; выполните rusterm add "
