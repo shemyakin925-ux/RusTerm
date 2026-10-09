@@ -47,9 +47,13 @@ WITHDRAWN_TAGS: dict[str, str] = {
 
 CONCEPT_MAP: dict[str, tuple[str, ...]] = {
     "revenue": (
+        # ТЗ-141 D3: верхняя строка отчёта о прибылях впереди строки
+        # ASC-606, когда поданы обе (PFE 2023: Revenues 59,55 млрд против
+        # контрактных 50,91 — Yahoo у верхней строки); ворота —
+        # контрольная десятка ≥ 99 %
+        "Revenues",
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "RevenueFromContractWithCustomerIncludingAssessedTax",
-        "Revenues",
         "SalesRevenueNet",
     ),
     "cogs": ("CostOfGoodsAndServicesSold", "CostOfRevenue",

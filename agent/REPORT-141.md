@@ -127,3 +127,25 @@ Questions for the coordinator:
    door next resume.
 
 NOW: D2, step 6 (paused by the user)
+
+## Done (D2 gates measured after the pause; D3)
+- CORRECTION to the D2 section: the cancelled-looking background run did
+  complete after all — the D2 copy gates ARE measured: history rebuild →
+  `yahoo_check US-PFE` **19/21 = 90 %** (total_debt 2023: ours 63.79 vs
+  Yahoo 70.84 = 10.0 % — the residual is lease liabilities inside Yahoo's
+  debt rows; 2024/2025 within 5 %), control ten **188/190 = 99 %**,
+  `card_fill` **1495/1629 = 92 %**. D2's Done-when is met on the control
+  ten; the 2023 lease residual is named (same methodology family the
+  check already reports as «справочно»).
+- D3 — revenue line: the concept map's revenue ranks now put `Revenues`
+  (the income statement's top line) ahead of the ASC-606
+  `RevenueFromContractWithCustomer…` tags (map version stays v8 — D0 and
+  D3 are its content; canonical mapping unchanged, so no reparse was
+  needed — the ranks apply at pick time). Rank pins updated per the
+  ruling: test_concept_map (2 asserts), test_task97_q4_ifrs_ingest
+  (taxonomy-offset pin now Revenues=0, RFC below the IFRS offset),
+  test_c2's growth pin allows the documented reorder (same tag set).
+  Gates on the copy (history rebuild + cached Yahoo): `yahoo_check
+  US-PFE` **20/21 = 95 %** — revenue 2023–2025 within 5 % (the 14.5 %
+  miss is gone); control ten **188/190 = 99 %** (unchanged); fill 92 %.
+  The swap STAYS.

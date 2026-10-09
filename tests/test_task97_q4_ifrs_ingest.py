@@ -388,9 +388,11 @@ def test_rank_offsets_keep_taxonomy_order_documented():
     (_DEI_RANK_OFFSET) — на этом стоит выбор источника входа."""
     assert _IFRS_RANK_OFFSET == 100
     assert _DEI_RANK_OFFSET == 1000
-    assert priority_rank("revenue",
-                         "RevenueFromContractWithCustomerExcludingAssessedTax",
-                         "us-gaap") == 0
+    # ТЗ-141 D3: Revenues — ранг 0; RFC-тег ниже, но выше IFRS-смещения
+    assert priority_rank("revenue", "Revenues", "us-gaap") == 0
+    assert 0 < priority_rank(
+        "revenue", "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "us-gaap") < _IFRS_RANK_OFFSET
     assert priority_rank("revenue", "Revenue", "ifrs-full") == _IFRS_RANK_OFFSET
     assert (priority_rank("total_equity_incl_nci", "Equity", "ifrs-full")
             == _IFRS_RANK_OFFSET)

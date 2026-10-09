@@ -55,7 +55,12 @@ def test_c2_map_grew_from_task_start():
         assert tags == new_tags or (
             # единственное расширение дельты: теги дописываются В КОНЕЦ
             new_tags[:len(tags)] == tags
-            and len(new_tags) > len(tags)), (concept, tags, new_tags)
+            and len(new_tags) > len(tags)
+            # ТЗ-141 D3: revenue переупорядочен вердиктом (верхняя строка
+            # отчёта вперёд), состав тегов прежний
+            or (concept == "revenue"
+                and set(tags) == set(new_tags)
+                and len(tags) == len(new_tags))), (concept, tags, new_tags)
     delta = {c for c in CONCEPT_MAP if c not in old_map}
     assert delta == {"total_debt", "shares_outstanding"}, delta
     # единственное расширенное кортеж — st_investments (ТЗ-31 C2,
