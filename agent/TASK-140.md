@@ -1,6 +1,6 @@
 # TASK-140 — «where is this number from» for every cell (С3)
 
-- **Status: READY** (take after TASK-139)
+- **Status: ACCEPTED (09.10, coordinator) — S1 dba94be, S2 372f2b3/26af685/858a083, S3; 11 814/11 814 cells with a source, 49/49 open a file.**
 - **Report:** `agent/REPORT-140.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С3.

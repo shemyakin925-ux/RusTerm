@@ -63,7 +63,12 @@
   XOM feed CIK → TASK-141.
 - (history) Acceptance on c899dc9: 12/1 — item 11 (suite without zstandard) red on
   test_task65_k4_firsthour, green alone → TASK-139 B1.
-- Next for the executor: TASK-140 (С3 source of every cell), TASK-141 (REPORT-139 rulings). TASK-136 (Excel) CANCELLED by the user 08.10 — С6 dropped; done = С1–С5.
+- **TASK-140 ACCEPTED (09.10)**: `tools/source_check.py` — every card
+  cell's panel (same door as the window, `data.panel_for_cell`); 100 %
+  of 11 814 cells name a document or inputs (via-measure documents,
+  dividend events, price series); 49/49 «открыть документ» files exist.
+- Next for the executor: TASK-141 (REPORT-139 rulings), TASK-142 (С5
+  refresh end to end, С4 peers for new companies). (was: TASK-140 (С3 source of every cell), TASK-141 (REPORT-139 rulings). TASK-136 (Excel) CANCELLED by the user 08.10 — С6 dropped; done = С1–С5.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:

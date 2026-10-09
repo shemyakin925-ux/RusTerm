@@ -1,12 +1,12 @@
 {
- "holder": "coordinator",
- "round": 158,
+ "holder": "executor",
+ "round": 159,
  "branch": "agent/night-11",
- "task": "agent/TASK-140.md",
- "report": "agent/REPORT-140.md",
- "note": "S3 done: source panel machine-checked over every cell. Tool source_check.py + door panel_for_cell; three rules: year cell reads year measure, now-cells carry documents, formulas name inputs (price series/CA events/measure-of-measure). Copy: 11814/11814=100% (gate 98), open targets 49/49. One P5 slip corrected in-report (rule 2 numbers written before run).",
- "handed_by": "executor",
- "handed_at": "2026-10-09T00:25:01Z",
+ "task": "agent/TASK-141.md",
+ "report": "agent/REPORT-141.md",
+ "note": "TASK-140 ACCEPTED (100 % cells with a source). NEXT: git pull --rebase; TASK-141 (D0 map v8 first), then TASK-142.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-10-09T00:47:43Z",
  "paused": false,
  "finished": false
 }
