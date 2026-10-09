@@ -84,18 +84,19 @@ NOW: D0, step 6
   Tests: pair → sum; combined present → combined only — in
   `tests/test_task141_split_basis.py` (+ the card/snapshot suites green:
   product_card, coordinator_0810, c2, task130 — 48 passed locally).
-  NOT measured yet (user paused the shift): the copy gates —
-  `yahoo_check US-PFE` total_debt within 5 % and the control ten ≥ 99 %
-  after a history rebuild. The copy is at /tmp/rusterm-b2-base with the
-  pre-D2 rebuild; the gates run first thing on resume.
+  Gates (measured after the pause — history rebuild on the copy,
+  cached Yahoo): `yahoo_check US-PFE` 19/21 = 90 % (total_debt 2023:
+  ours 63.79 vs Yahoo 70.84 = 10.0 % — the residual is lease liabilities
+  inside Yahoo's debt rows; 2024/2025 within 5 %), control ten
+  188/190 = 99 % (gate holds), `card_fill` 1495/1629 = 92 %.
 
 ## Blocked
 - (empty)
 
 ## What not to trust
-- D2's copy gates are UNMEASURED (see above); D2 is committed on green
-  unit tests only. The earlier cancelled background run did not produce
-  numbers.
+- The D2 gates quoted above arrived from a background run after the
+  section was first written as «not measured» — both statements were
+  true when written; the numbers are authoritative now.
 - D0/D1 numbers quoted earlier stand (they were measured before their
   commits).
 
@@ -149,3 +150,59 @@ NOW: D2, step 6 (paused by the user)
   US-PFE` **20/21 = 95 %** — revenue 2023–2025 within 5 % (the 14.5 %
   miss is gone); control ten **188/190 = 99 %** (unchanged); fill 92 %.
   The swap STAYS.
+
+## Done (D4)
+- D4 — manual CIK hint. `rusterm add --ticker T --market US --cik B`
+  no longer calls the ticker feed: the name comes from the registrant's
+  own submissions (`EdgarProvider.registrant_name()`, new public door),
+  the audit row records `cik_origin: manual` (feed adds record none);
+  a fake-feed test proves the feed's CIK A is ignored in favor of B
+  (`tests/test_task141_cik_hint.py`, 2 passed: hint → CIK 34088 with
+  name «EXXON MOBIL CORP» and manual origin; no hint → the feed row
+  decides, no origin). The «+ компания» dialog gained the optional CIK
+  field: a CIK-filled dialog runs `add --cik` (new door
+  `desktop_actions.add_by_cik`, real parser, captured output) in the
+  same worker thread, then `follow_instrument` — follow finds the
+  instrument and skips the search stage.
+- CORRECTION (coordinator's ruling): the first dialog version was a
+  custom QDialog — it bypassed the patched `QInputDialog.getText` and
+  hung `tests/test_desktop_window.py -k s1_watchlist_add_button`
+  forever (>120 s; without the change 2 s), which is why the
+  coordinator's acceptance runs were SIGTERM-killed (exit 143). Fixed
+  per the ruling: the ticker is asked with `QInputDialog.getText` as
+  before, the optional CIK with a second `QInputDialog.getText` (empty
+  or non-numeric = the feed row decides); the s1 test is untouched.
+  Coordinator's check quoted: `pytest -q -x tests/test_desktop_window.py
+  -k s1_watchlist_add_button` → passed in 1.6 s; window + cik_hint + W4
+  suites → 40 passed.
+- Copy run (XOM): the shell instrument (CIK 2115436) was removed from
+  the copy, then `add --ticker XOM --market US --cik 34088` → «эмитент
+  EXXON MOBIL CORP, CIK 34088»; follow ingested the real companyfacts
+  (3 456 956 bytes, 16 082 facts, decades of history) and prices (9 260
+  rows, 0 requests — payload cached). **Year columns: 10 (2016–2025) ≥ 8 ✓.**
+  `card_fill US-XOM` → **130/185 = 70 %** — BELOW the 80 % gate, every
+  remaining gap named and out of D4's reach:
+  gross_profit/operating_income/ebitda/margins/roic/nopat/ev_ebitda/
+  net_debt_ebitda/interest_coverage — XOM's XBRL has NO operating-income
+  or gross-profit line at all (like PFE; the whole chain hangs off it);
+  total_debt/net_debt_ebitda — XOM files
+  `LongTermDebtAndCapitalLeaseObligations` + `DebtCurrent`, not the
+  ruled Noncurrent+Current pair (extending the pair to those tags is a
+  new ruling, not D4's text). The CIK mechanism itself is fully proven.
+
+## Blocked (machine-level, 09.10 evening)
+- D4's commit cannot land: the pre-commit acceptance is killed by
+  SIGTERM (exit 143) mid-run — three attempts (caffeinate, detached
+  nohup, detached again + a survival probe) all died at 10–33 min, and
+  a detached survival probe died mid-run the same way. Cause outside
+  the repo: the user's own collection jobs are running on this machine
+  (`q11_sec_quarterly.py`, `sgx_annual_reports.py`,
+  `asx_annual_reports.py` — nice + caffeinate); D0–D3's identical hooks
+  survived overnight when those jobs were not running.
+- The D4 work is SAFE: 7 files staged (providers/edgar.py,
+  cli/__init__.py, desktop/actions.py, desktop/window.py,
+  tests/test_task141_cik_hint.py, REPORT-141.md, STATE.json), unit
+  tests 2 passed, the commit message prepared (see the shift log).
+- On resume, when the user's jobs are done: `git commit` with the
+  prepared message (hook runs the full acceptance), push, then D5
+  `relay.py verify` → final HANDOFF → `relay.py hand`.

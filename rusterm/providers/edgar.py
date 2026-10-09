@@ -214,6 +214,16 @@ class EdgarProvider:
         self._submissions = data
         return data
 
+    def registrant_name(self):
+        """ТЗ-141 D4: имя регистранта из его submissions — один запрос.
+        Подсказка CIK от пользователя отвечает именем самого регистранта,
+        а не заголовком строки тикерного фида (фид может указывать на
+        другую сущность)."""
+        data = self._load_submissions()
+        if isinstance(data, (ConfigError, NotModified, ProviderError)):
+            return data
+        return data.get("name")
+
     def poll_index(self, cursor: str) -> IndexPoll | ProviderError | ConfigError:
         """Новые раскрытия эмитента с даты курсора (filingDate > cursor)."""
         data = self._load_submissions()

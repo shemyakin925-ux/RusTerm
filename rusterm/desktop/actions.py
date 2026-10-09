@@ -342,6 +342,38 @@ def follow_instrument(root, instrument_id: str,
 
 # ── ТЗ-111 U3: обновление отставшей базы кнопкой ────────────────────────
 
+def add_by_cik(root, ticker: str, market: str, cik: str) -> CollectOutcome:
+    """ТЗ-141 D4: «+ компания» с подсказкой CIK — та же команда add,
+    настоящий парсер; CIK вручную отвечает регистрантом вместо строки
+    тикерного фида (XOM: фид указывает на другую сущность), выбор
+    пишется в аудит с происхождением manual. Печать команды — в detail,
+    трассировка окну не ответ."""
+    import contextlib
+    import io
+    from rusterm import cli
+
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(out):
+            args = cli._build_parser().parse_args(
+                ["--root", str(root), "add", "--ticker", ticker.upper(),
+                 "--market", market, "--cik", cik])
+            rc = cli.cmd_add(args)
+    except SystemExit as exc:      # парсер отказал: аргументы не те
+        return CollectOutcome(ok=False, reason="bad_arguments",
+                              detail=out.getvalue().strip()
+                              or f"код {exc.code}")
+    except Exception as e:
+        return CollectOutcome(ok=False, reason=f"unexpected_error:{e}",
+                              detail="команда прервана; база осталась "
+                                     "целой")
+    lines = [line for line in out.getvalue().splitlines() if line.strip()]
+    return CollectOutcome(ok=rc == 0,
+                          reason=None if rc == 0 else "add_failed",
+                          detail=lines[-1] if lines else f"код {rc}")
+
+
 def upgrade_stale_base(root) -> CollectOutcome:
     """Кнопка «Обновить базу»: бэкап, затем миграции той же дверью, что
     `rusterm --root DIR init` (apply_migrations). Миграция происходит

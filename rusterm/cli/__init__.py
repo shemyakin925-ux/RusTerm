@@ -1758,6 +1758,7 @@ def cmd_add(args) -> int:
     cik, name = args.cik, args.name
     provider = None
     add_gate = None
+    cik_origin = "manual" if cik is not None else None
     if cik is None or name is None:
         headers = NetworkGate().headers()
         if isinstance(headers, ConfigError):
@@ -1786,19 +1787,40 @@ def cmd_add(args) -> int:
                   file=sys.stderr)
             conn.close()
             return 1
-        resolution = provider.resolve(args.ticker, args.market,
-                                      args_as_of_default())
-        if isinstance(resolution, _PE):
-            # ТЗ-64 J1: расход пишется на выходе команды, а не сразу за
-            # resolve — после него add тянет ещё и площадку, и этот
-            # запрос терялся из budget.
-            _record_gate_usage(repos, market_row.provider, add_gate)
-            print(f"тикер {args.ticker!r} не найден в EDGAR: "
-                  f"{resolution.reason}", file=sys.stderr)
-            conn.close()
-            return 1
-        cik = cik if cik is not None else resolution["cik"]
-        name = name or resolution.get("title") or args.ticker.upper()
+        if cik is not None:
+            # ТЗ-141 D4 (вердикт на REPORT-139 Q1): CIK задан рукой —
+            # имя у самого регистранта (submissions), тикерный фид не
+            # вызывается: его строка может отвечать другой сущности
+            # (XOM: фид указывает на CIK 2115436, регистрант — 34088).
+            provider.cik = int(cik)
+            registrant = provider.registrant_name()
+            if isinstance(registrant, _PE):
+                _record_gate_usage(repos, market_row.provider, add_gate)
+                print(f"имя регистранта CIK {cik} не получено: "
+                      f"{registrant.reason}", file=sys.stderr)
+                conn.close()
+                return 1
+            if isinstance(registrant, ConfigError):
+                _record_gate_usage(repos, market_row.provider, add_gate)
+                print(f"провайдер не ответил: {registrant.reason}",
+                      file=sys.stderr)
+                conn.close()
+                return 1
+            name = name or registrant or args.ticker.upper()
+        else:
+            resolution = provider.resolve(args.ticker, args.market,
+                                          args_as_of_default())
+            if isinstance(resolution, _PE):
+                # ТЗ-64 J1: расход пишется на выходе команды, а не сразу за
+                # resolve — после него add тянет ещё и площадку, и этот
+                # запрос терялся из budget.
+                _record_gate_usage(repos, market_row.provider, add_gate)
+                print(f"тикер {args.ticker!r} не найден в EDGAR: "
+                      f"{resolution.reason}", file=sys.stderr)
+                conn.close()
+                return 1
+            cik = resolution["cik"]
+            name = name or resolution.get("title") or args.ticker.upper()
 
     # ТЗ-92 C2: идентификатор проходит схему СВОЕГО рынка до всякой
     # записи. `--cik` был `type=int`, поэтому корейский `00126380`
@@ -1880,7 +1902,8 @@ def cmd_add(args) -> int:
                                    args_as_of_default(), None, None, None)
     repos.audit.log("add", instrument_id,
                     {"ticker": args.ticker.upper(), "market": args.market,
-                     "registry_id": cik}, True, "ok")
+                     "registry_id": cik, "cik_origin": cik_origin},
+                    True, "ok")
     # слово CIK принадлежит только рынку EDGAR: называть так CD_CVM —
     # тот же обман, из-за которого refresh ходил в SEC за чужим кодом
     ident_label = ("CIK" if market_row.identifier == "cik"

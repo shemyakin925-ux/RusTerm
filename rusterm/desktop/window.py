@@ -103,7 +103,19 @@ if QT_AVAILABLE:  # без PySide6 имя не существует, окно ч
         наследуются — окно для демо и для живой бумаги одно.
         """
 
+        # ТЗ-141 D4: подсказка CIK — команда add с --cik выполняется
+        # тем же потоком перед путём; follow видит готовый инструмент и
+        # стадию поиска пропускает
+        _cik: str | None = None
+
         def run(self) -> None:
+            if self._cik:
+                market, _, ticker = self._instrument_id.partition("-")
+                added = desktop_actions.add_by_cik(
+                    self._root, ticker, market, self._cik)
+                if not added.ok:
+                    self.finished_run.emit(added)
+                    return
             outcome = desktop_actions.follow_instrument(
                 self._root, self._instrument_id,
                 cancel=self.cancel_flag,
@@ -668,11 +680,20 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             QMessageBox.warning(window, "список",
                                 "списков нет; " + data.NO_WATCHLISTS_HINT)
             return
+        # ТЗ-141 D4: второе поле — необязательный CIK. Фид EDGAR может
+        # указывать тикер на другую сущность (XOM → CIK 2115436); CIK
+        # рукой отвечает нужным регистрантом (дверь add_by_cik, аудит
+        # с origin manual). Не цифры — поле пусто: строка фида решает.
         text, ok = QInputDialog.getText(
             window, "добавить компанию",
             "тикер компании США (например: NVDA):")
         if not ok or not text.strip():
             return
+        cik_text, cik_ok = QInputDialog.getText(
+            window, "добавить компанию",
+            "CIK регистранта (необязательно; пусто — строка фида):")
+        cik = (cik_text.strip()
+               if cik_ok and cik_text.strip().isdigit() else "")
         ticker, market = data.parse_add_request(text)
         outcome = data.add_instrument(repos, watchlist_id, ticker, market)
         if outcome.get("missing"):
@@ -682,6 +703,12 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
             if state["worker"] is not None:
                 QMessageBox.warning(window, "добавление",
                                     "идёт сбор — дождитесь окончания")
+                return
+            if cik:
+                # CIK рукой: бумага создаётся командой add с --cik в том
+                # же потоке, путь follow её находит и поиск пропускает
+                start_add_follow(outcome["instrument_id"], watchlist_id,
+                                 ticker, market, cik=cik)
                 return
             answer = QMessageBox.question(
                 window, "добавление",
@@ -702,8 +729,11 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         repaint_sidebar("")
         repaint_watchlists()
 
-    def start_add_follow(instrument_id, watchlist_id, ticker, market):
+    def start_add_follow(instrument_id, watchlist_id, ticker, market,
+                         cik=None):
         worker = _FollowWorker(paths.root, instrument_id, parent=window)
+        if cik:
+            worker._cik = cik
         window.set_worker(worker)
         state["worker"] = worker
         collect_button.setEnabled(False)
