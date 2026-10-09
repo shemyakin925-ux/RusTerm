@@ -17,7 +17,7 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
-from rusterm.core.debt import adds_short_term, short_term_at
+from rusterm.core.debt import adds_short_term, pair_total_at, short_term_at
 from rusterm.core.ttm import declared_by_year
 from rusterm.desktop import data
 from rusterm.measures_ru import measure_name
@@ -220,6 +220,17 @@ def statement_series(repos, issuer_id: str, concept: str,
                 std = short_term_at(short_rows, end)
                 if std is not None:
                     series[year] = (value + std[0], currency, fact_id)
+    if concept == "total_debt":
+        # ТЗ-141 D2: годы без объединённого тега — сумма пары
+        # Noncurrent + Current той же дверью ядра (core/debt.py)
+        pair_rows = repos.snapshot.debt_pair_facts(issuer_id)
+        for year_end in sorted(year_ends):
+            pair = pair_total_at(pair_rows, year_end)
+            if pair is None:
+                continue
+            year = _year(year_end)
+            if year not in series:
+                series[year] = (pair[0], pair[2], pair[3])
     for year, point in declared.items():
         series.setdefault(year, point)
     return series

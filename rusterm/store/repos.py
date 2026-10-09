@@ -957,6 +957,20 @@ class SnapshotRepo:
         `dominant_filing_currency`)."""
         return dominant_filing_currency(self.conn, issuer_id)
 
+    def debt_pair_facts(self, issuer_id: str) -> list:
+        """Пара долга (ТЗ-141 D2, core/debt.py): Noncurrent + Current —
+        (value, period_end, currency, fact_id, concept) на даты баланса,
+        свежие первыми."""
+        return self.conn.execute(
+            """SELECT value, period_end, currency, fact_id, concept FROM fact
+               WHERE issuer_id=? AND concept IN
+                     ('us-gaap:LongTermDebtNoncurrent',
+                      'us-gaap:LongTermDebtCurrent')
+                 AND status='ok' AND superseded_by IS NULL
+                 AND value IS NOT NULL AND period_start = period_end
+               ORDER BY period_end DESC, ingested_at DESC""",
+            (issuer_id,)).fetchall()
+
     def short_term_debt_facts(self, issuer_id: str) -> list:
         """Краткосрочный долг по тегу (BACKLOG P5, core/debt.py):
         (value, period_end, currency, fact_id, concept) на даты баланса,

@@ -14,7 +14,8 @@ from uuid import uuid4
 
 from rusterm.core.peers import (currency_guard, evaluate,
                                 percentile_share, period_window)
-from rusterm.core.debt import adds_short_term, short_term_at
+from rusterm.core.debt import (adds_short_term, pair_total_at,
+                               short_term_at)
 from rusterm.core.prices import (split_factor_after,
                                  split_factor_between)
 from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow, declared_window,
@@ -1501,6 +1502,31 @@ class SnapshotBuilder:
                 out["total_debt"] = (debt[0] + std[0], debt[1], debt[2],
                                      debt[3])
                 out["short_term_debt"] = (std[0], debt[1], debt[2], std[1])
+        # ТЗ-141 D2: период без объединённого тега долга, но с парой
+        # LongTermDebtNoncurrent + LongTermDebtCurrent на одну дату —
+        # total_debt = их сумма (вердикт на REPORT-139 Q2; пин ТЗ-31 C2
+        # «одним тегом» заменён объявленной заменой булавки). Дата —
+        # последняя пара, закрытая на as_of; второй факт пары идёт
+        # отдельным входом total_debt_pair_current, lineage мер называет
+        # оба документа.
+        if out.get("total_debt") is None:
+            pair_rows = self._snapshots.debt_pair_facts(issuer_id)
+            dates = sorted({r[1] for r in pair_rows
+                            if not (as_of and r[1] > as_of)},
+                           reverse=True)
+            for end in dates:
+                pair = pair_total_at(pair_rows, end)
+                if pair is None:
+                    continue
+                total, pair_end, currency, nc_id, cur_id = pair
+                out["total_debt"] = (total, pair_end, currency, nc_id)
+                cur_value = next(
+                    (float(r[0]) for r in pair_rows
+                     if r[1] == pair_end
+                     and r[4] == "us-gaap:LongTermDebtCurrent"), None)
+                out["total_debt_pair_current"] = (
+                    cur_value, pair_end, currency, cur_id)
+                break
         # ТЗ-130 K2: капитал материнской компании из тождества баланса —
         # us-gaap-эмитентам с одной колонкой «Итого капитал» (с НКД):
         # total_equity = incl_nci − NCI. Не подстановка ТЗ-56 Z1 (та
@@ -2264,8 +2290,8 @@ class SnapshotBuilder:
         else:
             nd_value = (debt[0] - cash[0] - stinv[0])
         nd_lineage = []
-        for c in ("total_debt", "short_term_debt", "cash",
-                  "st_investments"):
+        for c in ("total_debt", "total_debt_pair_current",
+                  "short_term_debt", "cash", "st_investments"):
             if inputs.get(c):
                 nd_lineage += self._fact_lineage(inputs[c][3])
         nd_lineage += stinv_lineage
@@ -2320,8 +2346,8 @@ class SnapshotBuilder:
             ic_value = invested_capital(equity[0], minority[0], debt[0],
                                         cash[0], stinv[0])
         ic_lineage = []
-        for c in ("total_equity", "minority_interest", "total_debt", "cash",
-                  "st_investments"):
+        for c in ("total_equity", "minority_interest", "total_debt",
+                  "total_debt_pair_current", "cash", "st_investments"):
             if inputs.get(c):
                 ic_lineage += self._fact_lineage(inputs[c][3])
                 if (c == "total_equity"

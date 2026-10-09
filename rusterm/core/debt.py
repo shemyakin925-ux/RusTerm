@@ -13,6 +13,30 @@ from __future__ import annotations
 
 from typing import Optional
 
+PAIR_TAGS = ("us-gaap:LongTermDebtNoncurrent",
+             "us-gaap:LongTermDebtCurrent")
+
+
+def pair_total_at(rows, end: str) -> Optional[tuple]:
+    """ТЗ-141 D2 (вердикт на REPORT-139 Q2): суммарный долг из ПАРЫ
+    Noncurrent + Current на дату `end`. Оба тега обязательны — половина
+    пары долгом не считается. rows — (value, period_end, currency,
+    fact_id, concept) из `SnapshotRepo.debt_pair_facts`, свежие первыми.
+    Возвращает (сумма, конец, валюта, fact_id Noncurrent, fact_id
+    Current) или None."""
+    nc = cur = None
+    for value, row_end, currency, fact_id, concept in rows:
+        if row_end != end:
+            continue
+        if concept == PAIR_TAGS[0] and nc is None:
+            nc = (float(value), fact_id, currency)
+        elif concept == PAIR_TAGS[1] and cur is None:
+            cur = (float(value), fact_id, currency)
+    if nc is None or cur is None:
+        return None
+    return (nc[0] + cur[0], end, nc[2] or cur[2], nc[1], cur[1])
+
+
 LONG_TERM_TAG = "us-gaap:LongTermDebt"
 # порядок — приоритет: ShortTermBorrowings включает коммерческие бумаги
 SHORT_TERM_TAGS = ("us-gaap:ShortTermBorrowings", "us-gaap:CommercialPaper")
