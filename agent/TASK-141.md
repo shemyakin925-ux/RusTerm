@@ -68,6 +68,16 @@ instead of the feed row; the choice is stored with origin `manual`.
 origin manual); on the copy XOM via `--cik 34088` gets ≥ 8 year columns
 and `card_fill.py US-XOM` ≥ 80 %.
 
+**Coordinator, 09.10 — your D4 commit hangs the suite (killed twice
+after 1–2 h):** `tests/test_desktop_*s1_watchlist_add_button*` blocks
+forever in `QDialog.exec()` (offscreen). The test patches
+`QInputDialog.getText`; the new CIK `QDialog` bypasses the patch (known
+B49 class). Fix: keep the ticker prompt on `QInputDialog.getText` and ask
+the optional CIK with a second `QInputDialog.getText` (empty = feed
+row), or route the dialog through one patchable function. Do not change
+the s1 test. Before committing: `python3 -m pytest -q -x
+tests/test_desktop_*s1*` must finish in seconds.
+
 ## D5. One verify at the end
 **Done when:** `python3 agent/relay.py verify` → 13/0 on the final head.
 
