@@ -17,11 +17,25 @@ agent/CONTEXT.md ровно в засталенное состояние — б�
 застейдженную правку исполнителя в 627a0dc. Отдельный случай: правка
 стража, застейдженная ДО прогона модуля, переживает весь модуль
 дословно и попадает в индекс без изменений.
+
+ТЗ-98 Х4: за собой модуль убирает и тогда, когда его убили посреди
+прогона. Расширение считается от блоба HEAD (не от рабочего файла,
+который мог остаться в хвосте), а перед до-модульным снимком включается
+самопочинка: если отслеженный страж отличается от HEAD только маркерами
+самой демонстрации, он возвращается к HEAD — деревом и блобом индекса.
+
+ТЗ-111 U0: все манипуляции — в ЛОКАЛЬНОМ КЛОНЕ репозитория
+(`git clone --local` в tmp фабрики), с hooksPath, выставленным в клон.
+Настоящий репозиторий не стейджится никогда: прерванный или параллельный
+прогон больше не оставляет застейдженного стража (координатор видел это
+дважды, круги 145-147); чистота настоящего agent/ проверяется непрерывно
+фикстурой и отдельным зубом (симуляция падения посреди тела).
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -30,7 +44,14 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.i5_guard_residue import (LEAKED_GIT_ENV, PRE_STAGED_EDIT,
+                                    reconcile, widened)
+
+ROOT_LIVE = Path(__file__).resolve().parents[1]
+# ROOT перепривязывается фикстурой _temp_repo на локальный клон: вся
+# машинерия модуля (снимки, стейджинг, вложенный selfcheck) работает
+# в клоне; ROOT_LIVE — настоящий репозиторий, только для проверок чистоты
+ROOT = ROOT_LIVE
 P6_GUARD = ROOT / "agent" / "p6_rule.sh"
 CONTEXT_MD = ROOT / "agent" / "CONTEXT.md"
 
@@ -67,19 +88,9 @@ def _restore(path: Path, worktree: bytes, mode: str | None,
             env=_hermetic_env())
 
 
-# Расширение для зелёного случая: поведение то же (красные случаи
-# стража остаются красными), но копию из index видно в выводе
-# selfcheck. «Расширение» — поведение не меняется: добавляется
-# строка-комментарий. Смысл случая — ЗАСТЕЙДЖЕННОЕ отличие рабочей
-# копии от HEAD, а не поломка стража.
-WIDENED = (P6_GUARD.read_text(encoding="utf-8")
-           + "\n# i5 green case: staged widening\n")
-
-# ТЗ-45 M1, сценарий 627a0dc: правка, которая УЖЕ в индексе до прогона
-# модуля (своё незакоммиченное дело исполнителя), обязана пережить
-# модуль дословно — её снимает и возвращает нижняя фикстура.
-PRE_STAGED_EDIT = ("\n# ТЗ-45 M1: правка, застейдженная ДО прогона "
-                   "модуля (сценарий 627a0dc)\n")
+# ТЗ-98 Х4: мусор в отслеженном страже, расширение зелёного случая и
+# самопочинка вынесены в `tests/i5_guard_residue.py` — вызываемый БЕЗ
+# pytest, чтобы его мог позвать отдельный процесс (песочница теста).
 _PRE_MODULE = None
 
 
@@ -92,9 +103,7 @@ _PRE_MODULE = None
 # собственном мусоре (под хуком приёмка 11 из 13 при 13 из 13 в
 # обычном прогоне). Все git-вызовы модуля идут с обычным индексом
 # дерева. Та же порода, что ТЗ-46 закрыло для песочниц j1 и e6.
-_LEAKED_GIT_ENV = ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE",
-                   "GIT_OBJECT_DIRECTORY",
-                   "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+_LEAKED_GIT_ENV = LEAKED_GIT_ENV
 
 
 def _hermetic_env(extra: dict | None = None) -> dict:
@@ -127,12 +136,15 @@ def _marker_path() -> Path:
     другой рабочей копии на той же машине больше не перезаписывает
     его между тестом модуля и sentinel (гонка круга 56: верификация
     в соседнем connected-дереве красила sentinel чужим session)."""
+    # ТЗ-135 A1: дерево — настоящее (ROOT_LIVE), а не клон U0: после
+    # _temp_repo ROOT указывает на клон, маркер уходил туда, а sentinel
+    # (путь вычислен при импорте) читал старый маркер настоящего дерева
     out = subprocess.run(
         ["git", "rev-parse", "--git-path", "i5-demo-ran.json"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
+        cwd=ROOT_LIVE, capture_output=True, text=True, check=True,
         env=_hermetic_env())
     path = Path(out.stdout.strip())
-    return path if path.is_absolute() else (ROOT / path)
+    return path if path.is_absolute() else (ROOT_LIVE / path)
 
 
 def _editmsg_read():
@@ -143,6 +155,9 @@ def _editmsg_read():
         ["git", "rev-parse", "--git-path", "COMMIT_EDITMSG"],
         cwd=ROOT, capture_output=True, text=True,
         check=True, env=_hermetic_env()).stdout.strip())
+    # ТЗ-135 A1: путь от git относителен к ROOT, а не к текущей папке
+    # процесса — в подключённом дереве `.git` там файл (NotADirectoryError)
+    path = path if path.is_absolute() else (ROOT / path)
     saved = path.read_text(encoding="utf-8") if path.exists() else None
     return path, saved
 
@@ -157,11 +172,55 @@ def _editmsg_restore(path: Path, saved: str | None) -> None:
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _guard_edit_staged_before_the_module():
+def _temp_repo(tmp_path_factory):
+    """ТЗ-111 U0: репозиторий под тестом — локальный клон настоящего
+    (`git clone --local`), с hooksPath, выставленным в клон. Стейджинг
+    и вложенный selfcheck идут в клоне; настоящий репозиторий не
+    стейджится никогда. На выходе — непрерывный зуб: `git -C
+    <настоящий> status --porcelain agent/` пуст, что бы ни случилось
+    внутри модуля."""
+    global ROOT, P6_GUARD, CONTEXT_MD
+    # ТЗ-135 A1: зуб — «модуль не тронул настоящий репозиторий», то есть
+    # состояние agent/ после равно состоянию ДО. Требование «пусто»
+    # краснело от чужих правок: во вложенном прогоне настоящий — это клон
+    # внешнего теста с нарочно застейдженным стражем, у координатора —
+    # незакоммиченные файлы agent/
+    before = subprocess.run(
+        ["git", "-C", str(ROOT_LIVE), "status", "--porcelain", "--",
+         "agent/"], capture_output=True, text=True,
+        env=_hermetic_env()).stdout
+    clone = tmp_path_factory.mktemp("i5-clone") / "repo"
+    subprocess.run(["git", "clone", "--quiet", "--local",
+                    str(ROOT_LIVE), str(clone)],
+                   check=True, env=_hermetic_env())
+    subprocess.run(["git", "config", "core.hooksPath", "agent/githooks"],
+                   cwd=clone, check=True, env=_hermetic_env())
+    ROOT = clone
+    P6_GUARD = clone / "agent" / "p6_rule.sh"
+    CONTEXT_MD = clone / "agent" / "CONTEXT.md"
+    yield clone
+    leftover = subprocess.run(
+        ["git", "-C", str(ROOT_LIVE), "status", "--porcelain", "--",
+         "agent/"], capture_output=True, text=True,
+        env=_hermetic_env()).stdout
+    assert leftover == before, (
+        f"ТЗ-111 U0: настоящий репозиторий тронут: было {before!r}, "
+        f"стало {leftover!r}")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _guard_edit_staged_before_the_module(_temp_repo):
     """ТЗ-45 M1: до всяких тестов в индекс кладётся СВОЯ правка стража —
     как у исполнителя в 627a0dc. Все случаи ниже отрабатывают поверх
-    неё; до-модульное состояние снято и возвращается в конце модуля."""
+    неё; до-модульное состояние снято и возвращается в конце модуля.
+
+    ТЗ-98 Х4: первым делом — самопочинка. Снимок надо брать ПОСЛЕ неё,
+    иначе хвост убитого прошлого прогона попал бы в снимок и фикстура
+    вернула бы его обратно (самовоспроизводящийся мусор)."""
     global _PRE_MODULE
+    if reconcile(ROOT):
+        sys.stderr.write("Х4: agent/p6_rule.sh отличался от HEAD только "
+                         "своими маркерами — возвращён к HEAD\n")
     _PRE_MODULE = _snapshot(P6_GUARD)
     P6_GUARD.write_bytes(
         _PRE_MODULE[0] + PRE_STAGED_EDIT.encode("utf-8"))
@@ -171,7 +230,7 @@ def _guard_edit_staged_before_the_module():
 
 
 @pytest.fixture(autouse=True)
-def _module_restores_what_it_touches():
+def _module_restores_what_it_touches(_temp_repo):
     """ТЗ-45 M1: каждый тест модуля возвращает страж и CONTEXT.md ровно
     в засталенное состояние — байты дерева и блоб индекса. Прежняя
     уборка красного случая потеряла возврат CONTEXT.md в рабочее
@@ -183,7 +242,7 @@ def _module_restores_what_it_touches():
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _demonstration_ran():
+def _demonstration_ran(_temp_repo):
     """ТЗ-36 I8: замок с фиксированным путём мог протухнуть (SIGKILL,
     reboot) и молча выкидывать демонстрацию из любого прогона на хосте.
     Замок убран: рекурсию держит I5_NESTED (хук и зелёный случай), а
@@ -198,6 +257,7 @@ def _demonstration_ran():
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
+@pytest.mark.longcheck  # ТЗ-110 B0.3: внутри — полный selfcheck, не 60 с
 def test_i5_working_tree_widening_is_red_and_named(tmp_path):
     editmsg = None
     editmsg_saved = None
@@ -205,7 +265,7 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
         CONTEXT_MD.write_text(CONTEXT_MD.read_text(encoding="utf-8")
                               + "\nI5 red demo\n", encoding="utf-8")
         _git("add", "agent/CONTEXT.md")
-        P6_GUARD.write_text(WIDENED, encoding="utf-8")  # НЕ стейджится
+        P6_GUARD.write_text(widened(ROOT), encoding="utf-8")  # НЕ стейджится
         editmsg, editmsg_saved = _editmsg_read()
         Path(editmsg).write_text(
             "demo\n\nРАЗРЕШЕНИЕ-КОНТЕКСТА: demo\n", encoding="utf-8")
@@ -223,11 +283,12 @@ def test_i5_working_tree_widening_is_red_and_named(tmp_path):
 
 
 @pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
+@pytest.mark.longcheck  # ТЗ-110 B0.3: внутри — полный selfcheck, не 60 с
 def test_i5_staged_and_authorised_widening_is_green(tmp_path):
     editmsg = None
     editmsg_saved = None
     try:
-        P6_GUARD.write_text(WIDENED, encoding="utf-8")
+        P6_GUARD.write_text(widened(ROOT), encoding="utf-8")
         _git("add", "agent/p6_rule.sh")  # расширение ЗАСТЕЙДЖЕНО
         # файл задания из agent/BATON.json несёт
         # РАЗРЕШЕНО ПРАВИТЬ: agent/p6_rule.sh
@@ -268,7 +329,13 @@ def test_stale_single_flight_lock_does_not_skip_the_module(tmp_path):
         assert out.returncode == 0, out.stdout + out.stderr
         # все тесты модуля собираются к исполнению — ни замок, ни
         # skipif ни на что не влияют: 2 случая I5 + уборочный ТЗ-45 M1
-        assert "tests/test_i5_guard_source.py: 4" in out.stdout, out.stdout
+        # число собранных — сколько def test_ в файле клона (клон снят
+        # с коммита, файл может отличаться от рабочего — сверяем с ним же)
+        clone_file = (ROOT / "tests" / "test_i5_guard_source.py")
+        expected = len(re.findall(r"^def test_", clone_file.read_text(
+            encoding="utf-8"), flags=re.M))
+        assert f"tests/test_i5_guard_source.py: {expected}" in out.stdout, \
+            out.stdout
         assert "skipped" not in out.stdout, out.stdout
     finally:
         stale.unlink(missing_ok=True)
@@ -288,3 +355,53 @@ def test_module_returns_guard_exactly_as_found():
     _restore(P6_GUARD, *_PRE_MODULE)
     out = _git("status", "--porcelain", "--", "agent/p6_rule.sh")
     assert out.stdout.strip() == "", out.stdout
+
+
+@pytest.mark.skipif(_nested(), reason="вложенный прогон приёмки")
+def test_a_raise_midway_leaves_the_real_repo_clean():
+    """Done-when U0: правка стейджится в КЛОНЕ, тело падает посередине —
+    настоящий репозиторий чист (agent/ пуст в porcelain), а правка осела
+    именно в клоне, не исчезла молча. Уборку делает фикстура ТЗ-45 M1.
+    ТЗ-135 A1: «чист» = не изменился (до == после), а не «пуст» — у
+    координатора в настоящем дереве бывают незакоммиченные agent/*."""
+    live_before = subprocess.run(
+        ["git", "-C", str(ROOT_LIVE), "status", "--porcelain", "--",
+         "agent/"], capture_output=True, text=True,
+        env=_hermetic_env()).stdout
+    P6_GUARD.write_text(widened(ROOT), encoding="utf-8")
+    _git("add", "agent/p6_rule.sh")
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        raise RuntimeError("simulated interruption")
+    live = subprocess.run(
+        ["git", "-C", str(ROOT_LIVE), "status", "--porcelain", "--",
+         "agent/"], capture_output=True, text=True,
+        env=_hermetic_env()).stdout
+    assert live == live_before, (
+        f"настоящий репозиторий тронут: было {live_before!r}, стало {live!r}")
+    staged = subprocess.run(
+        ["git", "status", "--porcelain", "--", "agent/p6_rule.sh"],
+        cwd=ROOT, capture_output=True, text=True,
+        env=_hermetic_env()).stdout
+    assert staged.strip().startswith(("M ", "A ")), staged
+
+
+def test_no_test_stages_the_real_repo_root():
+    """Done-when U0 (grep): git-add с cwd настоящего корня в tests/
+    запрещён — стейджинг живёт во временных деревьях (клон I5, worktree
+    I7, песочницы d5/e6/j1). Строка с git-add и cwd=ROOT — красная."""
+    import re as _re
+    # git-add как ПЕРВЫЙ аргумент вызова (["git", "add" | _git("add" |
+    # git('add'): "worktree add" и "remote add" — другие команды
+    staging = _re.compile(
+        r'(?:\["git",\s*|\b_git\(\s*|\bgit\(\s*)[\x22\x27]add[\x22\x27]')
+    offenders = []
+    for path in sorted((ROOT_LIVE / "tests").glob("*.py")):
+        for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1):
+            if not staging.search(line):
+                continue
+            if _re.search(r"cwd\s*=\s*(str\()?\s*(ROOT_LIVE|ROOT)\b", line):
+                offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+    assert not offenders, (
+        "git add против настоящего корня репозитория в tests/ "
+        f"(ТЗ-111 U0): {offenders}")

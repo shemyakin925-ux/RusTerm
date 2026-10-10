@@ -4,6 +4,13 @@
 - сообщение упоминает p6_rule.sh, файла нет в списке — красный;
 - сообщение упоминает p6_rule.sh, файл в списке — зелёный;
 - сообщение без упоминания — зелёный при любом списке.
+
+ТЗ-102 M2: первые два случая называли стража голым токеном «p6», и
+барьер искал именно токен. Сообщение теперь обязано произнести имя файла
+(решение координатора по пункту 3 из спорных REPORT-97; краснота и
+зелень этих двух случаев — та же, что была, изменилось только сообщение;
+обратный случай — токен без имени файла, зелёный — крепит
+test_task102_m2_mention_filename.py).
 """
 from __future__ import annotations
 
@@ -24,14 +31,14 @@ def _run(message: str, files: list[str]) -> subprocess.CompletedProcess:
 
 
 def test_mention_without_file_is_red():
-    result = _run("ТЗ-43 K1: p6 — пропуск коммита эстафеты\n",
+    result = _run("ТЗ-43 K1: p6_rule.sh — пропуск коммита эстафеты\n",
                   ["tests/test_x.py"])
     assert result.returncode != 0
     assert "agent/p6_rule.sh" in result.stdout
 
 
 def test_mention_with_file_is_green():
-    result = _run("ТЗ-43 K1: p6 — пропуск коммита эстафеты\n",
+    result = _run("ТЗ-43 K1: p6_rule.sh — пропуск коммита эстафеты\n",
                   ["tests/test_x.py", "agent/p6_rule.sh"])
     assert result.returncode == 0
 

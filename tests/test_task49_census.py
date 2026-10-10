@@ -136,7 +136,15 @@ def test_r2_lineage_names_source_and_period_basis(census_env):
                 (mid_by_name[measure],)).fetchall()
             assert lineage, (ticker, measure)
             for row in lineage:
-                assert row["role"] == "input"
+                # ТЗ-97 Q10: база периода и окно — часть роли. Прямой
+                # однопериодный вход (period_basis NULL) остался просто
+                # "input"; поток с базой обязан назвать окно.
+                if row["period_basis"] is None:
+                    assert row["role"] == "input", row["role"]
+                else:
+                    assert row["role"].startswith(
+                        f"input:{row['period_basis']} "), row["role"]
+                    assert "…" in row["role"], row["role"]
                 assert "period_basis" in row.keys()
                 if row["fact_id"] is not None:
                     fact = repos.conn.execute(

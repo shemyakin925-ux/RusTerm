@@ -140,10 +140,17 @@ def test_window_open_raw_button_opens_existing_file(cnq_env,
     tree = window.findChild(QTreeWidget, "tree")
     tree.setCurrentItem(tree.topLevelItem(0).child(0))
     table = window.findChild(QTableWidget, "table")
+    # PRODUCT.md С2: «сейчас» — последняя колонка; строка раздела
+    # (без концепта в заголовке строки) — не мера
+    from PySide6.QtCore import Qt
+    now = table.columnCount() - 1
     valued = next(r for r in range(table.rowCount())
-                  if table.item(r, 1) is not None
-                  and table.item(r, 1).text() != "нет данных")
-    table.cellClicked.emit(valued, 1)
+                  if table.verticalHeaderItem(r) is not None
+                  and table.verticalHeaderItem(r).data(
+                      Qt.ItemDataRole.UserRole)
+                  and table.item(r, now).text() not in ("—", "нет данных"))
+    assert table.horizontalHeaderItem(now).text() == "сейчас"
+    table.cellClicked.emit(valued, now)
     button = window.findChild(QPushButton, "open_raw_button")
     assert button is not None and button.isEnabled()
 

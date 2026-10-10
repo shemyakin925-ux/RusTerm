@@ -2,8 +2,10 @@
 
 - период размечается фискальным годом по календарю эмитента;
 - на дату as_of каждый участник вносит свой последний ЗАКРЫТЫЙ период;
-- разрыв концов периодов участников больше порога — существующая
-  причина period_mismatch, новой нет;
+- разрыв концов периодов в отраслевом сравнении больше окна — участник
+  исключается с пометкой, а не отменяет расчёт (ТЗ-97 Q8: окно 730
+  дней вместо прежних 100; новой причины нет, `period_mismatch`
+  осталась за сверкой входов одной меры);
 - декабрийские наборы ведут себя байт-в-байт как раньше (золотые —
   в общем наборе).
 
@@ -84,51 +86,63 @@ def _issuer_with_revenue(conn, repos, instrument_id, issuer_id, cur,
 
 def test_each_calendar_contributes_its_own_latest_closed_period(env):
     """June-филяр и Dec-филяр на одну дату: каждый вносит свой последний
-    закрытый период; разрыв в перцентиле — period_mismatch."""
+    закрытый период — и смешанный календарь сравнение не отменяет.
+
+    ТЗ-97 Q8 (решение пользователя 24.09) передвинул окно отраслевого
+    сравнения со 100 дней на 730: разрыв 184 дня (декабрьский против
+    июньского) больше не `period_mismatch` на весь набор. Булавка
+    прежняя («отказ по имени») проверяла меньшее: теперь строка
+    считается, значение есть, а диапазон периодов назван прямо в строке
+    — июньский конец не выровнен на декабрьский и не выброшен.
+    """
     conn, repos = env
-    _issuer_with_revenue(
-        conn, repos, "US-D", "id", "USD",
-        [("2024-01-01", "2024-12-31", "fy24")], fye="12-31")
-    _issuer_with_revenue(
-        conn, repos, "AU-J", "ij", "USD",
-        [("2023-07-01", "2024-06-30", "fy24")], fye="06-30")
+    # (instrument_id, issuer_id, старт, конец): два календаря, шести
+    # пиров хватает на порог перцентиля (5)
+    calendars = [("US-D", "id", "2024-01-01", "2024-12-31", "12-31"),
+                 ("AU-J", "ij", "2023-07-01", "2024-06-30", "06-30"),
+                 ("AU-K", "ik", "2023-07-01", "2024-06-30", "06-30"),
+                 ("US-E", "ie", "2024-01-01", "2024-12-31", "12-31"),
+                 ("US-F", "if", "2024-01-01", "2024-12-31", "12-31"),
+                 ("US-G", "ig", "2024-01-01", "2024-12-31", "12-31")]
+    for iid, issuer_id, _start, _end, fye in calendars:
+        _issuer_with_revenue(
+            conn, repos, iid, issuer_id, "USD",
+            [("2024-01-01", "2024-12-31", "fy24")] if fye == "12-31"
+            else [("2023-07-01", "2024-06-30", "fy24")], fye=fye)
     peers = PeerSetRepo(conn)
     peers.create_peer_set("ps", "industry", "mixed-calendars")
     peers.add_version("v1", "ps", 1, "2024-01-01", None, "manual",
                       "v1", True, None, None)
-    for iid in ("US-D", "AU-J"):
+    peer_measures = []
+    for n, (iid, issuer_id, start, end, _fye) in enumerate(calendars):
         peers.add_member("v1", iid, None)
-    # меры пиров: каждый — на свой последний закрытый период
-    repos.snapshot.insert_measure_with_lineage(
-        dict(measure_id="m-us", snapshot_id="s-id", scope="issuer",
-             scope_ref="id", concept="revenue", value="101", unit="USD",
-             period_start="2024-01-01", period_end="2024-12-31",
-             formula_id="revenue", method_version="v1", null_reason=None,
-             peer_set_version=None),
-        [{"fact_id": "f-id-fy24-revenue", "peer_measure_id": None,
-          "role": "input"}])
-    repos.snapshot.insert_measure_with_lineage(
-        dict(measure_id="m-au", snapshot_id="s-ij", scope="issuer",
-             scope_ref="ij", concept="revenue", value="102", unit="USD",
-             period_start="2023-07-01", period_end="2024-06-30",
-             formula_id="revenue", method_version="v1", null_reason=None,
-             peer_set_version=None),
-        [{"fact_id": "f-ij-fy24-revenue", "peer_measure_id": None,
-          "role": "input"}])
+        # мера пира — на его собственный последний закрытый период;
+        # net_margin, а не revenue: перцентиль считается только когда у
+        # самой компании есть посчитанное значение той же меры
+        repos.snapshot.insert_measure_with_lineage(
+            dict(measure_id=f"m-{n}", snapshot_id=f"s-{issuer_id}",
+                 scope="issuer", scope_ref=issuer_id, concept="net_margin",
+                 value=repr(round(0.1 + 0.01 * n, 4)), unit="ratio",
+                 period_start=start, period_end=end,
+                 formula_id="net_margin", method_version="v1",
+                 null_reason=None, peer_set_version=None),
+            [{"fact_id": f"f-{issuer_id}-fy24-revenue",
+              "peer_measure_id": None, "role": "input"}])
+        peer_measures.append((iid, f"m-{n}", "net_margin",
+                              repr(round(0.1 + 0.01 * n, 4)), True))
     builder = SnapshotBuilder(repos.snapshot, peers,
                               coverage_repo=repos.coverage)
     builder.build("US-D", "id", "2025-01-15", peer_set_version="v1",
-                  peer_measures=[("US-D", "m-us", "revenue", "101", True),
-                                 ("AU-J", "m-au", "revenue", "102", True)],
-                  peer_members_previous=[],
-                  peer_members_current=["US-D", "AU-J"])
+                  peer_measures=peer_measures, peer_members_previous=[],
+                  peer_members_current=[c[0] for c in calendars])
     rows = repos.snapshot.get_measures(
         repos.snapshot.latest_snapshot_id("US-D"))
     percentile = [m for m in rows if m[3] == "percentile"]
     assert percentile
-    # разрыв концов 184 дня больше порога — отказ по имени, не число
-    assert all(m[10] == "period_mismatch" for m in percentile)
-    assert all(m[4] is None for m in percentile)
+    assert all(m[10] is None for m in percentile), [m[10] for m in percentile]
+    assert all(m[4] is not None for m in percentile)
+    assert all((m[6], m[7]) == ("2024-06-30", "2024-12-31")
+               for m in percentile), [(m[6], m[7]) for m in percentile]
 
 
 def test_same_calendar_computes_without_reason(env):
@@ -191,12 +205,19 @@ def test_facts_after_as_of_are_not_closed_yet(env):
     net_margin = next(m for m in rows if m[3] == "net_margin")
     assert net_margin[4] is not None
     assert net_margin[7] == "2024-12-31", "h1fy25 ещё не закрыт на дату"
-    # на более позднюю дату тот же конвейер берёт уже полугодие
+    # ТЗ-97 Q10: на более позднюю дату полугодие в знаменатель само не
+    # идёт — поток не имеет права быть смесью шести месяцев и года. Без
+    # прошлогоднего полугодия берётся последний годовой, и это не тихо:
+    # база периода и недостающее слагаемое названы в lineage.
     builder.build("US-D", "id", "2025-07-15")
     rows = repos.snapshot.get_measures(
         repos.snapshot.latest_snapshot_id("US-D"))
     net_margin = next(m for m in rows if m[3] == "net_margin")
-    assert net_margin[7] == "2025-06-30"
+    assert net_margin[7] == "2024-12-31", net_margin
+    marks = repos.snapshot.period_marks(net_margin[0])
+    assert marks, net_margin
+    assert any("2024-01-01…2024-12-31" in m for m in marks), marks
+    assert any("ytd_prior" in m and "2024-06-30" in m for m in marks), marks
 
 
 def test_add_records_fiscal_year_end(tmp_path, monkeypatch, capsys):
@@ -212,7 +233,11 @@ def test_add_records_fiscal_year_end(tmp_path, monkeypatch, capsys):
     conn = sqlite3.connect(str(root / "rusterm.db"))
     try:
         fye = conn.execute(
-            "SELECT fiscal_year_end FROM issuer WHERE issuer_id='cik-8'"
+            # ТЗ-92 C2 (булавка переехала, было → стало): `add --market
+            # AU` писал `cik-8` австралийскому эмитенту; теперь
+            # префикс берётся из схемы рынка — `asx-8`.
+            # было: issuer_id='cik-8'   стало: issuer_id='asx-8'
+            "SELECT fiscal_year_end FROM issuer WHERE issuer_id='asx-8'"
         ).fetchone()[0]
     finally:
         conn.close()

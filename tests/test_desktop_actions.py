@@ -231,6 +231,9 @@ def test_pipeline_door_is_the_core_one_not_a_copy():
     import inspect
     src = inspect.getsource(actions)
     assert "IngestionPipeline(" in src
-    assert "SnapshotBuilder(" in src
+    # ТЗ-97 Q6 (ТЗ-94 E1): дверью ядра теперь считается фабрика; ручная
+    # сборка построителя в десктопе запрещена тем же пунктом, что и в CLI.
+    assert "make_snapshot_builder(" in src
+    assert "SnapshotBuilder(" not in src
     for locked in actions.CLI_LOCKED_FUNCTIONS:
         assert f"def {locked}" not in src, locked

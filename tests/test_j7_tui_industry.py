@@ -2,6 +2,9 @@
 функции model.industry_rows/render_industry; тесты гоняются без
 импорта curses. Смешение валют рендерится отказом, а не числом;
 валюта одновалютной меры стоит рядом с квартилями (J1).
+
+Абсолютная мера экрана — `ebitda` (ТЗ-97 Q1: `revenue` из списка убрана,
+потому что выручки в словаре мер нет и строка не наполнялась никогда).
 """
 from __future__ import annotations
 
@@ -33,7 +36,7 @@ def env(tmp_path):
     apply_migrations(conn)
     repos = RepoRegistry(conn, paths)
 
-    def member(iid, issuer, cur, revenue):
+    def member(iid, issuer, cur, value):
         repos.instrument.upsert_issuer(Issuer(
             issuer, f"Corp {issuer}", "US", None, None, "us_gaap", cur))
         repos.instrument.upsert_instrument(Instrument(
@@ -46,17 +49,17 @@ def env(tmp_path):
                period_start, period_end, period_type, value, unit,
                currency, basis, origin, source_ref, locator,
                parser_version, status, ingested_at, canonical_concept,
-               source_kind) VALUES (?, ?, 'revenue', '2024-01-01',
+               source_kind) VALUES (?, ?, 'ebitda', '2024-01-01',
                '2024-12-31', 'duration', ?, ?, ?, 'as_reported',
                'extracted', 's', '{}', 'companyfacts.v1', 'ok', 0,
-               'revenue', 'provider')""",
-            (fact_id, issuer, str(revenue), cur, cur))
+               'ebitda', 'provider')""",
+            (fact_id, issuer, str(value), cur, cur))
         repos.snapshot.insert_measure_with_lineage(
             dict(measure_id=f"m-{iid}", snapshot_id=f"s-{iid}",
-                 scope="issuer", scope_ref=issuer, concept="revenue",
-                 value=str(revenue), unit=cur,
+                 scope="issuer", scope_ref=issuer, concept="ebitda",
+                 value=str(value), unit=cur,
                  period_start="2024-01-01", period_end="2024-12-31",
-                 formula_id="revenue", method_version="v1",
+                 formula_id="ebitda", method_version="v1",
                  null_reason=None, peer_set_version=None),
             [{"fact_id": fact_id, "peer_measure_id": None,
               "role": "input"}])
@@ -92,23 +95,23 @@ def test_single_currency_sector_shows_quartiles_with_currency(env):
     screen = model.industry_rows(repos, "tankers", "2025-01-01")
     assert screen["version"] == 1
     assert len(screen["members"]) == 8
-    revenue = next(r for r in screen["rows"]
-                   if r["concept"] == "revenue")
-    assert revenue["null_reason"] is None
-    assert revenue["currency"] == "USD"
-    assert revenue["n"] == 8 and revenue["median"] is not None
+    ebitda = next(r for r in screen["rows"]
+                   if r["concept"] == "ebitda")
+    assert ebitda["null_reason"] is None
+    assert ebitda["currency"] == "USD"
+    assert ebitda["n"] == 8 and ebitda["median"] is not None
     lines = model.render_industry(screen)
-    assert any("revenue" in line and "USD" in line for line in lines)
+    assert any("ebitda" in line and "USD" in line for line in lines)
 
 
 def test_mixed_currency_sector_renders_mismatch_not_number(env):
     conn, repos = env
     screen = model.industry_rows(repos, "mixed", "2025-01-01")
-    revenue = next(r for r in screen["rows"]
-                   if r["concept"] == "revenue")
-    assert revenue["null_reason"] and \
-        revenue["null_reason"].startswith("currency_mismatch")
-    assert revenue["p25"] is None and revenue["median"] is None
+    ebitda = next(r for r in screen["rows"]
+                   if r["concept"] == "ebitda")
+    assert ebitda["null_reason"] and \
+        ebitda["null_reason"].startswith("currency_mismatch")
+    assert ebitda["p25"] is None and ebitda["median"] is None
     lines = model.render_industry(screen)
     mismatch_lines = [line for line in lines if "currency_mismatch" in line]
     assert mismatch_lines, lines

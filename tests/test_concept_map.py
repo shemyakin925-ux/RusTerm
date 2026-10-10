@@ -90,9 +90,10 @@ def test_priority_first_tag_wins_when_both_present():
     источника — по приоритетному рангу (RFC-тег раньше Revenues)."""
     assert strip_taxonomy("us-gaap:Revenues")[1] == "Revenues"
     revenue_tags = CONCEPT_MAP["revenue"]
-    assert revenue_tags.index(
-        "RevenueFromContractWithCustomerExcludingAssessedTax") < \
-        revenue_tags.index("Revenues")
+    # ТЗ-141 D3: Revenues — верхняя строка отчёта, теперь впереди
+    assert revenue_tags.index("Revenues") < \
+        revenue_tags.index(
+            "RevenueFromContractWithCustomerExcludingAssessedTax")
     doc = {
         "source": "synthetic",
         "note": "синтетический companyfacts для приоритета",
@@ -124,7 +125,8 @@ def test_priority_first_tag_wins_when_both_present():
     rfc_rank = priority_rank("revenue",
                              "RevenueFromContractWithCustomerExcludingAssessedTax")
     rev_rank = priority_rank("revenue", "Revenues")
-    assert rfc_rank < rev_rank
+    # ТЗ-141 D3: верхняя строка отчёта впереди ASC-606
+    assert rev_rank < rfc_rank
 
 
 def test_aapl_payload_ingests_with_canonical_concepts():

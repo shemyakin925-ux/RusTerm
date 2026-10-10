@@ -4,15 +4,62 @@
 - членов меньше пяти — перцентили по версии не рассчитываются (I6);
 - меньше восьми — отраслевые агрегаты не считаются (I6);
 - origin=classifier без подтверждения — набор unverified;
-- peer_set_churn за проход больше 20% состава — снапшот suspect.
+- peer_set_churn за проход больше 20% состава — снапшот suspect;
+- отраслевое сравнение: конец периода старше самого свежего больше чем
+  на 730 дней — участник исключается с пометкой (ТЗ-97 Q8).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 PERCENTILE_MIN_PEERS = 5
 AGGREGATE_MIN_PEERS = 8
 DRIFT_SUSPECT_THRESHOLD = 0.20
+
+# ТЗ-97 Q8 (решение пользователя 24.09): окно разрыва концов периодов
+# для отраслевого сравнения — 2 года. Прежний порог ТЗ-22 J3 (100 дней)
+# отменял агрегат всего сектора из-за одного другого финансового года;
+# теперь участник старше самого свежего больше чем на это окно
+# исключается с пометкой. Только отраслевое сравнение: сверка периодов
+# внутри одной меры (входы формулы) остаётся как была.
+INDUSTRY_PERIOD_WINDOW_DAYS = 730
+
+
+@dataclass(frozen=True)
+class PeriodWindow:
+    """Окно периодов участников: включённые, исключённые и его границы.
+
+    period_from/period_to — концы включённых (вне окна их не сдвигают);
+    ends — {instrument_id: period_end}, у кого периода нет — тот ни в
+    окне, ни в исключённых (вклада он не даёт).
+    """
+    period_from: str | None
+    period_to: str | None
+    included: dict
+    excluded: dict
+
+
+def period_window(ends: dict,
+                  window_days: int = INDUSTRY_PERIOD_WINDOW_DAYS
+                  ) -> PeriodWindow:
+    """Кто внутри окна отраслевого сравнения, а кто исключён с пометкой.
+
+    За начало отсчёта берётся самый свежий конец периода: «участник
+    устарел» — это про него относительно набора, а не про то, что у
+    остальных вышел новый отчёт.
+    """
+    dated = {iid: end for iid, end in ends.items() if end}
+    if not dated:
+        return PeriodWindow(None, None, {}, {})
+    newest = max(dated.values())
+    floor = (date.fromisoformat(newest)
+             - timedelta(days=window_days)).isoformat()
+    included = {iid: end for iid, end in dated.items() if end >= floor}
+    excluded = {iid: end for iid, end in dated.items() if end < floor}
+    return PeriodWindow(min(included.values()) if included else None,
+                        newest, included, excluded)
+
 
 # Происхождения по приоритету (ADR-0002): manual побеждает всегда;
 # llm_suggested автоматически не применяется.

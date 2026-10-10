@@ -147,10 +147,12 @@ def test_collection_lands_events_and_second_run_is_free(tmp_path):
                "currency": div2013["currency"]}
     assert div2013["amount"] == pytest.approx(2.65, abs=1e-9)
     assert div2013["currency"] == "USD"
-    # payload'ы легли в raw-хранилище с каноническим URL без ключа
+    # payload'ы легли в raw-хранилище с каноническим URL без ключа;
+    # ТЗ-90 A1: URL датированный — он и есть ключ свежести
     for kind in ("splits", "dividends"):
-        url = provider.cache_url_ca(kind, "AAPL")
+        url = provider.cache_url_ca(kind, "AAPL", "2026-09-14")
         assert "TESTONLY" not in url
+        assert "end_date=2026-09-14" in url
         assert repos.raw.find_by_provider_url("twelvedata", url)
 
     code = _ingest_twelvedata_actions(repos, "US-X", "2026-09-14",
@@ -162,9 +164,12 @@ def test_collection_lands_events_and_second_run_is_free(tmp_path):
     conn.close()
 
 
-def test_vendor_failure_leaves_actions_empty_with_named_reason(tmp_path):
-    """403 на /splits — выход 1, причина именована, событий нет
-    (K7: отказ вендора — значение, не выдумка)."""
+def test_vendor_failure_leaves_actions_empty_with_named_reason(tmp_path,
+                                                               capsys):
+    """403 на /splits и /dividends — пометка с причиной, событий нет
+    (K7: отказ вендора — значение, не выдумка). Выход стадии — 0: вердикт
+    ТЗ-97 Q12 (5) переворачивает прежнее ожидание «403 = стадия упала»,
+    котировки под тарифным отказом доезжают."""
     conn, repos = _ca_env(tmp_path)
 
     def transport(url, headers):
@@ -176,8 +181,11 @@ def test_vendor_failure_leaves_actions_empty_with_named_reason(tmp_path):
         api_key="TESTONLY-key", transport=transport)
     code = _ingest_twelvedata_actions(repos, "US-X", "2026-09-14",
                                       provider=provider)
-    assert code == 1
+    assert code == 0
     assert repos.corp_action.all("US-X") == []
+    out = capsys.readouterr().out
+    assert "недоступны на бесплатном тарифе Twelve Data (ADR-0018)" in out, \
+        out
     conn.close()
 
 

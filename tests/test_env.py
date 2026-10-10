@@ -66,6 +66,22 @@ def test_existing_environment_wins_over_file(env_file, monkeypatch):
     assert origins["RUSTERM_SEC_UA"] == "окружение"
 
 
+def test_report_ignores_provenance_of_a_stale_bootstrap(tmp_path,
+                                                        monkeypatch):
+    """Панель настроек не врёт после смены окружения: происхождение
+    прошлого load_env не замораживает отчёт — ключ, появившийся после
+    бутстрапа, показан найденным, а исчезнувший — пропавшим."""
+    for name in env_module.ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("RUSTERM_ENV_FILE", str(tmp_path / "old.env"))
+    env_module.load_env()                 # бутстрап без ключей: всё «—»
+    monkeypatch.setenv("RUSTERM_LLM_API_KEY", "sk-live-value")
+    monkeypatch.setenv("RUSTERM_ENV_FILE", str(tmp_path / "new.env"))
+    origins = env_module.report()["vars"]
+    assert origins["RUSTERM_LLM_API_KEY"] == "окружение"
+    assert origins["RUSTERM_SEC_UA"] == "—"
+
+
 def test_missing_env_file_is_not_an_error(tmp_path, monkeypatch, capsys):
     for name in env_module.ENV_NAMES:
         monkeypatch.delenv(name, raising=False)

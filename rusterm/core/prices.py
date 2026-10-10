@@ -131,3 +131,72 @@ def our_adjusted_series(
                                     abs(value) * TOLERANCE_REL):
             disagreements.append((date, value, float(other)))
     return ours, disagreements
+
+
+def year_change(price_repo, instrument_id: str,
+                days: int = 365) -> "dict | None":
+    """PRODUCT.md С1: последняя цена и изменение за год для стартовой
+    таблицы окна.
+
+    Изменение — по скорректированной цене (сплит не выглядит обвалом),
+    если она есть у обеих точек, иначе по цене закрытия. Точка «год
+    назад» — последняя цена не позже даты на `days` дней раньше; если её
+    нет или она старше на неделю (дыра в ряду), изменения нет — None в
+    поле, а не выдуманное число. Цен нет вовсе — None."""
+    from datetime import date as _date, timedelta as _td
+    last_day = price_repo.latest_date(instrument_id)
+    if not last_day:
+        return None
+    last = price_repo.price_as_of(instrument_id, last_day)
+    target = (_date.fromisoformat(last_day) - _td(days=days)).isoformat()
+    before = price_repo.price_as_of(instrument_id, target)
+    change = None
+    if before is not None and before["age_days"] <= 7:
+        pair = ((last["adjusted"], before["adjusted"])
+                if last["adjusted"] and before["adjusted"]
+                else (last["close"], before["close"]))
+        if pair[0] and pair[1]:
+            change = pair[0] / pair[1] - 1
+    return {"date": last["date"], "close": last["close"],
+            "currency": last["currency"], "change": change}
+
+
+def split_factor_between(events: list[dict], day_from: str,
+                         day_to: str) -> float:
+    """ТЗ-141 D1: произведение коэффициентов сплитов с ex_date в интервале
+    (day_from, day_to] — база счётчика, поданного между концом периода и
+    датой подачи, поправляется на сплиты именно этого интервала. Одна
+    дата — один коэффициент, как в split_factor_after."""
+    factors: dict[str, float] = {}
+    for event in events:
+        if event.get("kind") != "split" or not event.get("factor"):
+            continue
+        if day_from < event["ex_date"] <= day_to:
+            factors.setdefault(event["ex_date"], float(event["factor"]))
+    result = 1.0
+    for factor in factors.values():
+        result *= factor
+    return result
+
+
+def split_factor_after(events: list[dict], day: str) -> float:
+    """BACKLOG P4 (08.10): во сколько раз цена ряда на дату `day` меньше
+    фактической цены того дня.
+
+    Ряды котировок задним числом делят старые цены на последующие сплиты
+    (AAPL 31.12.2019: 73,41 в ряду при фактических 293,6 — сплит 4:1 в
+    2020-м), а у DELL так же оформлено выделение VMware (1,973 в 2021-м).
+    Капитализация на дату = фактическая цена × число акций той даты,
+    значит цену ряда надо умножить на произведение коэффициентов сплитов
+    ПОСЛЕ этой даты. Одна дата — один коэффициент: событие, записанное
+    двумя источниками, не умножается дважды."""
+    factors: dict[str, float] = {}
+    for event in events:
+        if event.get("kind") != "split" or not event.get("factor"):
+            continue
+        if event["ex_date"] > day:
+            factors.setdefault(event["ex_date"], float(event["factor"]))
+    result = 1.0
+    for factor in factors.values():
+        result *= factor
+    return result

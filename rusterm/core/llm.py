@@ -101,6 +101,13 @@ class _ChatAdapter:
     def __init__(self, client):
         self._client = client
 
+    @property
+    def model(self) -> str:
+        """Имя модели для расшифровки (ТЗ-90 A2): save_transcript берёт
+        его getattr'ом с клиента, а у адаптера его не было — строка
+        chat_transcript записывала model='unknown', зная модель."""
+        return getattr(self._client, "model", "unknown")
+
     @staticmethod
     def _json_dumps(obj) -> str:
         return json.dumps(obj, ensure_ascii=False, sort_keys=True,

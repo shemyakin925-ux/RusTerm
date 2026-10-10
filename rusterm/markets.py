@@ -4,7 +4,10 @@
 
 Как добавить следующий рынок: одна строка в MARKETS ниже, провайдер,
 который отвечает на её код, и свой записанный payload для тестов.
-Никаких правок логики — реестр для того и существует.
+Никаких правок логики — реестр для того и существует. Строка обязана
+иметь пару в трёх таблицах идентификатора (ТЗ-92 C2):
+`IDENTIFIER_PREFIXES`, `IDENTIFIER_SCHEMES` и `REPORTING_CURRENCIES`;
+отсутствующая пара падает громко, а не угадывается.
 
 `default_taxonomy` — advisory only: чего ждать от рынка. Применяет
 таксономию payload, а не эта строка (TASK-18 §0.3 ruling 2).
@@ -80,6 +83,20 @@ def provider_channel(provider: str) -> str | None:
     return PROVIDER_CHANNELS.get(provider)
 
 
+def channel_degree_label(provider: str, produced: str | None,
+                         key_env: str | None, key_present: bool) -> str:
+    """Степень канала для показа (ТЗ-61 F4): прежде всего то, что
+    канал произвёл (E4); канал, которого нет без ключа, а ключа нет —
+    честное «нет ключа», не обещание мер; нечего и ключ есть — «—».
+    key_env/key_present подставляет вызывающий (providers.channel_key_env
+    и окружение после load_env) — подстановка проверяется тестом."""
+    if produced and produced != "—":
+        return produced
+    if provider_channel(provider) is None and key_env and not key_present:
+        return "нет ключа"
+    return "—"
+
+
 _KNOWN: dict[str, Market] = {m.code: m for m in MARKETS}
 
 
@@ -122,3 +139,106 @@ def venue_in_market(venue: str, code: str) -> bool:
     if m.venue_kind == "otc":
         return "OTC" in v
     return any(prefix in v for prefix in _VENUE_PREFIXES.get(m.code, ()))
+
+
+# ── ТЗ-92 C2: идентификатор эмитента принадлежит своему рынку ──────────
+# Префикс `issuer_id` — часть схемы, а не украшение. До C2 `cmd_add`
+# писал `cik-` всем рынкам, а `CD_CVM` и корейский `corp_code` — тоже
+# цифры: `refresh` по смешанному списку запрашивал у SEC CIK = <код CVM>
+# и клал чужие факты под этот id. Ключ таблицы — `Market.identifier`.
+IDENTIFIER_PREFIXES: dict[str, str] = {
+    "cik": "cik-",
+    "cvm_code": "cvm-",
+    "corp_code": "dart-",
+    "asx_code": "asx-",
+}
+
+# Схема идентификатора по его `Market.identifier` (ТЗ-92 C2):
+# `digits` — только цифры, `digits8` — ровно 8 цифр (corp_code DART:
+# ведущие нули значащие, приведение к int превращало `00126380` в
+# `126380`), `token` — непустая метка без пробелов (у ASX код буквенный:
+# `CBA`, и требовать от него цифр — значит выдумывать схему).
+IDENTIFIER_SCHEMES: dict[str, str] = {
+    "cik": "digits",
+    "cvm_code": "digits",
+    "corp_code": "digits8",
+    "asx_code": "token",
+}
+
+PROVIDER_PREFIXES: dict[str, str] = {}
+for _market in MARKETS:
+    # у одного провайдера все рынки делят identifier (US/CA/OTC — CIK);
+    # первое значение и есть префикс канала
+    PROVIDER_PREFIXES.setdefault(_market.provider,
+                                 IDENTIFIER_PREFIXES[_market.identifier])
+
+# Валюта отчётности рынка. `XXX` — ISO 4217 «валюты нет»: колонка
+# `issuer.reporting_currency` NOT NULL, а валюту канадского или OTC-
+# эмитента по площадке программа угадывает — ТЗ-92 C2 прямо это
+# запрещает, поэтому честное «не знаю» вместо выдуманной строки.
+# Это валюта ОТЧЁТОВ, не площадки: торговую валюту листинга таблица не
+# описывает.
+REPORTING_CURRENCIES: dict[str, str] = {
+    "US": "USD",
+    "CA": "XXX",
+    "OTC": "XXX",
+    "KR": "KRW",
+    "BR": "BRL",
+    "AU": "AUD",
+}
+
+
+def registry_prefix(market: Market) -> str:
+    """Префикс `issuer_id` рынка. KeyError — рынок добавлен в реестр без
+    строки `IDENTIFIER_PREFIXES`: угадать префикс безопаснее, чем
+    молча написать чужой."""
+    return IDENTIFIER_PREFIXES[market.identifier]
+
+
+def provider_prefix(provider: str) -> str | None:
+    """Префикс идентификатора, которым провайдер адресует эмитента;
+    None — такого провайдера в реестре рынков нет (у котировок свой
+    ключ, и сравнивать его с префиксом эмитента не за чем)."""
+    return PROVIDER_PREFIXES.get(provider)
+
+
+_PREFIX_OWNERS: dict[str, str] = {prefix: name
+                                  for name, prefix in
+                                  PROVIDER_PREFIXES.items()}
+
+
+def registry_prefix_owner(issuer_id: str | None) -> str | None:
+    """Провайдер, которому принадлежит префикс `issuer_id`; None —
+    префикса нет в реестре. Строки вида `issuer-cli-demo` или `i1`
+    идентификатора рынка не несут: это не «чужой рынок», а «рыночного
+    идентификатора нет» — и отказывать им должен прежний путь, а не
+    новый."""
+    text = issuer_id or ""
+    for prefix in sorted(_PREFIX_OWNERS, key=len, reverse=True):
+        if text.startswith(prefix):
+            return _PREFIX_OWNERS[prefix]
+    return None
+
+
+def reporting_currency(code: str) -> str | None:
+    """Валюта отчётности рынка по коду; None — рынка нет в таблице."""
+    return REPORTING_CURRENCIES.get((code or "").upper())
+
+
+def registry_id_error(market: Market, raw: str | None) -> str | None:
+    """None — идентификатор проходит схему рынка, иначе — что не так,
+    одной фразой (её печатает CLI, а не молча чинит)."""
+    scheme = IDENTIFIER_SCHEMES[market.identifier]
+    text = (raw or "").strip()
+    if not text:
+        return f"{market.identifier} пуст"
+    if scheme == "token":
+        if any(ch.isspace() for ch in text):
+            return f"{market.identifier} не может содержать пробелы"
+        return None
+    if not text.isascii() or not text.isdigit():
+        return f"{market.identifier} обязан состоять только из цифр"
+    if scheme == "digits8" and len(text) != 8:
+        return f"{market.identifier} обязан быть ровно 8 цифр"
+    return None
+

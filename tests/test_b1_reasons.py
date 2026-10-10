@@ -100,6 +100,8 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "twelvedata_bad_response": "provider channel refusal (providers/twelvedata.py)",
     "twelvedata_key_unset": "provider channel refusal (providers/twelvedata.py)",
     "vendor_rate_limited": "provider channel refusal (providers/twelvedata.py)",
+    "yahoo_bad_response": "provider channel refusal (providers/yahoo.py, ADR-0029)",
+    "yahoo_error": "provider channel refusal (providers/yahoo.py, ADR-0029)",
     "source_has_no_disclosure": "coverage label (cli ownership)",
     "paid_channel_refused": "coverage label (cli, ADR-0018)",
     # chat/LLM: свои отказы, в меры не попадают
@@ -126,6 +128,27 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "row_missing_ticker_or_market": "watchlist import report (core/watchlist_io.py)",
     "no_instrument_for_": "watchlist import report f-string prefix",
     "schema_not_ready": "cadence report label (cli, sqlite not migrated)",
+    "no_data_dir": "cadence report label (cli, data catalog absent)",
+    # десктоп (полоса C): отказы действий окна, в меры не попадают
+    "synthetic_demo_only": "desktop collect refusal (desktop/actions.py)",
+    "unexpected_error": "desktop action refusal prefix (desktop/actions.py)",
+    "index_unavailable": "desktop collect refusal (desktop/actions.py)",
+    "fetch_failed": "desktop collect refusal (desktop/actions.py)",
+    # ТЗ-97 Q12 (строка 2): «Собрать» на живой бумаге = rusterm follow;
+    # отказ стадии — не null_reason меры, а слово окна + строка совета
+    "follow_failed": "desktop follow refusal (desktop/actions.py)",
+    # ТЗ-110 B2: фоновый проход окна = rusterm refresh --all; та же
+    # природа — слово окна, не null_reason меры
+    "refresh_failed": "desktop refresh refusal (desktop/actions.py)",
+    "schema_stale": "desktop refresh refusal on a behind-schema base "
+                    "(desktop/actions.py, ADR-0023: окно не мигрирует)",
+    # ТЗ-111 U3: кнопка «Обновить базу» — свои отказы окна
+    "no_base": "desktop upgrade refusal (desktop/actions.py)",
+    "backup_failed": "desktop upgrade refusal (desktop/actions.py)",
+    # ТЗ-134 W5: кнопка-подсказка = команда ядра через cli.main
+    "not_a_window_command": "desktop hint-button refusal (desktop/actions.py)",
+    "bad_arguments": "desktop hint-button refusal (desktop/actions.py)",
+    "command_failed": "desktop hint-button refusal (desktop/actions.py)",
     # расширенная перепись (сканер возвратов-пар и f-строк)
     "asx_bad_url": "provider channel refusal (providers/asx.py)",
     "dart_bad_url": "provider channel refusal (providers/dart.py)",
@@ -152,6 +175,11 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "suspect": "coverage reason: suspect facts (pipeline.py)",
     "unparsed": "coverage reason: unparsed elements (pipeline.py)",
     "parser_degraded": "coverage reason: degraded parse (core/verification.py)",
+    # слой конфигурации: отказ правки лимита при битом config.toml
+    "config_broken": "config layer refusal (store/config.py)",
+    # governance: префикс серых строк карточки (ядро пишет
+    # «no_data:<токен>»), это reason оценки, а не null_reason меры
+    "no_data": "governance gray reason prefix (core/governance.py)",
 }
 
 

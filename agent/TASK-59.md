@@ -1,6 +1,8 @@
 # TASK-59 — мера без хозяина; и рынок, который умеет только сырьё
 
-- **Status: READY**
+- **Status: SUPERSEDED — см. agent/TASK-60.md.** D1 и D3 закрыты
+  полосой B (ТЗ-B1 B1.1, B1.2); D4 закрыт ТЗ-58 C3; живым остался
+  только D2, он перенесён в ТЗ-60 пунктом E2.
 - **Report:** `agent/REPORT-59.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). Состояние: `agent/CONTEXT.md`.
 - **Relay:** сдать — `python3 agent/relay.py hand --to coordinator

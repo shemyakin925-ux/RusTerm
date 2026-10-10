@@ -5,6 +5,10 @@
 «зелёный» 0.0 — мера выдумывала значение. Теперь: карта приводит знак
 (cvm-dfp.v2, исходное значение — в locator.raw_value), а ставка вне
 полосы [0, 0.5] — отказ jurisdiction_rate с числом, не 0.0 и не 0.5.
+
+ТЗ-91 B6 дописывает правило знака: карта даёт −поданное для ВСЕЯКОЙ
+строки 3.08, а не только для отрицательной, иначе положительно поданный
+вычет (налоговый выигрыш) остаётся расходом.
 """
 from __future__ import annotations
 
@@ -18,9 +22,10 @@ from tests.test_task57_br_census import _census_rows, br_app
 
 
 def test_map_normalizes_tax_sign_and_records_version():
-    """Карта cvm-dfp.v2 приводит знак вычета 3.08: value — модуль,
-    чем нормализовано — версия карты на факте; исходное знаковое
-    значение остаётся на месте (в локаторе его несёт raw_value)."""
+    """Карта cvm-dfp.v2 приводит знак вычета 3.08: value — знак,
+    противоположный поданному, чем нормализовано — версия карты на
+    факте; исходное знаковое значение остаётся на месте (в локаторе его
+    несёт raw_value)."""
     fact = {"concept": "cvm-dfp:3.08", "value": "-4640375000.0"}
     assert apply_concept_map(fact) == 0
     assert fact["canonical_concept"] == "tax_expense"
@@ -28,12 +33,23 @@ def test_map_normalizes_tax_sign_and_records_version():
     assert fact["concept_map_version"] == "cvm-dfp.v2"
 
 
-def test_map_leaves_positive_tax_and_other_lines_untouched():
-    """Положительный налог не трогается; другие строки карты (и вне
-    карты) знак не меняют: нормализация — только 3.08 с минусом."""
+def test_map_negates_every_tax_line_and_leaves_other_lines_untouched():
+    """ТЗ-91 B6: canonical tax_expense = −поданное для всякой строки
+    3.08. Положительная 3.08 — налоговый выигрыш (DRE подаёт вычет
+    знаком минус), и расход от него отрицательный: прежний флип только
+    отрицательных оставлял выигрыш расходом. Другие строки карты (и вне
+    карты) знак не меняют."""
     pos = {"concept": "cvm-dfp:3.08", "value": "4640375000.0"}
-    apply_concept_map(pos)
-    assert pos["value"] == "4640375000.0"
+    assert apply_concept_map(pos) == 0
+    assert pos["canonical_concept"] == "tax_expense"
+    assert pos["value"] == "-4640375000.0"
+    assert pos["concept_map_version"] == "cvm-dfp.v2"
+    neg = {"concept": "cvm-dfp:3.08", "value": "-4640375000.0"}
+    apply_concept_map(neg)
+    assert neg["value"] == "4640375000.0"
+    zero = {"concept": "cvm-dfp:3.08", "value": "0.0"}
+    apply_concept_map(zero)
+    assert zero["value"] == "0.0"       # не "-0.0": у нуля знака нет
     rev = {"concept": "cvm-dfp:3.01", "value": "-5.0"}
     assert apply_concept_map(rev) == 0
     assert rev["value"] == "-5.0"
@@ -43,6 +59,22 @@ def test_map_leaves_positive_tax_and_other_lines_untouched():
     junk = {"concept": "cvm-dfp:3.08", "value": "abc"}
     apply_concept_map(junk)
     assert junk["value"] == "abc"
+
+
+def test_tax_benefit_refuses_instead_of_reading_as_a_paid_rate():
+    """Зачем это мере: выигрыш при положительной прибыли-до-налога. До
+    B6 карта оставляла его расходом, и effective_tax печатал 0.2381 —
+    «заплатил 23.8% там, где получил вычет». После B6 canonical
+    tax_expense отрицательный, ставка вне полосы [0, 0.5], и это честный
+    отказ с числом в продолжении."""
+    fact = {"concept": "cvm-dfp:3.08", "value": "4640375000.0"}
+    apply_concept_map(fact)
+    assert fact["value"] == "-4640375000.0"
+    value, reason = effective_tax_rate(float(fact["value"]),
+                                       19487327000.0)
+    assert value is None
+    assert reason == "jurisdiction_rate: rate=-0.2381"
+    assert is_known_reason(reason)
 
 
 def test_tax_rate_outside_band_refuses_instead_of_clipping():
@@ -61,7 +93,10 @@ def test_tax_rate_outside_band_refuses_instead_of_clipping():
     value, reason = effective_tax_rate(1000.0, 0)
     assert value is None and reason == "denominator_zero"
     value, reason = effective_tax_rate(1000.0, -4000.0)
-    assert value is None and reason == "jurisdiction_rate"
+    # ТЗ-91 B2: pretax < 0 — отрицательный ЗНАМЕНАТЕЛЬ, а не полоса
+    # юрисдикции: ставка неотделима, и числа в продолжении не было бы.
+    # Отказ остаётся отказом (было: jurisdiction_rate).
+    assert value is None and reason == "negative_denominator"
     value, reason = effective_tax_rate(None, 4000.0)
     assert value is None and reason == "missing_data"
 

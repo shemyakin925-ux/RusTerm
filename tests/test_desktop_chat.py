@@ -73,17 +73,30 @@ import json  # noqa: E402
 
 # ── C7.1: история разговоров ─────────────────────────────────────────────
 
-def test_sessions_listing_is_honest_about_missing_door(with_transcripts):
-    """I10: перечня без SQL вне store нет — функция честно None."""
+def test_sessions_listed_fresh_first_and_openable(with_transcripts):
+    """C7.1: перечень идёт через дверь store и не знает SQL (I10);
+    свежий разговор сверху."""
     repos, _conn, _paths = with_transcripts
-    assert desktop_data.chat_sessions(repos) is None
-
-
-def test_sessions_openable(with_transcripts):
-    repos, _conn, _paths = with_transcripts
+    sessions = desktop_data.chat_sessions(repos)
+    assert [s["session_id"] for s in sessions] == ["s-bbb", "s-aaa"]
+    assert [s["calls"] for s in sessions] == [1, 3]
+    assert sessions[0]["model"] == "fake-model"
     lines = desktop_data.chat_transcript_lines(repos, "s-aaa")
     assert any("вы: почему roe пустой?" in line for line in lines)
     assert any("модель: roe нет" in line for line in lines)
+
+
+def test_listing_tiebreak_is_insertion_order_not_clock(env):
+    """Булавка порядка: два разговора в один тик часов различимы —
+    позже вставленный сверху, иначе перечень меняется от прогона к
+    прогону, и окно показывает историю в случайном порядке."""
+    repos, _conn, _paths = env
+    for sid in ("s-tie-1", "s-tie-2"):
+        repos.chat_transcript.create_session(sid, "fake-model", None,
+                                             1000.0, 1)
+    assert [s["session_id"]
+            for s in repos.chat_transcript.list_sessions()] == \
+        ["s-tie-2", "s-tie-1"]
     assert desktop_data.chat_transcript_lines(repos, "s-nope") == \
         ["разговора s-nope нет"]
 
@@ -100,14 +113,21 @@ def test_sessions_survive_window_restart(with_transcripts, monkeypatch,
 
     window = desktop_window._build_window(repos, paths, "wl-1")
     combo = window.findChild(QComboBox, "chat_sessions_box")
-    assert combo.count() == 1  # двери перечня нет — слова (I10/Disputed)
+    assert combo.count() == 3  # заголовок + два разговора
+    assert [combo.itemData(i) for i in range(combo.count())] == \
+        [None, "s-bbb", "s-aaa"]
+    combo.setCurrentIndex(2)  # s-aaa — свежайший
     answer = window.findChild(QLabel := __import__(
         "PySide6.QtWidgets", fromlist=["QLabel"]).QLabel,
         "answer_label")
+    assert "почему roe пустой?" in answer.text()
     window.close()
 
-    # перезапуск окна: разговоры живы в store, ключ не светится
+    # перезапуск окна: разговоры на месте в том же порядке, ключ не
+    # светится ни в одной подписи
     window2 = desktop_window._build_window(repos, paths, "wl-1")
+    combo2 = window2.findChild(QComboBox, "chat_sessions_box")
+    assert combo2.count() == 3
     assert repos.chat_transcript.get("s-aaa")["calls"] == 3
     texts = " ".join(label.text() for label in
                      window2.findChildren(__import__(

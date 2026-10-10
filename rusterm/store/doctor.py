@@ -157,6 +157,7 @@ def doctor_report(paths: AppPaths, conn) -> dict:
                        "imported_files_without_row": 0}
     manual_facts_missing_document = 0
     registry: list = []
+    registry_mismatch: list = []
     market_coverage: dict = {}
     if db_ready:
         rows = conn.execute(
@@ -223,6 +224,35 @@ def doctor_report(paths: AppPaths, conn) -> dict:
                 + ", ".join(f"{r['code']}:{r['provider']}"
                             for r in registry))
 
+        # ── ТЗ-92 C2: префикс идентификатора не принадлежит рынку ──
+        # cmd_add до C2 писал `cik-` всем рынкам, а CD_CVM и corp_code —
+        # цифры. Эмитентов не переименовывают, поэтому единственная
+        # защита от «CIK = код CVM» — эта находка: её показывает doctor,
+        # а двери сбора такой строки уже не пропускают.
+        from ..markets import provider_prefix
+        edgar_prefix = provider_prefix("edgar")
+        edgar_jurisdictions = sorted({m.jurisdiction for m in MARKETS
+                                      if m.provider == "edgar"})
+        placeholders = ", ".join("?" for _ in edgar_jurisdictions)
+        registry_mismatch = [
+            {"issuer_id": iid, "jurisdiction": jur,
+             "registry_id": reg}
+            for iid, jur, reg in conn.execute(
+                f"""SELECT issuer_id, jurisdiction, registry_id
+                    FROM issuer
+                    WHERE issuer_id LIKE ?
+                      AND jurisdiction NOT IN ({placeholders})
+                    ORDER BY issuer_id""",
+                (f"{edgar_prefix}%", *edgar_jurisdictions))
+        ]
+        if registry_mismatch:
+            named = ", ".join(f"{r['issuer_id']}:{r['jurisdiction']}"
+                              for r in registry_mismatch[:5])
+            problems.append(
+                f"эмитентов с префиксом {edgar_prefix} вне рынков EDGAR: "
+                f"{len(registry_mismatch)} ({named}"
+                f"{'…' if len(registry_mismatch) > 5 else ''})")
+
         # ── ТЗ-21 H6: покрытие по рынкам ──
         # рынок определяется префиксом instrument_id "<код>-<тикер>"
         # (cmd_add); переопределённый --instrument_id попадает в «—».
@@ -264,6 +294,7 @@ def doctor_report(paths: AppPaths, conn) -> dict:
         "documents": documents,
         "manual_facts_missing_document": manual_facts_missing_document,
         "registry_gaps": registry,
+        "registry_prefix_mismatch": registry_mismatch,
         "market_coverage": market_coverage,
         "last_backup": last_backup,
     }

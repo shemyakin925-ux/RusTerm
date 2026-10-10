@@ -1,0 +1,262 @@
+[
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Revenue",
+  "value": "1,234.5",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Revenue: 1,234.5 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "COGS",
+  "value": "700.25",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "COGS: 700.25 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Gross profit",
+  "value": "534.25",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Gross profit: 534.25 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Opex",
+  "value": "300.5",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Opex: 300.5 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Operating income",
+  "value": "233.75",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Operating income: 233.75 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "D and a",
+  "value": "88.125",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "D and a: 88.125 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Net income",
+  "value": "123.45",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Net income: 123.45 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Pretax income",
+  "value": "160.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Pretax income: 160.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Tax expense",
+  "value": "36.55",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Tax expense: 36.55 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Interest expense",
+  "value": "12.5",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Interest expense: 12.5 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "OCF",
+  "value": "300.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "OCF: 300.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Capex",
+  "value": "90.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Capex: 90.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Cash",
+  "value": "210.5",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Cash: 210.5 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "ST investments",
+  "value": "40.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "ST investments: 40.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Total debt",
+  "value": "500.5",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Total debt: 500.5 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Total assets",
+  "value": "2,000.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Total assets: 2,000.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Total equity",
+  "value": "1,100.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Total equity: 1,100.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Total equity incl NCI",
+  "value": "1,150.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Total equity incl NCI: 1,150.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Minority interest",
+  "value": "50.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Minority interest: 50.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Preferred equity",
+  "value": "25.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Preferred equity: 25.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Buyback amount",
+  "value": "60.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Buyback amount: 60.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Revenue",
+  "value": "41,000",
+  "unit": "USD/day",
+  "period": "FY2025",
+  "quote": "Revenue per day: 41,000 USD/day (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Shares outstanding",
+  "value": "1,200",
+  "unit": "thousand shares",
+  "period": "FY2025",
+  "quote": "Shares outstanding: 1,200 thousand shares (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Price close",
+  "value": "150.0",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Price close: 150.0 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Revenue",
+  "value": "1.234",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Revenue legacy format: 1 234 USD m (FY2025)",
+  "page_no": 1
+ },
+ {
+  "company": "Synthetic Corp",
+  "category": "financial",
+  "metric": "Cash",
+  "value": "9,999.9",
+  "unit": "USD m",
+  "period": "FY2025",
+  "quote": "Cash rose to 9,999.9 USD m (FY2025)",
+  "page_no": 1
+ }
+]

@@ -28,7 +28,9 @@ from rusterm.store.repos import (
 # ── Индикатор 1: доля независимых директоров ───────────────────────────
 def test_indicator_1_independent_directors_all_four_colors():
     a = gov.independent_directors("ins1", 0.6, "2024-12-31", "doc#p1")
-    assert (a.color, a.method_version) == ("green", "governance.v1")
+    # версия в строке — та, что зафиксирована в ядре: ТЗ-104 P6 поднял её
+    # до v2 (размерность числителя индикатора 4), история v1 остаётся в базе
+    assert (a.color, a.method_version) == ("green", "governance.v2")
     # граница 50% — уже зелёный (>= 50%)
     assert gov.independent_directors(
         "ins1", 0.5, "2024-12-31", "doc#p1").color == "green"
@@ -151,7 +153,7 @@ def test_migration_35_creates_table_and_repo_appends_history():
                            isolation_level=None)
     try:
         apply_migrations(conn)
-        assert _SCHEMA_VERSION == 45
+        assert _SCHEMA_VERSION == 48
         repos = RepoRegistry(conn, paths)
         repos.instrument.upsert_issuer(Issuer(
             "i1", "N", "US", None, None, "us_gaap", "USD"))

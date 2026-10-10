@@ -21,7 +21,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         # init: каталог + миграции
         assert main(["--root", root, "init"]) == 0
         out = capsys.readouterr().out
-        assert "schema_version=45" in out
+        assert "schema_version=48" in out
 
         # demo: демо-данные создаются только явно (TASK-8 U3)
         assert main(["--root", root, "demo"]) == 0
@@ -39,7 +39,9 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
                      "--instrument", "US-CLI-DEMO"]) == 0
         out = capsys.readouterr().out
         assert "снапшот v1" in out
-        assert "со значением 4, пусто 24" in out
+        # ТЗ-97 Q7: формула gross_profit добавила снапшоту строку —
+        # 29 мер, из них 4 с числом (замер прогона).
+        assert "со значением 4, пусто 25" in out
 
         # export json: значения из снапшота
         assert main(["--root", root, "export", "--instrument", "US-CLI-DEMO",
@@ -72,7 +74,7 @@ def test_cli_full_cycle_init_ingest_snapshot_export_verify_doctor(capsys):
         assert main(["--root", root, "doctor"]) == 0
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is True
-        assert report["schema_version"] == 45
+        assert report["schema_version"] == 48
     finally:
         shutil.rmtree(root)
 
@@ -99,7 +101,7 @@ def test_cli_doctor_reports_schema_drift(capsys):
         capsys.readouterr()
         import sqlite3
         conn = sqlite3.connect(f"{root}/rusterm.db", isolation_level=None)
-        for v in (37, 38, 39, 40, 41, 42, 43, 44, 45):
+        for v in (37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48):
             conn.execute("DELETE FROM schema_version WHERE version=?", (v,))
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
@@ -110,7 +112,7 @@ def test_cli_doctor_reports_schema_drift(capsys):
         # 40 — ручной импорт, 41 — цены): MAX не видит дырок,
         # сносим верх тоже
         assert report["schema_version"] == 36
-        assert any("schema_version=36" in p and "45" in p
+        assert any("schema_version=36" in p and "48" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -133,13 +135,16 @@ def test_cli_doctor_reports_schema_drift_38(capsys):
         conn.execute("DELETE FROM schema_version WHERE version=43")
         conn.execute("DELETE FROM schema_version WHERE version=44")
         conn.execute("DELETE FROM schema_version WHERE version=45")
+        conn.execute("DELETE FROM schema_version WHERE version=46")
+        conn.execute("DELETE FROM schema_version WHERE version=48")
+        conn.execute("DELETE FROM schema_version WHERE version=47")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
         # после удаления 38 и выше максимум — 37
         assert report["schema_version"] == 37
-        assert any("schema_version=37" in p and "45" in p
+        assert any("schema_version=37" in p and "48" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -161,12 +166,15 @@ def test_cli_doctor_reports_schema_drift_39(capsys):
         conn.execute("DELETE FROM schema_version WHERE version=43")
         conn.execute("DELETE FROM schema_version WHERE version=44")
         conn.execute("DELETE FROM schema_version WHERE version=45")
+        conn.execute("DELETE FROM schema_version WHERE version=46")
+        conn.execute("DELETE FROM schema_version WHERE version=48")
+        conn.execute("DELETE FROM schema_version WHERE version=47")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
         assert report["schema_version"] == 38
-        assert any("schema_version=38" in p and "45" in p
+        assert any("schema_version=38" in p and "48" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
@@ -532,7 +540,7 @@ def test_u9_status_after_demo_flow_reports_snapshot_and_coverage(capsys):
         assert main(["--root", root, "status", "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["instruments"] == 1
-        assert payload["schema_version"] == 45
+        assert payload["schema_version"] == 48
         assert len(payload["snapshots"]) == 1
         assert payload["snapshots"][0]["version"] == 1
         assert payload["coverage"]["ready"] >= 1
@@ -885,7 +893,8 @@ def test_b16_json_commands_carry_expected_keys(capsys):
                          "measure_reason_counts"},
             "metrics": {"metrics", "recorded"},
             "budget": {"ceiling_per_night", "rate_per_second",
-                       "provider_ran", "used", "refused", "samples"},
+                       "provider_ran", "used", "used_total",
+                       "last_probe", "refused", "samples"},
             # ТЗ-31 C5: каденность присоединяется к закреплённой схеме
             "cadence": {"as_of", "instruments", "incomplete",
                         "next_pass_requests", "daily_ceiling"},
@@ -943,12 +952,44 @@ def test_cli_doctor_reports_schema_drift_40(capsys):
         conn.execute("DELETE FROM schema_version WHERE version=43")
         conn.execute("DELETE FROM schema_version WHERE version=44")
         conn.execute("DELETE FROM schema_version WHERE version=45")
+        conn.execute("DELETE FROM schema_version WHERE version=46")
+        conn.execute("DELETE FROM schema_version WHERE version=48")
+        conn.execute("DELETE FROM schema_version WHERE version=47")
         conn.close()
         assert main(["--root", root, "doctor"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["ok"] is False
         assert report["schema_version"] == 39
-        assert any("schema_version=39" in p and "45" in p
+        assert any("schema_version=39" in p and "48" in p
                    for p in report["problems"])
     finally:
         shutil.rmtree(root)
+
+
+def test_export_of_thin_source_says_words(capsys):
+    """ТЗ-72 S5: источник почти ничего не даёт — CLI говорит это
+    словами до таблицы; демо-база тонкая (4 значения из 29 мер, счёт
+    мер поднял ТЗ-97 Q7)."""
+    root = tempfile.mkdtemp()
+    try:
+        assert main(["--root", root, "init"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "demo"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "ingest",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "snapshot",
+                     "--instrument", "US-CLI-DEMO"]) == 0
+        capsys.readouterr()
+        assert main(["--root", root, "export",
+                     "--instrument", "US-CLI-DEMO",
+                     "--format", "csv"]) == 0
+        captured = capsys.readouterr()
+        assert "почти ничего не даёт" in captured.err
+        assert "4 из 29" in captured.err
+        assert "missing_data" in captured.err
+        # таблица не пострадала: машина читает как раньше
+        assert "net_margin" in captured.out or "concept" in captured.out
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

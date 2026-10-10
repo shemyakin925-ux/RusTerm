@@ -42,7 +42,7 @@ def _payload(name: str) -> dict:
 def test_c2_map_grew_from_task_start():
     """Преемник булавки «карта байт-в-байт» (test_ifrs_map, xfail):
     карта TASK-18 (237a7) — подмножество текущей; дельта РОВНО
-    посылки ТЗ-31 C2; версия us-gaap.v4."""
+    посылки ТЗ-31 C2 и ТЗ-108 W2/W3; версия us-gaap.v7."""
     old_src = subprocess.run(
         ["git", "show", "23737a7:rusterm/normalize/concepts.py"],
         capture_output=True, text=True, check=True).stdout
@@ -55,18 +55,28 @@ def test_c2_map_grew_from_task_start():
         assert tags == new_tags or (
             # единственное расширение дельты: теги дописываются В КОНЕЦ
             new_tags[:len(tags)] == tags
-            and len(new_tags) > len(tags)), (concept, tags, new_tags)
+            and len(new_tags) > len(tags)
+            # ТЗ-141 D3: revenue переупорядочен вердиктом (верхняя строка
+            # отчёта вперёд), состав тегов прежний
+            or (concept == "revenue"
+                and set(tags) == set(new_tags)
+                and len(tags) == len(new_tags))), (concept, tags, new_tags)
     delta = {c for c in CONCEPT_MAP if c not in old_map}
     assert delta == {"total_debt", "shares_outstanding"}, delta
-    # единственное расширенное кортеж — st_investments (ТЗ-31 C2)
+    # единственное расширенное кортеж — st_investments (ТЗ-31 C2,
+    # ТЗ-108 W3 дописал преемника CRM в конец)
     assert CONCEPT_MAP["st_investments"] == \
-        old_map["st_investments"] + ("MarketableSecuritiesCurrent",)
-    assert CONCEPT_MAP_VERSION == "us-gaap.v4"
+        old_map["st_investments"] + ("MarketableSecuritiesCurrent",
+                                     "AvailableForSaleSecuritiesDebtSecuritiesCurrent")
+    # total_debt (новый в дельте) растёт только хвостом: W2 SMCI
+    assert CONCEPT_MAP["total_debt"] == (
+        "LongTermDebt", "DebtLongtermAndShorttermCombinedAmount")
+    assert CONCEPT_MAP_VERSION == "us-gaap.v8"
     # новый тег штампует канонический концепт и версию карты
     fact = {"concept": "us-gaap:CommonStockSharesOutstanding"}
     apply_concept_map(fact)
     assert fact["canonical_concept"] == "shares_outstanding"
-    assert fact["concept_map_version"] == "us-gaap.v4"
+    assert fact["concept_map_version"] == "us-gaap.v8"
 
 
 # ── золотой тест шести мер на реальных значениях ───────────────────────
@@ -93,6 +103,20 @@ _FACTS = [
     ("tax_expense", "20719000000", "USD", _FY[0], _FY[1], "duration"),
     ("pretax_income", "132729000000", "USD", _FY[0], _FY[1],
      "duration"),
+]
+
+# ТЗ-91 B5: у roic знаменатель — СРЕДНЕЕ капитала на начало и конец окна
+# потока. Баланс FY2024 (2024-09-28) в companyfacts Apple лежит
+# сравнительной колонкой 10-K за FY2025: разборщик штампует её
+# basis='restated' (ТЗ-102 M3), и именно она даёт вторую границу.
+_PRIOR_YEAR = [
+    ("total_debt", "96662000000", "USD", "2024-09-28", "2024-09-28",
+     "instant"),
+    ("cash", "29943000000", "USD", "2024-09-28", "2024-09-28", "instant"),
+    ("st_investments", "35228000000", "USD", "2024-09-28", "2024-09-28",
+     "instant"),
+    ("total_equity", "56950000000", "USD", "2024-09-28", "2024-09-28",
+     "instant"),
 ]
 
 
@@ -122,6 +146,17 @@ def env(tmp_path):
                'companyfacts.v1', 'ok', 0, ?, 'provider')""",
             (f"f-g-{canonical}-{end}", canonical, start, end, ptype,
              value, unit, obj.sha256, canonical))
+    for canonical, value, unit, start, end, ptype in _PRIOR_YEAR:
+        conn.execute(
+            """INSERT INTO fact(fact_id, issuer_id, concept, period_start,
+               period_end, period_type, value, unit, currency, basis,
+               origin, source_ref, locator, parser_version, status,
+               ingested_at, canonical_concept, source_kind)
+               VALUES (?, 'i-g', ?, ?, ?, ?, ?, ?, 'USD',
+               'restated', 'extracted', ?, '{}',
+               'companyfacts.v1', 'ok', 0, ?, 'provider')""",
+            (f"f-p-{canonical}-{end}", canonical, start, end, ptype,
+             value, unit, obj.sha256, canonical))
     conn.commit()
     # реальные строки цен и дивидендов из записанных payload
     price_rows = td.TwelveDataProvider.parse_series(
@@ -147,7 +182,8 @@ def test_six_valuation_measures_have_golden_values(env):
     """Шесть мер на реальных входах; числа закреплены за ночью.
     price_close = 304.91 (2026-08-11); dps_ttm = 0.26+0.26+0.27+0.27
     по окну 365 дней; ebitda/год = 133.05e9 + 11.698e9; minority = 0
-    (NCI ни разу не отчитан)."""
+    (NCI ни разу не отчитан); roic — на среднем капитале двух годовых
+    границ (ТЗ-91 B5)."""
     conn, by_concept = env
 
     def value(concept):
@@ -166,6 +202,11 @@ def test_six_valuation_measures_have_golden_values(env):
     nopat = 133_050_000_000.0 * (1.0 - rate)
     ebitda_fy = 133_050_000_000.0 + 11_698_000_000.0
     dps_ttm = 0.26 + 0.26 + 0.27 + 0.27
+    # ТЗ-91 B5: знаменатель roic — СРЕДНЕЕ капитала на начало окна потока
+    # (2024-09-28, сравнительная колонка) и на его конец (свежий момент
+    # 2026-06-27 — прежнее отклонение ТЗ-31 C2, пункт его не трогает)
+    ic_begin = 56_950_000_000.0 + 0.0 + 96_662_000_000.0 \
+        - 29_943_000_000.0 - 35_228_000_000.0
 
     assert value("market_cap") == pytest.approx(mcap, rel=1e-12)
     assert value("market_cap_total") == pytest.approx(mcap, rel=1e-12)
@@ -176,7 +217,8 @@ def test_six_valuation_measures_have_golden_values(env):
                                                rel=1e-12)
     assert value("div_yield") == pytest.approx(dps_ttm / price,
                                                rel=1e-12)
-    assert value("roic") == pytest.approx(nopat / ic, rel=1e-12)
+    assert value("roic") == pytest.approx(nopat / ((ic_begin + ic) / 2.0),
+                                          rel=1e-12)
     conn.close()
 
 
@@ -191,27 +233,36 @@ def test_golden_units_currencies_and_periods(env):
         assert by_concept[concept][5] == "ratio", concept
     # dps_ttm без факта: значение пришло из corporate_action
     assert by_concept["div_yield"][4] is not None
-    # ТЗ-32 D6: база периода видна в lineage — годовое приближение
-    # (annual) у ev_ebitda и roic, окно 365 дней (ttm) у div_yield
+    # ТЗ-32 D6 + ТЗ-97 Q10: база периода видна в lineage. У Apple после
+    # годового FY2025 не подано ничего, и по Q10 этот годовой И ЕСТЬ
+    # окно TTM (база ttm, окно = год) — не «годовое приближение».
     for concept in ("ev_ebitda", "roic"):
         mid = by_concept[concept][0]
         bases = {r[0] for r in conn.execute(
             """SELECT period_basis FROM measure_lineage
                WHERE measure_id=? AND period_basis IS NOT NULL""",
             (mid,))}
-        assert bases == {"annual"}, (concept, bases)
+        assert bases == {"ttm"}, (concept, bases)
+        roles = [r[0] for r in conn.execute(
+            "SELECT role FROM measure_lineage WHERE measure_id=?", (mid,))]
+        assert not [role for role in roles
+                    if "annual_fallback" in role], (concept, roles)
     div_mid = by_concept["div_yield"][0]
     bases = {r[0] for r in conn.execute(
         """SELECT period_basis FROM measure_lineage_ca
            WHERE measure_id=?""", (div_mid,))}
     assert bases == {"ttm"}, bases
-    # годовой период назван: FY2025 у знаменателя ev_ebitda
+    # окно названо целиком, а не только его конец: Q10 требует в lineage
+    # видеть окно TTM и все слагаемые
     mid = by_concept["ev_ebitda"][0]
-    periods = {r[0] for r in conn.execute(
-        """SELECT f.period_end FROM measure_lineage l
+    windows = {(r[0], r[1]) for r in conn.execute(
+        """SELECT f.period_start, f.period_end FROM measure_lineage l
            JOIN fact f ON f.fact_id = l.fact_id
-           WHERE l.measure_id=? AND l.period_basis='annual'""", (mid,))}
-    assert "2025-09-27" in periods, periods
+           WHERE l.measure_id=? AND l.period_basis='ttm'""", (mid,))}
+    assert ("2024-09-29", "2025-09-27") in windows, windows
+    roles = [r[0] for r in conn.execute(
+        "SELECT role FROM measure_lineage WHERE measure_id=?", (mid,))]
+    assert any("2024-09-29…2025-09-27" in role for role in roles), roles
     conn.close()
 
 
