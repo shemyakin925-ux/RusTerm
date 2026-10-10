@@ -206,3 +206,43 @@ NOW: D2, step 6 (paused by the user)
 - On resume, when the user's jobs are done: `git commit` with the
   prepared message (hook runs the full acceptance), push, then D5
   `relay.py verify` → final HANDOFF → `relay.py hand`.
+
+## HANDOFF (FINAL — TASK-141)
+Status:          DONE
+Arrival state:   TASK-140 accepted (74950ac); TASK-141 taken at 46e0254
+                 via wait, round 159
+Items done:      D0 (b3b57c4), D1 (ed8fb63), D2 (7834ce5), D3 (74b72a3),
+                 D4 (3ccee30 — rebased onto the coordinator's 27dd757
+                 note; the two-getText fix it prescribes, s1 untouched),
+                 D5 (verify on 3ccee30)
+Items not done:  (none)
+Acceptance:      `python3 agent/relay.py verify` → «Итог: пройдено 13,
+                 провалено 0 / Принято.», «код возврата приёмки: 0
+                 (ПРИНЯТО)»; every commit's pre-commit hook ran the same
+                 full selfcheck — «Принято. SELFCHECK OK» (incl. the D4
+                 commit after the two-getText fix)
+Tests:           quoted per item: map pins 49+55 passed, split-basis 2,
+                 debt-pair/card suites 48, cik_hint 2, s1 1.6 s; full
+                 suites green in every hook and in verify
+Guards:          none touched; the W4 pin table gained one entry in
+                 TASK-140 (panel_for_cell) per its own guard
+Schema:          unchanged (48)
+Network:         ~70 of 150 (EDGAR companyfacts/venues per new add,
+                 Yahoo fundamentals cached per ticker)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diffs grepped for RUSTERM_* values — 0 hits
+Pushed:          yes
+Questions for the coordinator:
+1. XOM total_debt: XOM files the debt as
+   `LongTermDebtAndCapitalLeaseObligations` (non-current, incl. finance
+   leases) + `DebtCurrent` — outside the ruled Noncurrent+Current pair;
+   XOM's card_fill is 70 % mostly for that plus the missing
+   operating-income line (same as PFE). Extending the pair to XOM's
+   tags = new ruling.
+2. PFE total_debt 2023 residual 10.0 % (leases inside Yahoo's rows) —
+   named, within the family the check already reports as methodology.
+3. The user's real base needs one `rusterm reparse` + `history --all
+   --rebuild` after this lands (D1 filed dates in locators → split
+   basis; D2/D3 pick up at display/build time).
+
+NOW: D5, step 6
