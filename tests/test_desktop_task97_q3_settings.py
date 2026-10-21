@@ -217,12 +217,19 @@ def test_override_column_reads_the_configuration_door(app_env):
 
 # ── 4: каталог называет размер и дату; без базы — причина и дверь ────────
 
-def test_catalog_label_names_size_and_date(app_env):
+def test_catalog_label_names_size_and_date(app_env, monkeypatch):
     """Размер и дата каталога — названные, а не намалёванные: момент
     закрепляется `os.utime`, затем вкладка перерисовывается выбором
     бумаги (ТЗ-72 S1 — нажатием), и подпись обязана вернуть ровно эти
     два числа."""
     from PySide6.QtWidgets import QTreeWidget
+    # ТЗ-142: проход обновления при старте окна открывает базу пишущей
+    # дверью (apply_migrations) и сдвигает mtime базы уже после
+    # закрепления — подпись показывает момент воркера, а не момент.
+    # Выключатель тот же, что в test_desktop_product_home (ТЗ-133 R1);
+    # здесь, а не в фикстуре: соседний тест вправе требовать пустое
+    # окружение ключей.
+    monkeypatch.setenv("RUSTERM_NO_AUTO_REFRESH", "1")
     repos, paths, _ = app_env
     window = _window(repos, paths)
     try:

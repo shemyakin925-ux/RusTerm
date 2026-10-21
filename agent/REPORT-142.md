@@ -252,3 +252,81 @@ Questions for the coordinator:
    unknown (the kept tree was deleted by the re-run).
 
 NOW: E4, step 6
+
+## Done (post-E4 — the two red acceptances root-caused and fixed)
+- The hand's baton-commit acceptance failed at the same acceptance
+  item 11 as verify run 1 — same family, but the failing test was
+  `test_desktop_task97_q3_settings.py::test_catalog_label_names_size_and_date`,
+  and it then failed 7/7 in isolation. NOT a load flake: root-caused
+  with in-process probes (os.utime/os.stat, QTreeWidget payload and
+  current-item, data.catalog_view caller stacks, sqlite3
+  set_trace_callback):
+  1. conftest's `_isolated_rusterm_env` deletes every ENV_NAMES value
+     per test — and `RUSTERM_NO_AUTO_REFRESH` IS in ENV_NAMES
+     (rusterm/env.py), so the window's start-up refresh pass runs in
+     EVERY desktop test under conftest, whatever the caller sets.
+  2. The pass's worker thread opens the test DB read-write
+     (`cmd_refresh` → `apply_migrations`, the probe caught its
+     `CREATE TABLE IF NOT EXISTS schema_version` from
+     window.py:133 run → actions.py:542 → cli:963 → db.py:806) and
+     that write lands AFTER the test's `os.utime` pin whenever the
+     thread scheduling is late — the label then shows the worker's
+     moment instead of the pinned one. Under tonight's sustained load
+     (the user's caffeinated jobs) the race went 7/7 red; before
+     tonight it resolved the other way for weeks (5 green acceptances
+     today included it).
+  3. This SAME race is what red verify run 1: the i5 test's NESTED
+     full suite contains this test, so the nested selfcheck returned
+     non-zero. One root cause behind both reds — the «one-off»
+     wording in the E4 addendum above is superseded by this.
+- Fix (one test, one switch, same pattern as
+  test_desktop_product_home.py:172, ТЗ-133 R1):
+  `test_catalog_label_names_size_and_date` now sets
+  `RUSTERM_NO_AUTO_REFRESH=1` (in the test, not the fixture — a
+  sibling test requires an empty key environment). Verified:
+  3/3 single runs green, the whole q3 file 13 passed, desktop
+  settings + product home green.
+
+## Disputed
+- I fixed a test outside my task's items: the standing order of the
+  user for this shift is «find it with `python3 -m pytest -x -v
+  <file>` and fix the cause», the cause is proven above, and the
+  blocked baton made the shift unable to hand anything. The change
+  adds isolation (a switch another test file already uses), weakens
+  no assertion, and touches no production code. If the coordinator
+  rules otherwise, the one-line commit reverts cleanly.
+
+## HANDOFF (FINAL — supersedes the block above; TASK-142 + the fix)
+Status:          DONE (fix commit carries its own acceptance in the
+                 hook; a fresh `relay.py verify` on the final head is
+                 run right after the push and lands in the next —
+                 last — commit of the round)
+Items done:      E1 (a293fc5), E2 (c1bd118), E3 (1310d51),
+                 E4 (verify 13/0 on 1310d51, quoted above; f641850
+                 handoff), the q3 isolation fix (this commit)
+Items not done:  (none)
+Acceptance:      quoted per commit; the final head's verify follows
+Tests:           flaky test 7/7 red before, 3/3 green after; q3 file
+                 13 passed; settings+home green; quoted above
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         243 of 400 (unchanged by the fix)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diff grepped for RUSTERM_* values — 0 hits
+Pushed:          (with this commit)
+Questions for the coordinator:
+1. (carried) refresh_one ProviderError on submissions → TypeError,
+   aborts the whole window pass. Needs a ruling.
+2. The conftest/env interaction this round exposed: EVERY desktop
+   test runs the start-up refresh pass (conftest deletes the off
+   switch as an ENV_NAME), each pass opens the test DB read-write.
+   The q3 race is fixed here; other desktop tests that stat files the
+   worker touches may flake the same way under load. Worth a queue
+   item: set the switch once for the whole desktop test family or
+   make the worker's first action read-only.
+3. Two acceptance rolls failed tonight on this ONE pre-existing race
+   (verify run 1 and the first hand attempt); both green in the same
+   acceptances hours earlier. If handoffs keep failing on it, the
+   queue stalls — see the fix above and question 2.
+
+NOW: fix, step 6
