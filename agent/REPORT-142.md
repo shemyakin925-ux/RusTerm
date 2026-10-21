@@ -190,3 +190,65 @@ NOW: E2, step 6
 - Existing groups on the copy (latest versions, all origin=manual,
   approved): banks 9, hardware_electronics 9, mining_metals 9,
   software 9, telecom 8 members.
+
+## Done (E4 — verify)
+- `python3 agent/relay.py verify` on the final head 1310d51 →
+  «Итог: пройдено 13, провалено 0 / Принято.», «код возврата
+  приёмки: 0 (ПРИНЯТО)». Every commit's pre-commit hook ran the same
+  full selfcheck — «Принято. SELFCHECK OK» (a293fc5, c1bd118,
+  1310d51, and this commit).
+
+## What not to trust (E4 addendum)
+- The FIRST verify run at 21:12 came back 12/1: item 11 (suite
+  without zstandard) red on
+  `tests/test_i5_guard_source.py::test_i5_staged_and_authorised_widening_is_green`
+  — a one-off failure of the test's NESTED full selfcheck, not of our
+  code (this round touches no guard machinery). Not reproducible in
+  two targeted attempts: the module green in the plain suite
+  (`6 passed in 1367.90s`), and the same single test green in the
+  exact item-11 environment (PYTHONPATH zstandard-block,
+  `1 passed in 1416.61s`). The re-run of the full verify was 13/0.
+  Left as a load-flake suspect: the test runs a nested full
+  acceptance, and during verify it executes twice back-to-back under
+  a machine also running the user's caffeinated jobs — see the
+  coordinator question below.
+
+## HANDOFF (FINAL — TASK-142)
+Status:          DONE
+Arrival state:   TASK-141 accepted; task taken from BATON round 160
+                 (de65e11); acceptance 13/0 on arrival
+Items done:      E1 (a293fc5), E2 (c1bd118), E3 (1310d51),
+                 E4 (verify on 1310d51 — quoted above; this commit
+                 carries the same acceptance in its hook)
+Items not done:  (none)
+Acceptance:      «Итог: пройдено 13, провалено 0 / Принято.»,
+                 «код возврата приёмки: 0 (ПРИНЯТО)» on 1310d51; every
+                 commit's hook: «Принято. SELFCHECK OK»
+Tests:           quoted per item: E2 file 5 passed + neighbours 60
+                 passed; i5 module 6 passed in 1367.90s and the
+                 item-11-context single test 1 passed in 1416.61s;
+                 full suites green in every hook and both verify runs
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         243 of 400 (52 setup + 49 E1 pass + 44 E2 live re-run
+                 + 98 E3 SIC fetch — first run read the wrong field
+                 name and was re-run; both counted)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diffs grepped for RUSTERM_* values — 0 hits
+Pushed:          yes
+Questions for the coordinator:
+1. (carried from E2) Latent defect, NOT fixed: refresh_one compares
+   the feed's latest filing date with the reflected one after
+   checking only ConfigError, so a ProviderError from
+   latest_filing_date (transport or HTTP refusal on submissions)
+   crashes it with TypeError instead of naming a refusal — and via
+   refresh_pass that aborts the whole window pass. Needs a ruling.
+2. The one-off i5 red in verify run 1 (see What not to trust E4
+   addendum): test_i5_staged_and_authorised_widening_is_green runs a
+   nested FULL acceptance and executes twice per verify; under a
+   loaded machine that is ~2 h of stacked suites per verify. Worth a
+   look at which nested gate failed — the failed run's stdout was
+   truncated by the outer pytest -q, so the exact nested gate is
+   unknown (the kept tree was deleted by the re-run).
+
+NOW: E4, step 6
