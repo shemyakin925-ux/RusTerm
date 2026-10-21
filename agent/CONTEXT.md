@@ -67,7 +67,16 @@
   cell's panel (same door as the window, `data.panel_for_cell`); 100 %
   of 11 814 cells name a document or inputs (via-measure documents,
   dividend events, price series); 49/49 «открыть документ» files exist.
-- Next for the executor: TASK-141 (REPORT-139 rulings), TASK-142 (С5
+- **TASK-141 ACCEPTED (21.10)**: map us-gaap.v8 (dps successor, Revenues
+  ranked above ASC-606); share count divided by split factors between
+  period end and filing date (`filed` in the locator, reparse aligns
+  locators); debt = Noncurrent + Current pair (`core/debt.pair_total_at`);
+  `rusterm add --cik` + optional CIK in «+ компания» (two getText — a
+  custom QDialog hung the offscreen suite). Control ten Yahoo 99 %, fill
+  92 %; WMT 100 %, PFE 95 %; XOM (CIK 34088) 70 % — no OI line → TASK-143.
+- User's base needs once: `reparse` + `history --all --rebuild`.
+- Next for the executor: TASK-142, TASK-143 (OI fallback, XOM debt pair).
+  (was: TASK-141, TASK-142 (С5
   refresh end to end, С4 peers for new companies). (was: TASK-140 (С3 source of every cell), TASK-141 (REPORT-139 rulings). TASK-136 (Excel) CANCELLED by the user 08.10 — С6 dropped; done = С1–С5.
 
 **06.10.2026 — RESET. Read this block first; everything below is history.**

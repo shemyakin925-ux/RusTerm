@@ -1,6 +1,6 @@
 # TASK-141 — rulings on REPORT-139 questions: split basis, split debt, revenue line, CIK hint
 
-- **Status: READY** (take after TASK-140)
+- **Status: ACCEPTED (21.10, coordinator) — D0 b3b57c4, D1 ed8fb63, D2 7834ce5, D3 74b72a3, D4 3ccee30, D5 verify 13/0. Open questions → TASK-143.**
 - **Report:** `agent/REPORT-141.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С2 (numbers match Yahoo), С5 (add any ticker).
