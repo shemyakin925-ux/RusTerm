@@ -164,6 +164,23 @@ class EdgarProvider:
         dates = recent.get("filingDate") or []
         return max(dates) if dates else None
 
+    def latest_filing_form(self):
+        """Форма последней подачи (10-K, 10-Q, …) из уже загруженного
+        submissions — тот же кэшированный ответ, что читает
+        latest_filing_date, ноль дополнительных запросов (ТЗ-142 E2:
+        итоговая строка прохода называет новую отчётность). None —
+        фид без отчётностей или фид недоступен."""
+        data = self._load_submissions()
+        if isinstance(data, (ProviderError, ConfigError)):
+            return None
+        recent = data.get("filings", {}).get("recent", {})
+        dates = recent.get("filingDate") or []
+        forms = recent.get("form") or []
+        if not dates:
+            return None
+        i = dates.index(max(dates))
+        return forms[i] if i < len(forms) else None
+
     # ── Карта тикеров: один запрос на весь рынок ────────────────────────
 
     def _ticker_map(self) -> dict | ConfigError | NotModified | ProviderError:

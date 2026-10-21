@@ -1061,14 +1061,27 @@ def cmd_refresh(args, emit=None, cancel=None) -> int:
     return 0 if errors == 0 else 1
 
 
+def _tally_measures(repos, instrument_id: str) -> dict:
+    """Меры последнего готового снапшота для счётчика прохода (ТЗ-142
+    E2): {концепт: (значение, причина пустоты)}. Читает той же дверью,
+    что export; готового снапшота нет — пустой словарь."""
+    snapshot_id = repos.snapshot.latest_snapshot_id(instrument_id)
+    if snapshot_id is None:
+        return {}
+    return {m["concept"]: (m["value"], m["null_reason"])
+            for m in repos.snapshot.get_measures(snapshot_id)}
+
+
 def _refresh_all(args, repos, conn, out, cancel) -> int:
     """ТЗ-110 B2/B3: проход «--all» по всем бумагам базы — то же, что
     фоновый проход окна: цены инкрементально (только недостающие дни;
     свежая лента не тратит ни одного запроса), отчётность — только
     изменившаяся (refresh_instruments), снапшот пересобирается у бумаги,
     у которой что-то приехало. Отмена — на границе бумаги (код 130,
-    как у follow)."""
-    from rusterm.core.refresh import refresh_instruments
+    как у follow). ТЗ-142 E2: последняя строка прохода — «что
+    изменилось» словами (refresh_summary_line), окно печатает её же."""
+    from rusterm.core.refresh import (refresh_instruments,
+                                      refresh_summary_line)
     as_of = args_as_of_default()
     instrument_ids = list(repos.instrument.list_instruments())
     builder = make_snapshot_builder(repos, as_of)
@@ -1082,6 +1095,10 @@ def _refresh_all(args, repos, conn, out, cancel) -> int:
         return provider
 
     errors = 0
+    new_prices = 0
+    new_reports: list[tuple[str, str]] = []
+    measures_changed = 0
+    refusals = 0
     for instrument_id in instrument_ids:
         if cancel is not None and cancel:
             out(f"{instrument_id}: отменено — проход остановлен")
@@ -1090,10 +1107,14 @@ def _refresh_all(args, repos, conn, out, cancel) -> int:
         dates = repos.price.dates(instrument_id)
         rows_before = len(dates)
         start = dates[-1] if dates else None
+        price_rc = 0
         if start is None or start < as_of:
-            _ingest_twelvedata_prices(repos, instrument_id, as_of,
-                                      start=start)
+            price_rc = _ingest_twelvedata_prices(repos, instrument_id,
+                                                 as_of, start=start)
         price_changed = len(repos.price.dates(instrument_id)) > rows_before
+        if price_changed:
+            new_prices += 1
+        measures_before = _tally_measures(repos, instrument_id)
         # отчётность: только изменившаяся; снапшот здесь один раз —
         # у бумаги, у которой приехали цены или факты
         results = refresh_instruments(repos, provider_factory,
@@ -1105,12 +1126,25 @@ def _refresh_all(args, repos, conn, out, cancel) -> int:
         result = results[0] if results else None
         if result is not None:
             errors += 1 if result.action == "error" else 0
+        refused = price_rc != 0 or (result is not None
+                                    and result.action == "error")
+        if refused:
+            refusals += 1
+        if result is not None and result.action == "updated":
+            new_reports.append((instrument_id.split("-", 1)[-1],
+                                result.form or "?"))
         if result is not None and (result.action == "updated"
                                    or price_changed):
             builder.build(instrument_id, result.issuer_id, as_of)
+            if _tally_measures(repos, instrument_id) != measures_before:
+                measures_changed += 1
 
     spent = _requests_used(args.root)
     out(f"обновлено: {len(instrument_ids)} бумаг; запросов: {spent}")
+    out(refresh_summary_line(new_prices=new_prices,
+                             new_reports=new_reports,
+                             measures_changed=measures_changed,
+                             refusals=refusals))
     return 0 if errors == 0 else 1
 
 

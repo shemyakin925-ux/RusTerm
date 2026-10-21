@@ -37,6 +37,45 @@ class RefreshResult:
     reason: Optional[str] = None
     calls: dict = field(default_factory=dict)
     # calls: фактические сетевые вызовы по видам URL (для planned — оценка)
+    # ТЗ-142 E2: форма приехавшей отчётности (10-K, 10-Q, …) — строка
+    # «что изменилось» называет её рядом с тикером
+    form: Optional[str] = None
+
+
+# ТЗ-142 E2: строка «что изменилось» начинается с этого слова —
+# refresh_pass (окно) узнаёт её среди строк стадии по этому префиксу
+SUMMARY_LINE_PREFIX = "цены: "
+
+# Сколько новых отчётов строка называет по именам: длиннее — счётчик
+# называет всех, имена усекаются с «, …» (строка читается с одного взгляда)
+SUMMARY_LINE_NAMED_REPORTS = 3
+
+
+def refresh_summary_line(new_prices: int, new_reports: list,
+                         measures_changed: int, refusals: int) -> str:
+    """Строка «что изменилось» одним словарём (ТЗ-142 E2, PRODUCT.md
+    С5: «в конце одной строкой пишет, что изменилось»). Одна
+    реализация на всех: `rusterm refresh --all` печатает её последней
+    строкой прохода, окно показывает её же — строка кнопки «Обновить»
+    ничего не считает сама. Счётчики — по бумагам: цены — бумаги,
+    у которых приехали новые строки; меры — бумаги, у которых готовый
+    снапшот изменился хоть одной мерой; отказы — бумаги, у которых
+    цены или отчётность отказали поимённо в ходе прохода.
+    new_reports — [(тикер, форма), …] по бумагам с новой отчётностью.
+    """
+    parts = [f"цены: {new_prices}"]
+    if new_reports:
+        named = [f"{ticker} {form}" for ticker, form
+                 in new_reports[:SUMMARY_LINE_NAMED_REPORTS]]
+        tail = ", …" if len(new_reports) > SUMMARY_LINE_NAMED_REPORTS \
+            else ""
+        parts.append(f"новые отчёты: {len(new_reports)} "
+                     f"({', '.join(named)}{tail})")
+    else:
+        parts.append("новые отчёты: 0")
+    parts.append(f"мер изменилось: {measures_changed}")
+    parts.append(f"отказов: {refusals}")
+    return ", ".join(parts)
 
 
 def _persist_companyfacts(repos, doc: dict, issuer_id: str, cik: int) -> int:
@@ -211,6 +250,7 @@ def refresh_one(repos, provider_factory, instrument_id, as_of,
         issuer_id=instrument.issuer_id,
         action="updated" if facts else "unchanged",
         facts=facts, last_filing_date=latest,
+        form=provider.latest_filing_form() if facts else None,
         reason=None if facts else
         "companyfacts уже в store (дедупликация по sha256)",
         calls=calls)

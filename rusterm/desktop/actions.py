@@ -501,10 +501,11 @@ def refresh_pass(root, cancel: Optional[CancelFlag] = None,
     отчётность — изменившаяся, снапшоты — где приехало) дверью CLI:
     аргумент-вектор разбирает настоящий парсер, тело в окно не
     переезжает. Итог несёт строку «обновлено HH:MM · N бумаг ·
-    M запросов» — дату ставит момент завершения, бумаги и запросы
-    считает база, а не слова воркера. cancel читается командой на
-    границе бумаги; всё тело под try: трассировка из воркера окну
-    не ответ."""
+    M запросов · что изменилось» — дату ставит момент завершения,
+    бумаги и запросы считает база, а «что изменилось» — строка прохода
+    ядра (ТЗ-142 E2), окно её только показывает. cancel читается
+    командой на границе бумаги; всё тело под try: трассировка из
+    воркера окну не ответ."""
     from rusterm import cli
 
     if cancel is None:
@@ -562,9 +563,16 @@ def refresh_pass(root, cancel: Optional[CancelFlag] = None,
         conn.close()
     spent = cli._requests_used(str(root)) - before
     stamp = datetime.datetime.now().strftime("%H:%M")
-    return CollectOutcome(
-        ok=True, detail=(f"обновлено {stamp} · {n} бумаг · "
-                         f"{spent} запросов"))
+    # ТЗ-142 E2: «что изменилось» считает проход ядра своей строкой
+    # (refresh_summary_line, последняя строка стадии) — окно только
+    # показывает её же рядом с отметкой времени, ничего не считая
+    from rusterm.core.refresh import SUMMARY_LINE_PREFIX
+    counts = lines[-1] if lines and lines[-1].startswith(
+        SUMMARY_LINE_PREFIX) else ""
+    detail = f"обновлено {stamp} · {n} бумаг · {spent} запросов"
+    if counts:
+        detail = f"{detail} · {counts}"
+    return CollectOutcome(ok=True, detail=detail)
 
 
 # ── C2.3: бюджет — тот же источник, что rusterm budget ─────────────────

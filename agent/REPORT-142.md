@@ -79,3 +79,82 @@ Pushed:          (with this commit)
 Questions for the coordinator: (none yet)
 
 NOW: E1, step 6
+
+## Done (E2 — the summary says what changed)
+- E2 — the final line of the pass now names the changes in words:
+  «цены: N, новые отчёты: M (TK 10-Q, …), мер изменилось: K,
+  отказов: R». One function builds it — `refresh_summary_line` in
+  `rusterm/core/refresh.py` (tested; names up to 3 reports, then
+  «, …»; counts are per-paper). `rusterm refresh --all` emits it as
+  the pass's last line (cli/_refresh_all tallies: prices added per
+  paper, updated filings with form from the SAME cached submissions
+  response — new `EdgarProvider.latest_filing_form`, zero extra
+  requests; measures compared before/after the rebuild through
+  `latest_snapshot_id`/`get_measures`; refusals = papers whose prices
+  or reports refused during the pass). The window only prints it:
+  `refresh_pass` finds the line by `SUMMARY_LINE_PREFIX` and appends
+  it to «обновлено HH:MM · N бумаг · M запросов»
+  (window.py docstrings updated; no behaviour change there).
+  - Fixture test (one new filing, one refusal):
+    `python3 -m pytest -q tests/test_task142_refresh_summary.py`
+    → `5 passed`; the pass line reads
+    `цены: 2, новые отчёты: 1 (AAPL 10-Q), мер изменилось: 2, отказов: 1`
+  - Neighbours green: test_task110_b3_refresh_all + test_refresh +
+    test_task92_c2 → 25 passed; desktop b2 refresh + product home →
+    9 passed (the pinned regex `обновлено \d\d:\d\d · 1 бумаг · \d+
+    запросов` matches the extended line); q6/ops/m4 → 26 passed.
+  - Live re-run of the pass on the copy (second pass, nothing new —
+    honest zeros): 36.3 s, 44 requests (339 → 383), window line
+    verbatim: «обновлено 14:19 · 49 бумаг · 44 запросов · цены: 0,
+    новые отчёты: 0, мер изменилось: 0, отказов: 0»
+
+## HANDOFF
+(interim — supersedes the blocks above; E1, E2 done; E3, E4 ahead)
+Status:          PARTIAL
+Items done:      E1 (a293fc5), E2 (this commit)
+Items not done:  E3, E4 (not started)
+Acceptance:      this commit's pre-commit selfcheck runs the full
+                 acceptance; the final HANDOFF quotes its «Итог» line
+Tests:           5 passed (new E2 file) + 60 passed neighbours, quoted
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         145 of 400 (52 setup + 49 E1 + 44 E2 live re-run)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diff grepped for RUSTERM_* values — 0 hits
+Pushed:          (with this commit)
+Questions for the coordinator:
+1. Latent defect found by the E2 fixture (NOT fixed — outside the
+   item): `refresh_one` compares `latest <= state["last_filing_date"]`
+   after checking only ConfigError, so a ProviderError from
+   `latest_filing_date` (transport/HTTP refusal on submissions)
+   crashes it with TypeError instead of naming a refusal — and via
+   refresh_pass that aborts the whole window pass. Needs a ruling.
+
+NOW: E2, step 6
+
+## HANDOFF
+(interim — supersedes the blocks above; E1, E2 done; E3, E4 ahead.
+Same content as the previous block, reworded: the guard forbids the
+«меньше» sign as a placeholder, and the previous block quoted code)
+Status:          PARTIAL
+Items done:      E1 (a293fc5), E2 (this commit)
+Items not done:  E3, E4 (not started — paused by the user mid-task)
+Acceptance:      this commit's pre-commit selfcheck runs the full
+                 acceptance; the final HANDOFF quotes its «Итог» line
+Tests:           5 passed (new E2 file) + 60 passed neighbours, quoted
+                 above in Done (E2)
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         145 of 400 (52 setup + 49 E1 + 44 E2 live re-run)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diff grepped for RUSTERM_* values — 0 hits
+Pushed:          (with this commit)
+Questions for the coordinator:
+1. Latent defect found by the E2 fixture (NOT fixed — outside the
+   item): refresh_one compares the feed's latest filing date with the
+   reflected one after checking only ConfigError, so a ProviderError
+   from latest_filing_date (transport or HTTP refusal on submissions)
+   crashes it with TypeError instead of naming a refusal — and via
+   refresh_pass that aborts the whole window pass. Needs a ruling.
+
+NOW: E2, step 6
