@@ -158,3 +158,35 @@ Questions for the coordinator:
    refresh_pass that aborts the whole window pass. Needs a ruling.
 
 NOW: E2, step 6
+
+## Done (E3 — new company → peer group)
+- Rule applied exactly as the item names it: a company joins the group
+  where OTHER companies share its SIC (4-digit, from the SEC
+  submissions field `sic`, one GET per issuer — 49 issuers measured;
+  first run read the wrong field name `assignedSic` and was re-run:
+  both counted in the budget).
+- What «Аналоги» shows the five today (door `data.peer_screen` on the
+  copy): has_peer_set=False for all five — the named refusal with the
+  command hint, not an empty tab.
+- The measurement (49/49 issuers): NONE of the five shares its SIC
+  with any other company in the base:
+
+  | ticker | SIC (SEC)      | group | members |
+  |---|---|---|---|
+  | NVDA   | 3674 Semiconductors & Related Devices | — | named reason: no other company with that SIC |
+  | KO     | 2080 Beverages | — | named reason: no other company with that SIC |
+  | XOM    | 2911 Petroleum Refining | — | named reason: no other company with that SIC |
+  | PFE    | 2834 Pharmaceutical Preparations | — | named reason: no other company with that SIC |
+  | WMT    | 5331 Retail-Variety Stores | — | named reason: no other company with that SIC |
+
+- Why no assignment happened: the only near group for NVDA is
+  hardware_electronics, whose members are 357x (Computer & office
+  Equipment, Computer Storage Devices, Electronic Computers) — a
+  different SIC family; putting NVDA there would be the hand guess
+  the item forbids («never by hand»). KO/XOM/PFE/WMT have no candidate
+  group at all. Note: even a NEW group per SIC would hold exactly
+  1 member (< 3) — the ≥ 3 gate fails for every one of the five
+  either way.
+- Existing groups on the copy (latest versions, all origin=manual,
+  approved): banks 9, hardware_electronics 9, mining_metals 9,
+  software 9, telecom 8 members.
