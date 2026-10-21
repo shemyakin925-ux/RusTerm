@@ -330,3 +330,42 @@ Questions for the coordinator:
    queue stalls — see the fix above and question 2.
 
 NOW: fix, step 6
+
+## HANDOFF (FINAL — supersedes every previous block; TASK-142)
+Status:          DONE
+Arrival state:   TASK-141 accepted; task taken from BATON round 160
+                 (de65e11); acceptance 13/0 on arrival
+Items done:      E1 (a293fc5), E2 (c1bd118), E3 (1310d51),
+                 E4 (f641850 + the q3 isolation fix 5f2c681)
+Items not done:  (none)
+Acceptance:      `python3 agent/relay.py verify` on the FINAL head
+                 5f2c681 → «Итог: пройдено 13, провалено 0 /
+                 Принято.», «код возврата приёмки: 0 (ПРИНЯТО)»
+                 (03:19, 21.10); every commit's pre-commit hook ran
+                 the same full selfcheck — «Принято. SELFCHECK OK»
+Tests:           quoted per item: E2 file 5 passed + neighbours 60
+                 passed; the flaky q3 label test 7/7 red before the
+                 fix, 3/3 green after, whole q3 file 13 passed;
+                 full suites green in every hook and in the final
+                 verify (incl. the previously-flaky item 11)
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         243 of 400 (52 setup + 49 E1 + 44 E2 live re-run +
+                 98 E3 SIC fetch — first run read the wrong field
+                 name, re-run; both counted)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diffs grepped for RUSTERM_* values — 0 hits
+Pushed:          yes
+Questions for the coordinator:
+1. (carried) refresh_one ProviderError on submissions → TypeError,
+   aborts the whole window pass. Needs a ruling.
+2. The conftest/env interaction (root cause of tonight's two red
+   acceptance rolls, fixed for the one test in 5f2c681): EVERY desktop
+   test runs the start-up refresh pass (conftest deletes the off
+   switch as an ENV_NAME), and the pass's worker opens the test DB
+   read-write. Tests that stat files the worker touches may flake the
+   same way under load. Worth a queue item: set the switch once for
+   the desktop test family, or make the worker's first action
+   read-only.
+
+NOW: hand, step 2
