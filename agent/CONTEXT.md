@@ -75,7 +75,14 @@
   custom QDialog hung the offscreen suite). Control ten Yahoo 99 %, fill
   92 %; WMT 100 %, PFE 95 %; XOM (CIK 34088) 70 % — no OI line → TASK-143.
 - User's base needs once: `reparse` + `history --all --rebuild`.
-- Next for the executor: TASK-142, TASK-143 (OI fallback, XOM debt pair).
+- **TASK-142 ACCEPTED (22.10)**: «Обновить» on the copy 186 s / 49
+  requests, all prices fresh; summary line `core.refresh.refresh_summary_line`
+  («цены: N, новые отчёты: M (…), мер изменилось: K, отказов: R»); the
+  five new tickers share no SIC with the base → «Добавить аналоги» TASK-144.
+  Flaky q3 label test fixed (startup refresh pass raced the mtime pin).
+- Process: `hand` runs acceptance itself — no separate `verify` (22.10).
+- Next for the executor: TASK-143 (F0a refresh refusal, F0b desktop test
+  switch, F1 OI fallback, F2 XOM debt), TASK-144 (С4 «Добавить аналоги»).
   (was: TASK-141, TASK-142 (С5
   refresh end to end, С4 peers for new companies). (was: TASK-140 (С3 source of every cell), TASK-141 (REPORT-139 rulings). TASK-136 (Excel) CANCELLED by the user 08.10 — С6 dropped; done = С1–С5.
 

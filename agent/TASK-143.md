@@ -15,6 +15,27 @@ chain (operating_income → ebitda, margins, roic, nopat, ev_ebitda,
 net_debt_ebitda, interest_coverage) is «—». XOM debt is
 `LongTermDebtAndCapitalLeaseObligations` + `DebtCurrent`.
 
+## How to finish (new rule, 22.10)
+`relay.py hand` already runs the full acceptance and refuses on red. Do
+NOT run `relay.py verify` before it — that was a second ~80-min run per
+task. Sequence: last commit (its hook runs acceptance) → `hand` → `wait`.
+
+## F0a. One refusal must not abort «Обновить» (REPORT-142 Q1, first)
+`refresh_one`: a `ProviderError` from EDGAR submissions turns into a
+`TypeError` and aborts the whole window pass. A per-instrument refusal
+is recorded (counted in «отказов: N» of the summary line, reason named)
+and the pass goes on with the next instrument.
+**Done when:** test: fake provider raises ProviderError for instrument 2
+of 3 → pass finishes, instruments 1 and 3 refreshed, summary «отказов: 1».
+
+## F0b. Desktop tests do not start the background pass (REPORT-142 Q2)
+Set `RUSTERM_NO_AUTO_REFRESH=1` once for the whole desktop test family
+(a fixture in `tests/conftest.py` applied to `test_desktop_*`), except
+tests that test the start-up pass itself (they unset it explicitly).
+Do not delete the per-test settings already there.
+**Done when:** `pytest tests/test_desktop_*` green 3 runs in a row;
+grep shows the fixture; the start-up-pass tests still run the pass.
+
 ## Rulings
 - Q1 XOM debt → F2. Q2 PFE lease residual → accepted as methodology.
 - Q3 user's base reparse → the coordinator tells the user.

@@ -1,6 +1,6 @@
 # TASK-142 — «Обновить» end to end (С5) and peers for newly added companies (С4)
 
-- **Status: READY** (take after TASK-141)
+- **Status: ACCEPTED (22.10, coordinator) — E1 a293fc5, E2 c1bd118, E3 1310d51 (no group for the five: product gap → TASK-144), E4 verify 13/0 on 5f2c681. Questions → TASK-143 F0a/F0b.**
 - **Report:** `agent/REPORT-142.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С5 (one button, progress, one line
