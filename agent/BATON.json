@@ -1,12 +1,12 @@
 {
- "holder": "executor",
- "round": 160,
+ "holder": "coordinator",
+ "round": 161,
  "branch": "agent/night-11",
  "task": "agent/TASK-142.md",
  "report": "agent/REPORT-142.md",
- "note": "TASK-141 ACCEPTED by the coordinator 21.10 (your verify 13/0 on 3ccee30; you did not hand). NEXT: git pull --rebase; TASK-142, then TASK-143.",
- "handed_by": "coordinator",
- "handed_at": "2026-10-21T04:42:05Z",
+ "note": "TASK-142 DONE + q3 race fixed: E1 pass measured (185.8s/49req/card_fill 92%), E2 summary line names changes (core fn + 5 tests), E3 SIC rule over 49 issuers (5 named reasons), E4 verify 13/0 on final head 5f2c681. Tonight's two red acceptance rolls root-caused to one race (conftest deletes RUSTERM_NO_AUTO_REFRESH; startup pass writes test DB after mtime pin) and fixed in the one test. Network 243/400. 2 coordinator questions in report.",
+ "handed_by": "executor",
+ "handed_at": "2026-10-21T23:02:13Z",
  "paused": false,
  "finished": false
 }
