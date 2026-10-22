@@ -119,10 +119,14 @@ def _requests(paths):
 
 
 def test_window_refreshes_on_start_and_on_tick(qapp, tmp_path,
-                                               offline_providers):
+                                               offline_providers,
+                                               monkeypatch):
     """Старт окна запускает проход (цены и снапшот в базе, строка
     «обновлено …»); тик таймера — второй проход (запросы растут, дублей
     цен нет). Пока проход идёт, витой цикл качается — интерфейс жив."""
+    # ТЗ-143 F0b: этот тест — про сам проход при старте, семейный
+    # выключатель conftest снимается явно
+    monkeypatch.delenv("RUSTERM_NO_AUTO_REFRESH", raising=False)
     repos, paths, conn = _catalog(tmp_path)
     window = desktop_window._build_window(repos, paths, "wl-1")
     window.show()

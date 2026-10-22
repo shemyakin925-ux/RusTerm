@@ -80,3 +80,33 @@ NOW: F0b, step 3
   that word outside its section — and the guard scans the whole file,
   so an append-only workaround does not exist. The line carried no
   record content (it pointed to the dispute section).
+- F0b — desktop-тесты не запускают проход при старте: фикстура
+  `_desktop_tests_without_startup_refresh` в tests/conftest.py (строка
+  271) ставит `RUSTERM_NO_AUTO_REFRESH=1` всей семье
+  `tests/test_desktop_*` разом; уже выставленное значение не
+  перекрывается (собственные настройки тестов живы), тест самого
+  прохода при старте снимает выключатель явно
+  (test_desktop_task110_b2_refresh, monkeypatch.delenv). Готовность:
+  `pytest tests/test_desktop_*.py` — 3 прогона подряд зелёные
+  (220 тестов, exit 0, ни одного failed в каждом); grep показывает
+  фикстуру; тест прохода при старте зелёный и по-прежнему требует,
+  чтобы проход реально бежал (счётчики цен/снапшота в его ассертах).
+
+## HANDOFF
+(interim — F0a, F0b done; F1, F2 ahead)
+Status:          PARTIAL
+Items done:      F0a (b64e462), F0b (this commit)
+Items not done:  F1, F2; F3 per the new rule — the hand's own
+                 acceptance (dispute recorded in its section)
+Acceptance:      this commit's pre-commit selfcheck runs the full
+                 acceptance; the final HANDOFF quotes it
+Tests:           quoted above (F0a red/green; F0b 3×220 green)
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         0 of 100 so far
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diff grepped for RUSTERM_* values — 0 hits
+Pushed:          (with this commit)
+Questions for the coordinator: (none yet)
+
+NOW: F0b, step 6

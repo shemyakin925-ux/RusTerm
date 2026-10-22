@@ -265,3 +265,25 @@ def _qt_worker_drain():
         for t in busy:
             t.wait(100)
     return
+
+
+@pytest.fixture(autouse=True)
+def _desktop_tests_without_startup_refresh(request, monkeypatch):
+    """ТЗ-143 F0b: проход обновления при старте окна не нужен ни одному
+    desktop-тесту, кроме тех, что его тестируют, — а его воркер пишет в
+    базу теста (apply_migrations уже на старте), и гонки с ним делали
+    тесты недетерминированными под нагрузкой (ТЗ-142: две красные
+    приёмки на одной гонке mtime). Семье `tests/test_desktop_*`
+    выключатель ставится здесь один раз; тест самого прохода при старте
+    снимает его явно (monkeypatch.delenv), как test_desktop_task110_b2;
+    уже выставленное значение не перекрывается — собственные настройки
+    тестов (ТЗ-133 R1) остаются в силе."""
+    if not request.node.nodeid.replace("\\", "/").startswith(
+            "tests/test_desktop_"):
+        yield
+        return
+    if "RUSTERM_NO_AUTO_REFRESH" in os.environ:
+        yield
+        return
+    monkeypatch.setenv("RUSTERM_NO_AUTO_REFRESH", "1")
+    yield
