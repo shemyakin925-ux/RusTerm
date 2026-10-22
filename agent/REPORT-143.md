@@ -232,3 +232,47 @@ NOW: F1b, step 6
     2,66 млрд на 2025-12-31 в фактах копии), методика Yahoo лизинг
     не считает. PFE 2023 +10 % — прежний именованный остаток
     (лизинг, REPORT-141 Q2, принят как методика).
+
+## HANDOFF (FINAL — TASK-143; pause by the user before the relay hand)
+Status:          DONE (all items committed and pushed; the relay hand
+                 is the only step not taken — the user paused before
+                 it; on resume: `relay.py hand` per the new rule)
+Arrival state:   baton round 162 (c0d32f8), TASK-142 accepted
+Items done:      F0a (b64e462), F0b (8462418), F1 (e1335eb),
+                 F1b (7d6dc5f), F2 (a9caebb)
+Items not done:  F3 as a separate run — superseded by the «How to
+                 finish» new rule (dispute recorded in Disputed);
+                 the hand's own acceptance is the final-head gate
+Acceptance:      every commit's pre-commit hook ran the full
+                 acceptance — «Принято. SELFCHECK OK» on F0a, F0b,
+                 F1 (incl. two conscious guard repairs: the report
+                 guard's whole-file scan, P1 pin declarations,
+                 docs-truth README line), F1b and F2; per the new
+                 rule no standalone verify was run — the hand will
+                 roll the same acceptance twice on a9caebb
+Tests:           F0a red/green quoted; F0b 3×220 desktop green;
+                 F1 file 7 passed (incl. bank cases); F2 file 5
+                 passed; m3 pin moved consciously (JPM bank:
+                 named refusal + not_applicable), neighbours green
+Guards:          none touched; pins moved with declarations
+                 (us-gaap.v9 ×6, m3 ×2, concept-map guard home)
+Schema:          unchanged (48)
+Network:         12 of 100 (Yahoo via the yahoo_check cache);
+                 copy rebuilt offline (reparse 3797 facts, PFE/XOM
+                 snapshot + history rebuild)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diffs grepped for RUSTERM_* values — 0 hits
+Pushed:          yes (a9caebb)
+Questions for the coordinator:
+1. The derivation vs Yahoo methodology: PFE/XOM operating_income
+   diverges 15–63 % (informational, out of score) — the F1 formula is
+   verbatim; matching Yahoo would be a new ruling.
+2. XOM total_debt +9–14 % vs Yahoo — the lease inside the ruled tag,
+   named with the measured FinanceLeaseLiability (2.66 bn at
+   2025-12-31). A lease-free third tier would be a new ruling.
+3. The dictionary-guard conflict (P9 freeze vs every-concept-in-doc):
+   resolved by the ADR home in test_concept_map (declared pin move);
+   if more vocabulary growth is planned, the ADR-home pattern is now
+   the road.
+
+NOW: pause, step 2
