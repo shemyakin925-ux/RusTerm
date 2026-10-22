@@ -51,6 +51,19 @@ period. Same rule in the snapshot and the card (one function in core).
 wins); on the copy `card_fill.py US-PFE US-XOM` ≥ 80 % each;
 `yahoo_check.py` control ten ≥ 99 % (unchanged) and PFE/XOM listed.
 
+## F1b. Not for banks (coordinator, 22.10 — from your F1 test)
+Your F1 derives operating income for JPM too. For a bank, interest
+income and expense ARE the business: pretax + interest expense −
+interest income is meaningless and lands in the snapshot and in the
+banks' peer medians. The derivation applies only to non-bank issuers:
+same bank test the card already uses to hide bank rows
+(`card.BANK_HIDDEN` / the bank model in core — reuse it, do not add a
+second definition). Banks keep the honest «—» with
+`missing_data: operating_income`.
+**Done when:** test: bank fixture with pretax + interest → operating
+income stays None; non-bank → derived; `test_m3_snapshot` keeps JPM out
+of `derived_named` and in the refusal set.
+
 ## F2. Debt pair extended (XOM)
 Add `LongTermDebtAndCapitalLeaseObligations` (non-current) +
 `DebtCurrent` as a second ruled pair in `core/debt.py`, same rule as D2
