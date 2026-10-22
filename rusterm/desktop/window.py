@@ -1624,7 +1624,7 @@ def _ask_peer_tickers(parent, result: dict) -> list[str]:
     В подписи — кандидаты с выручкой, в поле — их тикеры; убрать лишний
     тикер можно прямо в строке. Отмена — пустой список."""
     lines = [f"{c['ticker']} — {c['name']}, выручка "
-             f"{data.format_value(c['revenue'], 'revenue', 'USD')}"
+             f"{c.get('revenue_text') or '—'}"
              for c in result["candidates"]]
     label = (f"Отрасль SIC {result['sic']} "
              f"{result.get('description') or ''} — крупнейшие по выручке "

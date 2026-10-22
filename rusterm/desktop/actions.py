@@ -541,6 +541,10 @@ def suggest_peers(root, instrument_id: str) -> dict:
         return {**result, "ok": False, "reason": "no_candidates",
                 "detail": f"в отрасли SIC {result['sic']} нет других "
                           "компаний с тикером и выручкой"}
+    from rusterm.desktop.data import format_value
+    for candidate in result["candidates"]:
+        candidate["revenue_text"] = format_value(candidate["revenue"],
+                                                 "revenue", "USD")
     return {**result, "ok": True, "reason": None, "detail": ""}
 
 
