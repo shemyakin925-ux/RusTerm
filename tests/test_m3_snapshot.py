@@ -228,31 +228,39 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
         # точным составом пробелов. Замер M3-прогона 2026-09-09:
         # operating_margin пуст ровно у шести, все — без тега
         # OperatingIncomeLoss (JPM — банк; PFE/CVX/XOM не тегают;
-        # BRKB/JNJ — та же история тегов). Новый эмитент, потерявший
-        # operating_income, красит тест; эмитент, его ОБРЕТШИЙ, тоже —
-        # это и есть сигнал для обзора, ради которого существовал xfail.
+        # BRKB/JNJ — та же история тегов). ТЗ-143 F1: строка больше не
+        # обязательна — там, где поданы прибыль до налогов и процентные
+        # расходы, операционная прибыль выводится (core.operating), и
+        # роль входа называет вывод. Шесть бывших отказников теперь
+        # со значением и именем вывода в родословной — это и есть новый
+        # зажим вместо состава пробела; эмитент без входов вывода
+        # по-прежнему красит тест (в наборе таких нет).
         om_null: dict[str, str] = {}
         gm_null: dict[str, str] = {}
         gm_values = 0
+        derived_named: set[str] = set()
+        no_oi_tag = {"BRKB", "CVX", "JNJ", "JPM", "PFE", "XOM"}
         for snapshot in snapshots:
             ticker = snapshot["instrument_id"].removeprefix("in-")
             for m in repos.snapshot.get_measures(snapshot["snapshot_id"]):
-                if m[3] == "operating_margin" and m[4] is None:
-                    om_null[ticker] = m[10]
+                if m[3] == "operating_margin":
+                    if m[4] is None:
+                        om_null[ticker] = m[10]
+                    elif ticker in no_oi_tag:
+                        roles = " | ".join(
+                            repos.snapshot.lineage_roles(m[0]))
+                        if "выведено: pretax_income + interest_expense" \
+                                in roles:
+                            derived_named.add(ticker)
                 if m[3] == "gross_margin":
                     if m[4] is None:
                         gm_null[ticker] = m[10]
                     else:
                         gm_values += 1
-        assert set(om_null) == {"BRKB", "CVX", "JNJ", "JPM", "PFE", "XOM"}, \
-            f"состав пробела operating_margin уехал: {sorted(om_null)}"
-        # ТЗ-55 Y1: BRKB и JNJ подавали operating_income, но давно —
-        # их отказ стал stale_data с последним известным периодом
-        assert set(om_null.values()) == {
-            "missing_data: operating_income",
-            "stale_data: operating_income: last 2012-12-31",
-            "stale_data: operating_income: last 2014-12-28",
-        }
+        assert om_null == {}, \
+            f"состав пробела operating_margin уехал: {om_null}"
+        assert derived_named == no_oi_tag, \
+            f"вывод не назван в родословной: {sorted(no_oi_tag - derived_named)}"
         # ТЗ-104 P4: маржа читает посчитанную gross_profit, а не тег
         # GrossProfit. Со значением стало 15 из 20, а пробел зажат не
         # числом пустых, а их составом: пусто ровно у пятерых, и у всех

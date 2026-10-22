@@ -16,6 +16,7 @@ from rusterm.core.peers import (currency_guard, evaluate,
                                 percentile_share, period_window)
 from rusterm.core.debt import (adds_short_term, pair_total_at,
                                short_term_at)
+from rusterm.core.operating import DERIVED_ROLE, derive_operating_income
 from rusterm.core.prices import (split_factor_after,
                                  split_factor_between)
 from rusterm.core.ttm import (ANNUAL_FALLBACK, TTM, TtmWindow, declared_window,
@@ -127,6 +128,8 @@ base_concepts: tuple[str, ...] = tuple(sorted(
     | {stock for _flow, stock in _TWO_PERIOD_MEASURES.values()}
     | set(_DISCLOSED_AGGREGATE)
     | {"operating_income"}
+    # ТЗ-143 F1: третье слагаемое вывода операционной прибыли
+    | {"interest_income"}
 ))
 
 # Правило давности (TASK-12 Y2): три года плюс люфт на сдвиг фингода.
@@ -985,6 +988,25 @@ class SnapshotBuilder:
                                        as_of=as_of,
                                        anchor_date=anchor_date)
 
+        # ТЗ-143 F1: операционная прибыль без своей строки (PFE, XOM не
+        # подают OperatingIncomeLoss) — вывод правилом одной функции
+        # ядра (core.operating) на каждый период, где своего тега нет;
+        # роль входа в lineage называет вывод.
+        self._synthesize_operating_income(by_concept)
+        derived_oi_facts = {r["fact_id"]
+                            for r in by_concept.get("operating_income", [])
+                            if r.get("derived")}
+
+        def mark_derived_oi(concept: str, inputs_map: dict,
+                            lineage_rows: list) -> None:
+            """Роль входа operating_income, собранного из выведенной
+            строки, называет вывод (ТЗ-143 F1, core.operating)."""
+            if "operating_income" not in inputs_map.values():
+                return
+            for row in lineage_rows:
+                if row.get("fact_id") in derived_oi_facts:
+                    row["role"] = f"{row['role']} ({DERIVED_ROLE})"
+
         def absent_reason(concepts: list[str]) -> str:
             """Отказ по отсутствующим входам: вычищенные давностью —
             stale_data с последним известным периодом, никогда не
@@ -1100,6 +1122,7 @@ class SnapshotBuilder:
                                    for kw, a in inputs_map.items()}
                 lineage[concept] = [row for a in needed
                                     for row in window_lineage(windows[a])]
+                mark_derived_oi(concept, inputs_map, lineage[concept])
                 periods[concept] = (window.start, window.end)
                 input_units[concept] = window_units[needed[0]]
                 if window.basis == ANNUAL_FALLBACK:
@@ -1142,6 +1165,7 @@ class SnapshotBuilder:
                             "period_basis": basis})
             inputs[concept] = values
             lineage[concept] = lin
+            mark_derived_oi(concept, inputs_map, lin)
             periods[concept] = (chosen[1], chosen[2])
             input_units[concept] = units[0]
 
@@ -1330,6 +1354,9 @@ class SnapshotBuilder:
                 periods["nopat"] = et_period
                 input_units["nopat"] = window_units["operating_income"]
                 lineage["nopat"] = window_lineage(oi_window, why)
+                mark_derived_oi("nopat", {"operating_income":
+                                          "operating_income"},
+                                lineage["nopat"])
             else:
                 et_end = et_period[1]
                 oi_candidates = [r for r in oi_rows if r["end"] == et_end]
@@ -1344,6 +1371,9 @@ class SnapshotBuilder:
                         {"fact_id": oi_row["fact_id"],
                          "peer_measure_id": None, "role": "input"},
                     ]
+                    mark_derived_oi("nopat", {"operating_income":
+                                              "operating_income"},
+                                    lineage["nopat"])
 
         # ── Цепочка: gross_margin = gross_profit / revenue (ТЗ-104 P4) ──
         # Числитель — посчитанная мера валовой прибыли того же прохода
@@ -1911,6 +1941,46 @@ class SnapshotBuilder:
                         "identity": True})
         if out:
             by_concept["total_equity"] = out
+
+    def _synthesize_operating_income(self, by_concept: dict) -> None:
+        """ТЗ-143 F1: операционная прибыль выводом там, где строка не
+        подана (PFE, XOM): pretax + interest_expense − interest_income
+        той же функцией ядра, что у карточки (core.operating). На каждый
+        период (unit, start, end) строки «прибыль до налогов», где
+        своего тега operating_income нет: расходы обязательны, доходы
+        не поданы — ноль. Свой тег всегда сильнее: у выведенной строки
+        ранг дна (1 << 30), как у тождества капитала; маркер "derived"
+        называет вывод в роли родословной. IFRS не трогается: у него
+        своя строка операционной прибыли в карте (ProfitLossFrom…)."""
+        pretax_rows = [r for r in by_concept.get("pretax_income", [])
+                       if r.get("taxonomy") == "us-gaap"]
+        if not pretax_rows:
+            return
+        expense = {(r["unit"], r["start"], r["end"]): r
+                   for r in by_concept.get("interest_expense", [])
+                   if r.get("taxonomy") == "us-gaap"}
+        income = {(r["unit"], r["start"], r["end"]): r
+                  for r in by_concept.get("interest_income", [])
+                  if r.get("taxonomy") == "us-gaap"}
+        taken = {(r["unit"], r["start"], r["end"])
+                 for r in by_concept.get("operating_income", [])}
+        for r in pretax_rows:
+            key = (r["unit"], r["start"], r["end"])
+            if key in taken:
+                continue   # свой тег на период есть — вывод не применяется
+            e = expense.get(key)
+            if e is None:
+                continue   # расходы не поданы — вывода нет
+            i = income.get(key)
+            value = derive_operating_income(
+                r["value"], e["value"], i["value"] if i else None)
+            if value is None:
+                continue
+            by_concept.setdefault("operating_income", []).append({
+                "value": value, "fact_id": r["fact_id"],
+                "unit": r["unit"], "start": r["start"], "end": r["end"],
+                "rank": 1 << 30, "taxonomy": "us-gaap",
+                "derived": DERIVED_ROLE})
 
     def _annual_common_period(self, issuer_id: str,
                               concepts: tuple,

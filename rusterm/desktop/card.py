@@ -18,6 +18,7 @@ import datetime
 from typing import Optional
 
 from rusterm.core.debt import adds_short_term, pair_total_at, short_term_at
+from rusterm.core.operating import derive_operating_income
 from rusterm.core.ttm import declared_by_year
 from rusterm.desktop import data
 from rusterm.measures_ru import measure_name
@@ -212,6 +213,24 @@ def statement_series(repos, issuer_id: str, concept: str,
                     and currency == home and current[2][1] != home)):
             best[year] = (rank, end, (number, currency, fact_id))
     series = {year: entry[2] for year, entry in best.items()}
+    if concept == "operating_income":
+        # ТЗ-143 F1: годы без строки OperatingIncomeLoss — вывод той же
+        # функцией ядра, что в снапшоте (core.operating); свой тег года
+        # всегда приоритетен (заполняются только пустые годы)
+        pretax = statement_series(repos, issuer_id,
+                                  "pretax_income", "flow")
+        expense = statement_series(repos, issuer_id,
+                                   "interest_expense", "flow")
+        income = statement_series(repos, issuer_id,
+                                  "interest_income", "flow")
+        for year in sorted(set(pretax) & set(expense)):
+            if year in series:
+                continue
+            value = derive_operating_income(
+                pretax[year][0], expense[year][0],
+                income.get(year, (None,))[0])
+            if value is not None:
+                series[year] = (value, pretax[year][1], pretax[year][2])
     if concept == "total_debt":
         # BACKLOG P5: тем же правилом ядра, что снапшот (core/debt.py)
         short_rows = repos.snapshot.short_term_debt_facts(issuer_id)

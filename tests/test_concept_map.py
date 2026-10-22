@@ -30,16 +30,22 @@ DATA = Path(__file__).resolve().parents[1] / "tests" / "data" / "edgar"
 
 def test_every_concept_name_exists_in_data_dictionary():
     """Страж (B7-стиль): левая колонка таблицы — имена из
-    docs/data-dictionary.md §2, в обе стороны. Исключений нет:
-    постоянный список изъятий удалён (TASK-12 Y4) — строка
-    `total_equity_incl_nci` лежит в словаре на main, а guard со
-    списком изъятий ничего не сторожит."""
-    doc = (Path(__file__).resolve().parents[1] / "docs"
-           / "data-dictionary.md").read_text(encoding="utf-8")
+    docs/data-dictionary.md §2, в обе стороны; ТЗ-143 F1: дом имени —
+    словарь ИЛИ ADR (пункт 10 приёмки запрещает править замороженный
+    словарь, рост словаря живёт новыми ADR, ADR обязан называть версию
+    карты, с которой имя пришло). Списка изъятий нет (TASK-12 Y4)."""
+    root = Path(__file__).resolve().parents[1]
+    doc = (root / "docs" / "data-dictionary.md").read_text(
+        encoding="utf-8")
+    adr_text = "\n".join(
+        p.read_text(encoding="utf-8") for p in
+        sorted((root / "docs" / "adr").glob("*.md")))
     known = set(CONCEPT_MAP)
     missing = [name for name in known
                if f"`{name}`" not in doc and f"**{name}**" not in doc
-               and name not in doc]
+               and name not in doc
+               and not (name in adr_text
+                        and CONCEPT_MAP_VERSION in adr_text)]
     assert not missing, f"концептов нет в словаре: {missing}"
 
 

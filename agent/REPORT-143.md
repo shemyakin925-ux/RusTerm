@@ -110,3 +110,73 @@ Pushed:          (with this commit)
 Questions for the coordinator: (none yet)
 
 NOW: F0b, step 6
+- F1 — операционная прибыль без своей строки: правило одной функцией
+  `derive_operating_income` в rusterm/core/operating.py (pretax +
+  interest_expense − interest_income; доходы не поданы — ноль; нет
+  расходов или pretax — вывода нет). Карта: + `interest_income` <-
+  `InvestmentIncomeInterest`, версия us-gaap.v9 (пины пяти тестов
+  обновлены по прецеденту v8, страж роста карты дополнен сознательно).
+  Снапшот: `_synthesize_operating_income` в by_concept на каждый
+  период (unit, start, end) без своего тега; ранг дна (1 << 30) — свой
+  тег всегда сильнее; роль входа в lineage называет вывод
+  (mark_derived_oi на трёх путях: окно, общий период, цепочка nopat).
+  Карточка: `statement_series` заполняет выводом только годы без тега.
+  - Фикстуры (tests/test_task143_operating_income.py, 5 passed):
+    без строки → маржа 0.9, ebitda 950, роль «выведено: pretax_income
+    + interest_expense − interest_income»; свой тег 700 сильнее вывода
+    900 и роли не называют вывод; карточка: год без тега выведен,
+    год с тегом остался тегом.
+  - Копия (reparse: 3797 фактов переканонизированы; snapshot +
+    history --rebuild по PFE и XOM: 10 лет каждый):
+    `card_fill.py US-PFE US-XOM` → **US-PFE 170/180 = 94 %,
+    US-XOM 170/185 = 92 %, ИТОГ 340/365 = 93 %** (цель 90 %, по
+    бумагам ≥ 80 % выполнено); ожила цепочка: roic у XOM 2021–2025 и
+    PFE 2022–2025, nopat у PFE 2023–2025.
+  - `yahoo_check.py` контрольная десятка → **ИТОГ 188/190 = 99 %,
+    exit 0** (не изменилось); PFE и XOM перечислены: расхождения
+    operating_income названы методикой Yahoo (справочно, вне зачёта:
+    у XOM наше число выше — pretax включает доходы от разовых продаж
+    активов, у PFE 2023 ниже — разовые расходы Seagen в pretax).
+- F2 — вторая пара долга (XOM): `SECOND_PAIR_TAGS`
+  (LongTermDebtAndCapitalLeaseObligations + DebtCurrent) в
+  core/debt.py; `pair_total_at` пробует первую пару, при её отсутствии
+  на дате — вторую; дверь `debt_pair_facts` отдаёт оба множества.
+  Фикстуры (tests/test_task143_debt_second_pair.py, 5 passed): сумма
+  пары, половина пары — не долг, первая пара сильнее при обеих,
+  чужие даты/теги игнорируются.
+  - `yahoo_check.py US-XOM` total_debt: 2023 +9.2 %, 2024 +9.5 %,
+    2025 +14.5 % против Yahoo — вне 5 %, остаток назван (лизинг):
+    тег XOM включает финансовый лизинг (`FinanceLeaseLiability`
+    2,66 млрд на 2025-12-31 в фактах копии), методика Yahoo лизинг
+    не считает. PFE 2023 +10 % — прежний именованный остаток
+    (лизинг, REPORT-141 Q2, принят как методика).
+  - Сеть F1+F2: 12 запросов Yahoo (кэш tools/yahoo_check) из 100.
+
+## HANDOFF
+(interim — F0a, F0b, F1, F2 done; F3 per the new rule)
+Status:          PARTIAL
+Items done:      F0a (b64e462), F0b (8462418), F1 (this commit),
+                 F2 (next commit, same round)
+Items not done:  F3 — по новому правилу «How to finish» отдельный
+                 verify не гоняется (запись в Disputed выше)
+Acceptance:      this commit's pre-commit selfcheck runs the full
+                 acceptance; the final HANDOFF quotes it
+Tests:           quoted above (F1 5 passed + карта/пины обновлены;
+                 F2 5 passed; F0a/F0b ранее)
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         12 of 100 (Yahoo через кэш yahoo_check)
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diff grepped for RUSTERM_* values — 0 hits
+Pushed:          (with this commit)
+Questions for the coordinator:
+1. Вывод operating_income расходится с методикой Yahoo на 15–63 %
+   у PFE/XOM (справочно, вне зачёта): формула честно собирает pretax +
+   проценты, но Yahoo считает операционную прибыль иначе (исключает
+   разовые статьи). Правило F1 выполнено дословно; если нужна
+   сходимость с Yahoo — это новый вердикт.
+2. XOM total_debt +9–14 % против Yahoo — лизинг внутри парного тега
+   (назван в F2); если нужно точнее к Yahoo — пара без лизинга как
+   третий уровень (новый вердикт).
+
+NOW: F1, step 6

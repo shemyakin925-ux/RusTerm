@@ -31,7 +31,7 @@ dei:EntityCommonStockSharesOutstanding (обложка 10-K, сущность в
 """
 from __future__ import annotations
 
-CONCEPT_MAP_VERSION = "us-gaap.v8"  # v8: + dps <- CommonStockDividendsPerShareCashPaid (KO: Declared обрывается 2018-09-28, paid живёт до сегодняшнего; ТЗ-139 B2). v7: + interest_expense <- InterestExpenseNonoperating (MSFT, T с 2024); − OtherCostOfOperatingRevenue из cogs (частичная строка AT&T: без себестоимости оборудования валовая прибыль завышена на ~20 млрд; сверка с Yahoo 08.10)
+CONCEPT_MAP_VERSION = "us-gaap.v9"  # v9: + interest_income <- InvestmentIncomeInterest (ТЗ-143 F1: третье слагаемое вывода operating_income там, где строка не подана — PFE, XOM). v8: + dps <- CommonStockDividendsPerShareCashPaid (KO: Declared обрывается 2018-09-28, paid живёт до сегодняшнего; ТЗ-139 B2). v7: + interest_expense <- InterestExpenseNonoperating (MSFT, T с 2024); − OtherCostOfOperatingRevenue из cogs (частичная строка AT&T: без себестоимости оборудования валовая прибыль завышена на ~20 млрд; сверка с Yahoo 08.10)  # v8: + dps <- CommonStockDividendsPerShareCashPaid (KO: Declared обрывается 2018-09-28, paid живёт до сегодняшнего; ТЗ-139 B2). v7: + interest_expense <- InterestExpenseNonoperating (MSFT, T с 2024); − OtherCostOfOperatingRevenue из cogs (частичная строка AT&T: без себестоимости оборудования валовая прибыль завышена на ~20 млрд; сверка с Yahoo 08.10)
 # v6: + cogs <- CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization (AA), OtherCostOfOperatingRevenue (T) — ТЗ-130 K2, payload-доказательства в REPORT-130
 
 # Отозванные теги: были в карте, оказались не тем концептом. reparse
@@ -81,6 +81,10 @@ CONCEPT_MAP: dict[str, tuple[str, ...]] = {
                          # us-gaap.v7: преемник с таксономии 2024 — MSFT и
                          # AT&T подают процентные расходы им с FY2024/2024
                          "InterestExpenseNonoperating"),
+    # us-gaap.v9 (ТЗ-143 F1): процентные ДОХОДЫ — третье слагаемое
+    # вывода операционной прибыли там, где строка OperatingIncomeLoss
+    # не подана вовсе (PFE, XOM): pretax + interest_expense − interest_income
+    "interest_income": ("InvestmentIncomeInterest",),
     "eps_diluted": ("EarningsPerShareDiluted",),
     "shares_diluted": ("WeightedAverageNumberOfDilutedSharesOutstanding",),
     "ocf": ("NetCashProvidedByUsedInOperatingActivities",
