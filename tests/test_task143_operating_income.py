@@ -99,6 +99,35 @@ def test_own_tag_wins_over_the_derivation(tmp_path):
     assert "выведено" not in roles, roles
 
 
+def test_bank_keeps_the_honest_refusal(tmp_path):
+    """ТЗ-143 F1b: банку (peer set «banks») вывод не назначается —
+    у банка проценты и есть бизнес; мера честно отказывает."""
+    from rusterm.core.peer_sets import set_industry_peers
+    repos = _issuer(tmp_path)
+    _no_oi_block(repos)
+    set_industry_peers(repos, "banks", ["US-OI"], origin="classifier",
+                       approved=False, today="2025-06-30")
+    builder = make_snapshot_builder(repos, "2025-06-30")
+    builder.build("US-OI", "i-OI", "2025-06-30")
+    sid = repos.snapshot.latest_snapshot_id("US-OI")
+    rows = {m["concept"]: m for m in repos.snapshot.get_measures(sid)}
+    assert rows["operating_margin"]["value"] is None, rows["operating_margin"]
+    assert rows["operating_margin"]["null_reason"] == \
+        "missing_data: operating_income", rows["operating_margin"]
+
+
+def test_card_bank_years_stay_empty(tmp_path):
+    """ТЗ-143 F1b: карточка банка — годы без тега остаются пустыми."""
+    from rusterm.core.peer_sets import set_industry_peers
+    repos = _issuer(tmp_path)
+    _no_oi_block(repos)
+    set_industry_peers(repos, "banks", ["US-OI"], origin="classifier",
+                       approved=False, today="2025-06-30")
+    series = card.statement_series(repos, "i-OI", "operating_income",
+                                   "flow", is_bank=True)
+    assert "2024" not in series, series
+
+
 def test_derivation_needs_the_expense(tmp_path):
     """Расходы не поданы — вывода нет (None), мера честно отказывает."""
     assert derive_operating_income(800.0, None, 20.0) is None

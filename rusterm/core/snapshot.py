@@ -553,7 +553,11 @@ class SnapshotBuilder:
         result = BuildResult(snapshot_id=snapshot_id, version=version)
 
         # ── Проход 1: формулы §3, чьи входы в карте V0 ──
-        issuer = self._issuer_inputs(issuer_id, as_of=as_of)
+        # ТЗ-143 F1b: сектор из peer set — банк не получает вывод
+        # операционной прибыли (у банка проценты и есть бизнес)
+        issuer = self._issuer_inputs(
+            issuer_id, as_of=as_of,
+            sector=_sector_of(self._peers, instrument_id))
         inputs, lineage_by_concept, input_reasons, periods, input_units = \
             issuer.inputs, issuer.lineage, issuer.reasons, issuer.periods, \
             issuer.units
@@ -859,7 +863,8 @@ class SnapshotBuilder:
         return result
 
     def _issuer_inputs(self, issuer_id: str,
-                       as_of: Optional[str] = None) -> IssuerInputs:
+                       as_of: Optional[str] = None,
+                       sector: Optional[str] = None) -> IssuerInputs:
         """Входы всех формул §3 по каноническим концептам (TASK-9 V0/V4).
 
         ТЗ-97 Q10: потоковый вход меры — последние двенадцать месяцев на
@@ -992,7 +997,7 @@ class SnapshotBuilder:
         # подают OperatingIncomeLoss) — вывод правилом одной функции
         # ядра (core.operating) на каждый период, где своего тега нет;
         # роль входа в lineage называет вывод.
-        self._synthesize_operating_income(by_concept)
+        self._synthesize_operating_income(by_concept, sector=sector)
         derived_oi_facts = {r["fact_id"]
                             for r in by_concept.get("operating_income", [])
                             if r.get("derived")}
@@ -1942,7 +1947,8 @@ class SnapshotBuilder:
         if out:
             by_concept["total_equity"] = out
 
-    def _synthesize_operating_income(self, by_concept: dict) -> None:
+    def _synthesize_operating_income(self, by_concept: dict,
+                                     sector: Optional[str] = None) -> None:
         """ТЗ-143 F1: операционная прибыль выводом там, где строка не
         подана (PFE, XOM): pretax + interest_expense − interest_income
         той же функцией ядра, что у карточки (core.operating). На каждый
@@ -1951,7 +1957,14 @@ class SnapshotBuilder:
         не поданы — ноль. Свой тег всегда сильнее: у выведенной строки
         ранг дна (1 << 30), как у тождества капитала; маркер "derived"
         называет вывод в роли родословной. IFRS не трогается: у него
-        своя строка операционной прибыли в карте (ProfitLossFrom…)."""
+        своя строка операционной прибыли в карте (ProfitLossFrom…).
+        ТЗ-143 F1b: банку вывод не назначается — у банка процентные
+        доходы и расходы и есть бизнес, pretax + расходы − доходы
+        бессмысленно; банк узнаётся тем же тестом, что прячет строки
+        карточки, — peer set «banks» (core._sector_of). Банк хранит
+        честный отказ missing_data: operating_income."""
+        if sector == "banks":
+            return
         pretax_rows = [r for r in by_concept.get("pretax_income", [])
                        if r.get("taxonomy") == "us-gaap"]
         if not pretax_rows:

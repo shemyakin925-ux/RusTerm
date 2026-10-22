@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from rusterm.core.snapshot import SnapshotBuilder
+from rusterm.core.peer_sets import set_industry_peers
 from rusterm.parsers import CompanyFactsParser
 from rusterm.pipeline import apply_concept_map
 from rusterm.providers.budget import (
@@ -134,6 +135,12 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
         assert gate.calls_made == 20, "по запросу на эмитента"
         assert len(stored_urls) == 20
 
+        # ТЗ-143 F1b: JPM — банк (peer set задаёт сектор); банку вывод
+        # операционной прибыли не назначается — честный отказ остаётся
+        set_industry_peers(repos, "banks", ["in-JPM"],
+                           origin="classifier", approved=False,
+                           today="2026-09-08")
+
         # снапшот на каждого
         builder = SnapshotBuilder(repos.snapshot, repos.peer_set,
                                   coverage_repo=repos.coverage)
@@ -167,6 +174,9 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
             "missing_data", "period_mismatch", "missing_prior_period",
             "concept_not_mapped", "denominator_zero",
             "negative_denominator",
+            # ТЗ-143 F1b: JPM в peer set «banks» — меры банка не
+            # применимы к отрасли (ТЗ-107 V4)
+            "not_applicable",
             # ТЗ-55 Y1: AMZN-фикстура несёт gross_profit до 2009-12-31 —
             # вычищен окном давности, отказ стал stale_data
             "stale_data",
@@ -257,10 +267,11 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
                         gm_null[ticker] = m[10]
                     else:
                         gm_values += 1
-        assert om_null == {}, \
-            f"состав пробела operating_margin уехал: {om_null}"
-        assert derived_named == no_oi_tag, \
-            f"вывод не назван в родословной: {sorted(no_oi_tag - derived_named)}"
+        # ТЗ-143 F1b: банк (JPM) держит честный отказ — вывода банку нет
+        assert set(om_null) == {"JPM"} and \
+            om_null["JPM"] == "missing_data: operating_income", om_null
+        assert derived_named == no_oi_tag - {"JPM"}, \
+            f"вывод не назван в родословной: {sorted(no_oi_tag - {'JPM'} - derived_named)}"
         # ТЗ-104 P4: маржа читает посчитанную gross_profit, а не тег
         # GrossProfit. Со значением стало 15 из 20, а пробел зажат не
         # числом пустых, а их составом: пусто ровно у пятерых, и у всех
@@ -272,7 +283,12 @@ def test_m3_twenty_issuers_one_pass_gaps_with_reasons_and_idempotent():
         # и маржа считаются, и AMZN из их числа.
         assert set(gm_null) == {"BRKB", "DIS", "JPM", "V", "XOM"}, \
             f"состав пробела gross_margin уехал: {sorted(gm_null)}"
-        assert set(gm_null.values()) == {"missing_data: gross_profit"}
+        # ТЗ-143 F1b: у JPM-банка валовая прибыль не применима к
+        # отрасли (ТЗ-107 V4); у остальных — отсутствие входов
+        assert {t: r for t, r in gm_null.items() if t != "JPM"} == \
+            {t: "missing_data: gross_profit"
+             for t in ("BRKB", "DIS", "V", "XOM")}, gm_null
+        assert gm_null["JPM"] == "not_applicable: banks", gm_null
         assert gm_values == 15, f"gross_margin со значением: {gm_values}"
 
         # W3: неотображённых фактов нет — тег Including… закрыт картой

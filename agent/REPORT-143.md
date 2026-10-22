@@ -180,3 +180,40 @@ Questions for the coordinator:
    третий уровень (новый вердикт).
 
 NOW: F1, step 6
+- F1b (вердикт координатора 22.10,REPORT-142 → задание) — вывод не для
+  банков: у банка процентные доходы и расходы и есть бизнес, pretax +
+  расходы − доходы бессмысленно и попадало в снапшот и медианы пиров
+  банков. Банк узнаётся тем же тестом, что прячет строки карточки, —
+  peer set «banks» (core._sector_of), второго определения нет:
+  снапшот — `_synthesize_operating_income(by_concept, sector)` выходит
+  при sector == "banks" (сектор приходит в `_issuer_inputs` из
+  `_assemble`); карточка — `statement_series(..., is_bank=)` не
+  заполняет годы, `card_view` передаёт `is_bank` того же теста. Банк
+  хранит честный отказ missing_data: operating_income; меры банка —
+  not_applicable (ТЗ-107 V4, как и было).
+  - Тесты: банк (pretax + проценты, peer set banks) → operating_margin
+    None c missing_data: operating_income; карточка банка — годы без
+    тега пусты; не-банк — выводится (5 passed в файле F1).
+  - `test_m3_snapshot`: JPM в peer set «banks» фикстуры; JPM — в
+    пробеле operating_margin (missing_data: operating_income) и ВНЕ
+    named-вывода; ebitda/валовая прибыль JPM — not_applicable: banks
+    (причина дополнена в белый список теста сознательно).
+
+## HANDOFF
+(interim — F0a, F0b, F1, F1b done; F2 next; F3 per the new rule)
+Status:          PARTIAL
+Items done:      F0a (b64e462), F0b (8462418), F1 (e1335eb),
+                 F1b (this commit), F2 (next commit, same round)
+Items not done:  F3 — по новому правилу отдельный verify не гоняется
+Acceptance:      this commit's pre-commit selfcheck runs the full
+                 acceptance; the final HANDOFF quotes it
+Tests:           quoted above
+Guards:          none touched
+Schema:          unchanged (48)
+Network:         12 of 100
+Model:           GLM 5.3 (zai individual coding plan) via ZCode
+Secrets:         report and diff grepped for RUSTERM_* values — 0 hits
+Pushed:          (with this commit)
+Questions for the coordinator: (see final HANDOFF)
+
+NOW: F1b, step 6

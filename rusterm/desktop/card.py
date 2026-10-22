@@ -19,6 +19,7 @@ from typing import Optional
 
 from rusterm.core.debt import adds_short_term, pair_total_at, short_term_at
 from rusterm.core.operating import derive_operating_income
+from rusterm.core.snapshot import _sector_of
 from rusterm.core.ttm import declared_by_year
 from rusterm.desktop import data
 from rusterm.measures_ru import measure_name
@@ -153,12 +154,15 @@ def _year(period_end: str) -> str:
 
 
 def statement_series(repos, issuer_id: str, concept: str,
-                     kind: str) -> dict[str, tuple]:
+                     kind: str, is_bank: bool = False) -> dict[str, tuple]:
     """{год: (значение, валюта, fact_id)} годового факта.
 
     Поток — окно 350..380 дней; остаток — значение на дату конца
     финансового года эмитента (`annual_period_ends`). В пределах года
-    побеждает свежий конец периода и свежая подача (порядок двери)."""
+    побеждает свежий конец периода и свежая подача (порядок двери).
+    ТЗ-143 F1b: банку вывод операционной прибыли не назначается —
+    у банка проценты и есть бизнес; вызывающий узнаёт банк тем же
+    тестом, что прячет строки карточки (peer set «banks»)."""
     rows = repos.snapshot.statement_facts(issuer_id, concept)
     # основная валюта подачи — первой: пересчёт для удобства (USD в 20-F
     # AMX) не должен делать один год строки долларом, а соседний песо
@@ -213,10 +217,11 @@ def statement_series(repos, issuer_id: str, concept: str,
                     and currency == home and current[2][1] != home)):
             best[year] = (rank, end, (number, currency, fact_id))
     series = {year: entry[2] for year, entry in best.items()}
-    if concept == "operating_income":
+    if concept == "operating_income" and not is_bank:
         # ТЗ-143 F1: годы без строки OperatingIncomeLoss — вывод той же
         # функцией ядра, что в снапшоте (core.operating); свой тег года
-        # всегда приоритетен (заполняются только пустые годы)
+        # всегда приоритетен (заполняются только пустые годы).
+        # ТЗ-143 F1b: банку вывода нет — у банка проценты и есть бизнес
         pretax = statement_series(repos, issuer_id,
                                   "pretax_income", "flow")
         expense = statement_series(repos, issuer_id,
@@ -408,13 +413,18 @@ def card_view(repos, info: dict, year_count: int = CARD_YEARS,
     year_units = tui_model.measure_history_units(repos, info["instrument_id"])
     home = (repos.snapshot.dominant_filing_currency(issuer_id)
             if issuer_id else None)
+    # ТЗ-143 F1b: банк — тем же тестом, что прячет строки карточки
+    # (peer set «banks», core._sector_of); банку вывод операционной
+    # прибыли не назначается
+    is_bank = _sector_of(repos.peer_set,
+                         info["instrument_id"]) == "banks"
     facts: dict[str, dict] = {}
     if issuer_id:
         for _title, items in SECTIONS:
             for concept, _label, _hint, kind in items:
                 if kind != "measure":
                     facts[concept] = statement_series(
-                        repos, issuer_id, concept, kind)
+                        repos, issuer_id, concept, kind, is_bank=is_bank)
 
     # «сейчас» не старше последнего годового отчёта: у AT&T «валовая
     # прибыль сейчас» была кварталом 2023 года из одинокой подстатьи
