@@ -1,6 +1,6 @@
 # TASK-144 — «Добавить аналоги» for a company from a new industry (С4)
 
-- **Status: TAKEN BY THE COORDINATOR (user, 22.10: «тз 144 и финал сделай ты»). Executor: do NOT take it; after TASK-143 hand, then `wait`.**
+- **Status: ACCEPTED (22.10) — done by the coordinator (user: «тз 144 и финал сделай ты»), 425df00 + 29b26a5; acceptance 13/0. Report: agent/REPORT-144.md.**
 - **Report:** `agent/REPORT-144.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С4 + С5: a newly added company gets

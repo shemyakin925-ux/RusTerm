@@ -86,6 +86,19 @@
   (was: TASK-141, TASK-142 (С5
   refresh end to end, С4 peers for new companies). (was: TASK-140 (С3 source of every cell), TASK-141 (REPORT-139 rulings). TASK-136 (Excel) CANCELLED by the user 08.10 — С6 dropped; done = С1–С5.
 
+**22.10.2026 — PRODUCT DONE (С1–С5; С6 cancelled by the user).**
+- TASK-143 ACCEPTED: one refusal no longer aborts «Обновить»; desktop
+  tests never start the background pass (conftest); operating income
+  derived when not filed (pretax + interest expense − interest income,
+  `core/operating.py`, ADR-0030, map us-gaap.v9), not for banks; XOM
+  debt pair. PFE 94 %, XOM 92 %, control ten Yahoo 99 %, fill 92 %.
+- TASK-144 ACCEPTED (coordinator): «Добавить аналоги…» — SEC SIC list +
+  frames revenue → top 5 on US venues → follow → `peers set sic-NNNN
+  --origin classifier --approve`; bank SIC groups are «banks».
+- Acceptance 13/0 on the final code; branch merged into main
+  (fast-forward). The relay is finished; no queue.
+- User's base needs once: `reparse` + `history --all --rebuild` (map v9).
+
 **06.10.2026 — RESET. Read this block first; everything below is history.**
 - `agent/PRODUCT.md` (user-approved 06.10) is the only definition of done:
   scenarios С1–С6, control ten, fill ≥ 90 %, Yahoo match ≥ 95 % within 5 %.

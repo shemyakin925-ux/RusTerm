@@ -1,12 +1,12 @@
 {
  "holder": "coordinator",
- "round": 163,
+ "round": 164,
  "branch": "agent/night-11",
- "task": "agent/TASK-143.md",
- "report": "agent/REPORT-143.md",
- "note": "TASK-143 DONE: F0a submissions ProviderError = per-instrument refusal (red/green test), F0b desktop family NO_AUTO_REFRESH fixture (3x220 green), F1 operating income derived when the line is absent (one core fn; card_fill PFE 94%/XOM 92%; control ten Yahoo 99% unchanged; ADR-0030 + map v9), F1b not for banks (peer set test, JPM keeps named refusal), F2 second debt pair XOM (tests + lease residual named 2.66bn). Network 12/100. F3 superseded by the new rule (dispute recorded). Coordinator questions: derivation vs Yahoo methodology; lease-free tier as possible F2 follow-up.",
- "handed_by": "executor",
- "handed_at": "2026-10-22T07:07:20Z",
+ "task": "agent/TASK-144.md",
+ "report": "agent/REPORT-144.md",
+ "note": "PRODUCT DONE: TASK-143 accepted, TASK-144 done by the coordinator, acceptance 13/0, merged into main. Relay finished — no further tasks.",
+ "handed_by": "coordinator",
+ "handed_at": "2026-10-22T07:31:11Z",
  "paused": false,
- "finished": false
+ "finished": true
 }

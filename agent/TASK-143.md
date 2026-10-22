@@ -1,6 +1,6 @@
 # TASK-143 — cards for filers without an operating-income line (PFE, XOM)
 
-- **Status: READY** (take after TASK-142)
+- **Status: ACCEPTED (22.10, coordinator) — F0a b64e462, F0b 8462418, F1 e1335eb, F1b 7d6dc5f, F2 a9caebb; hand acceptance green. PFE 94 %, XOM 92 %, control ten Yahoo 99 %. Q1/Q2 (OI and XOM debt vs Yahoo methodology) accepted as named methodology.**
 - **Report:** `agent/REPORT-143.md`
 - **Protocol:** `agent/PROTOCOL.md` (§12). State: `agent/CONTEXT.md`.
 - **Scenario:** `agent/PRODUCT.md` С2 (fill, Yahoo match) for any added company.
