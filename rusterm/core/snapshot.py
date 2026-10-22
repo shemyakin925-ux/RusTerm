@@ -3004,6 +3004,13 @@ NOT_APPLICABLE_BY_SECTOR: dict[str, frozenset] = {
 }
 
 
+# ТЗ-144: группа, собранная кнопкой «Добавить аналоги» по SIC банка
+# (sic-6021 и соседи), — тот же сектор «banks»: неприменимые меры,
+# запрет вывода операционной прибыли (ТЗ-143 F1b), строки карточки
+BANK_SIC_GROUPS = frozenset(f"sic-{code}" for code in
+                            (6021, 6022, 6029, 6035, 6036))
+
+
 def _sector_of(peer_set_repo, instrument_id: str):
     finder = getattr(peer_set_repo, "peer_set_for_instrument", None)
     if finder is None:
@@ -3012,7 +3019,8 @@ def _sector_of(peer_set_repo, instrument_id: str):
         found = finder(instrument_id)
     except Exception:  # noqa: BLE001 — сектор — подсказка, не условие сборки
         return None
-    return found.get("peer_set_id") if found else None
+    sector = found.get("peer_set_id") if found else None
+    return "banks" if sector in BANK_SIC_GROUPS else sector
 
 
 class _NotApplicableSnapshots:

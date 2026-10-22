@@ -149,6 +149,11 @@ ALLOWED_NON_MEASURE: dict[str, str] = {
     "not_a_window_command": "desktop hint-button refusal (desktop/actions.py)",
     "bad_arguments": "desktop hint-button refusal (desktop/actions.py)",
     "command_failed": "desktop hint-button refusal (desktop/actions.py)",
+    # ТЗ-144 G2: «Добавить аналоги» — отказы кнопки окна, не меры
+    "no_cik": "desktop peer-suggest refusal (desktop/actions.py)",
+    "no_candidates": "desktop peer-suggest refusal (desktop/actions.py)",
+    "no_peers_collected": "desktop peer-group refusal (desktop/actions.py)",
+    "no_sic": "provider value (providers/edgar.py sic_code)",
     # расширенная перепись (сканер возвратов-пар и f-строк)
     "asx_bad_url": "provider channel refusal (providers/asx.py)",
     "dart_bad_url": "provider channel refusal (providers/dart.py)",

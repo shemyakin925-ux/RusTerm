@@ -122,6 +122,28 @@ if QT_AVAILABLE:  # без PySide6 имя не существует, окно ч
                 on_stage=self.stage.emit)
             self.finished_run.emit(outcome)
 
+    class _PeerSuggestWorker(_CollectWorker):
+        """ТЗ-144 G2: кандидаты в аналоги из SEC в рабочем потоке (сеть:
+        список отрасли и выручка frames) — итог словарём подсказки."""
+
+        def run(self) -> None:
+            self.finished_run.emit(desktop_actions.suggest_peers(
+                self._root, self._instrument_id))
+
+    class _PeerGroupWorker(_CollectWorker):
+        """ТЗ-144 G2: выбранные аналоги — дверью «+ компания»
+        (follow), затем группа `peers set` — тем же потоком."""
+
+        tickers: list = []
+        sic: int = 0
+        description: str = ""
+
+        def run(self) -> None:
+            self.finished_run.emit(desktop_actions.build_peer_group(
+                self._root, self._instrument_id, self.tickers, self.sic,
+                self.description, cancel=self.cancel_flag,
+                on_stage=self.stage.emit))
+
     class _RefreshWorker(_CollectWorker):
         """ТЗ-110 B2: фоновый проход «обновить всё» — тот же рабочий
         поток, тело — `desktop_actions.refresh_pass` (дверь `rusterm
@@ -357,6 +379,11 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
     peer_hint_button = QPushButton(objectName="peer_hint_button")
     peer_hint_button.setVisible(False)
     outer_industry.addWidget(peer_hint_button)
+    # ТЗ-144 G2: компании из новой отрасли — аналоги из SEC одной кнопкой
+    peer_suggest_button = QPushButton("Добавить аналоги…",
+                                      objectName="peer_suggest_button")
+    peer_suggest_button.setVisible(False)
+    outer_industry.addWidget(peer_suggest_button)
     peers_table = QTableWidget(objectName="peers_table")
     peers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     peers_table.setSelectionBehavior(
@@ -896,6 +923,71 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         if state["selected"] is not None:
             load_company(state["selected"])
 
+    def on_peer_suggest() -> None:
+        """ТЗ-144 G2: кнопка «Добавить аналоги…» — кандидаты из SEC в
+        рабочем потоке; выбор — диалогом; сбор и группа — вторым
+        потоком. Окно не мёрзнет, закрытие дожидается воркера."""
+        company = state["selected"]
+        if company is None or state["worker"] is not None:
+            return
+        worker = _PeerSuggestWorker(paths.root, company["instrument_id"],
+                                    parent=window)
+        window.set_worker(worker)
+        state["worker"] = worker
+        peer_suggest_button.setEnabled(False)
+        collect_status.setText(f"{company['ticker']}: ищу аналоги в SEC…")
+        worker.finished_run.connect(
+            lambda result: on_peer_suggest_done(company, result))
+        worker.start()
+
+    def on_peer_suggest_done(company, result) -> None:
+        state["worker"] = None
+        window.set_worker(None)
+        peer_suggest_button.setEnabled(True)
+        if not result.get("ok"):
+            collect_status.setText(
+                f"{company['ticker']}: аналоги не найдены — "
+                f"{result.get('detail') or result.get('reason')}")
+            return
+        tickers = _ask_peer_tickers(window, result)
+        if not tickers:
+            collect_status.setText(f"{company['ticker']}: отменено")
+            return
+        worker = _PeerGroupWorker(paths.root, company["instrument_id"],
+                                  parent=window)
+        worker.tickers = tickers
+        worker.sic = result["sic"]
+        worker.description = result.get("description") or ""
+        window.set_worker(worker)
+        state["worker"] = worker
+        peer_suggest_button.setEnabled(False)
+        cancel_button.setEnabled(True)
+        worker.stage.connect(collect_status.setText)
+        worker.finished_run.connect(
+            lambda outcome: on_peer_group_done(company, tickers, outcome))
+        collect_status.setText(f"аналоги: сбор {', '.join(tickers)}…")
+        worker.start()
+
+    def on_peer_group_done(company, tickers, outcome) -> None:
+        state["worker"] = None
+        window.set_worker(None)
+        cancel_button.setEnabled(False)
+        peer_suggest_button.setEnabled(True)
+        if not outcome.ok:
+            collect_status.setText(
+                f"аналоги: не собраны — {outcome.reason}: {outcome.detail}")
+            return
+        watchlist_id = state.get("watchlist")
+        market = company["instrument_id"].partition("-")[0]
+        if watchlist_id:
+            for ticker in tickers:
+                data.add_instrument(repos, watchlist_id, ticker, market)
+            state["companies"] = data.sidebar_companies(repos, watchlist_id)
+            repaint_sidebar("")
+            repaint_home("")
+        collect_status.setText(f"аналоги: {outcome.detail}")
+        load_company(company)
+
     def apply_chart() -> None:
         if state["table"] is None:
             return
@@ -940,6 +1032,10 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         peer_hint_label.setText(hint_words if hint_argv else "")
         peer_hint_label.setVisible(bool(hint_argv))
         tail = ("\n" + hint_words) if hint_words else ""
+        peer_suggest_button.setVisible(
+            repos is not None and state["selected"] is not None
+            and (peer is None or not peer["has_peer_set"]))
+        peer_suggest_button.setEnabled(state["worker"] is None)
         if peer is None or not peer["has_peer_set"]:
             peer_line.setText((peer["message"] if peer else
                                "у компании нет peer set") + tail)
@@ -1427,6 +1523,7 @@ def _build_window(repos, paths, watchlist_id=None, rule=1):
         lambda: on_hint_button(company_hint_button))
     peer_hint_button.clicked.connect(
         lambda: on_hint_button(peer_hint_button))
+    peer_suggest_button.clicked.connect(on_peer_suggest)
     question_line.returnPressed.connect(on_ask)
     chat_sessions_box.currentIndexChanged.connect(on_session_open)
     collect_button.clicked.connect(on_collect)
@@ -1519,6 +1616,26 @@ def _show_hint_button(button, argv) -> None:
     button.setVisible(bool(argv))
     if argv:
         button.setText(desktop_actions.button_title(argv))
+
+
+def _ask_peer_tickers(parent, result: dict) -> list[str]:
+    """ТЗ-144 G2: выбор аналогов — `QInputDialog.getText` (одна
+    подменяемая точка: модальный QDialog вешал офскрин, ТЗ-141 D4).
+    В подписи — кандидаты с выручкой, в поле — их тикеры; убрать лишний
+    тикер можно прямо в строке. Отмена — пустой список."""
+    lines = [f"{c['ticker']} — {c['name']}, выручка "
+             f"{data.format_value(c['revenue'], 'revenue', 'USD')}"
+             for c in result["candidates"]]
+    label = (f"Отрасль SIC {result['sic']} "
+             f"{result.get('description') or ''} — крупнейшие по выручке "
+             f"за {result.get('year')}:\n" + "\n".join(lines)
+             + "\n\nТикеры через запятую (лишние можно удалить):")
+    text, ok = QInputDialog.getText(
+        parent, "Добавить аналоги", label,
+        text=",".join(c["ticker"] for c in result["candidates"]))
+    if not ok:
+        return []
+    return [t for t in (x.strip().upper() for x in text.split(",")) if t]
 
 
 def _ask_peer_group(parent, argv: list[str]) -> list[str] | None:

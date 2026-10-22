@@ -34,6 +34,15 @@ EXCHANGE_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 ARCHIVES_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accn_nodash}/{document}"
+# ТЗ-144 G1: компании одной отрасли (SIC) — постраничный atom-список
+# EDGAR по 100 строк; выручка всех подающих за календарный год — один
+# запрос frames на тег (замер координатора 22.10: 5 отраслей — 32 запроса)
+SIC_BROWSE_URL = ("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+                  "&SIC={sic}&owner=include&count=100&start={start}"
+                  "&output=atom")
+FRAMES_URL = ("https://data.sec.gov/api/xbrl/frames/us-gaap/{tag}/USD/"
+              "CY{year}.json")
+SIC_PAGE = 100
 
 
 @dataclass(frozen=True)
@@ -230,6 +239,73 @@ class EdgarProvider:
             return data
         self._submissions = data
         return data
+
+    def sic_code(self):
+        """ТЗ-144 G1: (SIC, описание отрасли) из submissions эмитента —
+        тот же кэшированный ответ, что у latest_filing_date. Нет SIC —
+        ProviderError `no_sic`."""
+        data = self._load_submissions()
+        if isinstance(data, (ConfigError, NotModified, ProviderError)):
+            return data
+        sic = str(data.get("sic") or "").strip()
+        if not sic.isdigit():
+            return ProviderError("no_sic")
+        return int(sic), str(data.get("sicDescription") or "")
+
+    def sic_ciks(self, sic: int, max_pages: int = 30):
+        """CIK всех компаний отрасли SIC из atom-списка EDGAR, страница
+        за страницей, пока страница полна. Имена в этом списке EDGAR
+        отдаёт испорченными («ARRAY(0x…)»), поэтому здесь только CIK."""
+        import re
+        ciks: list[int] = []
+        for page in range(max_pages):
+            url = SIC_BROWSE_URL.format(sic=sic, start=page * SIC_PAGE)
+
+            def send(headers: dict, url=url):
+                status, body, _resp = self.transport(url, headers)
+                return body.decode("latin-1")
+
+            text = self._guarded(send)
+            if isinstance(text, (ConfigError, ProviderError)):
+                return text
+            found = [int(c) for c in re.findall(r"<cik>(\d+)</cik>", text)]
+            ciks += found
+            if len(found) < SIC_PAGE:
+                break
+        return ciks
+
+    def revenue_frame(self, tag: str, year: int):
+        """{CIK: выручка} за календарный год по одному тегу us-gaap —
+        один запрос frames. Кадра нет (год ещё не собран) — пустой
+        словарь, не ошибка."""
+        data = self._fetch_json(FRAMES_URL.format(tag=tag, year=year))
+        if isinstance(data, ProviderError) \
+                and data.reason.endswith("http_404"):
+            return {}
+        if isinstance(data, (ConfigError, NotModified, ProviderError)):
+            return data
+        return {int(p["cik"]): float(p["val"])
+                for p in data.get("data", []) if p.get("val") is not None}
+
+    def listed_companies(self):
+        """{CIK: (тикер, имя, биржа)} из company_tickers_exchange.json —
+        первая строка CIK (основной класс акций). Один запрос."""
+        data = self._fetch_json(EXCHANGE_URL)
+        if isinstance(data, (ConfigError, ProviderError, NotModified)):
+            return data
+        listed: dict[int, tuple] = {}
+        for row in data.get("data", []):
+            if isinstance(row, dict):
+                cik, name = row.get("cik"), row.get("name")
+                ticker, exchange = row.get("ticker"), row.get("exchange")
+            else:
+                cik, name, ticker, exchange = (list(row) + [None] * 4)[:4]
+            if cik is None or not ticker:
+                continue
+            listed.setdefault(int(cik), (str(ticker).upper(),
+                                         str(name or ""),
+                                         str(exchange or "unknown")))
+        return listed
 
     def registrant_name(self):
         """ТЗ-141 D4: имя регистранта из его submissions — один запрос.

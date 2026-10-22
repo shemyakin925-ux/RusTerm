@@ -32,7 +32,12 @@ CARD_COLUMNS = ("market_cap_total", "pe", "net_margin", "roe")
 def sector_name(code) -> str:
     if not code:
         return data.NO_SECTOR
-    return SECTOR_RU.get(code, code)
+    if code in SECTOR_RU:
+        return SECTOR_RU[code]
+    # ТЗ-144: группа кнопки «Добавить аналоги» — по коду отрасли SEC
+    if str(code).startswith("sic-") and str(code)[4:].isdigit():
+        return f"Отрасль SIC {str(code)[4:]}"
+    return code
 
 
 def home_rows(repos, companies: list[dict]) -> list[dict]:

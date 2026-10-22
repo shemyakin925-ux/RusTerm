@@ -492,6 +492,112 @@ def run_core_command(root, argv: list[str]) -> CollectOutcome:
                           detail=lines[-1] if lines else f"код {rc}")
 
 
+# ── ТЗ-144 G1/G2: «Добавить аналоги» для компании из новой отрасли ─────
+
+def peer_group_id(sic: int) -> str:
+    """Имя группы из SIC: латиницей, без пробелов (`peers set`)."""
+    return f"sic-{int(sic)}"
+
+
+def suggest_peers(root, instrument_id: str) -> dict:
+    """Кандидаты в аналоги из SEC: {ok, reason, sic, description, year,
+    candidates}. Тот же провайдер и гейт, что у `rusterm ingest`; расход
+    гейта пишется в metric_sample (ТЗ-64 J1). Трассировка окну не ответ."""
+    import datetime
+    from rusterm import cli
+    from rusterm.core.peers_suggest import suggest
+    from rusterm.providers import get_provider
+    from rusterm.providers.budget import ConfigError, RequestGate
+    from rusterm.store.repos import RepoRegistry
+
+    try:
+        paths, conn = cli._open(str(root))
+        repos = RepoRegistry(conn, paths)
+        try:
+            instrument = repos.instrument.get_instrument(instrument_id)
+            issuer = (repos.instrument.get_issuer(instrument.issuer_id)
+                      if instrument else None)
+            if issuer is None or not str(issuer.registry_id or "").isdigit():
+                return {"ok": False, "reason": "no_cik",
+                        "detail": "у эмитента нет CIK SEC"}
+            gate = RequestGate()
+            provider = get_provider("edgar", gate=gate)
+            if isinstance(provider, ConfigError):
+                return {"ok": False, "reason": provider.reason,
+                        "detail": "SEC недоступен"}
+            provider.cik = int(issuer.registry_id)
+            result = suggest(provider, {provider.cik},
+                             datetime.date.today().year - 1)
+            cli._record_gate_usage(repos, "edgar", gate)
+        finally:
+            conn.close()
+    except Exception as e:  # трассировка — не ответ окна
+        return {"ok": False, "reason": f"unexpected_error:{e}",
+                "detail": "подсказка прервана; база осталась целой"}
+    if not isinstance(result, dict):
+        return {"ok": False, "reason": getattr(result, "reason", "error"),
+                "detail": "SEC не ответил"}
+    if not result["candidates"]:
+        return {**result, "ok": False, "reason": "no_candidates",
+                "detail": f"в отрасли SIC {result['sic']} нет других "
+                          "компаний с тикером и выручкой"}
+    return {**result, "ok": True, "reason": None, "detail": ""}
+
+
+def build_peer_group(root, instrument_id: str, tickers: list[str],
+                     sic: int, description: str = "",
+                     cancel: Optional[CancelFlag] = None,
+                     on_stage: Optional[Callable[[str], None]] = None
+                     ) -> CollectOutcome:
+    """Собрать выбранные бумаги той же дверью, что «+ компания»
+    (`follow_instrument`), и записать группу командой `peers set` с
+    происхождением classifier (SIC из SEC) и утверждением пользователя.
+    Бумага, которую собрать не удалось, в группу не входит и названа."""
+    from rusterm.store.repos import RepoRegistry
+
+    if cancel is None:
+        cancel = CancelFlag()
+    market, _, own = instrument_id.partition("-")
+    paths = AppPaths.from_root(root)
+    conn = open_connection(paths)
+    try:
+        known = set(RepoRegistry(conn, paths).instrument.list_instruments())
+    finally:
+        conn.close()
+    joined, failed = [], []
+    for ticker in dict.fromkeys(t.strip().upper() for t in tickers
+                                if t.strip()):
+        if ticker == own:
+            continue
+        if cancel:
+            return CollectOutcome(ok=False, cancelled=True,
+                                  detail=f"собрано {len(joined)}")
+        peer_id = f"{market}-{ticker}"
+        if on_stage:
+            on_stage(f"аналоги: {ticker} — сбор")
+        if peer_id not in known:
+            outcome = follow_instrument(root, peer_id, cancel=cancel)
+            if not outcome.ok:
+                failed.append(f"{ticker} ({outcome.reason})")
+                continue
+        joined.append(ticker)
+    if not joined:
+        return CollectOutcome(ok=False, reason="no_peers_collected",
+                              detail="не собрана ни одна бумага: "
+                                     + ", ".join(failed))
+    note = f"SEC SIC {sic} {description}".strip()
+    made = run_core_command(root, [
+        "peers", "set", peer_group_id(sic),
+        "--tickers", ",".join([own] + joined), "--market", market,
+        "--origin", "classifier", "--approve", "--note", note])
+    if not made.ok:
+        return made
+    detail = f"группа {peer_group_id(sic)}: {own} + {', '.join(joined)}"
+    if failed:
+        detail += "; не собраны: " + ", ".join(failed)
+    return CollectOutcome(ok=True, detail=detail)
+
+
 # ── ТЗ-110 B2: фоновый проход окна — та же команда, что у cron ──────────
 
 def refresh_pass(root, cancel: Optional[CancelFlag] = None,
