@@ -217,3 +217,18 @@ Pushed:          (with this commit)
 Questions for the coordinator: (see final HANDOFF)
 
 NOW: F1b, step 6
+- F2 — вторая пара долга (XOM): `SECOND_PAIR_TAGS`
+  (LongTermDebtAndCapitalLeaseObligations + DebtCurrent) в
+  core/debt.py; `pair_total_at` пробует первую пару, при её отсутствии
+  на дате — вторую; дверь `debt_pair_facts` отдаёт оба множества;
+  лица те же (снапшот и карточка зовут ту же функцию).
+  - Фикстуры (tests/test_task143_debt_second_pair.py, 5 passed):
+    сумма пары на одну дату, половина пары — не долг, первая пара
+    сильнее при обеих, чужие даты/теги игнорируются, вторая пара
+    заполняет дату, где первой нет.
+  - `yahoo_check.py US-XOM` total_debt: 2023 +9.2 %, 2024 +9.5 %,
+    2025 +14.5 % против Yahoo — вне 5 %, остаток назван (лизинг):
+    тег XOM включает финансовый лизинг (`FinanceLeaseLiability`
+    2,66 млрд на 2025-12-31 в фактах копии), методика Yahoo лизинг
+    не считает. PFE 2023 +10 % — прежний именованный остаток
+    (лизинг, REPORT-141 Q2, принят как методика).
