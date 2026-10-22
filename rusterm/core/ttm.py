@@ -267,6 +267,25 @@ def ttm_window(rows, as_of: str, concept: str = "") -> Optional[TtmWindow]:
     return _annual_fallback(periods, concept, missing)
 
 
+# 22.10 (KSPI): объявление дивиденда подаётся не только мгновением
+# (BAC: начало = конец), но и периодом месяца объявления (Kaspi, IFRS:
+# 2024-11-01…2024-11-30). Период не длиннее этого — одно объявление на
+# дату конца; квартал и год объявлениями не считаются
+DECLARATION_MAX_DAYS = 31
+
+
+def _is_declaration(start, end) -> bool:
+    if not end:
+        return False
+    if start == end:
+        return True
+    try:
+        days = (date.fromisoformat(end) - date.fromisoformat(start)).days
+    except (TypeError, ValueError):
+        return False
+    return 0 <= days <= DECLARATION_MAX_DAYS
+
+
 def declared_window(rows, as_of: str, days: int = 365) -> Optional[TtmWindow]:
     """ТЗ-130 K4: окно по ОБЪЯВЛЕНИЯМ дивиденда, поданным датами.
 
@@ -274,8 +293,8 @@ def declared_window(rows, as_of: str, days: int = 365) -> Optional[TtmWindow]:
     равным концу, — по факту на каждое объявление (2023: 0,22 / 0,22 /
     0,24 / 0,24). Квартального окна из таких строк не собрать, а сумма
     объявленного за последние `days` дней и есть дивиденд за 12 месяцев.
-    rows — (value, start, end, fact_id); берутся только мгновенные
-    (start == end), одна дата — одно объявление (первая строка: вызывающий
+    rows — (value, start, end, fact_id); берутся объявления — мгновенные
+    (start == end) или периодом не длиннее DECLARATION_MAX_DAYS, одна дата — одно объявление (первая строка: вызывающий
     отдаёт свежую подачу первой). Ни одного объявления в окне — None."""
     try:
         anchor = date.fromisoformat(as_of)
@@ -283,7 +302,7 @@ def declared_window(rows, as_of: str, days: int = 365) -> Optional[TtmWindow]:
         return None
     seen: dict[str, tuple] = {}
     for value, start, end, fact_id in rows:
-        if not end or start != end or end in seen:
+        if not _is_declaration(start, end) or end in seen:
             continue
         try:
             day, amount = date.fromisoformat(end), float(value)
@@ -308,7 +327,7 @@ def declared_by_year(rows) -> dict[str, tuple[float, list[str]]]:
     эмитента, который подаёт объявления датами (см. declared_window)."""
     seen: dict[str, tuple] = {}
     for value, start, end, fact_id in rows:
-        if not end or start != end or end in seen:
+        if not _is_declaration(start, end) or end in seen:
             continue
         try:
             seen[end] = (float(value), fact_id)

@@ -68,12 +68,14 @@ def test_every_named_ifrs_tag_maps_to_its_concept():
             "capex",
         "FinanceCosts": "interest_expense",
         "AdjustedWeightedAverageShares": "shares_diluted",
+        # ifrs-full.v4 (22.10, KSPI): объявления дивиденда на акцию
+        "DividendsRecognisedAsDistributionsToOwnersPerShare": "dps",
     }
     for tag, concept in expected.items():
         assert canonical_for(tag, "ifrs-full") == concept, tag
     assert set(expected) == {t for tags in CONCEPT_MAP_IFRS.values()
                              for t in tags}, "карта != таблица §0.2"
-    assert CONCEPT_MAP_VERSION_IFRS == "ifrs-full.v3"
+    assert CONCEPT_MAP_VERSION_IFRS == "ifrs-full.v4"
 
 
 def test_forbidden_lookalikes_map_to_none():

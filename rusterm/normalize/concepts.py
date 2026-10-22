@@ -167,7 +167,7 @@ for _concept in CONCEPT_MAP:
 # Payload-доказательство тега (правило 9): IncomeTaxExpenseContinuingOperations —
 # RY 12 фактов до 2026-01-31, CNQ 6 до 2025-12-31, NGGTF 6 до
 # 2025-09-30 (companyfacts, tests/data/edgar/companyfacts_m6_*.json).
-CONCEPT_MAP_VERSION_IFRS = "ifrs-full.v3"  # v3: + cogs <- CostOfSales по payload-доказательствам KSPI/VALE (ТЗ-97 Q4)
+CONCEPT_MAP_VERSION_IFRS = "ifrs-full.v4"  # v4: + dps <- DividendsRecognisedAsDistributionsToOwnersPerShare (KSPI: 750–850 KZT за объявление, месячными периодами; строка «Дивиденд на акцию» была пуста, 22.10). v3: + cogs <- CostOfSales по payload-доказательствам KSPI/VALE (ТЗ-97 Q4)
 
 CONCEPT_MAP_IFRS: dict[str, tuple[str, ...]] = {
     "revenue": ("Revenue", "RevenueFromContractsWithCustomers"),
@@ -196,6 +196,10 @@ CONCEPT_MAP_IFRS: dict[str, tuple[str, ...]] = {
     "capex": ("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",),
     "interest_expense": ("FinanceCosts",),
     "shares_diluted": ("AdjustedWeightedAverageShares",),
+    # 22.10 (KSPI): дивиденд на акцию подаётся объявлениями — по факту
+    # месячного периода на каждое (2024: 850 KZT × 4); год — сумма
+    # объявлений тем же правилом ядра, что у BAC (core.ttm.declared_*)
+    "dps": ("DividendsRecognisedAsDistributionsToOwnersPerShare",),
 }
 
 _IFRS_TAG_TO_CONCEPT: dict[str, str] = {
