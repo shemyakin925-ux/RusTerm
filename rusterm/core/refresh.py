@@ -19,6 +19,7 @@ from typing import Callable, Optional
 from rusterm.markets import registry_prefix_owner
 from rusterm.parsers import CompanyFactsParser
 from rusterm.pipeline import apply_concept_map
+from rusterm.providers.base import ProviderError
 from rusterm.providers.budget import ConfigError
 from rusterm.providers.edgar import NotModified
 from rusterm.store.repos import link_superseded, persist_ingestion_results
@@ -191,7 +192,11 @@ def refresh_one(repos, provider_factory, instrument_id, as_of,
 
     latest = provider.latest_filing_date()
     calls = {"submissions": 1, "companyfacts": 0}
-    if isinstance(latest, ConfigError):
+    # ТЗ-143 F0a: ProviderError — транспортный/HTTP отказ фида, не
+    # ConfigError; раньше он проскакивал в сравнение дат ниже и падал
+    # TypeError-ом, роняя весь проход окна. Отказ одной бумаги —
+    # результат с причиной, проход продолжается следующей.
+    if isinstance(latest, (ConfigError, ProviderError)):
         return RefreshResult(
             instrument_id=instrument.instrument_id,
             issuer_id=instrument.issuer_id, action="error",
